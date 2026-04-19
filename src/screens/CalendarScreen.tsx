@@ -1,5 +1,7 @@
-import React, { useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ChevronLeft, ChevronRight } from 'lucide-react-native';
+import React, { useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { formatToday, weekStrip } from '../lib/date';
@@ -13,49 +15,122 @@ const toneColor = (t: EventTone) =>
 
 type Props = { onGoToSettings: () => void };
 
+function addDays(d: Date, days: number): Date {
+  const copy = new Date(d);
+  copy.setDate(copy.getDate() + days);
+  return copy;
+}
+
 export function CalendarScreen({ onGoToSettings }: Props) {
   const today = useMemo(() => new Date(), []);
-  const date = useMemo(() => formatToday(today), [today]);
-  const strip = useMemo(() => weekStrip(today), [today]);
+  const [selectedDate, setSelectedDate] = useState<Date>(today);
+  const [weekAnchor, setWeekAnchor] = useState<Date>(today);
 
-  const { data: slots, error: scheduleError } = useDaySchedule();
+  const date = useMemo(() => formatToday(selectedDate), [selectedDate]);
+  const strip = useMemo(
+    () => weekStrip(weekAnchor, { today, selected: selectedDate }),
+    [weekAnchor, today, selectedDate],
+  );
+  const isSelectedToday =
+    selectedDate.getFullYear() === today.getFullYear() &&
+    selectedDate.getMonth() === today.getMonth() &&
+    selectedDate.getDate() === today.getDate();
+
+  const { data: slots, error: scheduleError } = useDaySchedule(selectedDate);
   const hasEvents = slots.some((s) => s.event);
   const hasProvider = useHasProvider();
   const { bottom: chromeBottom } = useChromeInsets();
 
+  const shiftWeek = (dir: -1 | 1) => {
+    Haptics.selectionAsync();
+    setWeekAnchor((prev) => addDays(prev, dir * 7));
+  };
+
+  const selectDay = (d: Date) => {
+    Haptics.selectionAsync();
+    setSelectedDate(d);
+  };
+
+  const jumpToToday = () => {
+    Haptics.selectionAsync();
+    setSelectedDate(today);
+    setWeekAnchor(today);
+  };
+
   return (
-    <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom }]} showsVerticalScrollIndicator={false} contentInsetAdjustmentBehavior="never">
+    <ScrollView
+      contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom }]}
+      showsVerticalScrollIndicator={false}
+      contentInsetAdjustmentBehavior="never"
+    >
       <View style={styles.hero}>
         <View style={styles.heroTopRow}>
           <Text style={styles.eyebrow}>{date.weekHeadline}</Text>
+          {!isSelectedToday && (
+            <Pressable onPress={jumpToToday} hitSlop={8}>
+              <Text style={styles.todayLink}>I dag</Text>
+            </Pressable>
+          )}
         </View>
         <Text style={styles.heroH1}>{date.dayHeadline}</Text>
 
-        <View style={styles.dayStrip}>
-          {strip.map((d, i) => (
-            <View
-              key={i}
-              style={[styles.dayCell, d.isToday && styles.dayCellToday]}
-            >
-              <Text style={[styles.dayLetter, d.isToday && styles.dayLetterToday]}>{d.letter}</Text>
-              <Text style={[styles.dayNum, d.isToday && styles.dayNumToday]}>{d.num}</Text>
-            </View>
-          ))}
+        <View style={styles.stripRow}>
+          <Pressable onPress={() => shiftWeek(-1)} style={styles.weekArrow} hitSlop={8}>
+            <ChevronLeft size={18} color={colors.ink} strokeWidth={1.75} />
+          </Pressable>
+          <View style={styles.dayStrip}>
+            {strip.map((d, i) => (
+              <Pressable
+                key={i}
+                onPress={() => selectDay(d.date)}
+                style={({ pressed }) => [
+                  styles.dayCell,
+                  d.isSelected && styles.dayCellSelected,
+                  d.isToday && !d.isSelected && styles.dayCellToday,
+                  pressed && !d.isSelected && styles.dayCellPressed,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.dayLetter,
+                    d.isSelected && styles.dayLetterSelected,
+                    d.isToday && !d.isSelected && styles.dayLetterToday,
+                  ]}
+                >
+                  {d.letter}
+                </Text>
+                <Text
+                  style={[
+                    styles.dayNum,
+                    d.isSelected && styles.dayNumSelected,
+                    d.isToday && !d.isSelected && styles.dayNumToday,
+                  ]}
+                >
+                  {d.num}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Pressable onPress={() => shiftWeek(1)} style={styles.weekArrow} hitSlop={8}>
+            <ChevronRight size={18} color={colors.ink} strokeWidth={1.75} />
+          </Pressable>
         </View>
       </View>
 
       <View style={styles.list}>
-        <Text style={styles.sectionTitle}>I dag</Text>
+        <Text style={styles.sectionTitle}>{isSelectedToday ? 'I dag' : date.weekdayFull}</Text>
         <View style={styles.inkRule} />
         {!hasEvents ? (
           hasProvider ? (
             <EmptyState
               mood="calm"
-              title={scheduleError ? 'Kunne ikke hente kalender' : 'Ingen aftaler i dag'}
+              title={scheduleError ? 'Kunne ikke hente kalender' : 'Ingen aftaler'}
               body={
                 scheduleError
                   ? 'Din forbindelse er måske udløbet. Log ud og forbind igen.'
-                  : 'Du har en rolig dag foran dig.'
+                  : isSelectedToday
+                    ? 'Du har en rolig dag foran dig.'
+                    : 'Ingen begivenheder på denne dag.'
               }
               ctaLabel={scheduleError ? 'Gå til indstillinger' : undefined}
               onCta={scheduleError ? onGoToSettings : undefined}
@@ -63,7 +138,7 @@ export function CalendarScreen({ onGoToSettings }: Props) {
           ) : (
             <EmptyState
               mood="calm"
-              title="Ingen aftaler i dag"
+              title="Ingen aftaler"
               body="Forbind Google eller Outlook Kalender for at se din dagsplan."
               ctaLabel="Forbind kalender"
               onCta={onGoToSettings}
@@ -72,14 +147,7 @@ export function CalendarScreen({ onGoToSettings }: Props) {
         ) : (
           slots.map((row, i) => (
             <View key={i} style={[styles.row, i > 0 && styles.rowBorder]}>
-              <Text
-                style={[
-                  styles.hour,
-                  !row.event && styles.hourDim,
-                ]}
-              >
-                {row.hour}
-              </Text>
+              <Text style={[styles.hour, !row.event && styles.hourDim]}>{row.hour}</Text>
               <View style={{ flex: 1 }}>
                 {row.event ? (
                   <View style={[styles.event, { borderLeftColor: toneColor(row.event.tone) }]}>
@@ -114,10 +182,10 @@ const styles = StyleSheet.create({
     fontFamily: fonts.mono, fontSize: 11, letterSpacing: 0.88,
     textTransform: 'uppercase', color: colors.sageDeep,
   },
-  roundIcon: {
-    width: 34, height: 34, borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.6)',
-    alignItems: 'center', justifyContent: 'center',
+  todayLink: {
+    fontFamily: fonts.uiSemi,
+    fontSize: 12,
+    color: colors.sageDeep,
   },
   heroH1: {
     marginTop: 10,
@@ -128,23 +196,43 @@ const styles = StyleSheet.create({
     color: colors.ink,
   },
 
-  dayStrip: { marginTop: 16, flexDirection: 'row', gap: 6, justifyContent: 'space-between' },
+  stripRow: {
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  weekArrow: {
+    width: 28,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+  },
+  dayStrip: { flex: 1, flexDirection: 'row', gap: 4, justifyContent: 'space-between' },
   dayCell: {
     flex: 1,
     alignItems: 'center',
     paddingVertical: 8,
     borderRadius: 10,
   },
-  dayCellToday: { backgroundColor: colors.ink },
+  dayCellSelected: { backgroundColor: colors.ink },
+  dayCellToday: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.ink,
+  },
+  dayCellPressed: { opacity: 0.55 },
   dayLetter: {
     fontFamily: fonts.mono, fontSize: 10,
     letterSpacing: 0.5, color: colors.ink, opacity: 0.7,
   },
-  dayLetterToday: { color: colors.paper, opacity: 0.8 },
+  dayLetterSelected: { color: colors.paper, opacity: 0.8 },
+  dayLetterToday: { opacity: 1 },
   dayNum: {
     marginTop: 2, fontFamily: fonts.display, fontSize: 20, lineHeight: 24, color: colors.ink,
   },
-  dayNumToday: { color: colors.paper },
+  dayNumSelected: { color: colors.paper },
+  dayNumToday: { color: colors.ink },
 
   list: { paddingHorizontal: 20, paddingTop: 32 },
   sectionTitle: { fontFamily: fonts.display, fontSize: 22, letterSpacing: -0.44, color: colors.ink },

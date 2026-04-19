@@ -47,19 +47,40 @@ export function formatClock(date: Date): string {
   return `${h}.${m}`;
 }
 
-export function weekStrip(today: Date) {
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+export type WeekStripDay = {
+  letter: string;
+  num: number;
+  date: Date;
+  isToday: boolean;
+  isSelected: boolean;
+};
+
+function sameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+export function weekStrip(
+  weekAnchor: Date,
+  options?: { today?: Date; selected?: Date },
+): WeekStripDay[] {
+  const today = options?.today ?? new Date();
+  const selected = options?.selected ?? today;
+  const monday = new Date(weekAnchor);
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(weekAnchor.getDate() - ((weekAnchor.getDay() + 6) % 7));
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
     return {
       letter: WEEK_LETTERS[i],
       num: d.getDate(),
-      isToday:
-        d.getFullYear() === today.getFullYear() &&
-        d.getMonth() === today.getMonth() &&
-        d.getDate() === today.getDate(),
+      date: d,
+      isToday: sameDay(d, today),
+      isSelected: sameDay(d, selected),
     };
   });
 }
