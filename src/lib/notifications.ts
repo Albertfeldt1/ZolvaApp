@@ -127,8 +127,64 @@ function reminderIdentifier(id: string): string {
   return `reminder:${id}`;
 }
 
+function digestIdentifier(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `digest:${y}-${m}-${d}`;
+}
+
+// Next 8am in local time. If it's already past 8am today, returns tomorrow.
+function nextDigestDate(now: Date): Date {
+  const target = new Date(now);
+  target.setHours(8, 0, 0, 0);
+  if (target.getTime() <= now.getTime()) {
+    target.setDate(target.getDate() + 1);
+  }
+  return target;
+}
+
 export async function syncDailyDigest(): Promise<void> {
-  // filled in later
+  const settings = getNotificationSettings();
+  if (!settings.digest) return;
+
+  const permission = await getPermissionStatus();
+  if (permission !== 'granted') return;
+
+  const when = nextDigestDate(new Date());
+  const identifier = digestIdentifier(when);
+
+  // Idempotent: if this exact digest is already scheduled, skip.
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  if (scheduled.some((s) => s.identifier === identifier)) return;
+
+  // Clean up any stale digest:* from prior days so we don't accumulate.
+  for (const s of scheduled) {
+    if (s.identifier.startsWith('digest:')) {
+      try {
+        await Notifications.cancelScheduledNotificationAsync(s.identifier);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  try {
+    await Notifications.scheduleNotificationAsync({
+      identifier,
+      content: {
+        title: 'God morgen',
+        body: 'Dit overblik for i dag er klar.',
+        data: { type: 'digest', date: identifier.slice('digest:'.length) } satisfies NotificationPayload,
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: when,
+      },
+    });
+  } catch (err) {
+    if (__DEV__) console.warn('[notifications] schedule digest failed:', err);
+  }
 }
 
 export async function syncCalendarPreAlerts(_events: never[]): Promise<void> {
