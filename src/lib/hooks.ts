@@ -1,0 +1,1242 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAuth } from './auth';
+import {
+  complete,
+  completeJson,
+  completeRaw,
+  hasClaudeKey,
+  type ClaudeMessage,
+  type ClaudeToolSchema,
+} from './claude';
+import {
+  addNote as storeAddNote,
+  addReminder as storeAddReminder,
+  listNotes,
+  listReminders,
+  markReminderDone as storeMarkReminderDone,
+  removeNote as storeRemoveNote,
+  removeReminder as storeRemoveReminder,
+  subscribeNotes,
+  subscribeReminders,
+} from './memory-store';
+import {
+  eventEnd,
+  eventStart,
+  isAllDay as isGoogleAllDay,
+  listEvents as listGoogleEvents,
+} from './google-calendar';
+import {
+  archiveMessage as gmailArchiveMessage,
+  getMessageBody as gmailGetMessageBody,
+  initialsOf,
+  listInboxMessages as listGmailMessages,
+  sendReply as gmailSendReply,
+} from './gmail';
+import {
+  archiveMessage as graphArchiveMessage,
+  getMessageBody as graphGetMessageBody,
+  listCalendarEvents as listGraphEvents,
+  listInboxMessages as listGraphMessages,
+  replyToMessage as graphReplyToMessage,
+} from './microsoft-graph';
+import type {
+  CalendarSlot,
+  ChatMessage,
+  Connection,
+  DoneMail,
+  InboxMail,
+  MailDetail,
+  MailProvider,
+  Note,
+  Observation,
+  PrivacyToggle,
+  Reminder,
+  ReplyContext,
+  Result,
+  Subscription,
+  UpcomingEvent,
+  UserProfile,
+  WorkPreference,
+  WorkPreferenceId,
+} from './types';
+
+// All hooks return placeholder/empty state. When the backend is wired,
+// swap the internals for real data sources (Supabase auth, API fetches,
+// realtime subscriptions) without touching the screens.
+
+const empty = <T>(data: T): Result<T> => ({ data, loading: false, error: null });
+
+export function useUser(): Result<UserProfile | null> {
+  const { user, initializing } = useAuth();
+  if (initializing) return { data: null, loading: true, error: null };
+  if (!user) return empty(null);
+  const meta = (user.user_metadata ?? {}) as { name?: string; full_name?: string };
+  const name = meta.name ?? meta.full_name ?? user.email?.split('@')[0] ?? '';
+  return empty({ name, email: user.email ?? '' });
+}
+
+export function useSubscription(): Result<Subscription | null> {
+  return empty(null);
+}
+
+type ObservationCacheEntry = { expiresAt: number; data: Observation[] };
+const OBSERVATION_TTL_MS = 15 * 60 * 1000;
+const observationCache = new Map<string, ObservationCacheEntry>();
+
+const OBSERVATION_SYSTEM =
+  'Du er Zolva, en rolig dansk AI-assistent. Du kigger på brugerens dag og ' +
+  'peger blidt på mønstre der er værd at overveje. Svar altid på dansk. ' +
+  'Returnér mellem 0 og 3 observationer — kun dem der faktisk er relevante. ' +
+  'Hver observation skal være maks én sætning og undgå at gentage selvfølgeligheder.';
+
+const OBSERVATION_SCHEMA =
+  '[{"id": string, "text": string, "cta": string, "mood": "calm" | "thinking" | "happy"}]\n' +
+  '- text: selve observationen på dansk (maks én sætning).\n' +
+  '- cta: kort handlingsforslag på dansk (maks 4 ord), fx "Omrokér møde" eller "Svar senere".\n' +
+  '- mood: "thinking" for noget der kræver beslutning, "calm" for rolig observation, "happy" for positivt.';
+
+function summarizeDay(events: NormalizedEvent[], mails: NormalizedMail[]): string {
+  const calendar = events.length
+    ? events
+        .map((e) => {
+          const when = e.allDay ? 'hele dagen' : `${clockOf(e.start)}–${clockOf(e.end)}`;
+          const where = e.location ? ` @ ${e.location}` : '';
+          return `- ${when} ${e.title}${where}`;
+        })
+        .join('\n')
+    : '(ingen begivenheder)';
+
+  const unread = mails.filter((m) => !m.isRead).slice(0, 12);
+  const inbox = unread.length
+    ? unread.map((m) => `- ${m.from}: ${m.subject}`).join('\n')
+    : '(ingen ulæste)';
+
+  return `Dagens kalender:\n${calendar}\n\nUlæste mails:\n${inbox}`;
+}
+
+function sanitizeObservations(raw: unknown): Observation[] {
+  if (!Array.isArray(raw)) return [];
+  const moods: Observation['mood'][] = ['calm', 'thinking', 'happy'];
+  return raw.slice(0, 3).flatMap((item, i): Observation[] => {
+    if (!item || typeof item !== 'object') return [];
+    const o = item as Partial<Observation>;
+    const text = typeof o.text === 'string' ? o.text.trim() : '';
+    if (!text) return [];
+    const cta = typeof o.cta === 'string' ? o.cta.trim() : '';
+    const mood = moods.includes(o.mood as Observation['mood'])
+      ? (o.mood as Observation['mood'])
+      : 'calm';
+    const id = typeof o.id === 'string' && o.id ? o.id : `obs-${i + 1}`;
+    return [{ id, text, cta, mood }];
+  });
+}
+
+export function useObservations(): Result<Observation[]> {
+  const { items: calendarItems, loading: calendarLoading, error: calendarError } =
+    useCalendarItems();
+  const { items: mailItems, loading: mailLoading, error: mailError } = useMailItems();
+  const { data: workRows } = useWorkPreferences();
+  const morningBrief = prefValue(workRows, 'morning-brief');
+  const quietHours = prefValue(workRows, 'quiet-hours');
+  const [state, setState] = useState<Result<Observation[]>>({
+    data: [],
+    loading: false,
+    error: null,
+  });
+
+  useEffect(() => {
+    if (calendarLoading || mailLoading) {
+      setState({ data: [], loading: true, error: null });
+      return;
+    }
+    if (calendarError || mailError) {
+      setState({ data: [], loading: false, error: calendarError ?? mailError });
+      return;
+    }
+    if (calendarItems.length === 0 && mailItems.length === 0) {
+      setState({ data: [], loading: false, error: null });
+      return;
+    }
+    if (!hasClaudeKey()) {
+      setState({ data: [], loading: false, error: null });
+      return;
+    }
+    const now = new Date();
+    if (isInQuietHours(quietHours, now) || !isMorningBriefReady(morningBrief, now)) {
+      setState({ data: [], loading: false, error: null });
+      return;
+    }
+
+    const summary = summarizeDay(calendarItems, mailItems);
+    const cacheKey = summary;
+    const cached = observationCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      setState({ data: cached.data, loading: false, error: null });
+      return;
+    }
+
+    const controller = new AbortController();
+    setState((prev) => ({ data: prev.data, loading: true, error: null }));
+
+    completeJson<unknown>({
+      signal: controller.signal,
+      system: OBSERVATION_SYSTEM,
+      schemaHint: OBSERVATION_SCHEMA,
+      messages: [{ role: 'user', content: summary }],
+      maxTokens: 512,
+      temperature: 0.4,
+    })
+      .then((raw) => {
+        if (controller.signal.aborted) return;
+        const sanitized = sanitizeObservations(raw);
+        observationCache.set(cacheKey, {
+          data: sanitized,
+          expiresAt: Date.now() + OBSERVATION_TTL_MS,
+        });
+        setState({ data: sanitized, loading: false, error: null });
+      })
+      .catch((err: Error) => {
+        if (controller.signal.aborted || err.name === 'AbortError') return;
+        if (__DEV__) console.warn('[hooks] observations fetch failed:', err.message);
+        setState({ data: [], loading: false, error: err });
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [
+    calendarItems,
+    mailItems,
+    calendarLoading,
+    mailLoading,
+    calendarError,
+    mailError,
+    morningBrief,
+    quietHours,
+  ]);
+
+  return state;
+}
+
+const TONES: UpcomingEvent['tone'][] = ['sage', 'clay', 'mist'];
+
+function pad(n: number): string {
+  return n.toString().padStart(2, '0');
+}
+
+function clockOf(d: Date): string {
+  return `${pad(d.getHours())}.${pad(d.getMinutes())}`;
+}
+
+function durationLabel(start: Date, end: Date): string {
+  const mins = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0 ? `${h} t` : `${h} t ${m} m`;
+}
+
+function relativeMeta(start: Date, end: Date, now: Date): string {
+  const diffMin = Math.round((start.getTime() - now.getTime()) / 60000);
+  if (diffMin > 0 && diffMin < 60) return `om ${diffMin} min`;
+  if (diffMin > 0 && diffMin < 720) return `om ${Math.round(diffMin / 60)} t`;
+  if (diffMin <= 0 && end.getTime() > now.getTime()) return 'i gang';
+  return durationLabel(start, end);
+}
+
+function dayBounds(now: Date): { start: Date; end: Date } {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { start, end };
+}
+
+type NormalizedEvent = {
+  id: string;
+  title: string;
+  location?: string;
+  start: Date;
+  end: Date;
+  allDay: boolean;
+};
+
+type NormalizedMail = {
+  id: string;
+  provider: MailProvider;
+  from: string;
+  subject: string;
+  receivedAt: Date;
+  isRead: boolean;
+};
+
+const dismissedMailIds = new Set<string>();
+const dismissListeners = new Set<() => void>();
+
+function markMailDismissed(id: string): void {
+  if (dismissedMailIds.has(id)) return;
+  dismissedMailIds.add(id);
+  dismissListeners.forEach((l) => l());
+}
+
+function useDismissedMailIds(): Set<string> {
+  const [, setVersion] = useState(0);
+  useEffect(() => {
+    const listener = () => setVersion((v) => v + 1);
+    dismissListeners.add(listener);
+    return () => {
+      dismissListeners.delete(listener);
+    };
+  }, []);
+  return dismissedMailIds;
+}
+
+function useCalendarItems(): {
+  items: NormalizedEvent[];
+  loading: boolean;
+  error: Error | null;
+} {
+  const { googleAccessToken, microsoftAccessToken, user } = useAuth();
+  const [state, setState] = useState<{
+    items: NormalizedEvent[];
+    loading: boolean;
+    error: Error | null;
+  }>({ items: [], loading: false, error: null });
+
+  useEffect(() => {
+    if (!user || (!googleAccessToken && !microsoftAccessToken)) {
+      setState({ items: [], loading: false, error: null });
+      return;
+    }
+    let cancelled = false;
+    setState((s) => ({ ...s, loading: true, error: null }));
+    const { start, end } = dayBounds(new Date());
+
+    const tasks: Promise<NormalizedEvent[]>[] = [];
+    if (googleAccessToken) {
+      tasks.push(
+        listGoogleEvents(start, end).then((evts) =>
+          evts
+            .map((e): NormalizedEvent | null => {
+              const s = eventStart(e);
+              const ev = eventEnd(e);
+              if (!s || !ev) return null;
+              return {
+                id: e.id,
+                title: e.summary ?? 'Uden titel',
+                location: e.location,
+                start: s,
+                end: ev,
+                allDay: isGoogleAllDay(e),
+              };
+            })
+            .filter((e): e is NormalizedEvent => e !== null),
+        ),
+      );
+    }
+    if (microsoftAccessToken) {
+      tasks.push(
+        listGraphEvents(start, end).then((evts) =>
+          evts.map((e) => ({
+            id: e.id,
+            title: e.subject,
+            location: e.location,
+            start: e.start,
+            end: e.end,
+            allDay: e.isAllDay,
+          })),
+        ),
+      );
+    }
+
+    Promise.all(tasks)
+      .then((results) => {
+        if (cancelled) return;
+        const merged = results
+          .flat()
+          .sort((a, b) => a.start.getTime() - b.start.getTime());
+        setState({ items: merged, loading: false, error: null });
+      })
+      .catch((err: Error) => {
+        if (cancelled) return;
+        if (__DEV__) console.warn('[hooks] calendar fetch failed:', err.message);
+        setState({ items: [], loading: false, error: err });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [googleAccessToken, microsoftAccessToken, user]);
+
+  return state;
+}
+
+function useMailItems(): {
+  items: NormalizedMail[];
+  loading: boolean;
+  error: Error | null;
+} {
+  const { googleAccessToken, microsoftAccessToken, user } = useAuth();
+  const [state, setState] = useState<{
+    items: NormalizedMail[];
+    loading: boolean;
+    error: Error | null;
+  }>({ items: [], loading: false, error: null });
+
+  useEffect(() => {
+    if (!user || (!googleAccessToken && !microsoftAccessToken)) {
+      setState({ items: [], loading: false, error: null });
+      return;
+    }
+    let cancelled = false;
+    setState((s) => ({ ...s, loading: true, error: null }));
+
+    const tasks: Promise<NormalizedMail[]>[] = [];
+    if (googleAccessToken) {
+      tasks.push(
+        listGmailMessages(12).then((msgs) =>
+          msgs.map((m) => ({
+            id: m.id,
+            provider: 'google' as const,
+            from: m.from,
+            subject: m.subject,
+            receivedAt: m.date,
+            isRead: !m.unread,
+          })),
+        ),
+      );
+    }
+    if (microsoftAccessToken) {
+      tasks.push(
+        listGraphMessages(12).then((msgs) =>
+          msgs.map((m) => ({
+            id: m.id,
+            provider: 'microsoft' as const,
+            from: m.from,
+            subject: m.subject,
+            receivedAt: m.receivedAt,
+            isRead: m.isRead,
+          })),
+        ),
+      );
+    }
+
+    Promise.all(tasks)
+      .then((results) => {
+        if (cancelled) return;
+        const merged = results
+          .flat()
+          .sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime());
+        setState({ items: merged, loading: false, error: null });
+      })
+      .catch((err: Error) => {
+        if (cancelled) return;
+        if (__DEV__) console.warn('[hooks] mail fetch failed:', err.message);
+        setState({ items: [], loading: false, error: err });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [googleAccessToken, microsoftAccessToken, user]);
+
+  return state;
+}
+
+export function useHasProvider(): boolean {
+  const { googleAccessToken, microsoftAccessToken } = useAuth();
+  return !!(googleAccessToken || microsoftAccessToken);
+}
+
+function shortTime(then: Date, now: Date): string {
+  const sameDay =
+    then.getFullYear() === now.getFullYear() &&
+    then.getMonth() === now.getMonth() &&
+    then.getDate() === now.getDate();
+  if (sameDay) return clockOf(then);
+  const diffDays = Math.floor((now.getTime() - then.getTime()) / 86400000);
+  if (diffDays < 7) return `${diffDays}d`;
+  return `${pad(then.getDate())}/${pad(then.getMonth() + 1)}`;
+}
+
+export function useUpcoming(): Result<UpcomingEvent[]> {
+  const { items, loading, error } = useCalendarItems();
+  const now = new Date();
+  const data: UpcomingEvent[] = items
+    .filter((e) => e.end.getTime() >= now.getTime())
+    .map((e, i) => ({
+      id: e.id,
+      time: e.allDay ? 'hele dagen' : clockOf(e.start),
+      meta: relativeMeta(e.start, e.end, now),
+      title: e.title,
+      sub: e.location ?? durationLabel(e.start, e.end),
+      tone: TONES[i % TONES.length],
+      start: e.start,
+      end: e.end,
+      allDay: e.allDay ?? false,
+    }));
+  return { data, loading, error };
+}
+
+const draftCache = new Map<string, string>();
+
+const NO_REPLY_PATTERN =
+  /noreply|no-reply|no_reply|donotreply|do-not-reply|mailer-daemon|newsletter|marketing|notifications?@|updates?@|info@|support@/i;
+
+function needsReply(from: string): boolean {
+  return !NO_REPLY_PATTERN.test(from);
+}
+
+const TONE_INSTRUCTIONS: Record<string, string> = {
+  Kort: 'Skriv meget kort (én sætning). Neutral og direkte — ingen fyldord.',
+  Venlig: 'Skriv kort (1-2 sætninger), venligt og imødekommende.',
+  Formel: 'Skriv kort (1-2 sætninger), formelt og professionelt. Undgå slang.',
+};
+
+function draftSystemPrompt(tone: string): string {
+  const toneLine = TONE_INSTRUCTIONS[tone] ?? TONE_INSTRUCTIONS.Venlig;
+  return (
+    `Du skriver et svar på en mail på vegne af brugeren. ${toneLine} Skriv altid på dansk. ` +
+    'Lov aldrig konkrete datoer, tidspunkter, priser eller oplysninger du ikke kender. ' +
+    'Undgå hilsen og underskrift — skriv kun selve svaret. Returnér kun udkastet, uden anførselstegn eller kommentarer.'
+  );
+}
+
+const AUTONOMY_TARGETS: Record<string, number> = {
+  'Spørg altid': 0,
+  'Lav udkast': 3,
+  'Handl selv': 6,
+};
+
+async function generateDraft(
+  mail: NormalizedMail,
+  tone: string,
+  signal: AbortSignal,
+): Promise<string> {
+  return complete({
+    system: draftSystemPrompt(tone),
+    messages: [
+      {
+        role: 'user',
+        content: `Fra: ${mail.from}\nEmne: ${mail.subject}\n\nSkriv et kort svar på dansk.`,
+      },
+    ],
+    maxTokens: 160,
+    temperature: 0.6,
+    signal,
+  });
+}
+
+export function useInboxWaiting(): Result<InboxMail[]> {
+  const { items, loading, error } = useMailItems();
+  const dismissed = useDismissedMailIds();
+  const { data: workRows } = useWorkPreferences();
+  const autonomy = prefValue(workRows, 'autonomy');
+  const tone = prefValue(workRows, 'tone');
+  const quietHours = prefValue(workRows, 'quiet-hours');
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!hasClaudeKey() || items.length === 0) return;
+    if (isInQuietHours(quietHours, new Date())) return;
+
+    const maxDrafts = AUTONOMY_TARGETS[autonomy] ?? AUTONOMY_TARGETS['Lav udkast'];
+    if (maxDrafts === 0) return;
+
+    const targets = items
+      .filter((m) => !m.isRead && !dismissed.has(m.id) && needsReply(m.from))
+      .slice(0, maxDrafts);
+    if (targets.length === 0) return;
+
+    const controller = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = controller;
+
+    const draftKey = (id: string) => `${id}::${tone || 'default'}`;
+
+    const cached: Record<string, string> = {};
+    const pending: NormalizedMail[] = [];
+    for (const m of targets) {
+      const hit = draftCache.get(draftKey(m.id));
+      if (hit) cached[m.id] = hit;
+      else pending.push(m);
+    }
+    if (Object.keys(cached).length > 0) {
+      setDrafts((prev) => ({ ...prev, ...cached }));
+    }
+    if (pending.length === 0) return () => controller.abort();
+
+    Promise.all(
+      pending.map((m) =>
+        generateDraft(m, tone, controller.signal)
+          .then((text) => {
+            if (!text) return null;
+            draftCache.set(draftKey(m.id), text);
+            return [m.id, text] as const;
+          })
+          .catch((err: Error) => {
+            if (err.name !== 'AbortError' && __DEV__) {
+              console.warn('[hooks] draft generation failed:', err.message);
+            }
+            return null;
+          }),
+      ),
+    ).then((results) => {
+      if (controller.signal.aborted) return;
+      const next: Record<string, string> = {};
+      for (const r of results) if (r) next[r[0]] = r[1];
+      if (Object.keys(next).length > 0) {
+        setDrafts((prev) => ({ ...prev, ...next }));
+      }
+    });
+
+    return () => controller.abort();
+  }, [items, autonomy, tone, quietHours]);
+
+  const now = new Date();
+  const tones: InboxMail['tone'][] = ['sage', 'clay', 'mist'];
+  const data: InboxMail[] = items
+    .filter((m) => !m.isRead && !dismissed.has(m.id))
+    .slice(0, 12)
+    .map((m, i) => ({
+      id: m.id,
+      provider: m.provider,
+      from: m.from,
+      subject: m.subject,
+      time: shortTime(m.receivedAt, now),
+      tone: tones[i % tones.length],
+      initials: initialsOf(m.from),
+      aiDraft: drafts[m.id] ?? null,
+    }));
+  return { data, loading, error };
+}
+
+export function useInboxCleared(): Result<{ items: DoneMail[]; count: number }> {
+  const { items, loading, error } = useMailItems();
+  const dismissed = useDismissedMailIds();
+  const cleared = items.filter((m) => m.isRead || dismissed.has(m.id));
+  const data = {
+    items: cleared.slice(0, 6).map((m) => ({
+      id: m.id,
+      from: m.from,
+      note: m.subject,
+    })),
+    count: cleared.length,
+  };
+  return { data, loading, error };
+}
+
+export function useMailDetail(
+  id: string | null,
+  provider: MailProvider | null,
+): Result<MailDetail | null> {
+  const [state, setState] = useState<Result<MailDetail | null>>({
+    data: null,
+    loading: false,
+    error: null,
+  });
+
+  useEffect(() => {
+    if (!id || !provider) {
+      setState({ data: null, loading: false, error: null });
+      return;
+    }
+    let cancelled = false;
+    setState({ data: null, loading: true, error: null });
+
+    const task =
+      provider === 'google'
+        ? gmailGetMessageBody(id).then((b): MailDetail => ({
+            id: b.id,
+            provider: 'google',
+            from: b.from,
+            subject: b.subject,
+            body: b.text,
+            replyContext: {
+              provider: 'google',
+              threadId: b.threadId,
+              messageIdHeader: b.messageIdHeader,
+              references: b.references,
+              replyTo: b.fromEmail,
+              subject: b.subject,
+            },
+          }))
+        : graphGetMessageBody(id).then((b): MailDetail => ({
+            id: b.id,
+            provider: 'microsoft',
+            from: b.from,
+            subject: b.subject,
+            body: b.text,
+            replyContext: { provider: 'microsoft', messageId: b.id },
+          }));
+
+    task
+      .then((detail) => {
+        if (cancelled) return;
+        setState({ data: detail, loading: false, error: null });
+      })
+      .catch((err: Error) => {
+        if (cancelled) return;
+        if (__DEV__) console.warn('[hooks] mail detail failed:', err.message);
+        setState({ data: null, loading: false, error: err });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id, provider]);
+
+  return state;
+}
+
+export function useSendReply() {
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const send = useCallback(
+    async (mailId: string, body: string, ctx: ReplyContext): Promise<boolean> => {
+      setSending(true);
+      setError(null);
+      try {
+        if (ctx.provider === 'google') {
+          await gmailSendReply({
+            threadId: ctx.threadId,
+            to: ctx.replyTo,
+            subject: ctx.subject,
+            inReplyTo: ctx.messageIdHeader,
+            references: ctx.references,
+            body,
+          });
+        } else {
+          await graphReplyToMessage(ctx.messageId, body);
+        }
+      } catch (err) {
+        const e = err instanceof Error ? err : new Error(String(err));
+        if (__DEV__) console.warn('[hooks] send reply failed:', e.message);
+        setError(e);
+        setSending(false);
+        return false;
+      }
+
+      // Send succeeded. Archive is best-effort — a failure here still counts
+      // as success because the reply went out.
+      try {
+        if (ctx.provider === 'google') {
+          await gmailArchiveMessage(mailId);
+        } else {
+          await graphArchiveMessage(mailId);
+        }
+      } catch (err) {
+        if (__DEV__) console.warn('[hooks] archive after send failed:', err);
+      }
+
+      markMailDismissed(mailId);
+      setSending(false);
+      return true;
+    },
+    [],
+  );
+
+  const archive = useCallback(
+    async (mailId: string, provider: MailProvider): Promise<boolean> => {
+      setSending(true);
+      setError(null);
+      try {
+        if (provider === 'google') {
+          await gmailArchiveMessage(mailId);
+        } else {
+          await graphArchiveMessage(mailId);
+        }
+        markMailDismissed(mailId);
+        setSending(false);
+        return true;
+      } catch (err) {
+        const e = err instanceof Error ? err : new Error(String(err));
+        if (__DEV__) console.warn('[hooks] archive failed:', e.message);
+        setError(e);
+        setSending(false);
+        return false;
+      }
+    },
+    [],
+  );
+
+  return { send, archive, sending, error };
+}
+
+const SLOT_START_HOUR = 9;
+const SLOT_COUNT = 8;
+
+const buildScaffold = (): CalendarSlot[] =>
+  Array.from({ length: SLOT_COUNT }, (_, i) => ({
+    hour: String(SLOT_START_HOUR + i).padStart(2, '0'),
+    event: null,
+  }));
+
+export function useDaySchedule(): Result<CalendarSlot[]> {
+  const { items, loading, error } = useCalendarItems();
+  const slots = buildScaffold();
+  const slotTones: ('sage' | 'clay' | 'mist')[] = ['sage', 'clay', 'mist'];
+
+  items.forEach((e, i) => {
+    if (e.allDay) return;
+    const idx = e.start.getHours() - SLOT_START_HOUR;
+    if (idx < 0 || idx >= SLOT_COUNT) return;
+    slots[idx] = {
+      hour: slots[idx].hour,
+      event: {
+        id: e.id,
+        title: e.title,
+        sub: e.location
+          ? `${e.location} · ${durationLabel(e.start, e.end)}`
+          : durationLabel(e.start, e.end),
+        tone: slotTones[i % slotTones.length],
+      },
+    };
+  });
+
+  return { data: slots, loading, error };
+}
+
+const DEFAULT_CONNECTIONS: Connection[] = [
+  { id: 'google-calendar', title: 'Google Kalender', sub: 'Læser & opretter begivenheder', status: 'disconnected', logo: 'google-calendar.png' },
+  { id: 'gmail', title: 'Gmail', sub: 'Søger, læser og sender', status: 'disconnected', logo: 'gmail.png' },
+  { id: 'google-drive', title: 'Google Drive', sub: 'Søger og læser tekstfiler', status: 'disconnected', logo: 'google-drive.png' },
+  { id: 'outlook-calendar', title: 'Outlook Kalender', sub: 'Microsoft 365', status: 'disconnected', logo: 'outlook-calendar.png' },
+  { id: 'outlook-mail', title: 'Outlook Mail', sub: 'Microsoft 365', status: 'disconnected', logo: 'outlook-mail.png' },
+];
+
+const GOOGLE_INTEGRATIONS = new Set<Connection['id']>(['google-calendar', 'gmail', 'google-drive']);
+const MICROSOFT_INTEGRATIONS = new Set<Connection['id']>(['outlook-calendar', 'outlook-mail']);
+
+export function useConnections() {
+  const { googleAccessToken, microsoftAccessToken, signInWithGoogle, signInWithMicrosoft } = useAuth();
+  const data: Connection[] = DEFAULT_CONNECTIONS.map((c) => {
+    if (GOOGLE_INTEGRATIONS.has(c.id) && googleAccessToken) {
+      return { ...c, status: 'connected' as const };
+    }
+    if (MICROSOFT_INTEGRATIONS.has(c.id) && microsoftAccessToken) {
+      return { ...c, status: 'connected' as const };
+    }
+    return c;
+  });
+
+  const connect = async (id: Connection['id']) => {
+    if (GOOGLE_INTEGRATIONS.has(id)) return signInWithGoogle();
+    if (MICROSOFT_INTEGRATIONS.has(id)) return signInWithMicrosoft();
+    return { data: null, error: new Error('Ukendt integration.') };
+  };
+
+  return { data, loading: false, error: null as Error | null, connect };
+}
+
+function prefValue(rows: WorkPreference[], id: WorkPreferenceId): string {
+  return rows.find((r) => r.id === id)?.value ?? '';
+}
+
+function isInQuietHours(value: string, now: Date): boolean {
+  if (!value || value === 'Fra') return false;
+  const m = value.match(/^(\d{1,2})[–-](\d{1,2})$/);
+  if (!m) return false;
+  const from = parseInt(m[1], 10);
+  const to = parseInt(m[2], 10);
+  const h = now.getHours();
+  return from > to ? h >= from || h < to : h >= from && h < to;
+}
+
+function isMorningBriefReady(value: string, now: Date): boolean {
+  if (!value || value === 'Fra') return false;
+  const m = value.match(/^(\d{1,2})\.(\d{2})$/);
+  if (!m) return true;
+  const hour = parseInt(m[1], 10);
+  const minute = parseInt(m[2], 10);
+  return now.getHours() > hour || (now.getHours() === hour && now.getMinutes() >= minute);
+}
+
+const DEFAULT_WORK_PREFERENCES: WorkPreference[] = [
+  {
+    id: 'autonomy',
+    title: 'Autonomi',
+    meta: 'Hvor meget Zolva må gøre på egen hånd',
+    value: 'Lav udkast',
+    options: ['Spørg altid', 'Lav udkast', 'Handl selv'],
+  },
+  {
+    id: 'tone',
+    title: 'Tone i mails',
+    meta: 'Stil og sprog',
+    value: 'Venlig',
+    options: ['Kort', 'Venlig', 'Formel'],
+  },
+  {
+    id: 'morning-brief',
+    title: 'Morgenoverblik',
+    meta: 'Daglig opsummering',
+    value: '08.00',
+    options: ['Fra', '07.00', '08.00', '09.00'],
+  },
+  {
+    id: 'quiet-hours',
+    title: 'Stille timer',
+    meta: 'Ingen notifikationer',
+    value: '22–07',
+    options: ['Fra', '22–07', '21–08', '23–06'],
+  },
+];
+
+const WORK_PREFS_KEY = 'zolva.prefs.work';
+
+export function useWorkPreferences() {
+  const [rows, setRows] = useState<WorkPreference[]>(DEFAULT_WORK_PREFERENCES);
+
+  useEffect(() => {
+    AsyncStorage.getItem(WORK_PREFS_KEY).then((raw) => {
+      if (!raw) return;
+      try {
+        const saved = JSON.parse(raw) as Record<WorkPreferenceId, string>;
+        setRows((prev) =>
+          prev.map((r) =>
+            saved[r.id] && r.options.includes(saved[r.id]) ? { ...r, value: saved[r.id] } : r,
+          ),
+        );
+      } catch {}
+    });
+  }, []);
+
+  const setValue = useCallback((id: WorkPreferenceId, value: string) => {
+    setRows((prev) => {
+      const next = prev.map((r) => (r.id === id ? { ...r, value } : r));
+      const snapshot = Object.fromEntries(next.map((r) => [r.id, r.value]));
+      AsyncStorage.setItem(WORK_PREFS_KEY, JSON.stringify(snapshot)).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  return { data: rows, loading: false, error: null as Error | null, setValue };
+}
+
+export type PrivacyFlagId = 'training-opt-in' | 'local-only' | 'anon-reports';
+
+const PRIVACY_DEFAULTS: Record<PrivacyFlagId, boolean> = {
+  'training-opt-in': false,
+  'local-only': true,
+  'anon-reports': true,
+};
+
+const DEFAULT_PRIVACY_TOGGLES: PrivacyToggle[] = [
+  { id: 'training-opt-in', label: 'Brug mine data til at forbedre Zolva', enabled: PRIVACY_DEFAULTS['training-opt-in'] },
+  { id: 'local-only', label: 'Gem samtaler lokalt', enabled: PRIVACY_DEFAULTS['local-only'] },
+  { id: 'anon-reports', label: 'Del fejlrapporter anonymt', enabled: PRIVACY_DEFAULTS['anon-reports'] },
+];
+
+const PRIVACY_TOGGLES_KEY = 'zolva.prefs.privacy';
+
+// Module-level cache so non-hook code (useChat side effects, API calls)
+// can read flags synchronously. Hydrated once from AsyncStorage on first
+// usePrivacyToggles mount and kept in sync on every flip.
+let privacyCache: Partial<Record<PrivacyFlagId, boolean>> = {};
+let privacyHydrated = false;
+
+export function getPrivacyFlag(id: PrivacyFlagId): boolean {
+  const cached = privacyCache[id];
+  return cached === undefined ? PRIVACY_DEFAULTS[id] : cached;
+}
+
+async function hydratePrivacyCache(): Promise<void> {
+  if (privacyHydrated) return;
+  try {
+    const raw = await AsyncStorage.getItem(PRIVACY_TOGGLES_KEY);
+    if (raw) privacyCache = JSON.parse(raw) as Partial<Record<PrivacyFlagId, boolean>>;
+  } catch {}
+  privacyHydrated = true;
+}
+
+export function usePrivacyToggles() {
+  const [toggles, setToggles] = useState<PrivacyToggle[]>(DEFAULT_PRIVACY_TOGGLES);
+
+  useEffect(() => {
+    hydratePrivacyCache().then(() => {
+      setToggles((prev) =>
+        prev.map((t) => {
+          const saved = privacyCache[t.id as PrivacyFlagId];
+          return saved === undefined ? t : { ...t, enabled: saved };
+        }),
+      );
+    });
+  }, []);
+
+  const flip = useCallback((id: string) => {
+    setToggles((prev) => {
+      const next = prev.map((t) => (t.id === id ? { ...t, enabled: !t.enabled } : t));
+      const snapshot = Object.fromEntries(next.map((t) => [t.id, t.enabled])) as Partial<
+        Record<PrivacyFlagId, boolean>
+      >;
+      privacyCache = snapshot;
+      privacyHydrated = true;
+      AsyncStorage.setItem(PRIVACY_TOGGLES_KEY, JSON.stringify(snapshot)).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  return { data: toggles, loading: false, error: null as Error | null, flip };
+}
+
+export function useReminders() {
+  const [reminders, setReminders] = useState<Reminder[]>(() => listReminders());
+  useEffect(() => subscribeReminders(setReminders), []);
+  const markDone = useCallback((id: string) => {
+    void storeMarkReminderDone(id);
+  }, []);
+  const remove = useCallback((id: string) => {
+    void storeRemoveReminder(id);
+  }, []);
+  const add = useCallback((text: string, dueAt?: Date) => storeAddReminder(text, dueAt), []);
+  return {
+    data: reminders,
+    loading: false,
+    error: null as Error | null,
+    markDone,
+    remove,
+    add,
+  };
+}
+
+export function useNotes() {
+  const [notes, setNotes] = useState<Note[]>(() => listNotes());
+  useEffect(() => subscribeNotes(setNotes), []);
+  const remove = useCallback((id: string) => {
+    void storeRemoveNote(id);
+  }, []);
+  const add = useCallback((text: string) => storeAddNote(text), []);
+  return {
+    data: notes,
+    loading: false,
+    error: null as Error | null,
+    remove,
+    add,
+  };
+}
+
+const CHAT_HISTORY_KEY = 'zolva.chat.history';
+const CHAT_HISTORY_LIMIT = 50;
+const CHAT_ERROR_TEXT = 'Jeg kunne ikke nå frem — prøv igen.';
+
+function buildChatSystemPrompt(name: string): string {
+  const intro = name ? `Brugerens navn er ${name}.` : '';
+  return [
+    'Du er Zolva, en venlig og omsorgsfuld dansk personlig assistent.',
+    'Du svarer altid på dansk i en varm, jordnær og let uformel tone.',
+    intro,
+    'Hold svar korte, konkrete og handlingsorienterede, medmindre der bliver spurgt om detaljer.',
+    'Når brugeren beder dig huske noget tidsbundet (et møde, en opgave med deadline), brug add_reminder.',
+    'Når brugeren beder dig notere en idé, en tanke eller noget uden tid, brug add_note.',
+    'Brug list_reminders og list_notes hvis brugeren spørger hvad du har gemt.',
+    'Kald værktøjer FØR du bekræfter — bekræft først når værktøjet faktisk er kørt.',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function toClaudeMessages(messages: ChatMessage[]): ClaudeMessage[] {
+  return messages.map((m) => ({
+    role: m.from === 'user' ? 'user' : 'assistant',
+    content: m.text,
+  }));
+}
+
+const CHAT_TOOLS: ClaudeToolSchema[] = [
+  {
+    name: 'add_reminder',
+    description:
+      'Gem en påmindelse for brugeren. Brug når brugeren beder dig huske noget tidsbundet.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'Hvad der skal huskes, på dansk.' },
+        due_at: {
+          type: 'string',
+          description:
+            'ISO 8601 dato/tid for påmindelsen. Udelad hvis brugeren ikke har angivet et tidspunkt.',
+        },
+      },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'add_note',
+    description: 'Gem en note uden tidspunkt. Brug når brugeren vil notere en idé eller tanke.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'Notens indhold, på dansk.' },
+      },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'list_reminders',
+    description: 'Hent brugerens aktuelle påmindelser.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'list_notes',
+    description: 'Hent brugerens aktuelle noter.',
+    input_schema: { type: 'object', properties: {} },
+  },
+];
+
+async function runChatTool(
+  name: string,
+  input: Record<string, unknown>,
+): Promise<{ content: string; isError: boolean }> {
+  try {
+    if (name === 'add_reminder') {
+      const text = typeof input.text === 'string' ? input.text : '';
+      if (!text.trim()) return { content: 'Manglede tekst.', isError: true };
+      const dueRaw = typeof input.due_at === 'string' ? input.due_at : undefined;
+      const due = dueRaw ? new Date(dueRaw) : undefined;
+      const dueClean = due && !Number.isNaN(due.getTime()) ? due : undefined;
+      const r = await storeAddReminder(text, dueClean);
+      return { content: `Oprettet påmindelse ${r.id}: "${r.text}" til ${r.dueAt.toISOString()}.`, isError: false };
+    }
+    if (name === 'add_note') {
+      const text = typeof input.text === 'string' ? input.text : '';
+      if (!text.trim()) return { content: 'Manglede tekst.', isError: true };
+      const n = await storeAddNote(text);
+      return { content: `Oprettet note ${n.id}: "${n.text}".`, isError: false };
+    }
+    if (name === 'list_reminders') {
+      const rs = listReminders();
+      if (rs.length === 0) return { content: 'Ingen påmindelser gemt.', isError: false };
+      return {
+        content: rs
+          .map((r) => `${r.id} [${r.status}] ${r.dueAt.toISOString()}: ${r.text}`)
+          .join('\n'),
+        isError: false,
+      };
+    }
+    if (name === 'list_notes') {
+      const ns = listNotes();
+      if (ns.length === 0) return { content: 'Ingen noter gemt.', isError: false };
+      return { content: ns.map((n) => `${n.id}: ${n.text}`).join('\n'), isError: false };
+    }
+    return { content: `Ukendt værktøj: ${name}`, isError: true };
+  } catch (err) {
+    return {
+      content: err instanceof Error ? err.message : String(err),
+      isError: true,
+    };
+  }
+}
+
+const CHAT_TOOL_ROUND_CAP = 4;
+
+export function useChat() {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [typing, setTyping] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+  const { data: profile } = useUser();
+  const { user } = useAuth();
+  const name = profile?.name ?? '';
+  const userId = user?.id;
+
+  useEffect(() => {
+    hydratePrivacyCache()
+      .then(() => {
+        if (!getPrivacyFlag('local-only')) return null;
+        return AsyncStorage.getItem(CHAT_HISTORY_KEY);
+      })
+      .then((raw) => {
+        if (!raw) return;
+        try {
+          const saved = JSON.parse(raw) as ChatMessage[];
+          if (Array.isArray(saved)) setMessages(saved);
+        } catch {}
+      })
+      .finally(() => setHydrated(true));
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!getPrivacyFlag('local-only')) {
+      AsyncStorage.removeItem(CHAT_HISTORY_KEY).catch(() => {});
+      return;
+    }
+    const capped = messages.slice(-CHAT_HISTORY_LIMIT);
+    AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(capped)).catch(() => {});
+  }, [messages, hydrated]);
+
+  const send = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      const userMsg: ChatMessage = {
+        id: `u-${Date.now()}`,
+        from: 'user',
+        text: trimmed,
+      };
+      const nextHistory = [...messages, userMsg];
+      setMessages(nextHistory);
+      setTyping(true);
+
+      const metadata =
+        getPrivacyFlag('training-opt-in') && userId ? { user_id: userId } : undefined;
+
+      const runTurn = async (): Promise<string> => {
+        const working: ClaudeMessage[] = toClaudeMessages(nextHistory);
+        for (let round = 0; round < CHAT_TOOL_ROUND_CAP; round += 1) {
+          const result = await completeRaw({
+            system: buildChatSystemPrompt(name),
+            messages: working,
+            tools: CHAT_TOOLS,
+            metadata,
+          });
+          if (result.toolUses.length === 0) {
+            return result.text.trim();
+          }
+          working.push({ role: 'assistant', content: result.rawContent });
+          const toolResults = await Promise.all(
+            result.toolUses.map(async (t) => {
+              const r = await runChatTool(t.name, t.input);
+              return {
+                type: 'tool_result' as const,
+                tool_use_id: t.id,
+                content: r.content,
+                is_error: r.isError,
+              };
+            }),
+          );
+          working.push({ role: 'user', content: toolResults });
+        }
+        return 'Jeg nåede ikke frem til et svar. Prøv igen?';
+      };
+
+      runTurn()
+        .then((answer) => {
+          setMessages((cur) => [
+            ...cur,
+            {
+              id: `a-${Date.now()}`,
+              from: 'zolva',
+              text: answer.length > 0 ? answer : CHAT_ERROR_TEXT,
+            },
+          ]);
+        })
+        .catch((err: Error) => {
+          if (__DEV__ && getPrivacyFlag('anon-reports')) {
+            console.warn('[useChat] Claude request failed:', err.message);
+          }
+          setMessages((cur) => [
+            ...cur,
+            { id: `e-${Date.now()}`, from: 'zolva', text: CHAT_ERROR_TEXT },
+          ]);
+        })
+        .finally(() => setTyping(false));
+    },
+    [messages, name, userId],
+  );
+
+  return { data: messages, typing, loading: false, error: null as Error | null, send };
+}

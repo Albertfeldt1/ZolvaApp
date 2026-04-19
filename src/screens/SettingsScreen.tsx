@@ -1,0 +1,799 @@
+import { Check } from 'lucide-react-native';
+import React, { useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  ImageSourcePropType,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+import { makeRedirectUri } from 'expo-auth-session';
+import { useChromeInsets } from '../components/PhoneChrome';
+import { Stone } from '../components/Stone';
+import { useAuth } from '../lib/auth';
+import {
+  useConnections,
+  usePrivacyToggles,
+  useSubscription,
+  useUser,
+  useWorkPreferences,
+} from '../lib/hooks';
+import type { IntegrationStatus, WorkPreference } from '../lib/types';
+
+import { colors, fonts } from '../theme';
+
+const ROW_TRANSITION = LinearTransition.duration(220);
+const OPTIONS_ENTER = FadeIn.duration(180);
+const OPTIONS_EXIT = FadeOut.duration(140);
+
+const LOGOS: Record<string, ImageSourcePropType> = {
+  'google-calendar.png': require('../../assets/logos/google-calendar.png'),
+  'gmail.png': require('../../assets/logos/gmail.png'),
+  'google-drive.png': require('../../assets/logos/google-drive.png'),
+  'outlook-calendar.png': require('../../assets/logos/outlook-calendar.png'),
+  'outlook-mail.png': require('../../assets/logos/outlook-mail.png'),
+};
+
+const STATUS_LABEL: Record<IntegrationStatus, string> = {
+  connected: 'Forbundet',
+  pending: 'Venter',
+  disconnected: 'Ikke forbundet',
+};
+
+export function SettingsScreen() {
+  const { data: user, loading: userLoading } = useUser();
+  const { data: subscription } = useSubscription();
+  const { data: connections, connect } = useConnections();
+  const { data: workRows, setValue: setWorkValue } = useWorkPreferences();
+  const { data: toggles, flip } = usePrivacyToggles();
+  const { signOut } = useAuth();
+  const [connectingId, setConnectingId] = useState<string | null>(null);
+
+  const handleConnect = async (id: typeof connections[number]['id']) => {
+    if (connectingId) return;
+    setConnectingId(id);
+    const { error } = await connect(id);
+    setConnectingId(null);
+    if (error) Alert.alert('Kunne ikke forbinde', error.message);
+  };
+
+  const isLoggedIn = !!user;
+  const { bottom: chromeBottom } = useChromeInsets();
+
+  return (
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom }]}
+        showsVerticalScrollIndicator={false}
+        contentInsetAdjustmentBehavior="never"
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.hero}>
+          <Text style={styles.eyebrow}>
+            {user ? `Konto · ${user.email}` : 'Konto'}
+          </Text>
+          <Text style={styles.heroH1}>Indstillinger</Text>
+        </View>
+
+        {userLoading ? (
+          <View style={styles.authLoading}>
+            <ActivityIndicator color={colors.sageDeep} />
+          </View>
+        ) : !isLoggedIn ? (
+          <LoginCard />
+        ) : (
+          <>
+            <View style={styles.speech}>
+              <Stone mood="calm" size={40} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.speechText}>
+                  Jeg arbejder sådan her. Skru på det du vil - resten passer jeg.
+                </Text>
+              </View>
+            </View>
+
+            <Animated.View layout={ROW_TRANSITION} style={styles.section}>
+              <Text style={styles.sectionTitle}>Sådan arbejder jeg</Text>
+              <View style={styles.inkRule} />
+              {workRows.map((r) => (
+                <WorkPreferenceRow
+                  key={r.id}
+                  pref={r}
+                  onChange={(v) => setWorkValue(r.id, v)}
+                />
+              ))}
+            </Animated.View>
+
+            <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
+              <Text style={styles.sectionTitle}>Forbundet</Text>
+              <View style={styles.inkRule} />
+              {connections.map((c, i) => {
+                const pillStyle =
+                  c.status === 'connected' ? styles.statusSage :
+                    c.status === 'pending' ? styles.statusWarn :
+                      styles.statusNeutral;
+                const textStyle =
+                  c.status === 'connected' ? styles.statusTextSage :
+                    c.status === 'pending' ? styles.statusTextWarn :
+                      styles.statusTextNeutral;
+                const tappable = c.status !== 'connected';
+                const isBusy = connectingId === c.id;
+                return (
+                  <Pressable
+                    key={c.id}
+                    onPress={tappable ? () => handleConnect(c.id) : undefined}
+                    disabled={!tappable || isBusy}
+                    style={({ pressed }) => [
+                      styles.connRow,
+                      i > 0 && styles.connBorder,
+                      tappable && pressed && styles.connRowPressed,
+                    ]}
+                  >
+                    <View style={styles.logoBox}>
+                      <Image
+                        source={LOGOS[c.logo]}
+                        style={[styles.logo, c.logo === 'gmail.png' && { transform: [{ scale: 1.35 }] }]}
+                        resizeMode="contain"
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.connTitle}>{c.title}</Text>
+                      <Text style={styles.connSub}>{c.sub}</Text>
+                    </View>
+                    {isBusy ? (
+                      <ActivityIndicator color={colors.sageDeep} />
+                    ) : tappable ? (
+                      <View style={styles.connectPill}>
+                        <Text style={styles.connectPillText}>Forbind →</Text>
+                      </View>
+                    ) : (
+                      <View style={[styles.statusPill, pillStyle]}>
+                        <Text style={[styles.statusText, textStyle]}>{STATUS_LABEL[c.status]}</Text>
+                      </View>
+                    )}
+                  </Pressable>
+                );
+              })}
+            </Animated.View>
+
+            <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
+              <Text style={styles.sectionTitle}>Abonnement</Text>
+              <View style={styles.inkRule} />
+              {subscription ? (
+                <View style={styles.planRow}>
+                  <Text style={styles.planPrice}>
+                    {subscription.priceKr}
+                    <Text style={styles.planUnit}> kr/md</Text>
+                  </Text>
+                  <Text style={styles.planMeta}>{`${subscription.plan} · fornyes ${subscription.renewalDate}`}</Text>
+                </View>
+              ) : (
+                <Text style={styles.emptyText}>Ingen aktiv plan.</Text>
+              )}
+              <View style={styles.planButtons}>
+                <Pressable
+                  style={styles.btnInk}
+                  onPress={() =>
+                    Alert.alert(
+                      subscription ? 'Skift plan' : 'Vælg plan',
+                      'Abonnementshåndtering er på vej. Kontakt os på feldten@me.com for at ændre din plan.',
+                    )
+                  }
+                >
+                  <Text style={styles.btnInkText}>{subscription ? 'Skift plan' : 'Vælg plan'}</Text>
+                </Pressable>
+              </View>
+            </Animated.View>
+
+            <Animated.View layout={ROW_TRANSITION} style={styles.dark}>
+              <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+                <Stone mood="thinking" size={36} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.darkTitle}>Privatliv</Text>
+                  <Text style={styles.darkBody}>
+                    Dine mails og kalender forlader aldrig din konto. Træning på dine data er slået{' '}
+                    <Text style={styles.darkStrong}>fra</Text>. Hostet i EU.
+                  </Text>
+                  <View style={{ marginTop: 16, gap: 10 }}>
+                    {toggles.map((t) => (
+                      <ToggleRow key={t.id} label={t.label} on={t.enabled} onPress={() => flip(t.id)} />
+                    ))}
+                  </View>
+                  <Pressable
+                    style={styles.exportBtn}
+                    onPress={() =>
+                      Alert.alert(
+                        'Eksport sat i gang',
+                        `Vi gør dine data klar og sender et download-link til ${user?.email ?? 'din email'} inden for 24 timer.`,
+                      )
+                    }
+                  >
+                    <Text style={styles.exportText}>Eksportér alle data</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </Animated.View>
+
+            <AnimatedPressable
+              layout={ROW_TRANSITION}
+              style={styles.signOutRow}
+              onPress={() => signOut()}
+            >
+              <Text style={styles.signOutText}>Log ud</Text>
+            </AnimatedPressable>
+          </>
+        )}
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+function LoginCard() {
+  const { signIn, signUp, signInWithGoogle, signInWithApple, appleAvailable } = useAuth();
+  const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [oauthBusy, setOauthBusy] = useState<null | 'google' | 'apple'>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (busy || oauthBusy) return;
+    setError(null);
+    setInfo(null);
+    const trimmed = email.trim();
+    if (!trimmed || !password) {
+      setError('Udfyld email og kodeord.');
+      return;
+    }
+    setBusy(true);
+    const fn = mode === 'sign-in' ? signIn : signUp;
+    const { data, error: err } = await fn(trimmed, password);
+    setBusy(false);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    if (mode === 'sign-up' && !data.session) {
+      setInfo('Tjek din mail for at bekræfte din konto.');
+    }
+  };
+
+  const oauth = async (provider: 'google' | 'apple') => {
+    if (busy || oauthBusy) return;
+    setError(null);
+    setInfo(null);
+    setOauthBusy(provider);
+    try {
+      const { error: err } =
+        provider === 'google' ? await signInWithGoogle() : await signInWithApple();
+      if (err) setError(err.message);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // Apple's user-cancel throws ERR_REQUEST_CANCELED — silent ignore
+      if (!msg.includes('CANCELED') && !msg.includes('canceled')) setError(msg);
+    } finally {
+      setOauthBusy(null);
+    }
+  };
+
+  const anyBusy = busy || !!oauthBusy;
+
+  return (
+    <View style={styles.loginWrap}>
+      <Text style={styles.loginTitle}>
+        {mode === 'sign-in' ? 'Log ind' : 'Opret konto'}
+      </Text>
+      <Text style={styles.loginBody}>
+        Forbind dine konti og lad Zolva hjælpe dig med dagen.
+      </Text>
+
+      <Pressable
+        style={[styles.socialBtn, anyBusy && styles.loginPrimaryBusy]}
+        onPress={() => oauth('google')}
+        disabled={anyBusy}
+      >
+        {oauthBusy === 'google' ? (
+          <ActivityIndicator color={colors.ink} />
+        ) : (
+          <>
+            <GoogleGlyph />
+            <Text style={styles.socialText}>Fortsæt med Google</Text>
+          </>
+        )}
+      </Pressable>
+
+      {appleAvailable && (
+        <Pressable
+          style={[styles.socialBtnDark, anyBusy && styles.loginPrimaryBusy]}
+          onPress={() => oauth('apple')}
+          disabled={anyBusy}
+        >
+          {oauthBusy === 'apple' ? (
+            <ActivityIndicator color={colors.paper} />
+          ) : (
+            <>
+              <AppleGlyph />
+              <Text style={styles.socialTextDark}>Fortsæt med Apple</Text>
+            </>
+          )}
+        </Pressable>
+      )}
+
+      <View style={styles.divider}>
+        <View style={styles.dividerLine} />
+        <Text style={styles.dividerText}>eller med email</Text>
+        <View style={styles.dividerLine} />
+      </View>
+
+      <TextInput
+        style={styles.input}
+        value={email}
+        onChangeText={setEmail}
+        placeholder="email@eksempel.dk"
+        placeholderTextColor={colors.fg3}
+        autoCapitalize="none"
+        autoCorrect={false}
+        autoComplete="email"
+        keyboardType="email-address"
+        editable={!anyBusy}
+      />
+      <TextInput
+        style={styles.input}
+        value={password}
+        onChangeText={setPassword}
+        placeholder="Kodeord"
+        placeholderTextColor={colors.fg3}
+        secureTextEntry
+        autoCapitalize="none"
+        autoComplete="password"
+        editable={!anyBusy}
+        onSubmitEditing={submit}
+        returnKeyType="go"
+      />
+
+      {error && <Text style={styles.loginError}>{error}</Text>}
+      {info && <Text style={styles.loginInfo}>{info}</Text>}
+
+      <Pressable
+        style={[styles.loginPrimary, anyBusy && styles.loginPrimaryBusy]}
+        onPress={submit}
+        disabled={anyBusy}
+      >
+        {busy ? (
+          <ActivityIndicator color={colors.paper} />
+        ) : (
+          <Text style={styles.loginPrimaryText}>
+            {mode === 'sign-in' ? 'Log ind' : 'Opret konto'}
+          </Text>
+        )}
+      </Pressable>
+
+      <Pressable
+        style={styles.loginToggle}
+        onPress={() => {
+          setMode(mode === 'sign-in' ? 'sign-up' : 'sign-in');
+          setError(null);
+          setInfo(null);
+        }}
+        disabled={anyBusy}
+      >
+        <Text style={styles.loginToggleText}>
+          {mode === 'sign-in'
+            ? 'Har du ikke en konto? Opret en →'
+            : 'Har du allerede en konto? Log ind →'}
+        </Text>
+      </Pressable>
+
+      {__DEV__ && (
+        <Text style={styles.debugHint} selectable>
+          OAuth redirect: {makeRedirectUri({ scheme: 'zolva', path: 'auth/callback' })}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+function GoogleGlyph() {
+  return (
+    <Image
+      source={require('../../assets/logos/google.png')}
+      style={styles.googleGlyph}
+      resizeMode="contain"
+    />
+  );
+}
+
+function AppleGlyph() {
+  return (
+    <Image
+      source={require('../../assets/logos/apple.png')}
+      style={styles.appleGlyph}
+      resizeMode="contain"
+    />
+  );
+}
+
+function WorkPreferenceRow({
+  pref,
+  onChange,
+}: {
+  pref: WorkPreference;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const toggle = () => setOpen((v) => !v);
+  const pick = (value: string) => {
+    onChange(value);
+    setOpen(false);
+  };
+  const shown = pref.value ?? 'Sæt op';
+
+  return (
+    <Animated.View layout={ROW_TRANSITION} style={styles.workRow}>
+      <Pressable
+        onPress={toggle}
+        style={({ pressed }) => [styles.workHeader, pressed && styles.workHeaderPressed]}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={styles.workTitle}>{pref.title}</Text>
+          <Text style={styles.workMeta}>{pref.meta}</Text>
+        </View>
+        <Text style={styles.workVal}>
+          {shown} {open ? '↑' : '↓'}
+        </Text>
+      </Pressable>
+      {open && (
+        <Animated.View
+          entering={OPTIONS_ENTER}
+          exiting={OPTIONS_EXIT}
+          style={styles.workOptions}
+        >
+          {pref.options.map((opt) => {
+            const selected = pref.value === opt;
+            return (
+              <Pressable
+                key={opt}
+                onPress={() => pick(opt)}
+                style={({ pressed }) => [
+                  styles.workOption,
+                  selected && styles.workOptionOn,
+                  pressed && styles.workOptionPressed,
+                ]}
+              >
+                {selected && (
+                  <Check size={13} color={colors.sageDeep} strokeWidth={2.4} />
+                )}
+                <Text style={[styles.workOptionText, selected && styles.workOptionTextOn]}>
+                  {opt}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </Animated.View>
+      )}
+    </Animated.View>
+  );
+}
+
+function ToggleRow({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
+  return (
+    <View style={styles.toggleRow}>
+      <Text style={styles.toggleLabel}>{label}</Text>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: on }}
+        style={({ pressed }) => [
+          styles.toggleTrack,
+          on ? styles.toggleOn : styles.toggleOff,
+          { justifyContent: on ? 'flex-end' : 'flex-start' },
+          pressed && styles.toggleTrackPressed,
+        ]}
+      >
+        <View style={styles.toggleThumb} />
+      </Pressable>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  scroll: { flexGrow: 1, backgroundColor: colors.paper },
+
+  hero: {
+    backgroundColor: colors.sageSoft,
+    paddingTop: 56,
+    paddingBottom: 22,
+    paddingHorizontal: 20,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.line,
+  },
+  eyebrow: {
+    fontFamily: fonts.mono, fontSize: 11,
+    letterSpacing: 0.88, textTransform: 'uppercase', color: colors.sageDeep,
+  },
+  heroH1: {
+    marginTop: 10,
+    fontFamily: fonts.displayItalic,
+    fontSize: 36, lineHeight: 40,
+    letterSpacing: -1.08, color: colors.ink,
+  },
+
+  authLoading: { paddingVertical: 60, alignItems: 'center' },
+
+  loginWrap: {
+    paddingHorizontal: 20,
+    paddingTop: 28,
+    paddingBottom: 32,
+    gap: 10,
+  },
+  loginTitle: {
+    fontFamily: fonts.displayItalic,
+    fontSize: 28,
+    letterSpacing: -0.84,
+    color: colors.ink,
+  },
+  loginBody: {
+    fontFamily: fonts.ui,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.fg3,
+    marginBottom: 8,
+  },
+  input: {
+    backgroundColor: colors.mist,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    fontFamily: fonts.ui,
+    fontSize: 15,
+    color: colors.ink,
+  },
+  loginError: {
+    fontFamily: fonts.ui,
+    fontSize: 13,
+    color: colors.warningInk,
+  },
+  loginInfo: {
+    fontFamily: fonts.ui,
+    fontSize: 13,
+    color: colors.sageDeep,
+  },
+  loginPrimary: {
+    marginTop: 6,
+    backgroundColor: colors.ink,
+    paddingVertical: 14,
+    borderRadius: 999,
+    alignItems: 'center',
+  },
+  loginPrimaryBusy: { opacity: 0.7 },
+
+  socialBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 13,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    backgroundColor: colors.paper,
+  },
+  socialText: {
+    fontFamily: fonts.uiSemi,
+    fontSize: 14.5,
+    color: colors.ink,
+  },
+  socialBtnDark: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 13,
+    borderRadius: 999,
+    backgroundColor: colors.ink,
+  },
+  socialTextDark: {
+    fontFamily: fonts.uiSemi,
+    fontSize: 14.5,
+    color: colors.paper,
+  },
+  googleGlyph: {
+    width: 18,
+    height: 18,
+  },
+  appleGlyph: {
+    width: 15,
+    height: 18,
+    marginTop: -2,
+    tintColor: colors.paper,
+  },
+
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 14,
+    marginBottom: 6,
+  },
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.line,
+  },
+  dividerText: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: colors.fg3,
+  },
+  loginPrimaryText: {
+    fontFamily: fonts.uiSemi,
+    fontSize: 14.5,
+    color: colors.paper,
+  },
+  loginToggle: { paddingVertical: 10, alignItems: 'center' },
+  loginToggleText: {
+    fontFamily: fonts.ui,
+    fontSize: 13,
+    color: colors.sageDeep,
+  },
+  debugHint: {
+    marginTop: 12,
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    color: colors.fg4,
+    textAlign: 'center',
+  },
+
+  speech: { flexDirection: 'row', gap: 12, paddingHorizontal: 20, paddingTop: 24 },
+  speechText: {
+    fontFamily: fonts.display, fontSize: 20, lineHeight: 26,
+    letterSpacing: -0.3, color: colors.ink,
+  },
+
+  section: { paddingHorizontal: 20, paddingTop: 24 },
+  sectionTitle: { fontFamily: fonts.display, fontSize: 22, letterSpacing: -0.44, color: colors.ink },
+  inkRule: { height: 1, backgroundColor: colors.ink, marginTop: 4 },
+  emptyText: {
+    paddingVertical: 20,
+    fontFamily: 'Inter_500Medium_Italic',
+    fontSize: 13,
+    color: colors.fg3,
+  },
+
+  workRow: {
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line,
+  },
+  workHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 14,
+  },
+  workHeaderPressed: { opacity: 0.55 },
+  workTitle: { fontFamily: fonts.uiSemi, fontSize: 14.5, color: colors.ink },
+  workMeta: { marginTop: 2, fontFamily: fonts.ui, fontSize: 12.5, color: colors.fg3 },
+  workVal: { fontFamily: fonts.ui, fontSize: 13, color: colors.sageDeep },
+  workOptions: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 8,
+    paddingBottom: 14,
+  },
+  workOption: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line,
+    backgroundColor: colors.paper,
+  },
+  workOptionOn: {
+    borderColor: colors.sageDeep,
+    backgroundColor: colors.sageSoft,
+  },
+  workOptionPressed: { opacity: 0.6 },
+  workOptionText: { fontFamily: fonts.ui, fontSize: 13, color: colors.fg2 },
+  workOptionTextOn: { color: colors.sageDeep, fontFamily: fonts.uiSemi },
+
+  connRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingVertical: 14,
+  },
+  connBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+  connRowPressed: { opacity: 0.55 },
+  connectPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: colors.ink,
+  },
+  connectPillText: {
+    fontFamily: fonts.uiSemi,
+    fontSize: 11.5,
+    color: colors.paper,
+  },
+  logoBox: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  logo: { width: 32, height: 32 },
+  connTitle: { fontFamily: fonts.uiSemi, fontSize: 14.5, color: colors.ink },
+  connSub: { marginTop: 2, fontFamily: fonts.ui, fontSize: 12.5, color: colors.fg3 },
+  statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
+  statusSage: { backgroundColor: colors.sageSoft },
+  statusWarn: { backgroundColor: colors.warningSoft },
+  statusNeutral: { backgroundColor: colors.mist },
+  statusText: { fontFamily: fonts.uiSemi, fontSize: 11.5 },
+  statusTextSage: { color: colors.sageDeep },
+  statusTextWarn: { color: colors.warningInk },
+  statusTextNeutral: { color: colors.fg3 },
+
+  planRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 16, paddingVertical: 16 },
+  planPrice: {
+    fontFamily: fonts.display, fontSize: 48,
+    letterSpacing: -1.92, lineHeight: 52, color: colors.ink,
+  },
+  planUnit: { fontSize: 18, fontFamily: fonts.displayItalic, color: colors.ink },
+  planMeta: { flex: 1, fontFamily: fonts.ui, fontSize: 12.5, color: colors.fg3 },
+  planButtons: { flexDirection: 'row', gap: 8, paddingBottom: 24 },
+  btnInk: {
+    backgroundColor: colors.ink, paddingHorizontal: 14, paddingVertical: 9,
+    borderRadius: 999,
+  },
+  btnInkText: { color: colors.paper, fontFamily: fonts.uiSemi, fontSize: 13 },
+
+  dark: {
+    paddingVertical: 28,
+    paddingHorizontal: 20,
+    paddingBottom: 32,
+    backgroundColor: colors.ink,
+  },
+  darkTitle: {
+    fontFamily: fonts.displayItalic, fontSize: 22,
+    letterSpacing: -0.33, color: colors.paper, lineHeight: 26,
+  },
+  darkBody: {
+    marginTop: 10,
+    fontFamily: fonts.ui, fontSize: 14, lineHeight: 21, color: colors.paperOn75,
+  },
+  darkStrong: { color: colors.paper, fontFamily: fonts.uiSemi },
+
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  toggleLabel: { flex: 1, fontFamily: fonts.ui, fontSize: 13.5, color: 'rgba(246,241,232,0.9)' },
+  toggleTrack: {
+    width: 38, height: 22, borderRadius: 999, padding: 2,
+    flexDirection: 'row', alignItems: 'center',
+  },
+  toggleOn: { backgroundColor: colors.sage },
+  toggleOff: { backgroundColor: colors.paperOn20 },
+  toggleTrackPressed: { opacity: 0.7 },
+  toggleThumb: { width: 18, height: 18, borderRadius: 999, backgroundColor: colors.paper },
+
+  exportBtn: {
+    alignSelf: 'flex-start',
+    marginTop: 18,
+    paddingHorizontal: 16, paddingVertical: 9,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.paperOn25,
+  },
+  exportText: { color: colors.paper, fontFamily: fonts.uiSemi, fontSize: 13 },
+
+  signOutRow: {
+    paddingVertical: 22,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  signOutText: {
+    fontFamily: fonts.uiSemi,
+    fontSize: 13,
+    color: colors.warningInk,
+  },
+});
