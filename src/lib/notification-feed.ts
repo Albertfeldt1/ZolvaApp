@@ -32,7 +32,13 @@ function reviveEntry(raw: unknown): FeedEntry | null {
     readAt?: string | Date | null;
   };
   if (typeof e.id !== 'string' || typeof e.title !== 'string') return null;
-  const types: FeedEntryType[] = ['reminder', 'digest', 'calendarPreAlert', 'reminderAdded'];
+  const types: FeedEntryType[] = [
+    'reminder',
+    'digest',
+    'calendarPreAlert',
+    'reminderAdded',
+    'newMail',
+  ];
   if (!types.includes(e.type as FeedEntryType)) return null;
   const firesAt = e.firesAt instanceof Date ? e.firesAt : new Date(e.firesAt ?? Date.now());
   const createdAt = e.createdAt instanceof Date ? e.createdAt : new Date(e.createdAt ?? Date.now());
@@ -220,5 +226,8 @@ function payloadMatches(a: NotificationPayload, b: NotificationPayload): boolean
   if (a.type === 'digest' && b.type === 'digest') return a.date === b.date;
   if (a.type === 'calendarPreAlert' && b.type === 'calendarPreAlert') return a.eventId === b.eventId;
   if (a.type === 'reminderAdded' && b.type === 'reminderAdded') return a.reminderId === b.reminderId;
+  if (a.type === 'newMail' && b.type === 'newMail') {
+    return a.provider === b.provider && a.messageId === b.messageId;
+  }
   return false;
 }

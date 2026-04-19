@@ -1,4 +1,4 @@
-import { Bell, BookmarkPlus, Calendar, ChevronLeft, Sun } from 'lucide-react-native';
+import { Bell, BookmarkPlus, Calendar, ChevronLeft, Mail, Sun } from 'lucide-react-native';
 import React, { useMemo } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { EmptyState } from '../components/EmptyState';
@@ -108,6 +108,8 @@ function iconFor(type: FeedEntry['type']) {
       return Calendar;
     case 'reminderAdded':
       return BookmarkPlus;
+    case 'newMail':
+      return Mail;
   }
 }
 

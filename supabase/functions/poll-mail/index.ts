@@ -1,0 +1,268 @@
+// poll-mail — Supabase Edge Function scaffold.
+//
+// Invoked on a cron schedule (see docs spec). For every user with an
+// `enabled` mail_watchers row, fetch new mail from the provider since the
+// last watermark and dispatch an Expo push for each new message.
+//
+// BLOCKING GAP: provider refresh tokens are not yet captured server-side.
+// Until auth.ts upserts `provider_refresh_token` into `user_oauth_tokens`,
+// `loadRefreshToken()` returns null and the function skips every user.
+
+import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+type Watcher = {
+  user_id: string;
+  provider: 'google' | 'microsoft';
+  enabled: boolean;
+  last_history_id: string | null;
+  last_delta_link: string | null;
+};
+
+type PushToken = { token: string };
+
+type NewMessage = {
+  messageId: string;
+  threadId?: string;
+  subject: string;
+  from: string;
+};
+
+const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+
+serve(async () => {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!supabaseUrl || !serviceKey) {
+    return json({ error: 'missing env' }, 500);
+  }
+  const client = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false },
+  });
+
+  const { data: watchers, error } = await client
+    .from('mail_watchers')
+    .select('*')
+    .eq('enabled', true);
+  if (error) return json({ error: error.message }, 500);
+
+  const summary: Record<string, string> = {};
+  for (const watcher of (watchers ?? []) as Watcher[]) {
+    try {
+      await processWatcher(client, watcher);
+      summary[`${watcher.user_id}:${watcher.provider}`] = 'ok';
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      summary[`${watcher.user_id}:${watcher.provider}`] = `error: ${msg}`;
+    }
+  }
+  return json({ summary });
+});
+
+async function processWatcher(client: SupabaseClient, watcher: Watcher): Promise<void> {
+  const refreshToken = await loadRefreshToken(client, watcher.user_id, watcher.provider);
+  if (!refreshToken) {
+    throw new Error('no refresh token — complete auth.ts capture first');
+  }
+
+  const accessToken = await refreshAccessToken(watcher.provider, refreshToken);
+  const { messages, nextHistoryId, nextDeltaLink } =
+    watcher.provider === 'google'
+      ? await fetchGmailSince(accessToken, watcher.last_history_id)
+      : await fetchGraphSince(accessToken, watcher.last_delta_link);
+
+  if (messages.length > 0) {
+    const tokens = await loadPushTokens(client, watcher.user_id);
+    for (const msg of messages) {
+      await dispatchExpoPush(tokens, watcher.provider, msg);
+    }
+  }
+
+  await client
+    .from('mail_watchers')
+    .update({
+      last_history_id: nextHistoryId ?? watcher.last_history_id,
+      last_delta_link: nextDeltaLink ?? watcher.last_delta_link,
+      last_polled_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('user_id', watcher.user_id)
+    .eq('provider', watcher.provider);
+}
+
+// TODO: implement once provider refresh tokens are captured server-side.
+async function loadRefreshToken(
+  _client: SupabaseClient,
+  _userId: string,
+  _provider: 'google' | 'microsoft',
+): Promise<string | null> {
+  return null;
+}
+
+async function refreshAccessToken(
+  provider: 'google' | 'microsoft',
+  refreshToken: string,
+): Promise<string> {
+  if (provider === 'google') {
+    const clientId = Deno.env.get('GOOGLE_OAUTH_CLIENT_ID');
+    const clientSecret = Deno.env.get('GOOGLE_OAUTH_CLIENT_SECRET');
+    if (!clientId || !clientSecret) throw new Error('google oauth env missing');
+    const body = new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token',
+    });
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+    if (!res.ok) throw new Error(`google refresh failed: ${res.status}`);
+    const j = (await res.json()) as { access_token?: string };
+    if (!j.access_token) throw new Error('google refresh missing access_token');
+    return j.access_token;
+  }
+
+  const clientId = Deno.env.get('MICROSOFT_OAUTH_CLIENT_ID');
+  const clientSecret = Deno.env.get('MICROSOFT_OAUTH_CLIENT_SECRET');
+  const tenant = Deno.env.get('MICROSOFT_OAUTH_TENANT') ?? 'common';
+  if (!clientId || !clientSecret) throw new Error('microsoft oauth env missing');
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    refresh_token: refreshToken,
+    grant_type: 'refresh_token',
+    scope: 'offline_access Mail.ReadWrite Mail.Send',
+  });
+  const res = await fetch(
+    `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
+    { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body },
+  );
+  if (!res.ok) throw new Error(`microsoft refresh failed: ${res.status}`);
+  const j = (await res.json()) as { access_token?: string };
+  if (!j.access_token) throw new Error('microsoft refresh missing access_token');
+  return j.access_token;
+}
+
+async function fetchGmailSince(
+  accessToken: string,
+  lastHistoryId: string | null,
+): Promise<{ messages: NewMessage[]; nextHistoryId: string | null; nextDeltaLink: null }> {
+  if (!lastHistoryId) {
+    const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    if (!profileRes.ok) throw new Error(`gmail profile ${profileRes.status}`);
+    const profile = (await profileRes.json()) as { historyId?: string };
+    return { messages: [], nextHistoryId: profile.historyId ?? null, nextDeltaLink: null };
+  }
+  const historyRes = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/history?startHistoryId=${lastHistoryId}&historyTypes=messageAdded`,
+    { headers: { authorization: `Bearer ${accessToken}` } },
+  );
+  if (!historyRes.ok) throw new Error(`gmail history ${historyRes.status}`);
+  const history = (await historyRes.json()) as {
+    history?: Array<{ messagesAdded?: Array<{ message: { id: string; threadId?: string } }> }>;
+    historyId?: string;
+  };
+
+  const added = (history.history ?? [])
+    .flatMap((h) => h.messagesAdded ?? [])
+    .map((m) => ({ id: m.message.id, threadId: m.message.threadId }));
+
+  const messages: NewMessage[] = [];
+  for (const m of added) {
+    const metaRes = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`,
+      { headers: { authorization: `Bearer ${accessToken}` } },
+    );
+    if (!metaRes.ok) continue;
+    const meta = (await metaRes.json()) as {
+      payload?: { headers?: Array<{ name: string; value: string }> };
+    };
+    const headers = meta.payload?.headers ?? [];
+    const subject = headers.find((h) => h.name === 'Subject')?.value ?? '(uden emne)';
+    const from = headers.find((h) => h.name === 'From')?.value ?? '';
+    messages.push({ messageId: m.id, threadId: m.threadId, subject, from });
+  }
+
+  return { messages, nextHistoryId: history.historyId ?? lastHistoryId, nextDeltaLink: null };
+}
+
+async function fetchGraphSince(
+  accessToken: string,
+  lastDeltaLink: string | null,
+): Promise<{ messages: NewMessage[]; nextHistoryId: null; nextDeltaLink: string | null }> {
+  const url =
+    lastDeltaLink ??
+    'https://graph.microsoft.com/v1.0/me/mailFolders/Inbox/messages/delta?$select=subject,from';
+  const res = await fetch(url, { headers: { authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) throw new Error(`graph delta ${res.status}`);
+  const j = (await res.json()) as {
+    value?: Array<{
+      id: string;
+      subject?: string;
+      from?: { emailAddress?: { address?: string; name?: string } };
+    }>;
+    '@odata.deltaLink'?: string;
+  };
+
+  const messages: NewMessage[] = lastDeltaLink
+    ? (j.value ?? []).map((m) => ({
+        messageId: m.id,
+        subject: m.subject ?? '(uden emne)',
+        from: m.from?.emailAddress?.name ?? m.from?.emailAddress?.address ?? '',
+      }))
+    : [];
+
+  return {
+    messages,
+    nextHistoryId: null,
+    nextDeltaLink: j['@odata.deltaLink'] ?? lastDeltaLink,
+  };
+}
+
+async function loadPushTokens(client: SupabaseClient, userId: string): Promise<PushToken[]> {
+  const { data, error } = await client
+    .from('push_tokens')
+    .select('token')
+    .eq('user_id', userId);
+  if (error) throw new Error(`push_tokens select: ${error.message}`);
+  return (data ?? []) as PushToken[];
+}
+
+async function dispatchExpoPush(
+  tokens: PushToken[],
+  provider: 'google' | 'microsoft',
+  message: NewMessage,
+): Promise<void> {
+  if (tokens.length === 0) return;
+  const body = tokens.map((t) => ({
+    to: t.token,
+    title: message.from || 'Ny mail',
+    body: message.subject,
+    data: {
+      type: 'newMail',
+      provider,
+      messageId: message.messageId,
+      threadId: message.threadId,
+    },
+    sound: 'default',
+  }));
+  const res = await fetch(EXPO_PUSH_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    console.warn('[poll-mail] expo push non-ok:', res.status, await res.text());
+  }
+}
+
+function json(value: unknown, status = 200): Response {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}

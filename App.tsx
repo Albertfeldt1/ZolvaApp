@@ -90,10 +90,14 @@ export default function App() {
       switch (payload.type) {
         case 'reminder':
         case 'digest':
+        case 'reminderAdded':
           setTab('today');
           break;
         case 'calendarPreAlert':
           setTab('calendar');
+          break;
+        case 'newMail':
+          setTab('inbox');
           break;
       }
     });
@@ -154,6 +158,9 @@ export default function App() {
         break;
       case 'calendarPreAlert':
         setTab('calendar');
+        break;
+      case 'newMail':
+        setTab('inbox');
         break;
     }
   };

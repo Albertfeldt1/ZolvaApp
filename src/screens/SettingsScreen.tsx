@@ -52,6 +52,7 @@ import {
   subscribeNotificationSettings,
   type NotificationSettings,
 } from '../lib/notification-settings';
+import { registerPushToken, unregisterPushToken } from '../lib/push';
 import { colors, fonts } from '../theme';
 
 const ROW_TRANSITION = LinearTransition.duration(220);
@@ -118,6 +119,23 @@ export function SettingsScreen() {
         return;
       }
     }
+
+    if (key === 'newMail') {
+      if (next) {
+        const registration = await registerPushToken();
+        if (!registration.ok) {
+          const message =
+            registration.reason === 'no-session'
+              ? 'Log ind før du aktiverer mail-notifikationer.'
+              : 'Kunne ikke registrere enheden. Prøv igen om lidt.';
+          Alert.alert('Nye mails', message);
+          return;
+        }
+      } else {
+        await unregisterPushToken();
+      }
+    }
+
     await setNotificationSetting(key, next);
     void syncOnAppForeground();
   };
@@ -311,6 +329,11 @@ export function SettingsScreen() {
                 label="Kalender-påmindelse 15 min før"
                 value={notificationSettings.preAlerts}
                 onChange={(v) => toggleNotificationSetting('preAlerts', v)}
+              />
+              <NotificationToggleRow
+                label="Nye mails"
+                value={notificationSettings.newMail}
+                onChange={(v) => toggleNotificationSetting('newMail', v)}
               />
             </Animated.View>
 

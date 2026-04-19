@@ -75,6 +75,23 @@ export function registerResponseHandler(
       typeof (payload as { eventId?: unknown }).eventId === 'string'
     ) {
       onTap({ type: 'calendarPreAlert', eventId: (payload as { eventId: string }).eventId });
+    } else if (payload.type === 'newMail') {
+      const p = payload as {
+        provider?: unknown;
+        messageId?: unknown;
+        threadId?: unknown;
+      };
+      if (
+        (p.provider === 'google' || p.provider === 'microsoft') &&
+        typeof p.messageId === 'string'
+      ) {
+        onTap({
+          type: 'newMail',
+          provider: p.provider,
+          messageId: p.messageId,
+          threadId: typeof p.threadId === 'string' ? p.threadId : undefined,
+        });
+      }
     }
   });
   return () => sub.remove();

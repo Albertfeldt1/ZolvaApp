@@ -8,10 +8,16 @@ export type NotificationSettings = {
   reminders: boolean;
   digest: boolean;
   preAlerts: boolean;
+  newMail: boolean;
 };
 
 const STORAGE_KEY = 'zolva.notifications.settings';
-const DEFAULTS: NotificationSettings = { reminders: false, digest: false, preAlerts: false };
+const DEFAULTS: NotificationSettings = {
+  reminders: false,
+  digest: false,
+  preAlerts: false,
+  newMail: false,
+};
 
 let cache: NotificationSettings = DEFAULTS;
 let hydrated = false;
@@ -36,6 +42,7 @@ async function hydrate(): Promise<void> {
           reminders: parsed.reminders === true,
           digest: parsed.digest === true,
           preAlerts: parsed.preAlerts === true,
+          newMail: parsed.newMail === true,
         };
       }
     } catch (err) {
