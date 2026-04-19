@@ -28,9 +28,14 @@ function notifyNotes() {
 
 function reviveReminder(raw: unknown): Reminder | null {
   if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Partial<Reminder> & { dueAt?: string | Date; createdAt?: string | Date };
+  const r = raw as Partial<Reminder> & { dueAt?: string | Date | null; createdAt?: string | Date };
   if (typeof r.id !== 'string' || typeof r.text !== 'string') return null;
-  const dueAt = r.dueAt instanceof Date ? r.dueAt : new Date(r.dueAt ?? Date.now());
+  const dueAt =
+    r.dueAt == null
+      ? null
+      : r.dueAt instanceof Date
+        ? r.dueAt
+        : new Date(r.dueAt);
   const createdAt = r.createdAt instanceof Date ? r.createdAt : new Date(r.createdAt ?? Date.now());
   const status: ReminderStatus = r.status === 'done' ? 'done' : 'pending';
   return { id: r.id, text: r.text, dueAt, createdAt, status };
@@ -129,14 +134,14 @@ export function listNotes(): Note[] {
   return notesCache;
 }
 
-export async function addReminder(text: string, dueAt?: Date): Promise<Reminder> {
+export async function addReminder(text: string, dueAt?: Date | null): Promise<Reminder> {
   await hydrate();
   const trimmed = text.trim();
   if (!trimmed) throw new Error('Reminder text is required');
   const reminder: Reminder = {
     id: genId('r'),
     text: trimmed,
-    dueAt: dueAt ?? new Date(Date.now() + 60 * 60 * 1000),
+    dueAt: dueAt ?? null,
     createdAt: new Date(),
     status: 'pending',
   };

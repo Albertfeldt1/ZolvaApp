@@ -1113,7 +1113,7 @@ async function runChatTool(
       const due = dueRaw ? new Date(dueRaw) : undefined;
       const dueClean = due && !Number.isNaN(due.getTime()) ? due : undefined;
       const r = await storeAddReminder(text, dueClean);
-      return { content: `Oprettet påmindelse ${r.id}: "${r.text}" til ${r.dueAt.toISOString()}.`, isError: false };
+      return { content: `Oprettet påmindelse ${r.id}: "${r.text}"${r.dueAt ? ` til ${r.dueAt.toISOString()}` : ''}.`, isError: false };
     }
     if (name === 'add_note') {
       const text = typeof input.text === 'string' ? input.text : '';
@@ -1126,7 +1126,7 @@ async function runChatTool(
       if (rs.length === 0) return { content: 'Ingen påmindelser gemt.', isError: false };
       return {
         content: rs
-          .map((r) => `${r.id} [${r.status}] ${r.dueAt.toISOString()}: ${r.text}`)
+          .map((r) => `${r.id} [${r.status}] ${r.dueAt ? r.dueAt.toISOString() : 'ingen tid'}: ${r.text}`)
           .join('\n'),
         isError: false,
       };

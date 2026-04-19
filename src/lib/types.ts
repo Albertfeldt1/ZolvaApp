@@ -133,7 +133,7 @@ export type ReminderStatus = 'pending' | 'done';
 export type Reminder = {
   id: string;
   text: string;
-  dueAt: Date;
+  dueAt: Date | null;
   status: ReminderStatus;
   createdAt: Date;
 };

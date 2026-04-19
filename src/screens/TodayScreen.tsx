@@ -68,7 +68,10 @@ export function TodayScreen({ onOpenChat, onGoToSettings, onGoToMemory, onOverDa
     });
 
   const pendingReminders = useMemo(
-    () => reminders.filter((r) => r.status === 'pending').sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime()),
+    () =>
+      reminders
+        .filter((r) => r.status === 'pending')
+        .sort((a, b) => (a.dueAt?.getTime() ?? Infinity) - (b.dueAt?.getTime() ?? Infinity)),
     [reminders],
   );
   const showHuskPreview = pendingReminders.length > 0 || notes.length > 0;
@@ -276,14 +279,21 @@ export function TodayScreen({ onOpenChat, onGoToSettings, onGoToMemory, onOverDa
 }
 
 function HuskReminderLine({ reminder, now }: { reminder: Reminder; now: Date }) {
-  const time = `${reminder.dueAt.getHours().toString().padStart(2, '0')}.${reminder.dueAt.getMinutes().toString().padStart(2, '0')}`;
-  const sameDay =
-    reminder.dueAt.getFullYear() === now.getFullYear() &&
-    reminder.dueAt.getMonth() === now.getMonth() &&
-    reminder.dueAt.getDate() === now.getDate();
+  const dueAt = reminder.dueAt;
+  let timeLabel: string;
+  if (!dueAt) {
+    timeLabel = 'Ingen tid';
+  } else {
+    const time = `${dueAt.getHours().toString().padStart(2, '0')}.${dueAt.getMinutes().toString().padStart(2, '0')}`;
+    const sameDay =
+      dueAt.getFullYear() === now.getFullYear() &&
+      dueAt.getMonth() === now.getMonth() &&
+      dueAt.getDate() === now.getDate();
+    timeLabel = sameDay ? time : `${dueAt.getDate()}.${dueAt.getMonth() + 1}`;
+  }
   return (
     <View style={styles.huskLine}>
-      <Text style={styles.huskTime}>{sameDay ? time : `${reminder.dueAt.getDate()}.${reminder.dueAt.getMonth() + 1}`}</Text>
+      <Text style={styles.huskTime}>{timeLabel}</Text>
       <Text style={styles.huskText} numberOfLines={1}>{reminder.text}</Text>
     </View>
   );

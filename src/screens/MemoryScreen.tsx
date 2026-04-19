@@ -35,7 +35,10 @@ export function MemoryScreen({ onOpenChat }: Props) {
   const { data: notes, remove: removeNote } = useNotes();
 
   const pendingReminders = useMemo(
-    () => reminders.filter((r) => r.status === 'pending').sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime()),
+    () =>
+      reminders
+        .filter((r) => r.status === 'pending')
+        .sort((a, b) => (a.dueAt?.getTime() ?? Infinity) - (b.dueAt?.getTime() ?? Infinity)),
     [reminders],
   );
 
@@ -162,8 +165,8 @@ function ReminderRow({
   onDelete: () => void;
   border: boolean;
 }) {
-  const due = formatDue(reminder.dueAt, now);
-  const isOverdue = reminder.dueAt.getTime() < now.getTime();
+  const due = reminder.dueAt ? formatDue(reminder.dueAt, now) : { head: 'Ingen tid', meta: '' };
+  const isOverdue = reminder.dueAt != null && reminder.dueAt.getTime() < now.getTime();
   return (
     <View style={[styles.row, border && styles.rowBorder]}>
       <View style={styles.timeCol}>
