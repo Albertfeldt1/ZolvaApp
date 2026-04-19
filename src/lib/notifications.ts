@@ -7,6 +7,7 @@ import { Platform } from 'react-native';
 import type { Reminder } from './types';
 import { getNotificationSettings } from './notification-settings';
 import type { CalendarEventForAlert } from './calendar-events-today';
+import { fetchPreAlertEligibleEvents } from './calendar-events-today';
 
 export type PermissionStatus = 'granted' | 'denied' | 'undetermined';
 
@@ -236,5 +237,7 @@ export async function syncCalendarPreAlerts(events: CalendarEventForAlert[]): Pr
 }
 
 export async function syncOnAppForeground(): Promise<void> {
-  // filled in later
+  await syncDailyDigest();
+  const events = await fetchPreAlertEligibleEvents();
+  await syncCalendarPreAlerts(events);
 }
