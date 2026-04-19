@@ -6,6 +6,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import type { Reminder } from './types';
 import { getNotificationSettings } from './notification-settings';
+import type { CalendarEventForAlert } from './calendar-events-today';
 
 export type PermissionStatus = 'granted' | 'denied' | 'undetermined';
 
@@ -187,8 +188,51 @@ export async function syncDailyDigest(): Promise<void> {
   }
 }
 
-export async function syncCalendarPreAlerts(_events: never[]): Promise<void> {
-  // filled in later
+function calendarIdentifier(eventId: string): string {
+  return `calendar:${eventId}`;
+}
+
+export async function syncCalendarPreAlerts(events: CalendarEventForAlert[]): Promise<void> {
+  const settings = getNotificationSettings();
+  if (!settings.preAlerts) return;
+
+  const permission = await getPermissionStatus();
+  if (permission !== 'granted') return;
+
+  // Cancel all existing calendar:* notifications. The cost of rescheduling
+  // ~10 events is trivial and avoids diffing bugs.
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  for (const s of scheduled) {
+    if (s.identifier.startsWith('calendar:')) {
+      try {
+        await Notifications.cancelScheduledNotificationAsync(s.identifier);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  // Schedule a 15-minute-before alert for each eligible event.
+  for (const event of events) {
+    const fireAt = new Date(event.start.getTime() - 15 * 60 * 1000);
+    if (fireAt.getTime() <= Date.now()) continue;
+    try {
+      await Notifications.scheduleNotificationAsync({
+        identifier: calendarIdentifier(event.id),
+        content: {
+          title: event.title,
+          body: 'Starter om 15 minutter.',
+          data: { type: 'calendarPreAlert', eventId: event.id } satisfies NotificationPayload,
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: fireAt,
+        },
+      });
+    } catch (err) {
+      if (__DEV__) console.warn('[notifications] schedule pre-alert failed:', err);
+    }
+  }
 }
 
 export async function syncOnAppForeground(): Promise<void> {
