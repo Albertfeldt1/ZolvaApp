@@ -1,10 +1,17 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react-native';
-import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
-import { formatToday, weekStrip } from '../lib/date';
+import { formatToday, weekStrip, type WeekStripDay } from '../lib/date';
 import { useDaySchedule, useHasProvider } from '../lib/hooks';
 import type { CalendarSlot } from '../lib/types';
 import { colors, fonts } from '../theme';
@@ -15,38 +22,74 @@ const toneColor = (t: EventTone) =>
 
 type Props = { onGoToSettings: () => void };
 
+// Horizontal paging window: ~1 year each way is plenty for finger scrolling.
+const WEEKS_BEFORE = 26;
+const WEEKS_AFTER = 26;
+const WEEKS_TOTAL = WEEKS_BEFORE + 1 + WEEKS_AFTER;
+
 function addDays(d: Date, days: number): Date {
   const copy = new Date(d);
   copy.setDate(copy.getDate() + days);
   return copy;
 }
 
+function sameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
 export function CalendarScreen({ onGoToSettings }: Props) {
   const today = useMemo(() => new Date(), []);
   const [selectedDate, setSelectedDate] = useState<Date>(today);
-  const [weekAnchor, setWeekAnchor] = useState<Date>(today);
+  const [pageIndex, setPageIndex] = useState<number>(WEEKS_BEFORE);
+  const [pageWidth, setPageWidth] = useState<number>(0);
 
-  const date = useMemo(() => formatToday(selectedDate), [selectedDate]);
-  const strip = useMemo(
-    () => weekStrip(weekAnchor, { today, selected: selectedDate }),
-    [weekAnchor, today, selectedDate],
+  const weekScrollRef = useRef<ScrollView>(null);
+  const didInitScroll = useRef(false);
+
+  useEffect(() => {
+    if (pageWidth > 0 && !didInitScroll.current) {
+      weekScrollRef.current?.scrollTo({ x: WEEKS_BEFORE * pageWidth, animated: false });
+      didInitScroll.current = true;
+    }
+  }, [pageWidth]);
+
+  const weeks = useMemo<WeekStripDay[][]>(
+    () =>
+      Array.from({ length: WEEKS_TOTAL }, (_, i) => {
+        const anchor = addDays(today, (i - WEEKS_BEFORE) * 7);
+        return weekStrip(anchor, { today, selected: selectedDate });
+      }),
+    [today, selectedDate],
   );
-  const isSelectedToday =
-    selectedDate.getFullYear() === today.getFullYear() &&
-    selectedDate.getMonth() === today.getMonth() &&
-    selectedDate.getDate() === today.getDate();
+
+  const visibleAnchor = useMemo(
+    () => addDays(today, (pageIndex - WEEKS_BEFORE) * 7),
+    [today, pageIndex],
+  );
+  const visibleDate = useMemo(() => formatToday(visibleAnchor), [visibleAnchor]);
+  const selectedInfo = useMemo(() => formatToday(selectedDate), [selectedDate]);
+  const isSelectedToday = sameDay(selectedDate, today);
 
   const { data: slots, error: scheduleError } = useDaySchedule(selectedDate);
   const hasEvents = slots.some((s) => s.event);
   const hasProvider = useHasProvider();
   const { bottom: chromeBottom } = useChromeInsets();
 
-  const shiftWeek = (dir: -1 | 1) => {
-    Haptics.selectionAsync();
-    setWeekAnchor((prev) => addDays(prev, dir * 7));
+  const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (!pageWidth) return;
+    const idx = Math.round(e.nativeEvent.contentOffset.x / pageWidth);
+    if (idx !== pageIndex) {
+      Haptics.selectionAsync();
+      setPageIndex(idx);
+    }
   };
 
   const selectDay = (d: Date) => {
+    if (sameDay(d, selectedDate)) return;
     Haptics.selectionAsync();
     setSelectedDate(d);
   };
@@ -54,7 +97,10 @@ export function CalendarScreen({ onGoToSettings }: Props) {
   const jumpToToday = () => {
     Haptics.selectionAsync();
     setSelectedDate(today);
-    setWeekAnchor(today);
+    if (pageWidth > 0) {
+      weekScrollRef.current?.scrollTo({ x: WEEKS_BEFORE * pageWidth, animated: true });
+    }
+    setPageIndex(WEEKS_BEFORE);
   };
 
   return (
@@ -65,60 +111,74 @@ export function CalendarScreen({ onGoToSettings }: Props) {
     >
       <View style={styles.hero}>
         <View style={styles.heroTopRow}>
-          <Text style={styles.eyebrow}>{date.weekHeadline}</Text>
-          {!isSelectedToday && (
+          <Text style={styles.eyebrow}>{visibleDate.weekHeadline}</Text>
+          {(pageIndex !== WEEKS_BEFORE || !isSelectedToday) && (
             <Pressable onPress={jumpToToday} hitSlop={8}>
               <Text style={styles.todayLink}>I dag</Text>
             </Pressable>
           )}
         </View>
-        <Text style={styles.heroH1}>{date.dayHeadline}</Text>
+        <Text style={styles.heroH1}>{selectedInfo.dayHeadline}</Text>
 
-        <View style={styles.stripRow}>
-          <Pressable onPress={() => shiftWeek(-1)} style={styles.weekArrow} hitSlop={8}>
-            <ChevronLeft size={18} color={colors.ink} strokeWidth={1.75} />
-          </Pressable>
-          <View style={styles.dayStrip}>
-            {strip.map((d, i) => (
-              <Pressable
-                key={i}
-                onPress={() => selectDay(d.date)}
-                style={({ pressed }) => [
-                  styles.dayCell,
-                  d.isSelected && styles.dayCellSelected,
-                  d.isToday && !d.isSelected && styles.dayCellToday,
-                  pressed && !d.isSelected && styles.dayCellPressed,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.dayLetter,
-                    d.isSelected && styles.dayLetterSelected,
-                    d.isToday && !d.isSelected && styles.dayLetterToday,
-                  ]}
-                >
-                  {d.letter}
-                </Text>
-                <Text
-                  style={[
-                    styles.dayNum,
-                    d.isSelected && styles.dayNumSelected,
-                    d.isToday && !d.isSelected && styles.dayNumToday,
-                  ]}
-                >
-                  {d.num}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          <Pressable onPress={() => shiftWeek(1)} style={styles.weekArrow} hitSlop={8}>
-            <ChevronRight size={18} color={colors.ink} strokeWidth={1.75} />
-          </Pressable>
+        <View
+          style={styles.stripWrap}
+          onLayout={(e) => setPageWidth(e.nativeEvent.layout.width)}
+        >
+          {pageWidth > 0 && (
+            <ScrollView
+              ref={weekScrollRef}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              decelerationRate="fast"
+              onMomentumScrollEnd={onMomentumEnd}
+              scrollEventThrottle={16}
+            >
+              {weeks.map((week, wi) => (
+                <View key={wi} style={[styles.weekPage, { width: pageWidth }]}>
+                  {week.map((d, di) => (
+                    <Pressable
+                      key={di}
+                      onPress={() => selectDay(d.date)}
+                      style={({ pressed }) => [
+                        styles.dayCell,
+                        d.isSelected && styles.dayCellSelected,
+                        d.isToday && !d.isSelected && styles.dayCellToday,
+                        pressed && !d.isSelected && styles.dayCellPressed,
+                      ]}
+                      hitSlop={4}
+                    >
+                      <Text
+                        style={[
+                          styles.dayLetter,
+                          d.isSelected && styles.dayLetterSelected,
+                          d.isToday && !d.isSelected && styles.dayLetterToday,
+                        ]}
+                      >
+                        {d.letter}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.dayNum,
+                          d.isSelected && styles.dayNumSelected,
+                          d.isToday && !d.isSelected && styles.dayNumToday,
+                        ]}
+                      >
+                        {d.num}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ))}
+            </ScrollView>
+          )}
         </View>
       </View>
 
       <View style={styles.list}>
-        <Text style={styles.sectionTitle}>{isSelectedToday ? 'I dag' : date.weekdayFull}</Text>
+        <Text style={styles.sectionTitle}>
+          {isSelectedToday ? 'I dag' : selectedInfo.dayHeadline}
+        </Text>
         <View style={styles.inkRule} />
         {!hasEvents ? (
           hasProvider ? (
@@ -196,24 +256,19 @@ const styles = StyleSheet.create({
     color: colors.ink,
   },
 
-  stripRow: {
+  stripWrap: {
     marginTop: 16,
+    overflow: 'hidden',
+  },
+  weekPage: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+    gap: 6,
+    justifyContent: 'space-between',
   },
-  weekArrow: {
-    width: 28,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 10,
-  },
-  dayStrip: { flex: 1, flexDirection: 'row', gap: 4, justifyContent: 'space-between' },
   dayCell: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderRadius: 10,
   },
   dayCellSelected: { backgroundColor: colors.ink },

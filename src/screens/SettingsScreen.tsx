@@ -1,5 +1,5 @@
 import { Check } from 'lucide-react-native';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,7 +14,16 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+  interpolateColor,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 import { makeRedirectUri } from 'expo-auth-session';
@@ -489,7 +498,31 @@ function WorkPreferenceRow({
   );
 }
 
+const TOGGLE_EASING = Easing.bezier(0.22, 1, 0.36, 1);
+const TOGGLE_DURATION = 220;
+const TOGGLE_THUMB_TRAVEL = 16; // track 38 - padding 4 - thumb 18
+
 function ToggleRow({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
+  const progress = useSharedValue(on ? 1 : 0);
+
+  useEffect(() => {
+    progress.value = withTiming(on ? 1 : 0, {
+      duration: TOGGLE_DURATION,
+      easing: TOGGLE_EASING,
+    });
+  }, [on, progress]);
+
+  const trackStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      progress.value,
+      [0, 1],
+      [colors.paperOn20, colors.sage],
+    ),
+  }));
+  const thumbStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: progress.value * TOGGLE_THUMB_TRAVEL }],
+  }));
+
   return (
     <View style={styles.toggleRow}>
       <Text style={styles.toggleLabel}>{label}</Text>
@@ -497,14 +530,13 @@ function ToggleRow({ label, on, onPress }: { label: string; on: boolean; onPress
         onPress={onPress}
         accessibilityRole="switch"
         accessibilityState={{ checked: on }}
-        style={({ pressed }) => [
-          styles.toggleTrack,
-          on ? styles.toggleOn : styles.toggleOff,
-          { justifyContent: on ? 'flex-end' : 'flex-start' },
-          pressed && styles.toggleTrackPressed,
-        ]}
+        style={({ pressed }) => [styles.toggleTrack, pressed && styles.toggleTrackPressed]}
       >
-        <View style={styles.toggleThumb} />
+        <Animated.View
+          style={[StyleSheet.absoluteFill, styles.toggleTrackFill, trackStyle]}
+          pointerEvents="none"
+        />
+        <Animated.View style={[styles.toggleThumb, thumbStyle]} />
       </Pressable>
     </View>
   );
@@ -771,9 +803,9 @@ const styles = StyleSheet.create({
   toggleTrack: {
     width: 38, height: 22, borderRadius: 999, padding: 2,
     flexDirection: 'row', alignItems: 'center',
+    overflow: 'hidden',
   },
-  toggleOn: { backgroundColor: colors.sage },
-  toggleOff: { backgroundColor: colors.paperOn20 },
+  toggleTrackFill: { borderRadius: 999 },
   toggleTrackPressed: { opacity: 0.7 },
   toggleThumb: { width: 18, height: 18, borderRadius: 999, backgroundColor: colors.paper },
 

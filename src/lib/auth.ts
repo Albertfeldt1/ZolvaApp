@@ -42,10 +42,29 @@ let initialized = false;
 const sessionListeners = new Set<(s: Session | null) => void>();
 const googleListeners = new Set<(t: string | null) => void>();
 const microsoftListeners = new Set<(t: string | null) => void>();
+const userIdListeners = new Set<(uid: string | null) => void>();
+
+let lastBroadcastUid: string | null | undefined = undefined;
+const broadcastUserIdIfChanged = () => {
+  const uid = cachedSession?.user?.id ?? null;
+  if (lastBroadcastUid === uid) return;
+  lastBroadcastUid = uid;
+  userIdListeners.forEach((l) => l(uid));
+};
+
+export function subscribeUserId(listener: (uid: string | null) => void): () => void {
+  init();
+  userIdListeners.add(listener);
+  listener(cachedSession?.user?.id ?? null);
+  return () => {
+    userIdListeners.delete(listener);
+  };
+}
 
 const broadcastSession = (s: Session | null) => {
   cachedSession = s;
   sessionListeners.forEach((l) => l(s));
+  broadcastUserIdIfChanged();
 };
 
 const broadcastGoogle = (t: string | null) => {
