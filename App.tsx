@@ -21,7 +21,7 @@ import {
 } from '@expo-google-fonts/playfair-display';
 import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { ChromeInsetsContext, PhoneChrome, TabId } from './src/components/PhoneChrome';
@@ -33,6 +33,7 @@ import { InboxScreen } from './src/screens/InboxScreen';
 import { MemoryScreen } from './src/screens/MemoryScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { TodayScreen } from './src/screens/TodayScreen';
+import { runStartupMigrations } from './src/lib/migrations';
 import type { InboxMail } from './src/lib/types';
 import { colors } from './src/theme';
 
@@ -60,6 +61,10 @@ export default function App() {
   const [openMail, setOpenMail] = useState<InboxMail | null>(null);
   const [chromeOverDark, setChromeOverDark] = useState(false);
   const [chromeHeight, setChromeHeight] = useState(0);
+
+  useEffect(() => {
+    void runStartupMigrations();
+  }, []);
 
   // Shadow from the tab bar bleeds a few pixels above its measured box;
   // a small buffer keeps the last line of content clear of it.
