@@ -22,6 +22,8 @@ export type GraphMessageBody = {
   text: string;
 };
 
+export type GraphAttendeeStatus = 'none' | 'accepted' | 'tentativelyAccepted' | 'declined' | 'notResponded' | 'organizer';
+
 export type GraphCalendarEvent = {
   id: string;
   subject: string;
@@ -29,6 +31,8 @@ export type GraphCalendarEvent = {
   end: Date;
   location?: string;
   isAllDay: boolean;
+  hasOtherAttendees: boolean;
+  userResponse: GraphAttendeeStatus;
 };
 
 type RawMessage = {
@@ -51,6 +55,8 @@ type RawEvent = {
   end: { dateTime: string; timeZone?: string };
   location?: { displayName?: string };
   isAllDay?: boolean;
+  attendees?: Array<{ emailAddress?: { address?: string } }>;
+  responseStatus?: { response?: GraphAttendeeStatus };
 };
 
 async function graphFetch<T>(
@@ -159,7 +165,8 @@ export async function listCalendarEvents(
   return tryWithRefresh('microsoft', async (token) => {
     const path =
       `/me/calendarView?startDateTime=${start.toISOString()}&endDateTime=${end.toISOString()}` +
-      `&$select=id,subject,start,end,location,isAllDay&$orderby=start/dateTime&$top=50`;
+      `&$select=id,subject,start,end,location,isAllDay,attendees,responseStatus` +
+      `&$orderby=start/dateTime&$top=50`;
     const data = await graphFetch<{ value: RawEvent[] }>(token, path);
     return data.value.map((e) => ({
       id: e.id,
@@ -168,6 +175,8 @@ export async function listCalendarEvents(
       end: new Date(`${e.end.dateTime}Z`),
       location: e.location?.displayName,
       isAllDay: e.isAllDay ?? false,
+      hasOtherAttendees: (e.attendees ?? []).length > 0,
+      userResponse: e.responseStatus?.response ?? 'none',
     }));
   });
 }

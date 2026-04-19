@@ -6,12 +6,19 @@ import { ProviderAuthError, tryWithRefresh } from './auth';
 
 const BASE = 'https://www.googleapis.com/calendar/v3';
 
+export type GoogleCalendarAttendee = {
+  email?: string;
+  self?: boolean;
+  responseStatus?: 'accepted' | 'declined' | 'tentative' | 'needsAction';
+};
+
 export type GoogleCalendarEvent = {
   id: string;
   summary?: string;
   location?: string;
   start: { dateTime?: string; date?: string; timeZone?: string };
   end: { dateTime?: string; date?: string; timeZone?: string };
+  attendees?: GoogleCalendarAttendee[];
 };
 
 export async function listEvents(
@@ -55,4 +62,23 @@ export function eventEnd(e: GoogleCalendarEvent): Date | null {
 
 export function isAllDay(e: GoogleCalendarEvent): boolean {
   return !e.start.dateTime && !!e.start.date;
+}
+
+// True when the event has at least one attendee other than the signed-in
+// user. Google includes the organizer themselves in `attendees`; we treat
+// events with only the `self: true` attendee as solo.
+export function hasOtherAttendees(e: GoogleCalendarEvent): boolean {
+  const list = e.attendees ?? [];
+  return list.some((a) => a.self !== true);
+}
+
+// True when the signed-in user has accepted the event. If there are no
+// attendees at all, this returns true (solo events count as accepted even
+// though `hasOtherAttendees` will filter them out separately).
+export function userAccepted(e: GoogleCalendarEvent): boolean {
+  const list = e.attendees ?? [];
+  if (list.length === 0) return true;
+  const me = list.find((a) => a.self === true);
+  if (!me) return true;
+  return me.responseStatus === 'accepted';
 }
