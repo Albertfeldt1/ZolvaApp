@@ -80,13 +80,51 @@ export function registerResponseHandler(
   return () => sub.remove();
 }
 
-// Placeholder — filled in by later tasks.
-export async function scheduleReminderNotification(_reminder: Reminder): Promise<void> {
-  void getNotificationSettings;
+export async function scheduleReminderNotification(reminder: Reminder): Promise<void> {
+  const settings = getNotificationSettings();
+  if (!settings.reminders) return;
+  if (!reminder.dueAt) return;
+  if (reminder.dueAt.getTime() <= Date.now()) return;
+
+  const permission = await getPermissionStatus();
+  if (permission !== 'granted') return;
+
+  const identifier = reminderIdentifier(reminder.id);
+  // Cancel any prior scheduled version first so edits don't double-fire.
+  try {
+    await Notifications.cancelScheduledNotificationAsync(identifier);
+  } catch {
+    // iOS throws if the identifier is unknown; that's fine.
+  }
+
+  try {
+    await Notifications.scheduleNotificationAsync({
+      identifier,
+      content: {
+        title: 'Påmindelse',
+        body: reminder.text,
+        data: { type: 'reminder', reminderId: reminder.id } satisfies NotificationPayload,
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: reminder.dueAt,
+      },
+    });
+  } catch (err) {
+    if (__DEV__) console.warn('[notifications] schedule reminder failed:', err);
+  }
 }
 
-export async function cancelReminderNotification(_reminderId: string): Promise<void> {
-  // filled in later
+export async function cancelReminderNotification(reminderId: string): Promise<void> {
+  try {
+    await Notifications.cancelScheduledNotificationAsync(reminderIdentifier(reminderId));
+  } catch {
+    // Unknown identifier on iOS throws; treat as no-op.
+  }
+}
+
+function reminderIdentifier(id: string): string {
+  return `reminder:${id}`;
 }
 
 export async function syncDailyDigest(): Promise<void> {

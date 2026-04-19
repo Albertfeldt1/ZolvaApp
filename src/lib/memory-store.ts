@@ -2,13 +2,23 @@
 // entries survive app restart. Hooks (useReminders, useNotes) subscribe
 // to the listener sets here. Chat tool handlers mutate via the exported
 // add*/remove* functions so Zolva can genuinely remember things.
+//
+// Storage is scoped to the active Supabase user id. Signing in as a
+// different user swaps the in-memory cache and rehydrates from that
+// user's keys — previous user's reminders and notes never leak.
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { subscribeUserId } from './auth';
 import type { Note, NoteCategory, Reminder, ReminderStatus } from './types';
+import {
+  cancelReminderNotification,
+  scheduleReminderNotification,
+} from './notifications';
 
-const REMINDERS_KEY = 'zolva.memory.reminders';
-const NOTES_KEY = 'zolva.memory.notes';
+const remindersKey = (uid: string) => `zolva.${uid}.memory.reminders`;
+const notesKey = (uid: string) => `zolva.${uid}.memory.notes`;
 
+let currentUid: string | null = null;
 let remindersCache: Reminder[] = [];
 let notesCache: Note[] = [];
 let hydrated = false;
@@ -28,14 +38,9 @@ function notifyNotes() {
 
 function reviveReminder(raw: unknown): Reminder | null {
   if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Partial<Reminder> & { dueAt?: string | Date | null; createdAt?: string | Date };
+  const r = raw as Partial<Reminder> & { dueAt?: string | Date; createdAt?: string | Date };
   if (typeof r.id !== 'string' || typeof r.text !== 'string') return null;
-  const dueAt =
-    r.dueAt == null
-      ? null
-      : r.dueAt instanceof Date
-        ? r.dueAt
-        : new Date(r.dueAt);
+  const dueAt = r.dueAt instanceof Date ? r.dueAt : new Date(r.dueAt ?? Date.now());
   const createdAt = r.createdAt instanceof Date ? r.createdAt : new Date(r.createdAt ?? Date.now());
   const status: ReminderStatus = r.status === 'done' ? 'done' : 'pending';
   return { id: r.id, text: r.text, dueAt, createdAt, status };
@@ -56,12 +61,20 @@ function reviveNote(raw: unknown): Note | null {
 async function hydrate(): Promise<void> {
   if (hydrated) return;
   if (hydrationPromise) return hydrationPromise;
+  const uid = currentUid;
+  if (!uid) {
+    hydrated = true;
+    return;
+  }
   hydrationPromise = (async () => {
     try {
       const [[, remindersRaw], [, notesRaw]] = await AsyncStorage.multiGet([
-        REMINDERS_KEY,
-        NOTES_KEY,
+        remindersKey(uid),
+        notesKey(uid),
       ]);
+      // Bail if the active user changed during the read — the effect for
+      // the new user will run its own hydrate.
+      if (uid !== currentUid) return;
       if (remindersRaw) {
         const parsed = JSON.parse(remindersRaw) as unknown;
         if (Array.isArray(parsed)) {
@@ -77,24 +90,47 @@ async function hydrate(): Promise<void> {
     } catch (err) {
       if (__DEV__) console.warn('[memory-store] hydrate failed:', err);
     }
-    hydrated = true;
-    notifyReminders();
-    notifyNotes();
-  })();
+    if (uid === currentUid) {
+      hydrated = true;
+      notifyReminders();
+      notifyNotes();
+    }
+  })().finally(() => {
+    hydrationPromise = null;
+  });
   return hydrationPromise;
 }
 
+let userSubscribed = false;
+function ensureUserSubscription() {
+  if (userSubscribed) return;
+  userSubscribed = true;
+  subscribeUserId((uid) => {
+    if (uid === currentUid) return;
+    currentUid = uid;
+    remindersCache = [];
+    notesCache = [];
+    hydrated = false;
+    hydrationPromise = null;
+    notifyReminders();
+    notifyNotes();
+    if (uid) void hydrate();
+  });
+}
+
 async function persistReminders() {
+  if (!currentUid) return;
   try {
-    await AsyncStorage.setItem(REMINDERS_KEY, JSON.stringify(remindersCache));
+    await AsyncStorage.setItem(remindersKey(currentUid), JSON.stringify(remindersCache));
   } catch (err) {
     if (__DEV__) console.warn('[memory-store] persist reminders failed:', err);
   }
 }
 
 async function persistNotes() {
+  if (!currentUid) return;
   try {
-    await AsyncStorage.setItem(NOTES_KEY, JSON.stringify(notesCache));
+    await AsyncStorage.setItem(notesKey(currentUid), JSON.stringify(notesCache));
   } catch (err) {
     if (__DEV__) console.warn('[memory-store] persist notes failed:', err);
   }
@@ -105,10 +141,12 @@ function genId(prefix: string): string {
 }
 
 export function initMemoryStore(): void {
+  ensureUserSubscription();
   void hydrate();
 }
 
 export function subscribeReminders(listener: (r: Reminder[]) => void): () => void {
+  ensureUserSubscription();
   remindersListeners.add(listener);
   void hydrate();
   listener(remindersCache);
@@ -118,6 +156,7 @@ export function subscribeReminders(listener: (r: Reminder[]) => void): () => voi
 }
 
 export function subscribeNotes(listener: (n: Note[]) => void): () => void {
+  ensureUserSubscription();
   notesListeners.add(listener);
   void hydrate();
   listener(notesCache);
@@ -148,6 +187,7 @@ export async function addReminder(text: string, dueAt?: Date | null): Promise<Re
   remindersCache = [...remindersCache, reminder];
   notifyReminders();
   await persistReminders();
+  void scheduleReminderNotification(reminder);
   return reminder;
 }
 
@@ -156,6 +196,7 @@ export async function markReminderDone(id: string): Promise<void> {
   remindersCache = remindersCache.map((r) => (r.id === id ? { ...r, status: 'done' } : r));
   notifyReminders();
   await persistReminders();
+  void cancelReminderNotification(id);
 }
 
 export async function removeReminder(id: string): Promise<void> {
@@ -163,10 +204,13 @@ export async function removeReminder(id: string): Promise<void> {
   remindersCache = remindersCache.filter((r) => r.id !== id);
   notifyReminders();
   await persistReminders();
+  void cancelReminderNotification(id);
 }
 
 export async function addNote(text: string, category: NoteCategory = 'note'): Promise<Note> {
+  ensureUserSubscription();
   await hydrate();
+  if (!currentUid) throw new Error('No active user — sign in before storing notes.');
   const trimmed = text.trim();
   if (!trimmed) throw new Error('Note text is required');
   const note: Note = {
@@ -182,6 +226,7 @@ export async function addNote(text: string, category: NoteCategory = 'note'): Pr
 }
 
 export async function removeNote(id: string): Promise<void> {
+  ensureUserSubscription();
   await hydrate();
   notesCache = notesCache.filter((n) => n.id !== id);
   notifyNotes();
