@@ -174,7 +174,9 @@ export function listNotes(): Note[] {
 }
 
 export async function addReminder(text: string, dueAt?: Date | null): Promise<Reminder> {
+  ensureUserSubscription();
   await hydrate();
+  if (!currentUid) throw new Error('No active user — sign in before storing reminders.');
   const trimmed = text.trim();
   if (!trimmed) throw new Error('Reminder text is required');
   const reminder: Reminder = {
@@ -192,6 +194,7 @@ export async function addReminder(text: string, dueAt?: Date | null): Promise<Re
 }
 
 export async function markReminderDone(id: string): Promise<void> {
+  ensureUserSubscription();
   await hydrate();
   remindersCache = remindersCache.map((r) => (r.id === id ? { ...r, status: 'done' } : r));
   notifyReminders();
@@ -200,6 +203,7 @@ export async function markReminderDone(id: string): Promise<void> {
 }
 
 export async function removeReminder(id: string): Promise<void> {
+  ensureUserSubscription();
   await hydrate();
   remindersCache = remindersCache.filter((r) => r.id !== id);
   notifyReminders();

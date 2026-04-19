@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAuth } from './auth';
+import { subscribeUserId, useAuth } from './auth';
 import {
   complete,
   completeJson,
@@ -274,6 +274,20 @@ type NormalizedMail = {
 const dismissedMailIds = new Set<string>();
 const dismissListeners = new Set<() => void>();
 
+// Clear the dismissed set whenever the active user changes. The first
+// notification from subscribeUserId is the initial uid — skip it so we
+// don't fire a no-op refresh before any data has been dismissed.
+let dismissInitialSeen = false;
+subscribeUserId(() => {
+  if (!dismissInitialSeen) {
+    dismissInitialSeen = true;
+    return;
+  }
+  if (dismissedMailIds.size === 0) return;
+  dismissedMailIds.clear();
+  dismissListeners.forEach((l) => l());
+});
+
 function markMailDismissed(id: string): void {
   if (dismissedMailIds.has(id)) return;
   dismissedMailIds.add(id);
@@ -310,7 +324,7 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
       return;
     }
     let cancelled = false;
-    setState((s) => ({ ...s, loading: true, error: null }));
+    setState({ items: [], loading: true, error: null });
     const { start, end } =
       rangeStartMs != null && rangeEndMs != null
         ? { start: new Date(rangeStartMs), end: new Date(rangeEndMs) }
@@ -393,7 +407,7 @@ function useMailItems(): {
       return;
     }
     let cancelled = false;
-    setState((s) => ({ ...s, loading: true, error: null }));
+    setState({ items: [], loading: true, error: null });
 
     const tasks: Promise<NormalizedMail[]>[] = [];
     if (googleAccessToken) {
@@ -900,14 +914,19 @@ const DEFAULT_WORK_PREFERENCES: WorkPreference[] = [
   },
 ];
 
-const WORK_PREFS_KEY = 'zolva.prefs.work';
+const workPrefsKey = (uid: string) => `zolva.${uid}.prefs.work`;
 
 export function useWorkPreferences() {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
   const [rows, setRows] = useState<WorkPreference[]>(DEFAULT_WORK_PREFERENCES);
 
   useEffect(() => {
-    AsyncStorage.getItem(WORK_PREFS_KEY).then((raw) => {
-      if (!raw) return;
+    setRows(DEFAULT_WORK_PREFERENCES);
+    if (!userId) return;
+    let cancelled = false;
+    AsyncStorage.getItem(workPrefsKey(userId)).then((raw) => {
+      if (cancelled || !raw) return;
       try {
         const saved = JSON.parse(raw) as Record<WorkPreferenceId, string>;
         setRows((prev) =>
@@ -917,16 +936,24 @@ export function useWorkPreferences() {
         );
       } catch {}
     });
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
-  const setValue = useCallback((id: WorkPreferenceId, value: string) => {
-    setRows((prev) => {
-      const next = prev.map((r) => (r.id === id ? { ...r, value } : r));
-      const snapshot = Object.fromEntries(next.map((r) => [r.id, r.value]));
-      AsyncStorage.setItem(WORK_PREFS_KEY, JSON.stringify(snapshot)).catch(() => {});
-      return next;
-    });
-  }, []);
+  const setValue = useCallback(
+    (id: WorkPreferenceId, value: string) => {
+      setRows((prev) => {
+        const next = prev.map((r) => (r.id === id ? { ...r, value } : r));
+        if (userId) {
+          const snapshot = Object.fromEntries(next.map((r) => [r.id, r.value]));
+          AsyncStorage.setItem(workPrefsKey(userId), JSON.stringify(snapshot)).catch(() => {});
+        }
+        return next;
+      });
+    },
+    [userId],
+  );
 
   return { data: rows, loading: false, error: null as Error | null, setValue };
 }
@@ -945,13 +972,28 @@ const DEFAULT_PRIVACY_TOGGLES: PrivacyToggle[] = [
   { id: 'anon-reports', label: 'Del fejlrapporter anonymt', enabled: PRIVACY_DEFAULTS['anon-reports'] },
 ];
 
-const PRIVACY_TOGGLES_KEY = 'zolva.prefs.privacy';
+const privacyTogglesKey = (uid: string) => `zolva.${uid}.prefs.privacy`;
 
 // Module-level cache so non-hook code (useChat side effects, API calls)
-// can read flags synchronously. Hydrated once from AsyncStorage on first
-// usePrivacyToggles mount and kept in sync on every flip.
+// can read flags synchronously. Reset + rehydrated whenever the active
+// user changes so flags never leak across accounts.
 let privacyCache: Partial<Record<PrivacyFlagId, boolean>> = {};
 let privacyHydrated = false;
+let privacyHydrationPromise: Promise<void> | null = null;
+let privacyUid: string | null = null;
+let privacyUserSubscribed = false;
+
+function ensurePrivacyUserSubscription() {
+  if (privacyUserSubscribed) return;
+  privacyUserSubscribed = true;
+  subscribeUserId((uid) => {
+    if (uid === privacyUid) return;
+    privacyUid = uid;
+    privacyCache = {};
+    privacyHydrated = false;
+    privacyHydrationPromise = null;
+  });
+}
 
 export function getPrivacyFlag(id: PrivacyFlagId): boolean {
   const cached = privacyCache[id];
@@ -959,19 +1001,38 @@ export function getPrivacyFlag(id: PrivacyFlagId): boolean {
 }
 
 async function hydratePrivacyCache(): Promise<void> {
+  ensurePrivacyUserSubscription();
   if (privacyHydrated) return;
-  try {
-    const raw = await AsyncStorage.getItem(PRIVACY_TOGGLES_KEY);
-    if (raw) privacyCache = JSON.parse(raw) as Partial<Record<PrivacyFlagId, boolean>>;
-  } catch {}
-  privacyHydrated = true;
+  if (privacyHydrationPromise) return privacyHydrationPromise;
+  const uid = privacyUid;
+  if (!uid) {
+    privacyHydrated = true;
+    return;
+  }
+  privacyHydrationPromise = (async () => {
+    try {
+      const raw = await AsyncStorage.getItem(privacyTogglesKey(uid));
+      if (uid !== privacyUid) return;
+      if (raw) privacyCache = JSON.parse(raw) as Partial<Record<PrivacyFlagId, boolean>>;
+    } catch {}
+    if (uid === privacyUid) privacyHydrated = true;
+  })().finally(() => {
+    privacyHydrationPromise = null;
+  });
+  return privacyHydrationPromise;
 }
 
 export function usePrivacyToggles() {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
   const [toggles, setToggles] = useState<PrivacyToggle[]>(DEFAULT_PRIVACY_TOGGLES);
 
   useEffect(() => {
+    setToggles(DEFAULT_PRIVACY_TOGGLES);
+    if (!userId) return;
+    let cancelled = false;
     hydratePrivacyCache().then(() => {
+      if (cancelled) return;
       setToggles((prev) =>
         prev.map((t) => {
           const saved = privacyCache[t.id as PrivacyFlagId];
@@ -979,20 +1040,28 @@ export function usePrivacyToggles() {
         }),
       );
     });
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
-  const flip = useCallback((id: string) => {
-    setToggles((prev) => {
-      const next = prev.map((t) => (t.id === id ? { ...t, enabled: !t.enabled } : t));
-      const snapshot = Object.fromEntries(next.map((t) => [t.id, t.enabled])) as Partial<
-        Record<PrivacyFlagId, boolean>
-      >;
-      privacyCache = snapshot;
-      privacyHydrated = true;
-      AsyncStorage.setItem(PRIVACY_TOGGLES_KEY, JSON.stringify(snapshot)).catch(() => {});
-      return next;
-    });
-  }, []);
+  const flip = useCallback(
+    (id: string) => {
+      setToggles((prev) => {
+        const next = prev.map((t) => (t.id === id ? { ...t, enabled: !t.enabled } : t));
+        const snapshot = Object.fromEntries(next.map((t) => [t.id, t.enabled])) as Partial<
+          Record<PrivacyFlagId, boolean>
+        >;
+        privacyCache = snapshot;
+        privacyHydrated = true;
+        if (userId) {
+          AsyncStorage.setItem(privacyTogglesKey(userId), JSON.stringify(snapshot)).catch(() => {});
+        }
+        return next;
+      });
+    },
+    [userId],
+  );
 
   return { data: toggles, loading: false, error: null as Error | null, flip };
 }
@@ -1033,7 +1102,7 @@ export function useNotes() {
   };
 }
 
-const CHAT_HISTORY_KEY = 'zolva.chat.history';
+const chatHistoryKey = (uid: string) => `zolva.${uid}.chat.history`;
 const CHAT_HISTORY_LIMIT = 50;
 const CHAT_ERROR_TEXT = 'Jeg kunne ikke nå frem — prøv igen.';
 
@@ -1156,31 +1225,46 @@ export function useChat() {
   const name = profile?.name ?? '';
   const userId = user?.id;
 
+  // Reset messages + re-hydrate whenever the active user changes so chat
+  // history never leaks across accounts.
   useEffect(() => {
+    setMessages([]);
+    setHydrated(false);
+    if (!userId) {
+      setHydrated(true);
+      return;
+    }
+    let cancelled = false;
     hydratePrivacyCache()
       .then(() => {
         if (!getPrivacyFlag('local-only')) return null;
-        return AsyncStorage.getItem(CHAT_HISTORY_KEY);
+        return AsyncStorage.getItem(chatHistoryKey(userId));
       })
       .then((raw) => {
-        if (!raw) return;
+        if (cancelled || !raw) return;
         try {
           const saved = JSON.parse(raw) as ChatMessage[];
           if (Array.isArray(saved)) setMessages(saved);
         } catch {}
       })
-      .finally(() => setHydrated(true));
-  }, []);
+      .finally(() => {
+        if (!cancelled) setHydrated(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || !userId) return;
+    const key = chatHistoryKey(userId);
     if (!getPrivacyFlag('local-only')) {
-      AsyncStorage.removeItem(CHAT_HISTORY_KEY).catch(() => {});
+      AsyncStorage.removeItem(key).catch(() => {});
       return;
     }
     const capped = messages.slice(-CHAT_HISTORY_LIMIT);
-    AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(capped)).catch(() => {});
-  }, [messages, hydrated]);
+    AsyncStorage.setItem(key, JSON.stringify(capped)).catch(() => {});
+  }, [messages, hydrated, userId]);
 
   const send = useCallback(
     (text: string) => {
