@@ -103,8 +103,7 @@ export async function scheduleReminderNotification(reminder: Reminder): Promise<
     await Notifications.scheduleNotificationAsync({
       identifier,
       content: {
-        title: 'Påmindelse',
-        body: reminder.text,
+        title: reminder.text,
         data: { type: 'reminder', reminderId: reminder.id } satisfies NotificationPayload,
       },
       trigger: {
