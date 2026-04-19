@@ -16,7 +16,10 @@
     "ios": {
       "supportsTablet": true,
       "usesAppleSignIn": true,
-      "bundleIdentifier": "com.zolva.app"
+      "bundleIdentifier": "com.zolva.app",
+      "infoPlist": {
+        "NSUserNotificationsUsageDescription": "Zolva sender notifikationer om påmindelser, dagens overblik og kommende møder."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -32,7 +35,13 @@
     "plugins": [
       "expo-font",
       "expo-web-browser",
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      [
+        "expo-notifications",
+        {
+          "color": "#ffffff"
+        }
+      ]
     ]
   }
 }
