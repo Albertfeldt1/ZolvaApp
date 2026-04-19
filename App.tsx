@@ -34,7 +34,7 @@ import { MemoryScreen } from './src/screens/MemoryScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { TodayScreen } from './src/screens/TodayScreen';
 import { runStartupMigrations } from './src/lib/migrations';
-import { syncOnAppForeground } from './src/lib/notifications';
+import { registerResponseHandler, syncOnAppForeground } from './src/lib/notifications';
 import { initNotificationSettings } from './src/lib/notification-settings';
 import type { InboxMail } from './src/lib/types';
 import { colors } from './src/theme';
@@ -75,6 +75,23 @@ export default function App() {
       if (state === 'active') void syncOnAppForeground();
     });
     return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    const unsub = registerResponseHandler((payload) => {
+      setChatOpen(false);
+      setOpenMail(null);
+      switch (payload.type) {
+        case 'reminder':
+        case 'digest':
+          setTab('today');
+          break;
+        case 'calendarPreAlert':
+          setTab('calendar');
+          break;
+      }
+    });
+    return unsub;
   }, []);
 
   // Shadow from the tab bar bleeds a few pixels above its measured box;
