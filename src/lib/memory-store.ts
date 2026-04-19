@@ -14,6 +14,7 @@ import {
   cancelReminderNotification,
   scheduleReminderNotification,
 } from './notifications';
+import { recordFeedEntry } from './notification-feed';
 
 const remindersKey = (uid: string) => `zolva.${uid}.memory.reminders`;
 const notesKey = (uid: string) => `zolva.${uid}.memory.notes`;
@@ -190,6 +191,15 @@ export async function addReminder(text: string, dueAt?: Date | null): Promise<Re
   notifyReminders();
   await persistReminders();
   void scheduleReminderNotification(reminder);
+  void recordFeedEntry({
+    id: `reminderAdded:${reminder.id}`,
+    type: 'reminderAdded',
+    title: 'Påmindelse tilføjet',
+    body: reminder.text,
+    firesAt: reminder.createdAt,
+    createdAt: reminder.createdAt,
+    payload: { type: 'reminderAdded', reminderId: reminder.id },
+  });
   return reminder;
 }
 

@@ -45,6 +45,7 @@ import type {
   ChatMessage,
   Connection,
   DoneMail,
+  FeedEntry,
   InboxMail,
   MailDetail,
   MailProvider,
@@ -60,6 +61,12 @@ import type {
   WorkPreference,
   WorkPreferenceId,
 } from './types';
+import {
+  listFeedEntries,
+  markAllFeedRead,
+  markFeedEntryRead,
+  subscribeFeed,
+} from './notification-feed';
 
 // All hooks return placeholder/empty state. When the backend is wired,
 // swap the internals for real data sources (Supabase auth, API fetches,
@@ -1100,6 +1107,55 @@ export function useNotes() {
     remove,
     add,
   };
+}
+
+// Entries are hidden until their `firesAt` passes — scheduled-but-not-yet-
+// fired notifications shouldn't appear in the feed.
+function visibleFeed(entries: FeedEntry[], now: number): FeedEntry[] {
+  return entries
+    .filter((e) => e.firesAt.getTime() <= now)
+    .sort((a, b) => b.firesAt.getTime() - a.firesAt.getTime());
+}
+
+export function useNotificationFeed() {
+  const [entries, setEntries] = useState<FeedEntry[]>(() => listFeedEntries());
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => subscribeFeed(setEntries), []);
+
+  // Tick the cutoff forward so entries scheduled in the near future reveal
+  // themselves without needing a manual refresh.
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const visible = visibleFeed(entries, now);
+  const markRead = useCallback((id: string) => {
+    void markFeedEntryRead(id);
+  }, []);
+  const markAll = useCallback(() => {
+    void markAllFeedRead();
+  }, []);
+
+  return {
+    data: visible,
+    loading: false,
+    error: null as Error | null,
+    markRead,
+    markAll,
+  };
+}
+
+export function useUnreadNotificationCount(): number {
+  const [entries, setEntries] = useState<FeedEntry[]>(() => listFeedEntries());
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => subscribeFeed(setEntries), []);
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(interval);
+  }, []);
+  return entries.filter((e) => e.readAt == null && e.firesAt.getTime() <= now).length;
 }
 
 const chatHistoryKey = (uid: string) => `zolva.${uid}.chat.history`;

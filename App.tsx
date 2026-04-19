@@ -31,12 +31,14 @@ import { ChatScreen } from './src/screens/ChatScreen';
 import { InboxDetailScreen } from './src/screens/InboxDetailScreen';
 import { InboxScreen } from './src/screens/InboxScreen';
 import { MemoryScreen } from './src/screens/MemoryScreen';
+import { NotificationsScreen } from './src/screens/NotificationsScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { TodayScreen } from './src/screens/TodayScreen';
 import { runStartupMigrations } from './src/lib/migrations';
 import { registerResponseHandler, syncOnAppForeground } from './src/lib/notifications';
 import { initNotificationSettings } from './src/lib/notification-settings';
-import type { InboxMail } from './src/lib/types';
+import { initNotificationFeed, markFeedByPayload } from './src/lib/notification-feed';
+import type { InboxMail, NotificationPayload } from './src/lib/types';
 import { colors } from './src/theme';
 
 export default function App() {
@@ -61,6 +63,7 @@ export default function App() {
   const [tab, setTab] = useState<TabId>('today');
   const [chatOpen, setChatOpen] = useState(false);
   const [openMail, setOpenMail] = useState<InboxMail | null>(null);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [chromeOverDark, setChromeOverDark] = useState(false);
   const [chromeHeight, setChromeHeight] = useState(0);
 
@@ -70,6 +73,7 @@ export default function App() {
 
   useEffect(() => {
     initNotificationSettings();
+    initNotificationFeed();
     void syncOnAppForeground();
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') void syncOnAppForeground();
@@ -81,6 +85,8 @@ export default function App() {
     const unsub = registerResponseHandler((payload) => {
       setChatOpen(false);
       setOpenMail(null);
+      setNotificationsOpen(false);
+      void markFeedByPayload(payload);
       switch (payload.type) {
         case 'reminder':
         case 'digest':
@@ -122,7 +128,34 @@ export default function App() {
     setTab(t);
     setChatOpen(false);
     setOpenMail(null);
+    setNotificationsOpen(false);
     if (t !== 'today' && t !== 'inbox') setChromeOverDark(false);
+  };
+
+  const openNotifications = () => {
+    Haptics.selectionAsync();
+    setNotificationsOpen(true);
+  };
+
+  const closeNotifications = () => {
+    Haptics.selectionAsync();
+    setNotificationsOpen(false);
+  };
+
+  const handleNotificationNavigate = (payload: NotificationPayload) => {
+    setNotificationsOpen(false);
+    setChatOpen(false);
+    setOpenMail(null);
+    switch (payload.type) {
+      case 'reminder':
+      case 'digest':
+      case 'reminderAdded':
+        setTab('today');
+        break;
+      case 'calendarPreAlert':
+        setTab('calendar');
+        break;
+    }
   };
 
   const openMailDetail = (m: InboxMail) => {
@@ -161,6 +194,7 @@ export default function App() {
                 onOpenChat={openChat}
                 onGoToSettings={() => switchTab('settings')}
                 onGoToMemory={() => switchTab('memory')}
+                onOpenNotifications={openNotifications}
                 onOverDarkChange={setChromeOverDark}
               />
             )}
@@ -186,8 +220,21 @@ export default function App() {
             <InboxDetailScreen mail={openMail} onClose={closeMailDetail} />
           </Animated.View>
         )}
+        {notificationsOpen && !chatOpen && !openMail && (
+          <Animated.View
+            key="notifications"
+            style={StyleSheet.absoluteFill}
+            entering={SlideInDown.duration(320)}
+            exiting={SlideOutDown.duration(260)}
+          >
+            <NotificationsScreen
+              onClose={closeNotifications}
+              onNavigate={handleNotificationNavigate}
+            />
+          </Animated.View>
+        )}
       </View>
-      {!chatOpen && !openMail && (
+      {!chatOpen && !openMail && !notificationsOpen && (
         <View
           style={styles.chrome}
           pointerEvents="box-none"

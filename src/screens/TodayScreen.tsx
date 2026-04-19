@@ -23,6 +23,7 @@ import {
   useNotes,
   useObservations,
   useReminders,
+  useUnreadNotificationCount,
   useUpcoming,
   useUser,
 } from '../lib/hooks';
@@ -36,12 +37,19 @@ type Props = {
   onOpenChat: () => void;
   onGoToSettings: () => void;
   onGoToMemory: () => void;
+  onOpenNotifications: () => void;
   onOverDarkChange?: (over: boolean) => void;
 };
 
 const PILL_CLEARANCE = 76;
 
-export function TodayScreen({ onOpenChat, onGoToSettings, onGoToMemory, onOverDarkChange }: Props) {
+export function TodayScreen({
+  onOpenChat,
+  onGoToSettings,
+  onGoToMemory,
+  onOpenNotifications,
+  onOverDarkChange,
+}: Props) {
   const today = useMemo(() => new Date(), []);
   const dateInfo = useMemo(() => formatToday(today), [today]);
   const hello = useMemo(() => greeting(today), [today]);
@@ -53,6 +61,7 @@ export function TodayScreen({ onOpenChat, onGoToSettings, onGoToMemory, onOverDa
   const { data: waiting } = useInboxWaiting();
   const { data: reminders } = useReminders();
   const { data: notes } = useNotes();
+  const unreadNotifications = useUnreadNotificationCount();
   const hasProvider = useHasProvider();
 
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set());
@@ -141,11 +150,12 @@ export function TodayScreen({ onOpenChat, onGoToSettings, onGoToMemory, onOverDa
         <View style={styles.heroTopRow}>
           <Text style={styles.eyebrow}>{dateInfo.eyebrow}</Text>
           <Pressable
-            onPress={onGoToMemory}
+            onPress={onOpenNotifications}
             style={({ pressed }) => [styles.roundIcon, pressed && { opacity: 0.6 }]}
             hitSlop={8}
           >
             <Bell size={16} color={colors.ink} strokeWidth={1.75} />
+            {unreadNotifications > 0 && <View style={styles.bellBadge} />}
           </Pressable>
         </View>
         <Text style={styles.heroH1}>
@@ -367,6 +377,17 @@ const styles = StyleSheet.create({
     width: 34, height: 34, borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.6)',
     alignItems: 'center', justifyContent: 'center',
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: colors.clay,
+    borderWidth: 1.5,
+    borderColor: colors.paper,
   },
   heroH1: {
     marginTop: 10,

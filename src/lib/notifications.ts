@@ -4,17 +4,15 @@
 
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import type { Reminder } from './types';
+import type { NotificationPayload, Reminder } from './types';
 import { getNotificationSettings } from './notification-settings';
 import type { CalendarEventForAlert } from './calendar-events-today';
 import { fetchPreAlertEligibleEvents } from './calendar-events-today';
+import { recordFeedEntry } from './notification-feed';
 
 export type PermissionStatus = 'granted' | 'denied' | 'undetermined';
 
-export type NotificationPayload =
-  | { type: 'reminder'; reminderId: string }
-  | { type: 'digest'; date: string }
-  | { type: 'calendarPreAlert'; eventId: string };
+export type { NotificationPayload };
 
 // Foreground presentation: show a banner, no sound, no badge. This runs
 // for every notification that fires while the app is active.
@@ -111,6 +109,13 @@ export async function scheduleReminderNotification(reminder: Reminder): Promise<
         date: reminder.dueAt,
       },
     });
+    void recordFeedEntry({
+      id: `reminder:${reminder.id}:${reminder.dueAt.getTime()}`,
+      type: 'reminder',
+      title: reminder.text,
+      firesAt: reminder.dueAt,
+      payload: { type: 'reminder', reminderId: reminder.id },
+    });
   } catch (err) {
     if (__DEV__) console.warn('[notifications] schedule reminder failed:', err);
   }
@@ -183,6 +188,15 @@ export async function syncDailyDigest(): Promise<void> {
         date: when,
       },
     });
+    const dateStr = identifier.slice('digest:'.length);
+    void recordFeedEntry({
+      id: `digest:${dateStr}`,
+      type: 'digest',
+      title: 'God morgen',
+      body: 'Dit overblik for i dag er klar.',
+      firesAt: when,
+      payload: { type: 'digest', date: dateStr },
+    });
   } catch (err) {
     if (__DEV__) console.warn('[notifications] schedule digest failed:', err);
   }
@@ -228,6 +242,14 @@ export async function syncCalendarPreAlerts(events: CalendarEventForAlert[]): Pr
           type: Notifications.SchedulableTriggerInputTypes.DATE,
           date: fireAt,
         },
+      });
+      void recordFeedEntry({
+        id: `calendar:${event.id}:${fireAt.getTime()}`,
+        type: 'calendarPreAlert',
+        title: event.title,
+        body: 'Starter om 15 minutter.',
+        firesAt: fireAt,
+        payload: { type: 'calendarPreAlert', eventId: event.id },
       });
     } catch (err) {
       if (__DEV__) console.warn('[notifications] schedule pre-alert failed:', err);

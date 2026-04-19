@@ -152,3 +152,22 @@ export type Result<T> = {
   loading: boolean;
   error: Error | null;
 };
+
+export type NotificationPayload =
+  | { type: 'reminder'; reminderId: string }
+  | { type: 'digest'; date: string }
+  | { type: 'calendarPreAlert'; eventId: string }
+  | { type: 'reminderAdded'; reminderId: string };
+
+export type FeedEntryType = NotificationPayload['type'];
+
+export type FeedEntry = {
+  id: string;
+  type: FeedEntryType;
+  title: string;
+  body?: string;
+  firesAt: Date;
+  createdAt: Date;
+  readAt: Date | null;
+  payload: NotificationPayload;
+};
