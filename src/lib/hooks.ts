@@ -1108,10 +1108,30 @@ const CHAT_ERROR_TEXT = 'Jeg kunne ikke nå frem — prøv igen.';
 
 function buildChatSystemPrompt(name: string): string {
   const intro = name ? `Brugerens navn er ${name}.` : '';
+  const now = new Date();
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tzOffsetMin = -now.getTimezoneOffset();
+  const sign = tzOffsetMin >= 0 ? '+' : '-';
+  const absMin = Math.abs(tzOffsetMin);
+  const hh = String(Math.floor(absMin / 60)).padStart(2, '0');
+  const mm = String(absMin % 60).padStart(2, '0');
+  const offsetIso = `${sign}${hh}:${mm}`;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const localIso =
+    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
+    `T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}${offsetIso}`;
+  const timeContext =
+    `Nuværende lokaltid er ${localIso} (tidszone: ${tz}). ` +
+    'Når du udregner due_at for add_reminder, skal tidspunktet altid ligge i fremtiden ' +
+    'regnet fra dette tidspunkt. Brug ISO 8601 med samme tidszone-offset. ' +
+    'Hvis brugeren siger "om 2 minutter", læg 2 minutter til nu. Hvis brugeren siger ' +
+    '"kl. 10.30" uden dato, vælg den næste fremtidige forekomst (i dag hvis klokken ' +
+    'endnu ikke er 10.30, ellers i morgen).';
   return [
     'Du er Zolva, en venlig og omsorgsfuld dansk personlig assistent.',
     'Du svarer altid på dansk i en varm, jordnær og let uformel tone.',
     intro,
+    timeContext,
     'Hold svar korte, konkrete og handlingsorienterede, medmindre der bliver spurgt om detaljer.',
     'Når brugeren beder dig huske noget tidsbundet (et møde, en opgave med deadline), brug add_reminder.',
     'Når brugeren beder dig notere en idé, en tanke eller noget uden tid, brug add_note.',
@@ -1141,7 +1161,7 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
         due_at: {
           type: 'string',
           description:
-            'ISO 8601 dato/tid for påmindelsen. Udelad hvis brugeren ikke har angivet et tidspunkt.',
+            'ISO 8601 dato/tid for påmindelsen med tidszone-offset (fx "2026-04-19T23:45:00+02:00"). Skal ligge i fremtiden regnet fra det nuværende tidspunkt. Udelad hvis brugeren ikke har angivet et tidspunkt.',
         },
       },
       required: ['text'],
