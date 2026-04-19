@@ -52,7 +52,11 @@ import {
   subscribeNotificationSettings,
   type NotificationSettings,
 } from '../lib/notification-settings';
-import { registerPushToken, unregisterPushToken } from '../lib/push';
+import {
+  registerPushToken,
+  setMailWatchersEnabled,
+  unregisterPushToken,
+} from '../lib/push';
 import { colors, fonts } from '../theme';
 
 const ROW_TRANSITION = LinearTransition.duration(220);
@@ -131,8 +135,10 @@ export function SettingsScreen() {
           Alert.alert('Nye mails', message);
           return;
         }
+        await setMailWatchersEnabled(true);
       } else {
         await unregisterPushToken();
+        await setMailWatchersEnabled(false);
       }
     }
 

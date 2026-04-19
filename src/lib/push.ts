@@ -77,3 +77,20 @@ export async function unregisterPushToken(): Promise<void> {
     console.warn('[push] delete push_tokens failed:', error.message);
   }
 }
+
+// Flip `enabled` on every mail_watcher row belonging to the user so the
+// server-side poller respects the newMail toggle. No-op if the user has
+// no connected mail accounts yet — the watcher rows only exist after
+// Google/Microsoft are linked (bootstrapped in auth.ts).
+export async function setMailWatchersEnabled(enabled: boolean): Promise<void> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const userId = sessionData.session?.user?.id;
+  if (!userId) return;
+  const { error } = await supabase
+    .from('mail_watchers')
+    .update({ enabled, updated_at: new Date().toISOString() })
+    .eq('user_id', userId);
+  if (error && __DEV__) {
+    console.warn('[push] update mail_watchers.enabled failed:', error.message);
+  }
+}

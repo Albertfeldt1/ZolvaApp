@@ -90,13 +90,22 @@ async function processWatcher(client: SupabaseClient, watcher: Watcher): Promise
     .eq('provider', watcher.provider);
 }
 
-// TODO: implement once provider refresh tokens are captured server-side.
 async function loadRefreshToken(
-  _client: SupabaseClient,
-  _userId: string,
-  _provider: 'google' | 'microsoft',
+  client: SupabaseClient,
+  userId: string,
+  provider: 'google' | 'microsoft',
 ): Promise<string | null> {
-  return null;
+  const { data, error } = await client
+    .from('user_oauth_tokens')
+    .select('refresh_token')
+    .eq('user_id', userId)
+    .eq('provider', provider)
+    .maybeSingle();
+  if (error) {
+    console.warn('[poll-mail] load refresh token failed:', error.message);
+    return null;
+  }
+  return (data as { refresh_token?: string } | null)?.refresh_token ?? null;
 }
 
 async function refreshAccessToken(

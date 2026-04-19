@@ -7,6 +7,7 @@ import type { Session } from '@supabase/supabase-js';
 import { useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import { supabase } from './supabase';
+import { getNotificationSettings } from './notification-settings';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -213,10 +214,11 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
     }
 
     const token = exchange.data.session?.provider_token ?? null;
+    const refreshToken = exchange.data.session?.provider_refresh_token ?? null;
     const uid = exchange.data.session?.user?.id ?? currentUserId();
+    const providerKey = provider === 'google' ? 'google' : 'microsoft';
     if (token && uid) {
       try {
-        const providerKey = provider === 'google' ? 'google' : 'microsoft';
         await AsyncStorage.setItem(tokenKey(providerKey, uid), token);
         if (provider === 'google') broadcastGoogle(token);
         else broadcastMicrosoft(token);
@@ -226,10 +228,67 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
     } else if (!token && __DEV__) {
       console.warn('[auth] No provider_token in exchange response');
     }
+    if (uid) {
+      await persistProviderRefreshToken(uid, providerKey, refreshToken);
+      await bootstrapMailWatcher(uid, providerKey);
+    }
     return { data: exchange.data, error: null };
   } catch (e) {
     if (__DEV__) console.error('[auth] runOAuth threw:', e);
     return { data: null, error: e instanceof Error ? e : new Error(String(e)) };
+  }
+}
+
+// Upsert the provider's refresh token into user_oauth_tokens so the
+// poll-mail edge function can mint fresh access tokens for Gmail/Graph.
+// Supabase returns `provider_refresh_token` for Google when we ask for
+// offline+consent, and for Microsoft via offline_access scope. If the
+// value is null (silent refresh typically reuses the prior grant), we
+// leave whatever is already stored in place rather than overwrite with
+// nothing.
+async function persistProviderRefreshToken(
+  userId: string,
+  provider: 'google' | 'microsoft',
+  refreshToken: string | null,
+): Promise<void> {
+  if (!refreshToken) return;
+  const { error } = await supabase
+    .from('user_oauth_tokens')
+    .upsert(
+      {
+        user_id: userId,
+        provider,
+        refresh_token: refreshToken,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,provider' },
+    );
+  if (error && __DEV__) {
+    console.warn('[auth] persist refresh token failed:', error.message);
+  }
+}
+
+// Ensure a mail_watchers row exists for the (user, provider) pair. Sets
+// `enabled` to match the user's current newMail preference so toggling it
+// later is the only thing that controls server-side polling.
+async function bootstrapMailWatcher(
+  userId: string,
+  provider: 'google' | 'microsoft',
+): Promise<void> {
+  const enabled = getNotificationSettings().newMail;
+  const { error } = await supabase
+    .from('mail_watchers')
+    .upsert(
+      {
+        user_id: userId,
+        provider,
+        enabled,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,provider' },
+    );
+  if (error && __DEV__) {
+    console.warn('[auth] bootstrap mail watcher failed:', error.message);
   }
 }
 
@@ -288,6 +347,12 @@ async function silentRefresh(provider: 'google' | 'microsoft'): Promise<string |
   if (exchange.error) {
     if (__DEV__) console.warn('[auth] silent refresh exchange failed:', exchange.error.message);
     return null;
+  }
+
+  const refreshToken = exchange.data.session?.provider_refresh_token ?? null;
+  const uid = exchange.data.session?.user?.id ?? currentUserId();
+  if (uid && refreshToken) {
+    await persistProviderRefreshToken(uid, provider, refreshToken);
   }
 
   return exchange.data.session?.provider_token ?? null;
