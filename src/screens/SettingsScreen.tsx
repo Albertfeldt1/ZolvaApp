@@ -6,6 +6,7 @@ import {
   Image,
   ImageSourcePropType,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -39,6 +40,18 @@ import {
 } from '../lib/hooks';
 import type { IntegrationStatus, WorkPreference } from '../lib/types';
 
+import {
+  ensurePermission,
+  getPermissionStatus,
+  syncOnAppForeground,
+  type PermissionStatus,
+} from '../lib/notifications';
+import {
+  getNotificationSettings,
+  setNotificationSetting,
+  subscribeNotificationSettings,
+  type NotificationSettings,
+} from '../lib/notification-settings';
 import { colors, fonts } from '../theme';
 
 const ROW_TRANSITION = LinearTransition.duration(220);
@@ -59,6 +72,26 @@ const STATUS_LABEL: Record<IntegrationStatus, string> = {
   disconnected: 'Ikke forbundet',
 };
 
+function useNotificationSettings(): NotificationSettings {
+  const [state, setState] = useState<NotificationSettings>(getNotificationSettings());
+  useEffect(() => subscribeNotificationSettings(setState), []);
+  return state;
+}
+
+function useNotificationPermission(): PermissionStatus {
+  const [status, setStatus] = useState<PermissionStatus>('undetermined');
+  useEffect(() => {
+    let alive = true;
+    void getPermissionStatus().then((s) => {
+      if (alive) setStatus(s);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return status;
+}
+
 export function SettingsScreen() {
   const { data: user, loading: userLoading } = useUser();
   const { data: subscription } = useSubscription();
@@ -67,6 +100,27 @@ export function SettingsScreen() {
   const { data: toggles, flip } = usePrivacyToggles();
   const { signOut } = useAuth();
   const [connectingId, setConnectingId] = useState<string | null>(null);
+  const notificationSettings = useNotificationSettings();
+  const permission = useNotificationPermission();
+
+  const toggleNotificationSetting = async (key: keyof NotificationSettings, next: boolean) => {
+    if (next) {
+      const result = await ensurePermission();
+      if (result !== 'granted') {
+        Alert.alert(
+          'Tillad notifikationer',
+          'Zolva kan ikke sende notifikationer før du giver tilladelse i systemindstillingerne.',
+          [
+            { text: 'Ikke nu', style: 'cancel' },
+            { text: 'Åbn indstillinger', onPress: () => Linking.openSettings() },
+          ],
+        );
+        return;
+      }
+    }
+    await setNotificationSetting(key, next);
+    void syncOnAppForeground();
+  };
 
   const handleConnect = async (id: typeof connections[number]['id']) => {
     if (connectingId) return;
@@ -231,6 +285,33 @@ export function SettingsScreen() {
                   </Pressable>
                 </View>
               </View>
+            </Animated.View>
+
+            <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
+              <Text style={styles.sectionTitle}>Notifikationer</Text>
+              <View style={styles.inkRule} />
+              {permission === 'denied' ? (
+                <Pressable style={styles.permissionBanner} onPress={() => Linking.openSettings()}>
+                  <Text style={styles.permissionBannerText}>
+                    Notifikationer er slået fra i systemindstillingerne. Tryk for at åbne.
+                  </Text>
+                </Pressable>
+              ) : null}
+              <NotificationToggleRow
+                label="Påmindelser"
+                value={notificationSettings.reminders}
+                onChange={(v) => toggleNotificationSetting('reminders', v)}
+              />
+              <NotificationToggleRow
+                label="Morgenoverblik kl. 8"
+                value={notificationSettings.digest}
+                onChange={(v) => toggleNotificationSetting('digest', v)}
+              />
+              <NotificationToggleRow
+                label="Kalender-påmindelse 15 min før"
+                value={notificationSettings.preAlerts}
+                onChange={(v) => toggleNotificationSetting('preAlerts', v)}
+              />
             </Animated.View>
 
             <AnimatedPressable
@@ -542,6 +623,25 @@ function ToggleRow({ label, on, onPress }: { label: string; on: boolean; onPress
   );
 }
 
+function NotificationToggleRow({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <Pressable style={styles.ntRow} onPress={() => onChange(!value)}>
+      <Text style={styles.ntLabel}>{label}</Text>
+      <View style={[styles.ntTrack, value ? styles.ntTrackOn : styles.ntTrackOff]}>
+        <View style={[styles.ntThumb, value ? styles.ntThumbOn : styles.ntThumbOff]} />
+      </View>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   scroll: { flexGrow: 1, backgroundColor: colors.paper },
 
@@ -828,4 +928,42 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.warningInk,
   },
+
+  // Notification toggles (light-background rows, separate from the dark ToggleRow above)
+  ntRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: colors.paper,
+    borderRadius: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.line,
+  },
+  ntLabel: { fontSize: 15, color: colors.ink, fontFamily: fonts.ui, flex: 1 },
+  ntTrack: {
+    width: 46,
+    height: 28,
+    borderRadius: 14,
+    padding: 3,
+  },
+  ntTrackOn: { backgroundColor: colors.sageDeep },
+  ntTrackOff: { backgroundColor: colors.mist },
+  ntThumb: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.paper,
+  },
+  ntThumbOn: { marginLeft: 18 },
+  ntThumbOff: { marginLeft: 0 },
+  permissionBanner: {
+    padding: 12,
+    backgroundColor: colors.clay,
+    borderRadius: 12,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  permissionBannerText: { fontSize: 13, color: colors.paper, fontFamily: fonts.ui },
 });
