@@ -107,7 +107,12 @@ export type Connection = {
   logo: `${IntegrationKey}.png`;
 };
 
-export type WorkPreferenceId = 'autonomy' | 'tone' | 'morning-brief' | 'quiet-hours';
+export type WorkPreferenceId =
+  | 'autonomy'
+  | 'tone'
+  | 'morning-brief'
+  | 'quiet-hours'
+  | 'day-overview';
 
 export type WorkPreference = {
   id: WorkPreferenceId;

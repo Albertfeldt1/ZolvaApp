@@ -292,7 +292,7 @@ function useDismissedMailIds(): Set<string> {
   return dismissedMailIds;
 }
 
-function useCalendarItems(): {
+function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
   items: NormalizedEvent[];
   loading: boolean;
   error: Error | null;
@@ -311,7 +311,10 @@ function useCalendarItems(): {
     }
     let cancelled = false;
     setState((s) => ({ ...s, loading: true, error: null }));
-    const { start, end } = dayBounds(new Date());
+    const { start, end } =
+      rangeStartMs != null && rangeEndMs != null
+        ? { start: new Date(rangeStartMs), end: new Date(rangeEndMs) }
+        : dayBounds(new Date());
 
     const tasks: Promise<NormalizedEvent[]>[] = [];
     if (googleAccessToken) {
@@ -367,7 +370,7 @@ function useCalendarItems(): {
     return () => {
       cancelled = true;
     };
-  }, [googleAccessToken, microsoftAccessToken, user]);
+  }, [googleAccessToken, microsoftAccessToken, user, rangeStartMs, rangeEndMs]);
 
   return state;
 }
@@ -775,8 +778,12 @@ const buildScaffold = (): CalendarSlot[] =>
     event: null,
   }));
 
-export function useDaySchedule(): Result<CalendarSlot[]> {
-  const { items, loading, error } = useCalendarItems();
+export function useDaySchedule(targetDate?: Date): Result<CalendarSlot[]> {
+  const bounds = targetDate ? dayBounds(targetDate) : undefined;
+  const { items, loading, error } = useCalendarItems(
+    bounds?.start.getTime(),
+    bounds?.end.getTime(),
+  );
   const slots = buildScaffold();
   const slotTones: ('sage' | 'clay' | 'mist')[] = ['sage', 'clay', 'mist'];
 
@@ -883,6 +890,13 @@ const DEFAULT_WORK_PREFERENCES: WorkPreference[] = [
     meta: 'Ingen notifikationer',
     value: '22–07',
     options: ['Fra', '22–07', '21–08', '23–06'],
+  },
+  {
+    id: 'day-overview',
+    title: 'Dagsoverblik',
+    meta: 'Morgen, middag og aften',
+    value: 'Fra',
+    options: ['Fra', 'Morgen', 'Morgen + aften', 'Morgen, middag, aften'],
   },
 ];
 
