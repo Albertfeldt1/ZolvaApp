@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "81826511119",
+    "project_id": "zolva-ab77b",
+    "storage_bucket": "zolva-ab77b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:81826511119:android:8705c73f253c7cd97be67a",
+        "android_client_info": {
+          "package_name": "com.zolva.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBeTotvivoHuSFG6Km8d7U4kcKwkKAQoB0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -28,16 +28,18 @@ package so FCM can route notifications to the app.
      directly via Firebase — we currently broker OAuth through Supabase, so
      this is not needed for the demo)
 4. Click **Register app** and then **Download `google-services.json`**.
-5. Drop the file at the **repository root** (same folder as `app.json`).
+5. Drop the file at the **repository root** (same folder as `app.json`) and
+   **commit it**.
    ```
    /Users/albertfeldt/ZolvaApp/google-services.json
    ```
-6. Do **not** commit it. `.gitignore` already excludes `google-services.json`.
-   Sanity check:
-   ```
-   git status --ignored | grep google-services.json
-   ```
-   should list the file as ignored.
+   Per Firebase's official guidance, `google-services.json` is safe to check
+   into source control — it contains a project ID, app ID, and a
+   package-restricted API key, none of which are secrets. The genuine FCM
+   secret (service-account JSON) lives only in EAS credentials (§2) and
+   never enters the repo. Committing the file is also required: EAS Build
+   only uploads git-tracked files, so an ignored `google-services.json`
+   causes the build to fail with _"google-services.json is missing"_.
 
 You can skip the remaining Firebase "Add SDK" wizard steps — EAS handles the
 native integration via the Expo plugin.

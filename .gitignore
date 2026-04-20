@@ -49,7 +49,3 @@ supabase/.temp/
 # The committed template is supabase/schedule-poll-mail.sql.template.
 supabase/schedule-poll-mail.sql
 
-# Android FCM config — contains project-specific identifiers. Downloaded
-# from Firebase Console → Project Settings → Android app → google-services.json.
-# Required at EAS build time; provide locally, do not commit.
-google-services.json
