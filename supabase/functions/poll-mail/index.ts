@@ -1,12 +1,20 @@
 // poll-mail — Supabase Edge Function scaffold.
 //
-// Invoked on a cron schedule (see docs spec). For every user with an
-// `enabled` mail_watchers row, fetch new mail from the provider since the
-// last watermark and dispatch an Expo push for each new message.
+// Invoked on a cron schedule (see supabase/schedule-poll-mail.sql.template).
+// For every user with an `enabled` mail_watchers row, fetch new mail from
+// the provider since the last watermark and dispatch an Expo push for each
+// new message.
 //
-// BLOCKING GAP: provider refresh tokens are not yet captured server-side.
-// Until auth.ts upserts `provider_refresh_token` into `user_oauth_tokens`,
-// `loadRefreshToken()` returns null and the function skips every user.
+// CALLER GATING. Because this function runs with the service role internally,
+// we must not let any authenticated user trigger the full batch (cost
+// amplification). The function accepts two caller identities:
+//
+//   1. Cron — must present header `x-cron-secret: <CRON_SHARED_SECRET>`.
+//      Processes every enabled watcher.
+//   2. Authenticated user — must present a valid user JWT in `Authorization`.
+//      Processes only the caller's own mail_watchers rows.
+//
+// Any other caller (no/invalid JWT, no cron secret) is rejected with 401.
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -30,20 +38,46 @@ type NewMessage = {
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
-serve(async () => {
+serve(async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (!supabaseUrl || !serviceKey) {
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+  const cronSecret = Deno.env.get('CRON_SHARED_SECRET');
+  if (!supabaseUrl || !serviceKey || !anonKey) {
     return json({ error: 'missing env' }, 500);
   }
+
+  // Identity gate. Either the cron shared secret matches (full batch), or
+  // we require a valid user JWT and scope the batch to that user only.
+  const presentedSecret = req.headers.get('x-cron-secret');
+  const isCron = !!cronSecret && presentedSecret === cronSecret;
+
+  let scopedUserId: string | null = null;
+  if (!isCron) {
+    const authHeader = req.headers.get('Authorization') ?? '';
+    if (!authHeader.toLowerCase().startsWith('bearer ')) {
+      return json({ error: 'unauthorized' }, 401);
+    }
+    const authClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data: userData, error: userErr } = await authClient.auth.getUser();
+    if (userErr || !userData.user) {
+      return json({ error: 'unauthorized' }, 401);
+    }
+    scopedUserId = userData.user.id;
+  }
+
   const client = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false },
   });
 
-  const { data: watchers, error } = await client
-    .from('mail_watchers')
-    .select('*')
-    .eq('enabled', true);
+  let query = client.from('mail_watchers').select('*').eq('enabled', true);
+  if (scopedUserId) {
+    query = query.eq('user_id', scopedUserId);
+  }
+  const { data: watchers, error } = await query;
   if (error) return json({ error: error.message }, 500);
 
   const summary: Record<string, string> = {};
@@ -56,7 +90,7 @@ serve(async () => {
       summary[`${watcher.user_id}:${watcher.provider}`] = `error: ${msg}`;
     }
   }
-  return json({ summary });
+  return json({ caller: isCron ? 'cron' : `user:${scopedUserId}`, summary });
 });
 
 async function processWatcher(client: SupabaseClient, watcher: Watcher): Promise<void> {
