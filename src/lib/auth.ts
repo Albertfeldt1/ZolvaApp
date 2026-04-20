@@ -1,13 +1,49 @@
+// Manual test plan — two-account cross-contamination
+// ----------------------------------------------------
+// Goal: verify that signing out of account A and into account B on the
+// same device does not cause B to receive A's newMail push notifications,
+// and that no secrets from A remain on disk after sign-out.
+//
+//  1. Fresh install (or `adb uninstall` / delete app from simulator) so the
+//     migration flags don't short-circuit.
+//  2. Sign in as account A (Google). Enable the "Nye mails" toggle in
+//     Settings. Send a test mail to A's inbox — confirm a push arrives.
+//  3. In a keychain inspector (macOS Keychain Access for the simulator, or
+//     `adb shell run-as com.zolva.app ls` on Android) confirm
+//     `zolva.google.provider_token.<A_uid>` is present and AsyncStorage
+//     no longer contains the same key.
+//  4. Trigger signOut from the app. Verify in the DB:
+//       - mail_watchers rows for A are `enabled = false`
+//       - push_tokens row for this device is removed
+//       - user_oauth_tokens rows for A are gone
+//     And on the device: secure-store has no `zolva.*.provider_token.*`
+//     entries, and AsyncStorage has no `zolva.notifications.settings.<A_uid>`
+//     left.
+//  5. Sign in as account B (different Google account). Enable "Nye mails".
+//  6. Send a test mail to A's inbox. Confirm NO push arrives on the device.
+//     (A's watcher must be disabled server-side; B's device must not be
+//     subscribed to A's mail_watcher.)
+//  7. Send a test mail to B's inbox. Confirm a push arrives.
+//  8. Sign out of B. Sign back in as A. The A-specific
+//     `zolva.notifications.settings.<A_uid>` should be restored — toggles
+//     reflect A's prior preferences, not B's.
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { makeRedirectUri } from 'expo-auth-session';
 import * as Crypto from 'expo-crypto';
+import * as Notifications from 'expo-notifications';
 import * as WebBrowser from 'expo-web-browser';
 import type { Session } from '@supabase/supabase-js';
 import { useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import { supabase } from './supabase';
-import { getNotificationSettings } from './notification-settings';
+import * as secureStorage from './secure-storage';
+import {
+  getNotificationSettings,
+  hydrateNotificationSettingsForUser,
+} from './notification-settings';
+import { registerPushToken, unregisterPushToken, setMailWatchersEnabled } from './push';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -34,6 +70,8 @@ const MICROSOFT_SCOPES = [
   'Mail.Send',
   'Calendars.Read',
 ].join(' ');
+
+const SECURE_STORE_MIGRATION_FLAG = 'zolva.migration.secure-store.v1';
 
 let cachedSession: Session | null = null;
 let cachedGoogleToken: string | null = null;
@@ -79,35 +117,96 @@ const broadcastMicrosoft = (t: string | null) => {
 };
 
 async function loadProviderTokens(userId: string) {
-  const entries = await AsyncStorage.multiGet([
-    tokenKey('google', userId),
-    tokenKey('microsoft', userId),
+  const [gToken, mToken] = await Promise.all([
+    secureStorage.getItem(tokenKey('google', userId)),
+    secureStorage.getItem(tokenKey('microsoft', userId)),
   ]);
-  for (const [key, value] of entries) {
-    if (!value) continue;
-    if (key.includes('.google.')) broadcastGoogle(value);
-    else if (key.includes('.microsoft.')) broadcastMicrosoft(value);
+  if (gToken) broadcastGoogle(gToken);
+  if (mToken) broadcastMicrosoft(mToken);
+}
+
+// One-time migration: anything we previously wrote to AsyncStorage
+// (Supabase session blob, provider access tokens) gets copied into
+// expo-secure-store on first boot with this version, then deleted from
+// AsyncStorage. Guarded by a flag so subsequent launches are a no-op.
+async function migrateAsyncStorageToSecureStore(): Promise<void> {
+  try {
+    const already = await AsyncStorage.getItem(SECURE_STORE_MIGRATION_FLAG);
+    if (already) return;
+
+    const allKeys = await AsyncStorage.getAllKeys();
+    const candidates = allKeys.filter(
+      (k) =>
+        k.startsWith('sb-') ||
+        k.startsWith('zolva.google.provider_token.') ||
+        k.startsWith('zolva.microsoft.provider_token.'),
+    );
+
+    if (candidates.length > 0) {
+      const pairs = await AsyncStorage.multiGet(candidates);
+      for (const [key, value] of pairs) {
+        if (!value) continue;
+        try {
+          await secureStorage.setItem(key, value);
+          await AsyncStorage.removeItem(key);
+        } catch (err) {
+          if (__DEV__) console.warn('[auth] migration copy failed for', key, err);
+        }
+      }
+    }
+
+    await AsyncStorage.setItem(SECURE_STORE_MIGRATION_FLAG, '1');
+    if (__DEV__) console.log('[auth] secure-store migration complete:', candidates.length);
+  } catch (err) {
+    if (__DEV__) console.warn('[auth] secure-store migration failed:', err);
   }
+}
+
+let pushTokenSubscription: { remove: () => void } | null = null;
+
+// Expo rotates push tokens on its own schedule (APNs/FCM re-issues,
+// reinstalls, etc). If we only registered at login, a long-lived session
+// could silently end up with a stale token in the DB and stop receiving
+// pushes. This listener catches rotations while the app is foregrounded
+// and re-runs registerPushToken so the DB row is refreshed.
+function ensurePushTokenListener() {
+  if (pushTokenSubscription) return;
+  pushTokenSubscription = Notifications.addPushTokenListener(() => {
+    void registerPushToken();
+  });
 }
 
 const init = () => {
   if (initialized) return;
   initialized = true;
 
-  supabase.auth.getSession().then(({ data }) => {
-    broadcastSession(data.session);
-    const uid = data.session?.user?.id;
-    if (uid) loadProviderTokens(uid);
-  });
+  (async () => {
+    await migrateAsyncStorageToSecureStore();
 
-  supabase.auth.onAuthStateChange((_event, session) => {
+    const { data } = await supabase.auth.getSession();
+    broadcastSession(data.session);
+    const uid = data.session?.user?.id ?? null;
+    await hydrateNotificationSettingsForUser(uid);
+    if (uid) {
+      loadProviderTokens(uid);
+      ensurePushTokenListener();
+      void registerPushToken();
+    }
+  })();
+
+  supabase.auth.onAuthStateChange((event, session) => {
     const prevUserId = cachedSession?.user?.id ?? null;
     const nextUserId = session?.user?.id ?? null;
     broadcastSession(session);
     if (prevUserId !== nextUserId) {
       broadcastGoogle(null);
       broadcastMicrosoft(null);
+      void hydrateNotificationSettingsForUser(nextUserId);
       if (nextUserId) loadProviderTokens(nextUserId);
+    }
+    if (event === 'SIGNED_IN' && nextUserId) {
+      ensurePushTokenListener();
+      void registerPushToken();
     }
   });
 
@@ -219,7 +318,7 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
     const providerKey = provider === 'google' ? 'google' : 'microsoft';
     if (token && uid) {
       try {
-        await AsyncStorage.setItem(tokenKey(providerKey, uid), token);
+        await secureStorage.setItem(tokenKey(providerKey, uid), token);
         if (provider === 'google') broadcastGoogle(token);
         else broadcastMicrosoft(token);
       } catch (storageErr) {
@@ -382,7 +481,7 @@ async function doRefresh(provider: 'google' | 'microsoft'): Promise<string | nul
   const uid = currentUserId();
   if (uid) {
     try {
-      await AsyncStorage.setItem(tokenKey(provider, uid), token);
+      await secureStorage.setItem(tokenKey(provider, uid), token);
     } catch (e) {
       if (__DEV__) console.warn('[auth] token persist failed:', e);
     }
@@ -408,9 +507,7 @@ function startRefresh(provider: 'google' | 'microsoft'): Promise<string | null> 
 async function clearProviderToken(provider: 'google' | 'microsoft') {
   const uid = currentUserId();
   if (uid) {
-    try {
-      await AsyncStorage.removeItem(tokenKey(provider, uid));
-    } catch {}
+    await secureStorage.deleteItem(tokenKey(provider, uid));
   }
   if (provider === 'google') broadcastGoogle(null);
   else broadcastMicrosoft(null);
@@ -472,6 +569,103 @@ async function signInWithApple() {
   });
 }
 
+// Best-effort POST to Google's revocation endpoint. Google accepts either
+// an access token or a refresh token; revoking either invalidates all
+// tokens in the grant. We fire-and-forget log — if it fails, the user may
+// still have an active grant in their Google account but the app is
+// already signed out locally, so this is not a blocking error.
+async function revokeGoogleToken(accessToken: string): Promise<void> {
+  try {
+    await fetch('https://oauth2.googleapis.com/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `token=${encodeURIComponent(accessToken)}`,
+    });
+  } catch (err) {
+    if (__DEV__) console.warn('[auth] google revoke failed:', err);
+  }
+}
+
+// Server-authoritative teardown. The teardown-user-session edge function
+// is trusted to disable watchers and delete push tokens even if client
+// RLS misbehaves. If the function isn't deployed yet or errors, fall back
+// to the direct table operations (RLS permits users to mutate their own
+// rows), so local teardown still completes.
+async function runSignOutTeardown(userId: string): Promise<void> {
+  const fn = supabase.functions.invoke('teardown-user-session', { body: {} });
+  const { error } = await fn.catch((err: unknown) => ({
+    error: err instanceof Error ? err : new Error(String(err)),
+    data: null,
+  }));
+
+  if (error) {
+    if (__DEV__) console.warn('[auth] teardown-user-session edge function unavailable, using client fallback:', error.message);
+    await Promise.allSettled([
+      setMailWatchersEnabled(false),
+      unregisterPushToken(),
+    ]);
+  }
+
+  // Always drop user_oauth_tokens regardless of edge function path — this
+  // is the Microsoft revoke (Graph has no clean revoke endpoint) and
+  // belt-and-braces for Google.
+  const { error: tokErr } = await supabase
+    .from('user_oauth_tokens')
+    .delete()
+    .eq('user_id', userId);
+  if (tokErr && __DEV__) {
+    console.warn('[auth] delete user_oauth_tokens failed:', tokErr.message);
+  }
+}
+
+// Remove every AsyncStorage key we know is scoped to the signed-out user.
+// The secure-store side is cleared separately because its keys are known
+// up front (provider tokens + session).
+async function clearUserScopedAsyncStorage(userId: string): Promise<void> {
+  try {
+    const allKeys = await AsyncStorage.getAllKeys();
+    const scoped = allKeys.filter(
+      (k) =>
+        k === `zolva.notifications.settings.${userId}` ||
+        k.endsWith(`.${userId}`) ||
+        k.includes(`:${userId}`),
+    );
+    if (scoped.length > 0) await AsyncStorage.multiRemove(scoped);
+  } catch (err) {
+    if (__DEV__) console.warn('[auth] clearUserScopedAsyncStorage failed:', err);
+  }
+}
+
+async function clearSecureStoreForUser(userId: string): Promise<void> {
+  await Promise.all([
+    secureStorage.deleteItem(tokenKey('google', userId)),
+    secureStorage.deleteItem(tokenKey('microsoft', userId)),
+  ]);
+}
+
+async function performSignOut(): Promise<void> {
+  const uid = currentUserId();
+  const googleToken = cachedGoogleToken;
+
+  if (uid) {
+    await runSignOutTeardown(uid);
+  }
+
+  if (googleToken) {
+    await revokeGoogleToken(googleToken);
+  }
+
+  if (uid) {
+    await clearSecureStoreForUser(uid);
+    await clearUserScopedAsyncStorage(uid);
+  }
+
+  broadcastGoogle(null);
+  broadcastMicrosoft(null);
+
+  await supabase.auth.signOut();
+}
+
 export function useAuth() {
   const [session, setSession] = useState<Session | null>(cachedSession);
   const [googleToken, setGoogleToken] = useState<string | null>(cachedGoogleToken);
@@ -509,11 +703,7 @@ export function useAuth() {
       supabase.auth.signInWithPassword({ email, password }),
     signUp: (email: string, password: string) =>
       supabase.auth.signUp({ email, password }),
-    signOut: async () => {
-      // Tokens stay on disk, namespaced by user id — the session-change
-      // handler drops them from memory. Signing back in restores them.
-      await supabase.auth.signOut();
-    },
+    signOut: performSignOut,
     signInWithGoogle,
     signInWithMicrosoft,
     signInWithApple,
