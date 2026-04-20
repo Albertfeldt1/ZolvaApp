@@ -655,6 +655,8 @@ function ToggleRow({ label, on, onPress }: { label: string; on: boolean; onPress
   );
 }
 
+const NT_THUMB_TRAVEL = 18; // track 46 - padding 6 - thumb 22
+
 function NotificationToggleRow({
   label,
   value,
@@ -664,11 +666,40 @@ function NotificationToggleRow({
   value: boolean;
   onChange: (next: boolean) => void;
 }) {
+  const progress = useSharedValue(value ? 1 : 0);
+
+  useEffect(() => {
+    progress.value = withTiming(value ? 1 : 0, {
+      duration: TOGGLE_DURATION,
+      easing: TOGGLE_EASING,
+    });
+  }, [value, progress]);
+
+  const trackStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      progress.value,
+      [0, 1],
+      [colors.mist, colors.sageDeep],
+    ),
+  }));
+  const thumbStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: progress.value * NT_THUMB_TRAVEL }],
+  }));
+
   return (
-    <Pressable style={styles.ntRow} onPress={() => onChange(!value)}>
+    <Pressable
+      style={styles.ntRow}
+      onPress={() => onChange(!value)}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: value }}
+    >
       <Text style={styles.ntLabel}>{label}</Text>
-      <View style={[styles.ntTrack, value ? styles.ntTrackOn : styles.ntTrackOff]}>
-        <View style={[styles.ntThumb, value ? styles.ntThumbOn : styles.ntThumbOff]} />
+      <View style={styles.ntTrack}>
+        <Animated.View
+          style={[StyleSheet.absoluteFill, styles.ntTrackFill, trackStyle]}
+          pointerEvents="none"
+        />
+        <Animated.View style={[styles.ntThumb, thumbStyle]} />
       </View>
     </Pressable>
   );
@@ -979,17 +1010,15 @@ const styles = StyleSheet.create({
     height: 28,
     borderRadius: 14,
     padding: 3,
+    overflow: 'hidden',
   },
-  ntTrackOn: { backgroundColor: colors.sageDeep },
-  ntTrackOff: { backgroundColor: colors.mist },
+  ntTrackFill: { borderRadius: 14 },
   ntThumb: {
     width: 22,
     height: 22,
     borderRadius: 11,
     backgroundColor: colors.paper,
   },
-  ntThumbOn: { marginLeft: 18 },
-  ntThumbOff: { marginLeft: 0 },
   permissionBanner: {
     padding: 12,
     backgroundColor: colors.clay,
