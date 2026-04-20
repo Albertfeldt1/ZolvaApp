@@ -127,14 +127,17 @@ export function SettingsScreen() {
     if (key === 'newMail') {
       if (next) {
         const registration = await registerPushToken();
-        if (!registration.ok) {
-          const message =
-            registration.reason === 'no-session'
-              ? 'Log ind før du aktiverer mail-notifikationer.'
-              : 'Kunne ikke registrere enheden. Prøv igen om lidt.';
-          Alert.alert('Nye mails', message);
+        if (!registration.ok && registration.reason === 'no-session') {
+          Alert.alert('Nye mails', 'Log ind før du aktiverer mail-notifikationer.');
           return;
         }
+        if (!registration.ok && !__DEV__) {
+          Alert.alert('Nye mails', 'Kunne ikke registrere enheden. Prøv igen om lidt.');
+          return;
+        }
+        // In dev (or when the push token registration soft-failed) we still
+        // flip the server-side watcher on so polling runs end-to-end. Push
+        // delivery simply no-ops until a real device registers a token.
         await setMailWatchersEnabled(true);
       } else {
         await unregisterPushToken();
