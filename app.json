@@ -29,7 +29,6 @@
         "foregroundImage": "./assets/android/adaptive-icon-foreground.png",
         "backgroundColor": "#F6F1E8"
       },
-      "permissions": ["NOTIFICATIONS"],
       "intentFilters": [
         {
           "action": "VIEW",

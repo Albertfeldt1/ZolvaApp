@@ -25,7 +25,13 @@ export function NotificationsScreen({ onClose, onNavigate }: Props) {
   return (
     <View style={styles.flex}>
       <View style={styles.topBar}>
-        <Pressable onPress={onClose} style={styles.roundBtn} hitSlop={8}>
+        <Pressable
+          onPress={onClose}
+          style={styles.roundBtn}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Tilbage"
+        >
           <ChevronLeft size={18} color={colors.ink} strokeWidth={1.75} />
         </Pressable>
         <Text style={styles.topTitle}>Notifikationer</Text>

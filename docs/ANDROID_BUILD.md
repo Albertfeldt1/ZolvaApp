@@ -261,7 +261,9 @@ Not required for the demo hand-off. Captured here so nothing is lost:
 - [ ] Switch `production` profile to AAB upload + Play Console internal
       testing track (already configured: `buildType: "app-bundle"` under
       production in `eas.json`)
-- [ ] Request only the Android permissions the app actually uses — currently
-      `["NOTIFICATIONS"]` only. Do not add `READ_CONTACTS`, `RECORD_AUDIO`,
-      `CAMERA` etc. unless a feature genuinely needs them; Play Store review
-      punishes over-permissioning.
+- [ ] Request only the Android permissions the app actually uses. Currently
+      the `android.permissions` array is omitted from `app.json` — the
+      `expo-notifications` plugin auto-adds `POST_NOTIFICATIONS` (the real
+      Android 13+ constant) to the manifest. Do not add `READ_CONTACTS`,
+      `RECORD_AUDIO`, `CAMERA`, etc. unless a feature genuinely needs them;
+      Play Store review punishes over-permissioning.
