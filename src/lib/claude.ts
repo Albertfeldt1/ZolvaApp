@@ -1,25 +1,28 @@
-// Shared Anthropic client. All three AI features (chat, observations,
-// email drafts) call into this module.
-//
-// SECURITY: The API key is shipped in the bundle via EXPO_PUBLIC_ANTHROPIC_API_KEY.
-// This is demo-only. Before production, proxy through a backend or Supabase
-// Edge Function so the key never leaves the server.
+// Shared Anthropic client — calls the `claude-proxy` Supabase Edge Function,
+// which holds ANTHROPIC_API_KEY server-side and forwards to Anthropic.
+// The public interface is unchanged: callers keep using complete / completeRaw
+// / completeJson / hasClaudeKey as before.
 
-const API_URL = 'https://api.anthropic.com/v1/messages';
+import { supabase } from './supabase';
+
 const MODEL = 'claude-haiku-4-5-20251001';
-const API_VERSION = '2023-06-01';
 
-const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY ?? '';
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+const SUPABASE_ANON = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+const PROXY_URL = `${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/claude-proxy`;
 
 export class ClaudeConfigError extends Error {
-  constructor() {
-    super('Missing EXPO_PUBLIC_ANTHROPIC_API_KEY. Add it to .env and restart Metro.');
+  constructor(message = 'Claude er ikke tilgængelig. Log ind og prøv igen.') {
+    super(message);
     this.name = 'ClaudeConfigError';
   }
 }
 
+// The key lives in the edge function now, so there's no local key check.
+// Keep this export for callers that used it as a feature gate; the real
+// authorization check happens server-side when the proxy is invoked.
 export function hasClaudeKey(): boolean {
-  return apiKey.length > 0;
+  return SUPABASE_URL.length > 0 && SUPABASE_ANON.length > 0;
 }
 
 export type ClaudeContentBlock =
@@ -67,31 +70,46 @@ export type ClaudeCompletion = {
 };
 
 export async function completeRaw(opts: CompleteOptions): Promise<ClaudeCompletion> {
-  if (!apiKey) throw new ClaudeConfigError();
-  const res = await fetch(API_URL, {
+  if (!SUPABASE_URL || !SUPABASE_ANON) {
+    throw new ClaudeConfigError('Missing EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_ANON_KEY.');
+  }
+
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData.session?.access_token;
+  if (!accessToken) {
+    throw new ClaudeConfigError('Du skal være logget ind for at bruge Claude.');
+  }
+
+  const payload: Record<string, unknown> = {
+    model: MODEL,
+    max_tokens: opts.maxTokens ?? 1024,
+    temperature: opts.temperature ?? 0.7,
+    messages: opts.messages,
+  };
+  if (opts.system != null) payload.system = opts.system;
+  if (opts.tools != null) payload.tools = opts.tools;
+
+  const res = await fetch(PROXY_URL, {
     method: 'POST',
     signal: opts.signal,
     headers: {
       'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': API_VERSION,
-      'anthropic-dangerous-direct-browser-access': 'true',
+      authorization: `Bearer ${accessToken}`,
+      apikey: SUPABASE_ANON,
     },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: opts.maxTokens ?? 1024,
-      temperature: opts.temperature ?? 0.7,
-      system: opts.system,
-      messages: opts.messages,
-      tools: opts.tools,
-      metadata: opts.metadata,
-    }),
+    body: JSON.stringify(payload),
   });
+
   if (!res.ok) {
     const detail = await res.text();
-    throw new Error(`Claude ${res.status}: ${detail}`);
+    throw new Error(`Claude proxy ${res.status}: ${detail}`);
   }
+
   const json = (await res.json()) as AnthropicResponse;
+  if (!Array.isArray(json.content)) {
+    throw new Error('Claude proxy returned malformed response');
+  }
+
   const text = json.content
     .flatMap((block) => (block.type === 'text' ? [block.text] : []))
     .join('')
