@@ -25,6 +25,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AppState, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { ChromeInsetsContext, PhoneChrome, TabId } from './src/components/PhoneChrome';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { OfflineBanner } from './src/components/OfflineBanner';
 import { StatusBarScrim } from './src/components/StatusBarScrim';
 import { CalendarScreen } from './src/screens/CalendarScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
@@ -66,20 +68,38 @@ export default function App() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [chromeOverDark, setChromeOverDark] = useState(false);
   const [chromeHeight, setChromeHeight] = useState(0);
+  const [migrationsDone, setMigrationsDone] = useState(false);
 
+  // Gate render on migrations. Screens read legacy AsyncStorage keys during
+  // mount — if a previous user's data hasn't been purged yet, it would leak
+  // into the new session before the migration finishes.
   useEffect(() => {
-    void runStartupMigrations();
+    let cancelled = false;
+    runStartupMigrations().finally(() => {
+      if (!cancelled) setMigrationsDone(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
+    if (!migrationsDone) return;
     initNotificationSettings();
     initNotificationFeed();
-    void syncOnAppForeground();
+    let inflight: Promise<void> | null = null;
+    const runSync = () => {
+      if (inflight) return;
+      inflight = syncOnAppForeground().finally(() => {
+        inflight = null;
+      });
+    };
+    runSync();
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void syncOnAppForeground();
+      if (state === 'active') runSync();
     });
     return () => sub.remove();
-  }, []);
+  }, [migrationsDone]);
 
   useEffect(() => {
     const unsub = registerResponseHandler((payload) => {
@@ -111,7 +131,7 @@ export default function App() {
     [chromeHeight],
   );
 
-  if (!fraunces || !playfair || !inter || !mono) {
+  if (!fraunces || !playfair || !inter || !mono || !migrationsDone) {
     return <View style={[styles.root, { backgroundColor: colors.paper }]} />;
   }
 
@@ -176,9 +196,11 @@ export default function App() {
   };
 
   return (
+    <ErrorBoundary>
     <ChromeInsetsContext.Provider value={chromeInsets}>
     <View style={styles.root}>
       <StatusBar style="dark" translucent />
+      <OfflineBanner />
       <View style={styles.content}>
         {chatOpen ? (
           <Animated.View
@@ -258,6 +280,7 @@ export default function App() {
       <StatusBarScrim />
     </View>
     </ChromeInsetsContext.Provider>
+    </ErrorBoundary>
   );
 }
 

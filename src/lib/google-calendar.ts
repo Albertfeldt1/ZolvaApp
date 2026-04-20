@@ -3,6 +3,7 @@
 // signing in with Google (scope: calendar.readonly).
 
 import { ProviderAuthError, tryWithRefresh } from './auth';
+import { fetchWithTimeout } from './network-errors';
 
 const BASE = 'https://www.googleapis.com/calendar/v3';
 
@@ -34,7 +35,7 @@ export async function listEvents(
       maxResults: '50',
     });
     const url = `${BASE}/calendars/primary/events?${params.toString()}`;
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout('google', url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (res.status === 401 || res.status === 403) {

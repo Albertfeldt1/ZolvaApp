@@ -82,16 +82,32 @@ serve(async (req) => {
 
   const summary: Record<string, string> = {};
   for (const watcher of (watchers ?? []) as Watcher[]) {
+    const key = `${watcher.user_id}:${watcher.provider}`;
+    const { data: locked, error: lockErr } = await client.rpc('try_mail_watcher_lock', {
+      p_user_id: watcher.user_id,
+    });
+    if (lockErr) {
+      summary[key] = `error: lock ${lockErr.message}`;
+      continue;
+    }
+    if (!locked) {
+      summary[key] = 'skipped: locked';
+      continue;
+    }
     try {
       await processWatcher(client, watcher);
-      summary[`${watcher.user_id}:${watcher.provider}`] = 'ok';
+      summary[key] = 'ok';
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      summary[`${watcher.user_id}:${watcher.provider}`] = `error: ${msg}`;
+      summary[key] = `error: ${msg}`;
+    } finally {
+      await client.rpc('release_mail_watcher_lock', { p_user_id: watcher.user_id });
     }
   }
   return json({ caller: isCron ? 'cron' : `user:${scopedUserId}`, summary });
 });
+
+const BATCH_PUSH_THRESHOLD = 10;
 
 async function processWatcher(client: SupabaseClient, watcher: Watcher): Promise<void> {
   const refreshToken = await loadRefreshToken(client, watcher.user_id, watcher.provider);
@@ -105,13 +121,8 @@ async function processWatcher(client: SupabaseClient, watcher: Watcher): Promise
       ? await fetchGmailSince(accessToken, watcher.last_history_id)
       : await fetchGraphSince(accessToken, watcher.last_delta_link);
 
-  if (messages.length > 0) {
-    const tokens = await loadPushTokens(client, watcher.user_id);
-    for (const msg of messages) {
-      await dispatchExpoPush(tokens, watcher.provider, msg);
-    }
-  }
-
+  // Advance the watermark before dispatching pushes so a failed/retried
+  // run can't re-notify the same messages.
   await client
     .from('mail_watchers')
     .update({
@@ -122,6 +133,18 @@ async function processWatcher(client: SupabaseClient, watcher: Watcher): Promise
     })
     .eq('user_id', watcher.user_id)
     .eq('provider', watcher.provider);
+
+  if (messages.length === 0) return;
+  const tokens = await loadPushTokens(client, watcher.user_id);
+  if (tokens.length === 0) return;
+
+  if (messages.length > BATCH_PUSH_THRESHOLD) {
+    await dispatchBatchPush(tokens, watcher.provider, messages.length);
+    return;
+  }
+  for (const msg of messages) {
+    await dispatchExpoPush(tokens, watcher.provider, msg);
+  }
 }
 
 async function loadRefreshToken(
@@ -293,6 +316,25 @@ async function dispatchExpoPush(
     },
     sound: 'default',
   }));
+  await postExpoPush(body);
+}
+
+async function dispatchBatchPush(
+  tokens: PushToken[],
+  provider: 'google' | 'microsoft',
+  count: number,
+): Promise<void> {
+  const body = tokens.map((t) => ({
+    to: t.token,
+    title: `${count} nye emails`,
+    body: 'Åbn Zolva for at se dem.',
+    data: { type: 'newMail', provider, batch: true, count },
+    sound: 'default',
+  }));
+  await postExpoPush(body);
+}
+
+async function postExpoPush(body: unknown[]): Promise<void> {
   const res = await fetch(EXPO_PUSH_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },

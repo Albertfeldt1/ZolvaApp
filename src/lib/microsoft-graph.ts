@@ -2,6 +2,7 @@
 // for the signed-in Microsoft account.
 
 import { ProviderAuthError, tryWithRefresh } from './auth';
+import { fetchWithTimeout } from './network-errors';
 
 const BASE = 'https://graph.microsoft.com/v1.0';
 
@@ -64,7 +65,7 @@ async function graphFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetchWithTimeout('microsoft', `${BASE}${path}`, {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -90,7 +91,7 @@ export async function listInboxMessages(top = 12): Promise<GraphMessage[]> {
       token,
       `/me/messages?$top=${top}&$select=id,from,subject,bodyPreview,receivedDateTime,isRead&$orderby=receivedDateTime desc`,
     );
-    return data.value.map((m) => ({
+    return (data.value ?? []).map((m) => ({
       id: m.id,
       from:
         m.from?.emailAddress?.name ??
@@ -168,7 +169,7 @@ export async function listCalendarEvents(
       `&$select=id,subject,start,end,location,isAllDay,attendees,responseStatus` +
       `&$orderby=start/dateTime&$top=50`;
     const data = await graphFetch<{ value: RawEvent[] }>(token, path);
-    return data.value.map((e) => ({
+    return (data.value ?? []).map((e) => ({
       id: e.id,
       subject: e.subject || 'Uden titel',
       start: new Date(`${e.start.dateTime}Z`),

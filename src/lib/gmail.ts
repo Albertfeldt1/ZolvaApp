@@ -1,6 +1,7 @@
 // Minimal Gmail client. Lists inbox messages and fetches metadata only.
 
 import { ProviderAuthError, tryWithRefresh } from './auth';
+import { fetchWithTimeout } from './network-errors';
 
 const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
@@ -44,7 +45,8 @@ type RawMessage = {
 
 export async function listInboxMessages(maxResults = 12): Promise<GmailMessage[]> {
   return tryWithRefresh('google', async (accessToken) => {
-    const listRes = await fetch(
+    const listRes = await fetchWithTimeout(
+      'google',
       `${BASE}/messages?q=in:inbox&maxResults=${maxResults}`,
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
@@ -69,14 +71,14 @@ async function fetchMessageMeta(
   id: string,
 ): Promise<GmailMessage | null> {
   const url = `${BASE}/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`;
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout('google', url, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (res.status === 401 || res.status === 403) {
     throw new ProviderAuthError('google', `Gmail afvist (${res.status}).`);
   }
   if (!res.ok) return null;
-  const data = (await res.json()) as RawMessage;
+  const data = (await res.json()) as RawMessage & { internalDate?: string };
   const headers = data.payload?.headers ?? [];
   const get = (name: string) =>
     headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? '';
@@ -85,15 +87,27 @@ async function fetchMessageMeta(
     id: data.id,
     from: parseFromHeader(get('From')),
     subject: get('Subject') || '(intet emne)',
-    date: new Date(get('Date')),
+    date: parseGmailDate(get('Date'), data.internalDate),
     snippet: data.snippet ?? '',
     unread: (data.labelIds ?? []).includes('UNREAD'),
   };
 }
 
+function parseGmailDate(header: string, internalDate?: string): Date {
+  if (header) {
+    const parsed = new Date(header);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  if (internalDate) {
+    const ms = Number(internalDate);
+    if (Number.isFinite(ms)) return new Date(ms);
+  }
+  return new Date();
+}
+
 export async function getMessageBody(id: string): Promise<GmailMessageBody> {
   return tryWithRefresh('google', async (accessToken) => {
-    const res = await fetch(`${BASE}/messages/${id}?format=full`, {
+    const res = await fetchWithTimeout('google', `${BASE}/messages/${id}?format=full`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (res.status === 401 || res.status === 403) {
@@ -150,7 +164,7 @@ export async function sendReply(ctx: {
     const message = `${headerLines.join('\r\n')}\r\n\r\n${ctx.body}`;
     const raw = base64UrlEncode(message);
 
-    const res = await fetch(`${BASE}/messages/send`, {
+    const res = await fetchWithTimeout('google', `${BASE}/messages/send`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -169,7 +183,7 @@ export async function sendReply(ctx: {
 
 export async function archiveMessage(id: string): Promise<void> {
   return tryWithRefresh('google', async (accessToken) => {
-    const res = await fetch(`${BASE}/messages/${id}/modify`, {
+    const res = await fetchWithTimeout('google', `${BASE}/messages/${id}/modify`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
