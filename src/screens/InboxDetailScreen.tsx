@@ -16,6 +16,7 @@ import { Stone } from '../components/Stone';
 import { useMailDetail, useSendReply } from '../lib/hooks';
 import type { InboxMail } from '../lib/types';
 import { colors, fonts } from '../theme';
+import { translateProviderError } from '../utils/danish';
 
 type Props = {
   mail: InboxMail;
@@ -52,7 +53,13 @@ export function InboxDetailScreen({ mail, onClose }: Props) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={styles.topBar}>
-        <Pressable onPress={onClose} style={styles.roundBtn} hitSlop={8}>
+        <Pressable
+          onPress={onClose}
+          style={styles.roundBtn}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Tilbage"
+        >
           <ChevronLeft size={18} color={colors.ink} strokeWidth={1.75} />
         </Pressable>
         <Text style={styles.topEyebrow}>Indbakke</Text>
@@ -149,11 +156,9 @@ export function InboxDetailScreen({ mail, onClose }: Props) {
 
           {sendError && (
             <View style={styles.errorBanner}>
-              <Text style={styles.errorText}>
-                Kunne ikke sende — prøv igen.
-              </Text>
+              <Text style={styles.errorText}>Kunne ikke sende — prøv igen.</Text>
               <Text style={styles.errorDetail} numberOfLines={2}>
-                {sendError.message}
+                {translateProviderError(sendError).message}
               </Text>
             </View>
           )}

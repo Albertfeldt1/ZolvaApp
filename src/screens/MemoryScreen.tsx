@@ -8,6 +8,7 @@ import { formatToday } from '../lib/date';
 import { useNotes, useReminders } from '../lib/hooks';
 import type { Note, NoteCategory, Reminder } from '../lib/types';
 import { colors, fonts } from '../theme';
+import { plural } from '../utils/danish';
 
 const CATEGORY_LABEL: Record<NoteCategory, string> = {
   task: 'Opgaver',
@@ -68,10 +69,15 @@ export function MemoryScreen({ onOpenChat }: Props) {
       <View style={styles.speech}>
         <Stone mood="thinking" size={40} onPress={onOpenChat} />
         <View style={{ flex: 1 }}>
+          {/* Quote style: standard "…" (straight double quotes). The quoted
+              content here is conversational prompt examples — not editorial
+              citations — and modern Danish digital writing favours "…" over
+              guillemets (»…«) for this register. Keep this consistent across
+              the app; we are the only screen that quotes inline. */}
           <Text style={styles.speechText}>
             Tilføj nye ved at skrive{' '}
-            <Text style={styles.accent}>„mind mig om…"</Text> eller{' '}
-            <Text style={styles.accent}>„husk at…"</Text> til mig.
+            <Text style={styles.accent}>"mind mig om…"</Text> eller{' '}
+            <Text style={styles.accent}>"husk at…"</Text> til mig.
           </Text>
         </View>
       </View>
@@ -80,7 +86,9 @@ export function MemoryScreen({ onOpenChat }: Props) {
         <View style={styles.sectionHead}>
           <Text style={styles.sectionTitle}>Påmindelser</Text>
           <Text style={styles.sectionMeta}>
-            {pendingReminders.length > 0 ? `${pendingReminders.length} aktive` : '-'}
+            {pendingReminders.length > 0
+              ? plural(pendingReminders.length, 'aktiv', 'aktive')
+              : '-'}
           </Text>
         </View>
         <View style={styles.inkRule} />
@@ -88,7 +96,7 @@ export function MemoryScreen({ onOpenChat }: Props) {
           <EmptyState
             icon={false}
             title="Ingen aktive påmindelser"
-            body={'Skriv „mind mig om at ringe til Lars torsdag" - så lægger jeg den her.'}
+            body={'Skriv "mind mig om at ringe til Lars torsdag" - så lægger jeg den her.'}
             ctaLabel="Skriv til Zolva"
             onCta={onOpenChat}
           />
@@ -110,7 +118,7 @@ export function MemoryScreen({ onOpenChat }: Props) {
         <View style={styles.sectionHead}>
           <Text style={styles.sectionTitle}>Noter</Text>
           <Text style={styles.sectionMeta}>
-            {notes.length > 0 ? `${notes.length} gemt` : '-'}
+            {notes.length > 0 ? plural(notes.length, 'gemt', 'gemte') : '-'}
           </Text>
         </View>
         <View style={styles.inkRule} />
@@ -118,7 +126,7 @@ export function MemoryScreen({ onOpenChat }: Props) {
           <EmptyState
             icon={false}
             title="Din anden hjerne er tom"
-            body={'Sig „husk at vi vil prøve grøn te-leverandør" - jeg sorterer det selv.'}
+            body={'Sig "husk at vi vil prøve grøn te-leverandør" - jeg sorterer det selv.'}
             ctaLabel="Skriv til Zolva"
             onCta={onOpenChat}
           />
@@ -177,10 +185,22 @@ function ReminderRow({
         <Text style={styles.rowTitle}>{reminder.text}</Text>
       </View>
       <View style={styles.rowActions}>
-        <Pressable onPress={onDone} style={styles.doneBtn} hitSlop={8}>
+        <Pressable
+          onPress={onDone}
+          style={styles.doneBtn}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Markér som færdig"
+        >
           <Check size={16} color={colors.sageDeep} strokeWidth={2.2} />
         </Pressable>
-        <Pressable onPress={onDelete} style={styles.deleteBtn} hitSlop={8}>
+        <Pressable
+          onPress={onDelete}
+          style={styles.deleteBtn}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Slet"
+        >
           <Trash2 size={15} color={colors.fg4} strokeWidth={1.75} />
         </Pressable>
       </View>
@@ -205,7 +225,13 @@ function NoteRow({
         <Text style={styles.noteText}>{note.text}</Text>
         <Text style={styles.noteMeta}>{relative(note.createdAt, now)}</Text>
       </View>
-      <Pressable onPress={onDelete} style={styles.deleteBtn} hitSlop={8}>
+      <Pressable
+        onPress={onDelete}
+        style={styles.deleteBtn}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel="Slet"
+      >
         <Trash2 size={15} color={colors.fg4} strokeWidth={1.75} />
       </Pressable>
     </View>

@@ -1,4 +1,13 @@
+// EXPORT_PATH_DOCUMENTED — The previous "Eksportér alle data" button rendered a
+// fake Alert. It was removed (see comment in the Privatliv card below) because a
+// broken promise is a GDPR Art. 15 liability. The right-of-access path now lives
+// in the privacy policy (owned by T3 in legal/privacy-policy-{da,en}.md): users
+// email the contact address and Zolva responds within 30 days. When/if a real
+// JSON export is built (Edge Function + Resend), re-add a button here and grep
+// for this marker to update the handoff.
 import { Check } from 'lucide-react-native';
+import Constants from 'expo-constants';
+import * as WebBrowser from 'expo-web-browser';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -7,6 +16,7 @@ import {
   ImageSourcePropType,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -39,6 +49,7 @@ import {
   useWorkPreferences,
 } from '../lib/hooks';
 import type { IntegrationStatus, WorkPreference } from '../lib/types';
+import { translateProviderError } from '../utils/danish';
 
 import {
   ensurePermission,
@@ -57,7 +68,18 @@ import {
   setMailWatchersEnabled,
   unregisterPushToken,
 } from '../lib/push';
+import { DeleteAccountScreen } from './DeleteAccountScreen';
 import { colors, fonts } from '../theme';
+
+// Reads the hosted privacy-policy URL from app.json extra.privacyPolicyUrl
+// so legal copy can be swapped without a new binary. Returns null while
+// the URL is still a placeholder (so the link gracefully no-ops in dev).
+function getPrivacyPolicyUrl(): string | null {
+  const raw = Constants.expoConfig?.extra?.privacyPolicyUrl;
+  if (typeof raw !== 'string') return null;
+  if (!raw || raw.startsWith('TODO_')) return null;
+  return raw;
+}
 
 const ROW_TRANSITION = LinearTransition.duration(220);
 const OPTIONS_ENTER = FadeIn.duration(180);
@@ -105,8 +127,27 @@ export function SettingsScreen() {
   const { data: toggles, flip } = usePrivacyToggles();
   const { signOut } = useAuth();
   const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const notificationSettings = useNotificationSettings();
   const permission = useNotificationPermission();
+
+  const openPrivacyPolicy = async () => {
+    const url = getPrivacyPolicyUrl();
+    if (!url) {
+      Alert.alert(
+        'Privatlivspolitik',
+        'Privatlivspolitikken er ikke publiceret endnu. Skriv til feldten@me.com for at få en kopi.',
+      );
+      return;
+    }
+    try {
+      await WebBrowser.openBrowserAsync(url, {
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
+      });
+    } catch (err) {
+      if (__DEV__) console.warn('[settings] privacy policy open failed:', err);
+    }
+  };
 
   const toggleNotificationSetting = async (key: keyof NotificationSettings, next: boolean) => {
     if (next) {
@@ -154,7 +195,7 @@ export function SettingsScreen() {
     setConnectingId(id);
     const { error } = await connect(id);
     setConnectingId(null);
-    if (error) Alert.alert('Kunne ikke forbinde', error.message);
+    if (error) Alert.alert('Kunne ikke forbinde', translateProviderError(error).message);
   };
 
   const isLoggedIn = !!user;
@@ -290,26 +331,36 @@ export function SettingsScreen() {
                 <Stone mood="thinking" size={36} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.darkTitle}>Privatliv</Text>
+                  {/* Copy fact-checked 2026-04-20:
+                     - Anthropic retention: workspace does NOT have ZDR, so default
+                       up to 30 days T&S retention applies. State that plainly.
+                     - Supabase region: eu-west-1 (Ireland) — EU. */}
                   <Text style={styles.darkBody}>
-                    Dine mails og kalender forlader aldrig din konto. Træning på dine data er slået{' '}
-                    <Text style={styles.darkStrong}>fra</Text>. Hostet i EU.
+                    Indholdet af dine mails og kalender sendes til Anthropic (Claude) for at lave
+                    opsummeringer og udkast. Anthropic kan opbevare data i op til 30 dage til
+                    misbrugsovervågning. Dine mails bruges{' '}
+                    <Text style={styles.darkStrong}>ikke</Text> til at træne modeller. Konti og
+                    tokens hostes i EU hos Supabase.
                   </Text>
                   <View style={{ marginTop: 16, gap: 10 }}>
                     {toggles.map((t) => (
                       <ToggleRow key={t.id} label={t.label} on={t.enabled} onPress={() => flip(t.id)} />
                     ))}
                   </View>
-                  <Pressable
-                    style={styles.exportBtn}
-                    onPress={() =>
-                      Alert.alert(
-                        'Eksport sat i gang',
-                        `Vi gør dine data klar og sender et download-link til ${user?.email ?? 'din email'} inden for 24 timer.`,
-                      )
-                    }
-                  >
-                    <Text style={styles.exportText}>Eksportér alle data</Text>
-                  </Pressable>
+                  {/* Export button removed: a fake Alert is a GDPR liability. Rewire to a real
+                      Edge Function (JSON bundle + Resend email) before bringing this back.
+
+                      T3 handoff — please add to legal/privacy-policy-da.md AND
+                      legal/privacy-policy-en.md:
+
+                        DA: "For at anmode om en kopi af dine data, skriv til
+                             <contact email>. Vi svarer inden for 30 dage jf.
+                             GDPR art. 15."
+                        EN: "To request a copy of your data, email <contact
+                             email>. We respond within 30 days per GDPR Art. 15."
+
+                      Do NOT surface the email in app UI — it belongs in the
+                      privacy policy so it stays one authoritative source. */}
                 </View>
               </View>
             </Animated.View>
@@ -346,6 +397,36 @@ export function SettingsScreen() {
               />
             </Animated.View>
 
+            {/* T4: the privacy copy + export-button live above in the dark
+                "Privatliv" card. This Konto section is the account-deletion
+                entry point; please don't move privacy/export into here. */}
+            <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
+              <Text style={styles.sectionTitle}>Konto</Text>
+              <View style={styles.inkRule} />
+              <Pressable
+                style={({ pressed }) => [styles.accountRow, pressed && styles.accountRowPressed]}
+                onPress={openPrivacyPolicy}
+                accessibilityRole="link"
+              >
+                <Text style={styles.accountRowLabel}>Privatlivspolitik</Text>
+                <Text style={styles.accountRowChevron}>→</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.accountRow,
+                  styles.accountRowBorder,
+                  pressed && styles.accountRowPressed,
+                ]}
+                onPress={() => setDeleteOpen(true)}
+                accessibilityRole="button"
+              >
+                <Text style={[styles.accountRowLabel, styles.accountRowDestructive]}>
+                  Slet konto
+                </Text>
+                <Text style={[styles.accountRowChevron, styles.accountRowDestructive]}>→</Text>
+              </Pressable>
+            </Animated.View>
+
             <AnimatedPressable
               layout={ROW_TRANSITION}
               style={styles.signOutRow}
@@ -356,6 +437,18 @@ export function SettingsScreen() {
           </>
         )}
       </ScrollView>
+
+      <Modal
+        visible={deleteOpen}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setDeleteOpen(false)}
+      >
+        <DeleteAccountScreen
+          onClose={() => setDeleteOpen(false)}
+          onDeleted={() => setDeleteOpen(false)}
+        />
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -376,7 +469,7 @@ function LoginCard() {
     setInfo(null);
     const trimmed = email.trim();
     if (!trimmed || !password) {
-      setError('Udfyld email og kodeord.');
+      setError('Udfyld mail og kodeord.');
       return;
     }
     setBusy(true);
@@ -384,7 +477,7 @@ function LoginCard() {
     const { data, error: err } = await fn(trimmed, password);
     setBusy(false);
     if (err) {
-      setError(err.message);
+      setError(translateProviderError(err).message);
       return;
     }
     if (mode === 'sign-up' && !data.session) {
@@ -400,11 +493,13 @@ function LoginCard() {
     try {
       const { error: err } =
         provider === 'google' ? await signInWithGoogle() : await signInWithApple();
-      if (err) setError(err.message);
+      if (err) setError(translateProviderError(err).message);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const raw = e instanceof Error ? e.message : String(e);
       // Apple's user-cancel throws ERR_REQUEST_CANCELED — silent ignore
-      if (!msg.includes('CANCELED') && !msg.includes('canceled')) setError(msg);
+      if (!raw.includes('CANCELED') && !raw.includes('canceled')) {
+        setError(translateProviderError(e).message);
+      }
     } finally {
       setOauthBusy(null);
     }
@@ -972,14 +1067,28 @@ const styles = StyleSheet.create({
   toggleTrackPressed: { opacity: 0.7 },
   toggleThumb: { width: 18, height: 18, borderRadius: 999, backgroundColor: colors.paper },
 
-  exportBtn: {
-    alignSelf: 'flex-start',
-    marginTop: 18,
-    paddingHorizontal: 16, paddingVertical: 9,
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.paperOn25,
+  accountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
   },
-  exportText: { color: colors.paper, fontFamily: fonts.uiSemi, fontSize: 13 },
+  accountRowBorder: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.line,
+  },
+  accountRowPressed: { opacity: 0.55 },
+  accountRowLabel: {
+    fontFamily: fonts.uiSemi,
+    fontSize: 14.5,
+    color: colors.ink,
+  },
+  accountRowChevron: {
+    fontFamily: fonts.ui,
+    fontSize: 14,
+    color: colors.fg3,
+  },
+  accountRowDestructive: { color: colors.danger },
 
   signOutRow: {
     paddingVertical: 22,

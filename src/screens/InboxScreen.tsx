@@ -14,11 +14,13 @@ import { Avatar } from '../components/Avatar';
 import { CountUp } from '../components/CountUp';
 import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
+import { SkeletonRow } from '../components/Skeleton';
 import { Stone } from '../components/Stone';
 import { formatClock, formatToday } from '../lib/date';
 import { useHasProvider, useInboxCleared, useInboxWaiting } from '../lib/hooks';
 import type { InboxMail, MailProvider } from '../lib/types';
 import { colors, fonts } from '../theme';
+import { translateProviderError } from '../utils/danish';
 
 const PROVIDER_LOGOS: Record<MailProvider, ReturnType<typeof require>> = {
   google: require('../../assets/logos/gmail.png'),
@@ -39,7 +41,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange }: Pr
   const clock = useMemo(() => formatClock(today), [today]);
   const { bottom: chromeBottom } = useChromeInsets();
 
-  const { data: waiting, error: waitingError } = useInboxWaiting();
+  const { data: waiting, loading: waitingLoading, error: waitingError } = useInboxWaiting();
   const { data: cleared } = useInboxCleared();
   const hasProvider = useHasProvider();
 
@@ -108,18 +110,38 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange }: Pr
         </View>
         <View style={styles.inkRule} />
         {waiting.length === 0 ? (
-          hasProvider ? (
-            <EmptyState
-              mood="calm"
-              title={waitingError ? 'Kunne ikke hente indbakke' : 'Indbakken er tom'}
-              body={
-                waitingError
-                  ? 'Din forbindelse er måske udløbet. Log ud og forbind igen.'
-                  : 'Intet venter på dig lige nu. God timing.'
-              }
-              ctaLabel={waitingError ? 'Gå til indstillinger' : undefined}
-              onCta={waitingError ? onGoToSettings : undefined}
-            />
+          waitingLoading && hasProvider && !waitingError ? (
+            <View>
+              <SkeletonRow />
+              <SkeletonRow />
+              <SkeletonRow />
+              <SkeletonRow />
+            </View>
+          ) : hasProvider ? (
+            (() => {
+              const err = waitingError ? translateProviderError(waitingError) : null;
+              const isAuth = err?.kind === 'auth';
+              return (
+                <EmptyState
+                  mood="calm"
+                  title={
+                    err
+                      ? err.kind === 'network'
+                        ? 'Ingen forbindelse'
+                        : 'Kunne ikke hente indbakke'
+                      : 'Indbakken er tom'
+                  }
+                  body={
+                    // "Perfekt timing" replaces the Anglicism "God timing". Triggered when the
+                    // inbox has zero waiting mails — the intent is "lucky moment that nothing's
+                    // waiting", not "take a break". "Timing" is a naturalised loanword in Danish.
+                    err ? err.message : 'Intet venter på dig lige nu. Perfekt timing.'
+                  }
+                  ctaLabel={isAuth ? 'Gå til indstillinger' : undefined}
+                  onCta={isAuth ? onGoToSettings : undefined}
+                />
+              );
+            })()
           ) : (
             <EmptyState
               mood="calm"

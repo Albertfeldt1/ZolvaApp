@@ -11,10 +11,12 @@ import {
 import * as Haptics from 'expo-haptics';
 import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
+import { Skeleton } from '../components/Skeleton';
 import { formatToday, weekStrip, type WeekStripDay } from '../lib/date';
 import { useDaySchedule, useHasProvider } from '../lib/hooks';
 import type { CalendarSlot } from '../lib/types';
 import { colors, fonts } from '../theme';
+import { translateProviderError } from '../utils/danish';
 
 type EventTone = NonNullable<CalendarSlot['event']>['tone'];
 const toneColor = (t: EventTone) =>
@@ -74,7 +76,7 @@ export function CalendarScreen({ onGoToSettings }: Props) {
   const selectedInfo = useMemo(() => formatToday(selectedDate), [selectedDate]);
   const isSelectedToday = sameDay(selectedDate, today);
 
-  const { data: slots, error: scheduleError } = useDaySchedule(selectedDate);
+  const { data: slots, loading: scheduleLoading, error: scheduleError } = useDaySchedule(selectedDate);
   const hasEvents = slots.some((s) => s.event);
   const hasProvider = useHasProvider();
   const { bottom: chromeBottom } = useChromeInsets();
@@ -181,20 +183,41 @@ export function CalendarScreen({ onGoToSettings }: Props) {
         </Text>
         <View style={styles.inkRule} />
         {!hasEvents ? (
-          hasProvider ? (
-            <EmptyState
-              mood="calm"
-              title={scheduleError ? 'Kunne ikke hente kalender' : 'Ingen aftaler'}
-              body={
-                scheduleError
-                  ? 'Din forbindelse er måske udløbet. Log ud og forbind igen.'
-                  : isSelectedToday
-                    ? 'Du har en rolig dag foran dig.'
-                    : 'Ingen begivenheder på denne dag.'
-              }
-              ctaLabel={scheduleError ? 'Gå til indstillinger' : undefined}
-              onCta={scheduleError ? onGoToSettings : undefined}
-            />
+          scheduleLoading && hasProvider && !scheduleError ? (
+            <View>
+              {Array.from({ length: 4 }).map((_, i) => (
+                <View key={i} style={[styles.row, i > 0 && styles.rowBorder]}>
+                  <Skeleton width={36} height={16} />
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Skeleton width="70%" height={14} />
+                    <Skeleton width="45%" height={12} style={{ marginTop: 6 }} />
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : hasProvider ? (
+            (() => {
+              const err = scheduleError ? translateProviderError(scheduleError) : null;
+              const isAuth = err?.kind === 'auth';
+              const emptyBody = isSelectedToday
+                ? 'Du har en rolig dag foran dig.'
+                : 'Ingen begivenheder på denne dag.';
+              return (
+                <EmptyState
+                  mood="calm"
+                  title={
+                    err
+                      ? err.kind === 'network'
+                        ? 'Ingen forbindelse'
+                        : 'Kunne ikke hente kalender'
+                      : 'Ingen aftaler'
+                  }
+                  body={err ? err.message : emptyBody}
+                  ctaLabel={isAuth ? 'Gå til indstillinger' : undefined}
+                  onCta={isAuth ? onGoToSettings : undefined}
+                />
+              );
+            })()
           ) : (
             <EmptyState
               mood="calm"

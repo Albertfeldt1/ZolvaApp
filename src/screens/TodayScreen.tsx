@@ -15,6 +15,7 @@ import { CountUp } from '../components/CountUp';
 import { DayRibbon, RibbonEvent } from '../components/DayRibbon';
 import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
+import { SkeletonRow } from '../components/Skeleton';
 import { Stone } from '../components/Stone';
 import { formatToday, greeting } from '../lib/date';
 import {
@@ -29,6 +30,7 @@ import {
 } from '../lib/hooks';
 import type { Observation, Reminder, UpcomingEvent } from '../lib/types';
 import { colors, fonts } from '../theme';
+import { plural, translateProviderError } from '../utils/danish';
 
 const toneColor = (t: UpcomingEvent['tone']) =>
   t === 'sage' ? colors.sage : t === 'clay' ? colors.clay : t === 'warning' ? colors.warning : colors.stone;
@@ -57,7 +59,7 @@ export function TodayScreen({
 
   const { data: user } = useUser();
   const { data: observations } = useObservations();
-  const { data: upcoming, error: upcomingError } = useUpcoming();
+  const { data: upcoming, loading: upcomingLoading, error: upcomingError } = useUpcoming();
   const { data: waiting } = useInboxWaiting();
   const { data: reminders } = useReminders();
   const { data: notes } = useNotes();
@@ -153,6 +155,8 @@ export function TodayScreen({
             onPress={onOpenNotifications}
             style={({ pressed }) => [styles.roundIcon, pressed && { opacity: 0.6 }]}
             hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Notifikationer"
           >
             <Bell size={16} color={colors.ink} strokeWidth={1.75} />
             {unreadNotifications > 0 && <View style={styles.bellBadge} />}
@@ -185,9 +189,10 @@ export function TodayScreen({
             </View>
             <Text style={styles.huskKicker}>Husk</Text>
             <Text style={styles.huskMeta}>
-              {pendingReminders.length > 0 && `${pendingReminders.length} påmindelser`}
+              {pendingReminders.length > 0 &&
+                plural(pendingReminders.length, 'påmindelse', 'påmindelser')}
               {pendingReminders.length > 0 && notes.length > 0 && ' · '}
-              {notes.length > 0 && `${notes.length} noter`}
+              {notes.length > 0 && plural(notes.length, 'note', 'noter')}
             </Text>
             <ChevronRight size={16} color={colors.fg4} strokeWidth={1.75} />
           </View>
@@ -206,18 +211,32 @@ export function TodayScreen({
         </View>
         <View style={styles.inkRule} />
         {upcoming.length === 0 ? (
-          hasProvider ? (
-            <EmptyState
-              mood="calm"
-              title={upcomingError ? 'Kunne ikke hente kalender' : 'Ingen aftaler i dag'}
-              body={
-                upcomingError
-                  ? 'Din forbindelse er måske udløbet. Log ud og forbind igen.'
-                  : 'Du har en rolig dag foran dig.'
-              }
-              ctaLabel={upcomingError ? 'Gå til indstillinger' : undefined}
-              onCta={upcomingError ? onGoToSettings : undefined}
-            />
+          upcomingLoading && hasProvider && !upcomingError ? (
+            <View>
+              <SkeletonRow />
+              <SkeletonRow />
+              <SkeletonRow />
+            </View>
+          ) : hasProvider ? (
+            (() => {
+              const err = upcomingError ? translateProviderError(upcomingError) : null;
+              const isAuth = err?.kind === 'auth';
+              return (
+                <EmptyState
+                  mood="calm"
+                  title={
+                    err
+                      ? err.kind === 'network'
+                        ? 'Ingen forbindelse'
+                        : 'Kunne ikke hente kalender'
+                      : 'Ingen aftaler i dag'
+                  }
+                  body={err ? err.message : 'Du har en rolig dag foran dig.'}
+                  ctaLabel={isAuth ? 'Gå til indstillinger' : undefined}
+                  onCta={isAuth ? onGoToSettings : undefined}
+                />
+              );
+            })()
           ) : (
             <EmptyState
               mood="calm"
