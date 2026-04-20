@@ -22,10 +22,22 @@
       }
     },
     "android": {
+      "package": "com.zolva.app",
+      "versionCode": 1,
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/android/adaptive-icon-foreground.png",
+        "backgroundColor": "#F6F1E8"
       },
+      "permissions": ["NOTIFICATIONS"],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [{ "scheme": "zolva" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
@@ -39,9 +51,16 @@
       [
         "expo-notifications",
         {
-          "color": "#ffffff"
+          "icon": "./assets/android/notification-icon.png",
+          "color": "#5C7355"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "e66ee3ef-8891-477c-aff9-c5e7d6d3a828"
+      }
+    },
+    "owner": "albertfeldt1"
   }
 }
