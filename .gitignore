@@ -44,3 +44,7 @@ yarn-error.*
 
 # Supabase CLI scratch state
 supabase/.temp/
+
+# Filled-in copy of the cron schedule (contains service_role key + cron secret).
+# The committed template is supabase/schedule-poll-mail.sql.template.
+supabase/schedule-poll-mail.sql
