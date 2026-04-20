@@ -53,7 +53,12 @@ export function ChatScreen({ onBack }: Props) {
       keyboardVerticalOffset={0}
     >
       <View style={styles.topBar}>
-        <Pressable onPress={onBack} style={styles.roundBtn}>
+        <Pressable
+          onPress={onBack}
+          style={styles.roundBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Tilbage"
+        >
           <ChevronLeft size={18} color={colors.ink} strokeWidth={1.75} />
         </Pressable>
         <Stone size={34} mood="calm" />
@@ -103,7 +108,12 @@ export function ChatScreen({ onBack }: Props) {
             style={styles.input}
             returnKeyType="send"
           />
-          <Pressable style={styles.sendBtn} onPress={() => submit(input)}>
+          <Pressable
+            style={styles.sendBtn}
+            onPress={() => submit(input)}
+            accessibilityRole="button"
+            accessibilityLabel="Send"
+          >
             <ArrowUp size={18} color={colors.paper} strokeWidth={2.4} />
           </Pressable>
         </View>
