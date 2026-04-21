@@ -58,7 +58,8 @@
     "extra": {
       "eas": {
         "projectId": "e66ee3ef-8891-477c-aff9-c5e7d6d3a828"
-      }
+      },
+      "privacyPolicyUrl": "https://albertfeldt1.github.io/ZolvaApp/"
     },
     "owner": "albertfeldt1",
     "runtimeVersion": {

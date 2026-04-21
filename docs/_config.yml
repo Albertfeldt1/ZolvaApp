@@ -1,0 +1,7 @@
+theme: jekyll-theme-minimal
+title: Zolva
+description: Privacy policy and legal documents for the Zolva app
+show_downloads: false
+exclude:
+  - ANDROID_BUILD.md
+  - superpowers
