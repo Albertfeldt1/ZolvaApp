@@ -83,6 +83,7 @@ import {
   subscribeFeed,
 } from './notification-feed';
 import { syncChatMessage } from './chat-sync';
+import { runExtractor } from './profile-extractor';
 
 // All hooks return placeholder/empty state. When the backend is wired,
 // swap the internals for real data sources (Supabase auth, API fetches,
@@ -1585,7 +1586,15 @@ export function useChat() {
             text: answer.length > 0 ? answer : CHAT_ERROR_TEXT,
           };
           setMessages((cur) => [...cur, assistantMsg]);
-          if (userId) syncChatMessage(userId, assistantMsg);
+          if (userId) {
+            syncChatMessage(userId, assistantMsg);
+            runExtractor({
+              trigger: 'chat_turn',
+              userId,
+              text: `Bruger: ${trimmed}\nZolva: ${assistantMsg.text}`,
+              source: `chat:${assistantMsg.id}`,
+            });
+          }
         })
         .catch((err: Error) => {
           if (__DEV__ && getPrivacyFlag('anon-reports')) {

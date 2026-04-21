@@ -16,6 +16,7 @@ import { Stone } from '../components/Stone';
 import { useAuth } from '../lib/auth';
 import { useMailDetail, useSendReply } from '../lib/hooks';
 import { recordMailEvent } from '../lib/mail-events';
+import { runExtractor } from '../lib/profile-extractor';
 import type { InboxMail } from '../lib/types';
 import { colors, fonts } from '../theme';
 import { translateProviderError } from '../utils/danish';
@@ -55,6 +56,12 @@ export function InboxDetailScreen({ mail, onClose }: Props) {
           providerFrom: mail.from,
           providerSubject: mail.subject,
         });
+        runExtractor({
+          trigger: 'mail_draft',
+          userId: user.id,
+          text: `Brugeren besvarede en mail fra ${mail.from} om "${mail.subject}"`,
+          source: `mail:${replyContextThreadId(detail.replyContext)}`,
+        });
       }
       onClose();
     }
@@ -70,6 +77,12 @@ export function InboxDetailScreen({ mail, onClose }: Props) {
           providerThreadId: detail ? replyContextThreadId(detail.replyContext) : mail.id,
           providerFrom: mail.from,
           providerSubject: mail.subject,
+        });
+        runExtractor({
+          trigger: 'mail_decision',
+          userId: user.id,
+          text: `Brugeren ignorerede mail fra ${mail.from} med emnet "${mail.subject}"`,
+          source: `mail:${detail ? replyContextThreadId(detail.replyContext) : mail.id}`,
         });
       }
       onClose();
