@@ -730,7 +730,9 @@ export function useAuth() {
     signIn: (email: string, password: string) =>
       signInWithPasswordOrDemo(email, password),
     signUp: (email: string, password: string) =>
-      supabase.auth.signUp({ email, password }),
+      isDemoCredentials(email, password)
+        ? signInWithPasswordOrDemo(email, password)
+        : supabase.auth.signUp({ email, password }),
     signOut: performSignOut,
     signInWithGoogle,
     signInWithMicrosoft,
