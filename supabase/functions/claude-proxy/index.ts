@@ -26,11 +26,17 @@ type Message = {
   content: string | ContentBlock[];
 };
 
+type ClaudeSystemBlock = {
+  type: 'text';
+  text: string;
+  cache_control?: { type: 'ephemeral' };
+};
+
 type ProxyRequest = {
   messages: Message[];
   model?: string;
   max_tokens?: number;
-  system?: string;
+  system?: string | ClaudeSystemBlock[];
   temperature?: number;
   tools?: unknown[];
 };
@@ -89,7 +95,11 @@ serve(async (req) => {
     messages: body.messages,
     metadata: { user_id: userId },
   };
-  if (body.system != null) anthropicBody.system = body.system;
+  if (body.system != null) {
+    anthropicBody.system = Array.isArray(body.system)
+      ? body.system
+      : [{ type: 'text', text: body.system }];
+  }
   if (body.temperature != null) anthropicBody.temperature = body.temperature;
   if (body.tools != null) anthropicBody.tools = body.tools;
 
