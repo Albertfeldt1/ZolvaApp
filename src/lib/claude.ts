@@ -20,6 +20,21 @@ export class ClaudeConfigError extends Error {
   }
 }
 
+export class ClaudeRateLimitError extends Error {
+  readonly retryAfterSec: number;
+  readonly reason: 'rpm' | 'daily';
+  constructor(retryAfterSec: number, reason: 'rpm' | 'daily') {
+    super(
+      reason === 'daily'
+        ? 'Du har nået dagens grænse for Zolva. Prøv igen i morgen.'
+        : 'Zolva holder en kort pause — prøv igen om lidt.',
+    );
+    this.name = 'ClaudeRateLimitError';
+    this.retryAfterSec = retryAfterSec;
+    this.reason = reason;
+  }
+}
+
 // The key lives in the edge function now, so there's no local key check.
 // Keep this export for callers that used it as a feature gate; the real
 // authorization check happens server-side when the proxy is invoked.
@@ -125,6 +140,16 @@ export async function completeRaw(opts: CompleteOptions): Promise<ClaudeCompleti
     },
     body: JSON.stringify(payload),
   });
+
+  if (res.status === 429) {
+    const retryAfter = parseInt(res.headers.get('retry-after') ?? '60', 10);
+    const body = await res.text();
+    const reason: 'rpm' | 'daily' = body.includes('daily') ? 'daily' : 'rpm';
+    throw new ClaudeRateLimitError(
+      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60,
+      reason,
+    );
+  }
 
   if (!res.ok) {
     const detail = await res.text();

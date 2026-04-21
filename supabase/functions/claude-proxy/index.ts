@@ -46,6 +46,13 @@ const ANTHROPIC_VERSION = '2023-06-01';
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 const DEFAULT_MAX_TOKENS = 1024;
 
+// Per-user caps enforced before forwarding to Anthropic. Protects the shared
+// ANTHROPIC_API_KEY from runaway users, hot loops, and leaked session tokens.
+// Tuning these requires re-deploying the function; see migration
+// 20260421300000_claude_rate_limit.sql for the enforcement logic.
+const RPM_LIMIT = 60;
+const DAILY_LIMIT = 500;
+
 serve(async (req) => {
   if (req.method !== 'POST') {
     return json({ error: 'method not allowed' }, 405);
@@ -74,6 +81,37 @@ serve(async (req) => {
     return json({ error: 'unauthorized' }, 401);
   }
   const userId = userData.user.id;
+
+  const { data: limitRows, error: limitErr } = await authClient.rpc(
+    'check_and_incr_claude_usage',
+    {
+      p_user_id: userId,
+      p_rpm_limit: RPM_LIMIT,
+      p_daily_limit: DAILY_LIMIT,
+    },
+  );
+  if (limitErr) {
+    console.error(`[claude-proxy] rate_limit_check_failed user=${userId} err=${limitErr.message}`);
+    return json({ error: 'rate limit check failed' }, 500);
+  }
+  const limit = Array.isArray(limitRows) ? limitRows[0] : limitRows;
+  if (!limit?.allowed) {
+    const retryAfter = Math.max(1, Number(limit?.retry_after ?? 60));
+    const reason = String(limit?.reason ?? 'rpm');
+    console.warn(
+      `[claude-proxy] rate_limited user=${userId} reason=${reason} retry_after=${retryAfter}`,
+    );
+    return new Response(
+      JSON.stringify({ error: `rate_limit_${reason}`, retry_after: retryAfter }),
+      {
+        status: 429,
+        headers: {
+          'content-type': 'application/json',
+          'retry-after': String(retryAfter),
+        },
+      },
+    );
+  }
 
   let body: ProxyRequest;
   try {
@@ -127,6 +165,19 @@ serve(async (req) => {
     console.log(
       `[claude-proxy] ok user=${userId} model=${model} in=${usage.input ?? '?'} out=${usage.output ?? '?'}`,
     );
+    if (usage.input != null || usage.output != null) {
+      authClient
+        .rpc('record_claude_tokens', {
+          p_user_id: userId,
+          p_input_tokens: usage.input ?? 0,
+          p_output_tokens: usage.output ?? 0,
+        })
+        .then(({ error }) => {
+          if (error) {
+            console.warn(`[claude-proxy] token_record_failed user=${userId} err=${error.message}`);
+          }
+        });
+    }
   } else {
     console.warn(
       `[claude-proxy] anthropic_error status=${anthropicRes.status} user=${userId} model=${model}`,
