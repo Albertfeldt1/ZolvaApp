@@ -200,11 +200,16 @@ export async function getFactsSignature(userId: string): Promise<string> {
     .eq('user_id', userId);
   if (error) throw error;
   const rows = data ?? [];
-  const latest = rows.reduce((acc, r) => {
+  const latest = rows.reduce<number>((acc, r) => {
+    const parse = (v: unknown): number => {
+      if (typeof v !== 'string' || v.length === 0) return 0;
+      const n = Date.parse(v);
+      return Number.isFinite(n) ? n : 0;
+    };
     const t = Math.max(
-      Date.parse((r.created_at as string) ?? '0'),
-      Date.parse((r.confirmed_at as string) ?? '0'),
-      Date.parse((r.rejected_at as string) ?? '0'),
+      parse(r.created_at),
+      parse(r.confirmed_at),
+      parse(r.rejected_at),
     );
     return Math.max(acc, t);
   }, 0);
