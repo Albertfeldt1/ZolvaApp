@@ -11,6 +11,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useAuth } from '../lib/auth';
+import { isDemoUser } from '../lib/demo';
 import { supabase } from '../lib/supabase';
 import { colors, fonts } from '../theme';
 
@@ -24,11 +26,13 @@ type Props = {
 type DeleteError = { message: string; canRetry: boolean };
 
 export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
+  const { user, signOut } = useAuth();
   const [confirmation, setConfirmation] = useState('');
   const [stage, setStage] = useState<'intro' | 'confirm'>('intro');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<DeleteError | null>(null);
 
+  const demo = isDemoUser(user);
   const typedCorrectly = confirmation.trim().toUpperCase() === CONFIRMATION_WORD;
 
   const runDelete = async () => {
@@ -36,6 +40,14 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
     setBusy(true);
     setError(null);
     try {
+      if (demo) {
+        // Demo accounts don't exist in Supabase — just log the user out
+        // locally so the UI behaves like a deletion succeeded.
+        await signOut();
+        onDeleted();
+        return;
+      }
+
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session) {
         setError({ message: 'Din session er udløbet. Log ind igen.', canRetry: false });
@@ -48,8 +60,9 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
       });
 
       if (fnError) {
+        const detail = await extractFunctionError(fnError);
         setError({
-          message: fnError.message || 'Noget gik galt under sletningen. Prøv igen.',
+          message: detail ?? fnError.message ?? 'Noget gik galt under sletningen. Prøv igen.',
           canRetry: true,
         });
         setBusy(false);
@@ -199,6 +212,38 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
       </ScrollView>
     </KeyboardAvoidingView>
   );
+}
+
+// Supabase wraps non-2xx responses in FunctionsHttpError whose `.context` is
+// the raw Response. The default .message ("Edge Function returned a non-2xx
+// status code") hides the status and body — pull them out so the user (and
+// the logs) see what actually failed.
+async function extractFunctionError(err: unknown): Promise<string | null> {
+  const ctx = (err as { context?: unknown })?.context;
+  if (!ctx || typeof (ctx as Response).clone !== 'function') return null;
+  const res = (ctx as Response).clone();
+  const status = res.status;
+  let body = '';
+  try {
+    body = await res.text();
+  } catch {
+    // fall through
+  }
+  const parsed = body ? safeParseJson(body) : null;
+  const detail =
+    (parsed && typeof parsed === 'object' && 'error' in parsed
+      ? String((parsed as { error?: unknown }).error ?? '')
+      : '') || body.slice(0, 200);
+  console.warn(`[delete-account] fn error status=${status} body=${body}`);
+  return detail ? `${detail} (HTTP ${status})` : `HTTP ${status}`;
+}
+
+function safeParseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
 function BulletItem({ children }: { children: React.ReactNode }) {
