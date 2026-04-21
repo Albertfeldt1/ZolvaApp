@@ -13,7 +13,9 @@ import {
 } from 'react-native';
 import { Avatar } from '../components/Avatar';
 import { Stone } from '../components/Stone';
+import { useAuth } from '../lib/auth';
 import { useMailDetail, useSendReply } from '../lib/hooks';
+import { recordMailEvent } from '../lib/mail-events';
 import type { InboxMail } from '../lib/types';
 import { colors, fonts } from '../theme';
 import { translateProviderError } from '../utils/danish';
@@ -24,6 +26,7 @@ type Props = {
 };
 
 export function InboxDetailScreen({ mail, onClose }: Props) {
+  const { user } = useAuth();
   const { data: detail, loading, error } = useMailDetail(mail.id, mail.provider);
   const { send, archive, sending, error: sendError } = useSendReply();
   const [draft, setDraft] = useState(mail.aiDraft ?? '');
@@ -36,15 +39,41 @@ export function InboxDetailScreen({ mail, onClose }: Props) {
   const canSend = draft.trim().length > 0 && !!detail && !sending;
   const hasAiDraft = !!mail.aiDraft;
 
+  function replyContextThreadId(ctx: import('../lib/types').ReplyContext): string {
+    return ctx.provider === 'google' ? ctx.threadId : ctx.messageId;
+  }
+
   const handleSend = async () => {
     if (!detail) return;
     const ok = await send(mail.id, draft.trim(), detail.replyContext);
-    if (ok) onClose();
+    if (ok) {
+      if (user?.id) {
+        recordMailEvent({
+          userId: user.id,
+          eventType: 'drafted_reply',
+          providerThreadId: replyContextThreadId(detail.replyContext),
+          providerFrom: mail.from,
+          providerSubject: mail.subject,
+        });
+      }
+      onClose();
+    }
   };
 
   const handleArchive = async () => {
     const ok = await archive(mail.id, mail.provider);
-    if (ok) onClose();
+    if (ok) {
+      if (user?.id) {
+        recordMailEvent({
+          userId: user.id,
+          eventType: 'dismissed',
+          providerThreadId: detail ? replyContextThreadId(detail.replyContext) : mail.id,
+          providerFrom: mail.from,
+          providerSubject: mail.subject,
+        });
+      }
+      onClose();
+    }
   };
 
   return (
