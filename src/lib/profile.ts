@@ -11,6 +11,7 @@ import {
 } from './profile-store';
 import { DEMO_PROFILE_PREAMBLE } from './profile-demo';
 import { isDemoUser } from './demo';
+import { subscribeUserId } from './auth';
 
 const PREAMBLE_TOKEN_CAP = 800;
 const CONTEXT_LINE_CHAR_CAP = 120;
@@ -127,6 +128,10 @@ export async function buildProfilePreambleFromData(data: {
 
 type CachedPreamble = { signature: string; value: string };
 const preambleCache = new Map<string, CachedPreamble>();
+
+subscribeUserId(() => {
+  preambleCache.clear();
+});
 
 export function invalidatePreamble(userId: string): void {
   preambleCache.delete(userId);

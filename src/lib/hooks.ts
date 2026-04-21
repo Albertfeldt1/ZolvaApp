@@ -1090,6 +1090,11 @@ let privacyHydrationPromise: Promise<void> | null = null;
 let privacyUid: string | null = null;
 let privacyUserSubscribed = false;
 
+const privacyListeners = new Set<() => void>();
+function notifyPrivacyChange() {
+  privacyListeners.forEach((l) => l());
+}
+
 function ensurePrivacyUserSubscription() {
   if (privacyUserSubscribed) return;
   privacyUserSubscribed = true;
@@ -1099,6 +1104,7 @@ function ensurePrivacyUserSubscription() {
     privacyCache = {};
     privacyHydrated = false;
     privacyHydrationPromise = null;
+    notifyPrivacyChange();
   });
 }
 
@@ -1167,6 +1173,7 @@ export function usePrivacyToggles() {
         }
         return next;
       });
+      notifyPrivacyChange();
     },
     [userId],
   );
@@ -1664,10 +1671,15 @@ function useMemoryEnabled(): boolean {
   const [enabled, setEnabled] = useState<boolean>(() => getPrivacyFlag('memory-enabled'));
   useEffect(() => {
     let cancelled = false;
-    void hydratePrivacyCache().then(() => {
+    const sync = () => {
       if (!cancelled) setEnabled(getPrivacyFlag('memory-enabled'));
-    });
-    return () => { cancelled = true; };
+    };
+    void hydratePrivacyCache().then(sync);
+    privacyListeners.add(sync);
+    return () => {
+      cancelled = true;
+      privacyListeners.delete(sync);
+    };
   }, []);
   return enabled;
 }
@@ -1677,6 +1689,7 @@ function useMemoryEnabled(): boolean {
 const memoryConsentKey = (uid: string) => `zolva.${uid}.memory.consent-shown-at`;
 
 export async function shouldShowMemoryConsent(uid: string): Promise<boolean> {
+  if (!PROFILE_MEMORY_FLAG) return false;
   if (getPrivacyFlag('memory-enabled')) return false;
   try {
     const raw = await AsyncStorage.getItem(memoryConsentKey(uid));
@@ -1709,4 +1722,5 @@ export async function setPrivacyFlag(id: PrivacyFlagId, value: boolean): Promise
       await AsyncStorage.setItem(privacyTogglesKey(uid), JSON.stringify(privacyCache));
     } catch {}
   }
+  notifyPrivacyChange();
 }
