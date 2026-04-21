@@ -14,17 +14,9 @@ import {
 } from 'react-native';
 import { Stone } from '../components/Stone';
 import { formatClock, formatToday } from '../lib/date';
-import { useChat } from '../lib/hooks';
+import { useChat, useChatSuggestions } from '../lib/hooks';
 import type { ChatMessage } from '../lib/types';
 import { colors, fonts } from '../theme';
-
-// Prompt starters aligned with Claude's available tools (reminders + notes).
-const SUGGESTIONS = [
-  'Mine påmindelser',
-  'Husk at ringe i morgen',
-  'Skriv en note',
-  'Hvad har jeg noteret?',
-];
 
 type Props = { onBack: () => void; initialDraft?: string };
 
@@ -34,6 +26,7 @@ export function ChatScreen({ onBack, initialDraft }: Props) {
   const clock = useMemo(() => formatClock(today), [today]);
 
   const { data: messages, typing, send } = useChat();
+  const { data: suggestions } = useChatSuggestions();
   const [input, setInput] = useState(initialDraft ?? '');
   const scrollRef = useRef<ScrollView>(null);
 
@@ -90,8 +83,8 @@ export function ChatScreen({ onBack, initialDraft }: Props) {
         style={styles.suggestScroll}
         contentContainerStyle={styles.suggestRow}
       >
-        {SUGGESTIONS.map((q, i) => (
-          <Pressable key={i} onPress={() => submit(q)} style={styles.suggestChip}>
+        {suggestions.map((q, i) => (
+          <Pressable key={`${i}-${q}`} onPress={() => submit(q)} style={styles.suggestChip}>
             <Text style={styles.suggestText}>{q}</Text>
           </Pressable>
         ))}

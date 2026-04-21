@@ -87,6 +87,12 @@ import {
 } from './notification-feed';
 import { syncChatMessage } from './chat-sync';
 import { runExtractor } from './profile-extractor';
+import {
+  CHAT_SUGGESTION_COUNT,
+  extractChatSuggestions,
+  padSuggestions,
+  type MailForSuggestion,
+} from './chat-suggestions';
 
 const PROFILE_MEMORY_FLAG = process.env.EXPO_PUBLIC_PROFILE_MEMORY === '1';
 
@@ -1553,6 +1559,103 @@ async function runChatTool(
 }
 
 const CHAT_TOOL_ROUND_CAP = 4;
+
+// ─── Chat suggestion chips ─────────────────────────────────────────────────
+
+type SuggestionCacheEntry = { expiresAt: number; data: string[] };
+const SUGGESTION_TTL_MS = 15 * 60 * 1000;
+const SUGGESTION_MAIL_LIMIT = 8;
+const suggestionCache = new Map<string, SuggestionCacheEntry>();
+
+let suggestionInitialSeen = false;
+subscribeUserId(() => {
+  if (!suggestionInitialSeen) {
+    suggestionInitialSeen = true;
+    return;
+  }
+  suggestionCache.clear();
+});
+
+function suggestionSignature(mails: MailForSuggestion[]): string {
+  return mails
+    .map((m) => `${m.id}|${m.from}|${m.subject}|${m.isRead ? 1 : 0}`)
+    .join('\n');
+}
+
+function selectSuggestionMails(items: NormalizedMail[]): MailForSuggestion[] {
+  return items
+    .filter((m) => !m.isRead && needsReply(m.from))
+    .slice(0, SUGGESTION_MAIL_LIMIT)
+    .map((m) => ({
+      id: m.id,
+      from: m.from,
+      subject: m.subject,
+      receivedAt: m.receivedAt,
+      isRead: m.isRead,
+    }));
+}
+
+export function useChatSuggestions(): Result<string[]> {
+  const { items, loading, error } = useMailItems();
+  const [state, setState] = useState<Result<string[]>>({
+    data: padSuggestions([]),
+    loading: false,
+    error: null,
+  });
+
+  useEffect(() => {
+    if (!hasClaudeKey()) {
+      setState({ data: padSuggestions([]), loading: false, error: null });
+      return;
+    }
+    if (loading) {
+      setState({ data: padSuggestions([]), loading: true, error: null });
+      return;
+    }
+    if (error) {
+      setState({ data: padSuggestions([]), loading: false, error });
+      return;
+    }
+
+    const selected = selectSuggestionMails(items);
+    if (selected.length === 0) {
+      setState({ data: padSuggestions([]), loading: false, error: null });
+      return;
+    }
+
+    const sig = suggestionSignature(selected);
+    const cached = suggestionCache.get(sig);
+    if (cached && cached.expiresAt > Date.now()) {
+      setState({ data: cached.data, loading: false, error: null });
+      return;
+    }
+
+    const controller = new AbortController();
+    setState((prev) => ({ data: prev.data, loading: true, error: null }));
+
+    extractChatSuggestions(selected, controller.signal)
+      .then((dynamic) => {
+        if (controller.signal.aborted) return;
+        const padded = padSuggestions(dynamic);
+        suggestionCache.set(sig, {
+          data: padded,
+          expiresAt: Date.now() + SUGGESTION_TTL_MS,
+        });
+        setState({ data: padded, loading: false, error: null });
+      })
+      .catch((err: Error) => {
+        if (controller.signal.aborted || err.name === 'AbortError') return;
+        if (__DEV__) console.warn('[hooks] chat suggestions failed:', err.message);
+        setState({ data: padSuggestions([]), loading: false, error: err });
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [items, loading, error]);
+
+  return { data: state.data.slice(0, CHAT_SUGGESTION_COUNT), loading: state.loading, error: state.error };
+}
 
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
