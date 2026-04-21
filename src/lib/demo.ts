@@ -245,6 +245,8 @@ export const DEMO_CHAT_SCRIPT: string[] = [
 
 export const DEMO_CHAT_FALLBACK = 'Lad mig undersøge det og vende tilbage.';
 
+export { DEMO_PROFILE_PREAMBLE } from './profile-demo';
+
 const DEMO_MAIL_BODIES: Record<string, string> = {
   'd-m-1':
     'Hej,\n\nTak for dit oplæg i sidste uge. Vi er klar til at tage næste skridt på Q3-kampagnen, og ledelsen vil gerne se et konkret tilbud inden onsdag.\n\nKan du sende et udkast med pris og leveringsplan?\n\nMvh\nMette Halling',

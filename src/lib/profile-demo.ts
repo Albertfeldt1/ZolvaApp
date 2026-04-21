@@ -1,0 +1,18 @@
+export const DEMO_PROFILE_PREAMBLE = [
+  'Om brugeren:',
+  '• Du arbejder som seniorkonsulent hos Lundgreen & Partner.',
+  '• Du foretrækker korte, venlige mails og ingen lange hilsner.',
+  '',
+  'Relationer:',
+  '• Maria Bergmann – din leder.',
+  '• Mikkel Holm – bedste ven, arbejder hos Nordea.',
+  '• Signe – din ægtefælle.',
+  '',
+  'Igangværende:',
+  '• Nordea-pitch – deadline 28. april.',
+  '• Onboarding af Louise (ny praktikant).',
+  '',
+  'Seneste kontekst:',
+  '• Du aftalte med Maria at sende førsteudkast torsdag.',
+  '• Du afviste Mikkels forslag om fredagsfrokost (travl uge).',
+].join('\n');
