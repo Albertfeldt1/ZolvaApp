@@ -1052,18 +1052,24 @@ export function useWorkPreferences() {
   return { data: rows, loading: false, error: null as Error | null, setValue };
 }
 
-export type PrivacyFlagId = 'training-opt-in' | 'local-only' | 'anon-reports';
+export type PrivacyFlagId =
+  | 'training-opt-in'
+  | 'local-only'
+  | 'anon-reports'
+  | 'memory-enabled';
 
 const PRIVACY_DEFAULTS: Record<PrivacyFlagId, boolean> = {
   'training-opt-in': false,
   'local-only': true,
   'anon-reports': true,
+  'memory-enabled': false,
 };
 
 const DEFAULT_PRIVACY_TOGGLES: PrivacyToggle[] = [
   { id: 'training-opt-in', label: 'Brug mine data til at forbedre Zolva', enabled: PRIVACY_DEFAULTS['training-opt-in'] },
   { id: 'local-only', label: 'Gem samtaler lokalt', enabled: PRIVACY_DEFAULTS['local-only'] },
   { id: 'anon-reports', label: 'Del fejlrapporter anonymt', enabled: PRIVACY_DEFAULTS['anon-reports'] },
+  { id: 'memory-enabled', label: 'Lad Zolva lære dig at kende', enabled: PRIVACY_DEFAULTS['memory-enabled'] },
 ];
 
 const privacyTogglesKey = (uid: string) => `zolva.${uid}.prefs.privacy`;
