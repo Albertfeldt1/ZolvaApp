@@ -74,11 +74,6 @@ serve(async (req) => {
   });
 
   const now = new Date();
-  const nowHour = now.getUTCHours();
-  const nowMin = now.getUTCMinutes();
-  // NOTE: v1 matches the user's configured time against UTC. Per-user
-  // timezone is a follow-up; for Danish users this is off by 1–2 hours
-  // depending on DST.
 
   let prefsQuery = client
     .from('work_preferences')
@@ -93,9 +88,15 @@ serve(async (req) => {
     return json({ error: 'db error' }, 500);
   }
 
+  const prefRows = (prefs ?? []) as PrefRow[];
+  const userIds = Array.from(new Set(prefRows.map((p) => p.user_id)));
+  const zoneByUser = userIds.length > 0 ? await fetchZones(client, userIds) : new Map<string, string>();
+
   const results: Array<{ userId: string; kind: string; status: string }> = [];
-  for (const pref of (prefs ?? []) as PrefRow[]) {
-    if (!windowMatches(pref.value, nowHour, nowMin)) continue;
+  for (const pref of prefRows) {
+    const tz = zoneByUser.get(pref.user_id) ?? 'UTC';
+    const local = localHourMinute(now, tz);
+    if (!windowMatches(pref.value, local.hour, local.minute)) continue;
     const kind = pref.id === 'morning-brief' ? 'morning' : 'evening';
     const status = await generateOneBrief(client, anthropicKey, pref.user_id, kind);
     results.push({ userId: pref.user_id, kind, status });
@@ -103,6 +104,45 @@ serve(async (req) => {
 
   return json({ processed: results.length, results });
 });
+
+async function fetchZones(
+  client: SupabaseClient,
+  userIds: string[],
+): Promise<Map<string, string>> {
+  const { data, error } = await client
+    .from('user_profiles')
+    .select('user_id, timezone')
+    .in('user_id', userIds);
+  if (error) {
+    console.warn('[daily-brief] user_profiles fetch failed', error);
+    return new Map();
+  }
+  const map = new Map<string, string>();
+  for (const row of data ?? []) {
+    const r = row as { user_id: string; timezone: string };
+    if (r.timezone) map.set(r.user_id, r.timezone);
+  }
+  return map;
+}
+
+function localHourMinute(now: Date, tz: string): { hour: number; minute: number } {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(now);
+    const hour = Number(parts.find((p) => p.type === 'hour')?.value);
+    const minute = Number(parts.find((p) => p.type === 'minute')?.value);
+    if (Number.isFinite(hour) && Number.isFinite(minute)) {
+      return { hour, minute };
+    }
+  } catch {
+    // Invalid IANA id — fall through to UTC.
+  }
+  return { hour: now.getUTCHours(), minute: now.getUTCMinutes() };
+}
 
 function windowMatches(prefValue: string, nowHour: number, nowMin: number): boolean {
   if (!prefValue || prefValue === 'Fra') return false;

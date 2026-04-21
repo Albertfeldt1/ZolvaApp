@@ -45,6 +45,8 @@ import { colors } from './src/theme';
 import { useAuth } from './src/lib/auth';
 import { shouldShowMemoryConsent, markMemoryConsentShown } from './src/lib/hooks';
 import { MemoryConsentModal } from './src/components/MemoryConsentModal';
+import { isDemoUser } from './src/lib/demo';
+import { syncUserProfile } from './src/lib/user-profile';
 
 const PROFILE_MEMORY_FLAG = process.env.EXPO_PUBLIC_PROFILE_MEMORY === '1';
 
@@ -87,6 +89,11 @@ export default function App() {
       setMemoryConsentOpen(true);
     });
     return () => { cancelled = true; };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || isDemoUser(user)) return;
+    syncUserProfile(user.id);
   }, [user?.id]);
 
   // Gate render on migrations. Screens read legacy AsyncStorage keys during
