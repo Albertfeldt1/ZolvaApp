@@ -600,7 +600,76 @@ export function useUpcoming(): Result<UpcomingEvent[]> & {
   return { data, loading, error, todayMeetingCount, todayEvents };
 }
 
-const draftCache = new Map<string, string>();
+// Persisted draft cache. In-memory Map keeps synchronous access for the hot
+// path in useInboxWaiting; AsyncStorage keeps entries alive across cold
+// starts so we don't regenerate a draft we already paid for on the last
+// launch. Entries carry a TTL so stale drafts (archived mail, tone change
+// etc.) age out instead of lingering indefinitely.
+type DraftCacheEntry = { text: string; expiresAt: number };
+const DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
+const DRAFT_STORAGE_KEY = 'zolva.mail.drafts';
+const draftCache = new Map<string, DraftCacheEntry>();
+let draftCacheHydrated = false;
+let draftCacheHydrationPromise: Promise<void> | null = null;
+let draftCacheWriteTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function hydrateDraftCache(): Promise<void> {
+  if (draftCacheHydrated) return;
+  if (draftCacheHydrationPromise) return draftCacheHydrationPromise;
+  draftCacheHydrationPromise = (async () => {
+    try {
+      const raw = await AsyncStorage.getItem(DRAFT_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Record<string, DraftCacheEntry>;
+        const now = Date.now();
+        for (const [k, v] of Object.entries(parsed)) {
+          if (
+            v &&
+            typeof v.text === 'string' &&
+            typeof v.expiresAt === 'number' &&
+            v.expiresAt > now
+          ) {
+            draftCache.set(k, v);
+          }
+        }
+      }
+    } catch (err) {
+      if (__DEV__) console.warn('[draft-cache] hydrate failed:', err);
+    }
+    draftCacheHydrated = true;
+  })();
+  return draftCacheHydrationPromise;
+}
+
+function persistDraftCacheSoon(): void {
+  if (draftCacheWriteTimer) clearTimeout(draftCacheWriteTimer);
+  draftCacheWriteTimer = setTimeout(() => {
+    draftCacheWriteTimer = null;
+    const snapshot: Record<string, DraftCacheEntry> = {};
+    draftCache.forEach((v, k) => {
+      snapshot[k] = v;
+    });
+    AsyncStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(snapshot)).catch((err) => {
+      if (__DEV__) console.warn('[draft-cache] persist failed:', err);
+    });
+  }, 300);
+}
+
+function getDraftFromCache(key: string): string | undefined {
+  const entry = draftCache.get(key);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    draftCache.delete(key);
+    persistDraftCacheSoon();
+    return undefined;
+  }
+  return entry.text;
+}
+
+function setDraftInCache(key: string, text: string): void {
+  draftCache.set(key, { text, expiresAt: Date.now() + DRAFT_TTL_MS });
+  persistDraftCacheSoon();
+}
 
 const NO_REPLY_PATTERN =
   /noreply|no-reply|no_reply|donotreply|do-not-reply|mailer-daemon|newsletter|marketing|notifications?@|updates?@|info@|support@/i;
@@ -680,40 +749,47 @@ export function useInboxWaiting(): Result<InboxMail[]> {
 
     const draftKey = (id: string) => `${id}::${tone || 'default'}`;
 
-    const cached: Record<string, string> = {};
-    const pending: NormalizedMail[] = [];
-    for (const m of targets) {
-      const hit = draftCache.get(draftKey(m.id));
-      if (hit) cached[m.id] = hit;
-      else pending.push(m);
-    }
-    if (Object.keys(cached).length > 0) {
-      setDrafts((prev) => ({ ...prev, ...cached }));
-    }
-    if (pending.length === 0) return () => controller.abort();
-
-    Promise.all(
-      pending.map((m) =>
-        generateDraft(m, tone, controller.signal)
-          .then((text) => {
-            if (!text) return null;
-            draftCache.set(draftKey(m.id), text);
-            return [m.id, text] as const;
-          })
-          .catch((err: Error) => {
-            if (err.name !== 'AbortError' && __DEV__) {
-              console.warn('[hooks] draft generation failed:', err.message);
-            }
-            return null;
-          }),
-      ),
-    ).then((results) => {
+    // Wait for the persisted draft cache to hydrate before deciding which
+    // mails need a fresh generation — otherwise every cold launch re-pays
+    // for drafts AsyncStorage already has.
+    void hydrateDraftCache().then(() => {
       if (controller.signal.aborted) return;
-      const next: Record<string, string> = {};
-      for (const r of results) if (r) next[r[0]] = r[1];
-      if (Object.keys(next).length > 0) {
-        setDrafts((prev) => ({ ...prev, ...next }));
+
+      const cached: Record<string, string> = {};
+      const pending: NormalizedMail[] = [];
+      for (const m of targets) {
+        const hit = getDraftFromCache(draftKey(m.id));
+        if (hit) cached[m.id] = hit;
+        else pending.push(m);
       }
+      if (Object.keys(cached).length > 0) {
+        setDrafts((prev) => ({ ...prev, ...cached }));
+      }
+      if (pending.length === 0) return;
+
+      void Promise.all(
+        pending.map((m) =>
+          generateDraft(m, tone, controller.signal)
+            .then((text) => {
+              if (!text) return null;
+              setDraftInCache(draftKey(m.id), text);
+              return [m.id, text] as const;
+            })
+            .catch((err: Error) => {
+              if (err.name !== 'AbortError' && __DEV__) {
+                console.warn('[hooks] draft generation failed:', err.message);
+              }
+              return null;
+            }),
+        ),
+      ).then((results) => {
+        if (controller.signal.aborted) return;
+        const next: Record<string, string> = {};
+        for (const r of results) if (r) next[r[0]] = r[1];
+        if (Object.keys(next).length > 0) {
+          setDrafts((prev) => ({ ...prev, ...next }));
+        }
+      });
     });
 
     return () => controller.abort();
@@ -1485,6 +1561,10 @@ export function useUnreadNotificationCount(): number {
 
 const chatHistoryKey = (uid: string) => `zolva.${uid}.chat.history`;
 const CHAT_HISTORY_LIMIT = 50;
+// The model can't meaningfully use the full 50-message window. Only the most
+// recent turns carry context the next reply depends on — cap what we send to
+// Claude to keep input tokens flat as the local transcript grows.
+const CHAT_API_CONTEXT_LIMIT = 15;
 const CHAT_ERROR_TEXT = 'Jeg kunne ikke nå frem — prøv igen.';
 
 function buildChatSystemPrompt(name: string): string {
@@ -1524,7 +1604,7 @@ function buildChatSystemPrompt(name: string): string {
 }
 
 function toClaudeMessages(messages: ChatMessage[]): ClaudeMessage[] {
-  return messages.map((m) => ({
+  return messages.slice(-CHAT_API_CONTEXT_LIMIT).map((m) => ({
     role: m.from === 'user' ? 'user' : 'assistant',
     content: m.text,
   }));
@@ -1615,7 +1695,7 @@ async function runChatTool(
   }
 }
 
-const CHAT_TOOL_ROUND_CAP = 4;
+const CHAT_TOOL_ROUND_CAP = 2;
 
 // ─── Chat suggestion chips ─────────────────────────────────────────────────
 
