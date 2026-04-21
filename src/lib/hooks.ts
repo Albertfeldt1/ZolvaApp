@@ -1093,11 +1093,11 @@ const DEFAULT_WORK_PREFERENCES: WorkPreference[] = [
     options: ['Fra', '22–07', '21–08', '23–06'],
   },
   {
-    id: 'day-overview',
-    title: 'Dagsoverblik',
-    meta: 'Morgen, middag og aften',
+    id: 'evening-brief',
+    title: 'Aftenoverblik',
+    meta: 'Daglig opsummering om aftenen',
     value: 'Fra',
-    options: ['Fra', 'Morgen', 'Morgen + aften', 'Morgen, middag, aften'],
+    options: ['Fra', '17.00', '18.00', '19.00'],
   },
 ];
 

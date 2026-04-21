@@ -118,7 +118,7 @@ export type WorkPreferenceId =
   | 'tone'
   | 'morning-brief'
   | 'quiet-hours'
-  | 'day-overview';
+  | 'evening-brief';
 
 export type WorkPreference = {
   id: WorkPreferenceId;
