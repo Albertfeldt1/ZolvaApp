@@ -2,8 +2,10 @@
 //
 // Forwards chat-completion requests to Anthropic's /v1/messages using the
 // server-side ANTHROPIC_API_KEY. The caller must present a valid Supabase
-// user JWT — the function is deployed WITHOUT --no-verify-jwt, and it also
-// re-checks the user via supabase-js so logs can be tied to a user_id.
+// user JWT — the function is deployed with --no-verify-jwt because the
+// project signs tokens with ES256 and the gateway only verifies HS256. The
+// function re-validates the token itself via supabase-js (getUser) so auth
+// is still enforced and logs can be tied to a user_id.
 //
 // Request body shape (matches what src/lib/claude.ts sends):
 //   { messages, model?, max_tokens?, system?, temperature?, tools? }

@@ -108,10 +108,13 @@ type ObservationCacheEntry = { expiresAt: number; data: Observation[] };
 const OBSERVATION_TTL_MS = 15 * 60 * 1000;
 const observationCache = new Map<string, ObservationCacheEntry>();
 
+const OBSERVATION_MAX = 8;
+
 const OBSERVATION_SYSTEM =
   'Du er Zolva, en rolig dansk AI-assistent. Du kigger på brugerens dag og ' +
   'peger blidt på mønstre der er værd at overveje. Svar altid på dansk. ' +
-  'Returnér mellem 0 og 3 observationer — kun dem der faktisk er relevante. ' +
+  `Returnér mellem 0 og ${OBSERVATION_MAX} observationer — kun dem der faktisk er relevante, ` +
+  'sorteret med de vigtigste først. De første 2–3 vises på forsiden, resten i en oversigt. ' +
   'Hver observation skal være maks én sætning og undgå at gentage selvfølgeligheder.';
 
 const OBSERVATION_SCHEMA =
@@ -142,7 +145,7 @@ function summarizeDay(events: NormalizedEvent[], mails: NormalizedMail[]): strin
 function sanitizeObservations(raw: unknown): Observation[] {
   if (!Array.isArray(raw)) return [];
   const moods: Observation['mood'][] = ['calm', 'thinking', 'happy'];
-  return raw.slice(0, 3).flatMap((item, i): Observation[] => {
+  return raw.slice(0, OBSERVATION_MAX).flatMap((item, i): Observation[] => {
     if (!item || typeof item !== 'object') return [];
     const o = item as Partial<Observation>;
     const text = typeof o.text === 'string' ? o.text.trim() : '';

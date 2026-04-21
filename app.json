@@ -60,6 +60,12 @@
         "projectId": "e66ee3ef-8891-477c-aff9-c5e7d6d3a828"
       }
     },
-    "owner": "albertfeldt1"
+    "owner": "albertfeldt1",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/e66ee3ef-8891-477c-aff9-c5e7d6d3a828"
+    }
   }
 }

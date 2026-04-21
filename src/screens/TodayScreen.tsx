@@ -1,11 +1,13 @@
-import { Bell, Bookmark, ChevronRight } from 'lucide-react-native';
+import { Bell, Bookmark, ChevronRight, X } from 'lucide-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
+  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Pressable,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -58,7 +60,7 @@ export function TodayScreen({
   const { bottom: chromeBottom } = useChromeInsets();
 
   const { data: user } = useUser();
-  const { data: observations } = useObservations();
+  const { data: observations, error: observationsError } = useObservations();
   const { data: upcoming, loading: upcomingLoading, error: upcomingError } = useUpcoming();
   const { data: waiting } = useInboxWaiting();
   const { data: reminders } = useReminders();
@@ -77,6 +79,11 @@ export function TodayScreen({
       next.add(id);
       return next;
     });
+
+  const FEED_OBSERVATION_COUNT = 3;
+  const feedObservations = visibleObservations.slice(0, FEED_OBSERVATION_COUNT);
+  const hasMoreObservations = visibleObservations.length > FEED_OBSERVATION_COUNT;
+  const [observationsModalOpen, setObservationsModalOpen] = useState(false);
 
   const pendingReminders = useMemo(
     () =>
@@ -272,7 +279,14 @@ export function TodayScreen({
       >
         <Text style={styles.darkTitle}>Hvad jeg har bemærket</Text>
         {visibleObservations.length === 0 ? (
-          hasProvider ? (
+          observationsError ? (
+            <EmptyState
+              dark
+              mood="thinking"
+              title="Kunne ikke hente observationer"
+              body="Jeg kan ikke nå min AI lige nu. Prøv igen om lidt."
+            />
+          ) : hasProvider ? (
             <EmptyState
               dark
               mood="thinking"
@@ -291,7 +305,7 @@ export function TodayScreen({
           )
         ) : (
           <View style={{ gap: 14 }}>
-            {visibleObservations.map((n, i) => (
+            {feedObservations.map((n, i) => (
               <NoticedRow
                 key={n.id}
                 item={n}
@@ -300,9 +314,61 @@ export function TodayScreen({
                 onDismiss={() => dismissObservation(n.id)}
               />
             ))}
+            {hasMoreObservations && (
+              <Pressable
+                onPress={() => setObservationsModalOpen(true)}
+                style={styles.showAllRow}
+                hitSlop={8}
+              >
+                <Text style={styles.showAllText}>
+                  Vis alle ({visibleObservations.length}) →
+                </Text>
+              </Pressable>
+            )}
           </View>
         )}
       </View>
+
+      <Modal
+        visible={observationsModalOpen}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setObservationsModalOpen(false)}
+      >
+        <SafeAreaView style={styles.modalRoot}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Hvad jeg har bemærket</Text>
+            <Pressable
+              onPress={() => setObservationsModalOpen(false)}
+              hitSlop={12}
+              style={styles.modalClose}
+            >
+              <X size={20} color={colors.paperOn75} strokeWidth={1.75} />
+            </Pressable>
+          </View>
+          <ScrollView
+            contentContainerStyle={styles.modalBody}
+            showsVerticalScrollIndicator={false}
+          >
+            {visibleObservations.length === 0 ? (
+              <Text style={styles.modalEmpty}>Ingen flere observationer lige nu.</Text>
+            ) : (
+              visibleObservations.map((n, i) => (
+                <NoticedRow
+                  key={n.id}
+                  item={n}
+                  index={i}
+                  onOpenChat={() => {
+                    setObservationsModalOpen(false);
+                    onOpenChat();
+                  }}
+                  onDismiss={() => dismissObservation(n.id)}
+                />
+              ))
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </ScrollView>
   );
 }
@@ -547,4 +613,50 @@ const styles = StyleSheet.create({
   noticedActions: { marginTop: 8, flexDirection: 'row', gap: 16 },
   noticedCta: { fontFamily: fonts.uiSemi, fontSize: 12.5, color: colors.sageDim },
   noticedDismiss: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.paperOn50 },
+  showAllRow: {
+    marginTop: 6,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.paperOn20,
+    alignItems: 'flex-start',
+  },
+  showAllText: {
+    fontFamily: fonts.uiSemi,
+    fontSize: 13,
+    letterSpacing: 0.2,
+    color: colors.sageDim,
+  },
+
+  modalRoot: { flex: 1, backgroundColor: colors.ink },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.paperOn20,
+  },
+  modalTitle: {
+    fontFamily: fonts.displayItalic,
+    fontSize: 22,
+    letterSpacing: -0.32,
+    color: colors.paper,
+  },
+  modalClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.paperOn20,
+  },
+  modalBody: { padding: 20, gap: 18 },
+  modalEmpty: {
+    fontFamily: 'Inter_500Medium_Italic',
+    fontSize: 14,
+    lineHeight: 21,
+    color: colors.paperOn55,
+  },
 });

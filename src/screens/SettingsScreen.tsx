@@ -7,6 +7,7 @@
 // for this marker to update the handoff.
 import { Check } from 'lucide-react-native';
 import Constants from 'expo-constants';
+import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
 import React, { useEffect, useState } from 'react';
 import {
@@ -433,7 +434,10 @@ export function SettingsScreen() {
             <AnimatedPressable
               layout={ROW_TRANSITION}
               style={styles.signOutRow}
-              onPress={() => signOut()}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                signOut();
+              }}
             >
               <Text style={styles.signOutText}>Log ud</Text>
             </AnimatedPressable>
