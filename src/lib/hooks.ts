@@ -82,6 +82,7 @@ import {
   markFeedEntryRead,
   subscribeFeed,
 } from './notification-feed';
+import { syncChatMessage } from './chat-sync';
 
 // All hooks return placeholder/empty state. When the backend is wired,
 // swap the internals for real data sources (Supabase auth, API fetches,
@@ -1528,6 +1529,7 @@ export function useChat() {
       const nextHistory = [...messages, userMsg];
       setMessages(nextHistory);
       setTyping(true);
+      if (userId) syncChatMessage(userId, userMsg);
 
       if (demo) {
         const idx = demoIndexRef.current;
@@ -1577,14 +1579,13 @@ export function useChat() {
 
       runTurn()
         .then((answer) => {
-          setMessages((cur) => [
-            ...cur,
-            {
-              id: `a-${Date.now()}`,
-              from: 'zolva',
-              text: answer.length > 0 ? answer : CHAT_ERROR_TEXT,
-            },
-          ]);
+          const assistantMsg: ChatMessage = {
+            id: `a-${Date.now()}`,
+            from: 'zolva',
+            text: answer.length > 0 ? answer : CHAT_ERROR_TEXT,
+          };
+          setMessages((cur) => [...cur, assistantMsg]);
+          if (userId) syncChatMessage(userId, assistantMsg);
         })
         .catch((err: Error) => {
           if (__DEV__ && getPrivacyFlag('anon-reports')) {
