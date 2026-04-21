@@ -13,12 +13,14 @@ import {
   Text,
   View,
 } from 'react-native';
+import { BriefBanner } from '../components/BriefBanner';
 import { CountUp } from '../components/CountUp';
 import { DayRibbon, RibbonEvent } from '../components/DayRibbon';
 import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { SkeletonRow } from '../components/Skeleton';
 import { Stone } from '../components/Stone';
+import { useTodayBrief } from '../lib/briefs';
 import { formatToday, greeting } from '../lib/date';
 import {
   useHasProvider,
@@ -85,6 +87,7 @@ export function TodayScreen({
   const unreadNotifications = useUnreadNotificationCount();
   const hasProvider = useHasProvider();
   const { data: pendingFacts, accept: acceptFact, reject: rejectFactHook } = usePendingFacts();
+  const { brief, markRead: markBriefRead } = useTodayBrief();
 
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set());
   const visibleObservations = useMemo(
@@ -304,6 +307,10 @@ export function TodayScreen({
           ))
         )}
       </View>
+
+      {brief && !brief.readAt && (
+        <BriefBanner brief={brief} onDismiss={() => { void markBriefRead(); }} />
+      )}
 
       <View
         style={[styles.dark, { paddingBottom: chromeBottom }]}

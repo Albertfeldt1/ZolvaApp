@@ -134,6 +134,7 @@ export default function App() {
         case 'reminder':
         case 'digest':
         case 'reminderAdded':
+        case 'brief':
           setTab('today');
           break;
         case 'calendarPreAlert':
@@ -205,6 +206,7 @@ export default function App() {
       case 'reminder':
       case 'digest':
       case 'reminderAdded':
+      case 'brief':
         setTab('today');
         break;
       case 'calendarPreAlert':

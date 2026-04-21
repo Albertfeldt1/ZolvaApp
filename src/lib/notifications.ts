@@ -92,6 +92,11 @@ export function registerResponseHandler(
           threadId: typeof p.threadId === 'string' ? p.threadId : undefined,
         });
       }
+    } else if (
+      payload.type === 'brief' &&
+      typeof (payload as { briefId?: unknown }).briefId === 'string'
+    ) {
+      onTap({ type: 'brief', briefId: (payload as { briefId: string }).briefId });
     }
   });
   return () => sub.remove();

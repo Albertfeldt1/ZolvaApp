@@ -268,7 +268,7 @@ async function sendPush(
     title,
     body: headline,
     sound: 'default',
-    data: { kind: 'brief', briefId },
+    data: { type: 'brief', briefId },
   }));
 
   try {

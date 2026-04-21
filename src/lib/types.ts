@@ -164,7 +164,8 @@ export type NotificationPayload =
   | { type: 'digest'; date: string }
   | { type: 'calendarPreAlert'; eventId: string }
   | { type: 'reminderAdded'; reminderId: string }
-  | { type: 'newMail'; provider: MailProvider; messageId: string; threadId?: string };
+  | { type: 'newMail'; provider: MailProvider; messageId: string; threadId?: string }
+  | { type: 'brief'; briefId: string };
 
 export type FeedEntryType = NotificationPayload['type'];
 
