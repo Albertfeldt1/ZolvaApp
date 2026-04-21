@@ -1105,7 +1105,7 @@ export function getPrivacyFlag(id: PrivacyFlagId): boolean {
   return cached === undefined ? PRIVACY_DEFAULTS[id] : cached;
 }
 
-async function hydratePrivacyCache(): Promise<void> {
+export async function hydratePrivacyCache(): Promise<void> {
   ensurePrivacyUserSubscription();
   if (privacyHydrated) return;
   if (privacyHydrationPromise) return privacyHydrationPromise;

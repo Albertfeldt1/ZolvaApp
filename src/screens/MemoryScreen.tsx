@@ -1,12 +1,16 @@
 import { Check, Trash2 } from 'lucide-react-native';
-import React, { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { EmptyState } from '../components/EmptyState';
+import { FactRow } from '../components/FactRow';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { Stone } from '../components/Stone';
 import { formatToday } from '../lib/date';
-import { useNotes, useReminders } from '../lib/hooks';
-import type { Note, NoteCategory, Reminder } from '../lib/types';
+import { useNotes, useReminders, getPrivacyFlag, hydratePrivacyCache, setPrivacyFlag } from '../lib/hooks';
+import { deleteAllChatHistory, deleteAllFacts, deleteAllMailEvents, deleteFact, listFacts, listRecentChatMessages } from '../lib/profile-store';
+import { migrateLocalChatIfNeeded } from '../lib/chat-sync';
+import { useAuth } from '../lib/auth';
+import type { ChatMessageRow, Fact, Note, NoteCategory, Reminder } from '../lib/types';
 import { colors, fonts } from '../theme';
 import { plural } from '../utils/danish';
 
@@ -26,7 +30,21 @@ const CATEGORY_TONE: Record<NoteCategory, { bg: string; fg: string }> = {
   info: { bg: colors.warningSoft, fg: colors.warningInk },
 };
 
+type MemoryTab = 'fakta' | 'noter' | 'samtaler';
+
 type Props = { onOpenChat: () => void };
+
+function useMemoryEnabledLocal(version: number): boolean {
+  const [enabled, setEnabled] = useState<boolean>(() => getPrivacyFlag('memory-enabled'));
+  useEffect(() => {
+    let cancelled = false;
+    void hydratePrivacyCache().then(() => {
+      if (!cancelled) setEnabled(getPrivacyFlag('memory-enabled'));
+    });
+    return () => { cancelled = true; };
+  }, [version]);
+  return enabled;
+}
 
 export function MemoryScreen({ onOpenChat }: Props) {
   const today = useMemo(() => new Date(), []);
@@ -34,6 +52,55 @@ export function MemoryScreen({ onOpenChat }: Props) {
 
   const { data: reminders, markDone, remove: removeReminder } = useReminders();
   const { data: notes, remove: removeNote } = useNotes();
+  const { user } = useAuth();
+  const userId = user?.id ?? '';
+
+  const [tab, setTab] = useState<MemoryTab>('fakta');
+  const [privacyVersion, setPrivacyVersion] = useState(0);
+  const memoryEnabled = useMemoryEnabledLocal(privacyVersion);
+  const [facts, setFacts] = useState<Fact[]>([]);
+  const [chat, setChat] = useState<ChatMessageRow[]>([]);
+
+  useEffect(() => {
+    if (!memoryEnabled || !userId) { setFacts([]); setChat([]); return; }
+    void listFacts(userId, 'confirmed').then(setFacts).catch(() => setFacts([]));
+    void listRecentChatMessages(userId, 100).then(setChat).catch(() => setChat([]));
+  }, [memoryEnabled, userId]);
+
+  const toggleMemory = async () => {
+    const next = !memoryEnabled;
+    await setPrivacyFlag('memory-enabled', next);
+    if (next && userId) void migrateLocalChatIfNeeded(userId);
+    setPrivacyVersion((v) => v + 1);
+  };
+
+  const deleteFactAndRefresh = async (id: string) => {
+    await deleteFact(id);
+    if (userId) setFacts((prev) => prev.filter((f) => f.id !== id));
+  };
+
+  const confirmWipeFacts = () => {
+    Alert.alert('Slet hele profilen?', 'Alle fakta Zolva har lært om dig slettes permanent.', [
+      { text: 'Annullér', style: 'cancel' },
+      { text: 'Slet', style: 'destructive', onPress: async () => {
+        if (!userId) return;
+        await deleteAllFacts(userId);
+        setFacts([]);
+      }},
+    ]);
+  };
+
+  const confirmWipeChat = () => {
+    Alert.alert('Slet samtalehistorik?', 'Alle gemte samtaler og mail-begivenheder slettes permanent.', [
+      { text: 'Annullér', style: 'cancel' },
+      { text: 'Slet', style: 'destructive', onPress: async () => {
+        if (!userId) return;
+        await deleteAllChatHistory(userId);
+        await deleteAllMailEvents(userId);
+        setChat([]);
+      }},
+    ]);
+  };
 
   const pendingReminders = useMemo(
     () =>
@@ -66,98 +133,217 @@ export function MemoryScreen({ onOpenChat }: Props) {
         </View>
       </View>
 
-      <View style={styles.speech}>
-        <Stone mood="thinking" size={40} onPress={onOpenChat} />
-        <View style={{ flex: 1 }}>
-          {/* Quote style: standard "…" (straight double quotes). The quoted
-              content here is conversational prompt examples — not editorial
-              citations — and modern Danish digital writing favours "…" over
-              guillemets (»…«) for this register. Keep this consistent across
-              the app; we are the only screen that quotes inline. */}
-          <Text style={styles.speechText}>
-            Tilføj nye ved at skrive{' '}
-            <Text style={styles.accent}>"mind mig om…"</Text> eller{' '}
-            <Text style={styles.accent}>"husk at…"</Text> til mig.
-          </Text>
-        </View>
+      {/* Tab row */}
+      <View style={styles.tabRow}>
+        {(['fakta', 'noter', 'samtaler'] as const).map((t) => (
+          <Pressable key={t} onPress={() => setTab(t)} style={[styles.tab, tab === t && styles.tabActive]}>
+            <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>
+              {t === 'fakta' ? 'Fakta' : t === 'noter' ? 'Noter' : 'Samtaler'}
+            </Text>
+          </Pressable>
+        ))}
       </View>
 
-      <View style={styles.section}>
-        <View style={styles.sectionHead}>
-          <Text style={styles.sectionTitle}>Påmindelser</Text>
-          <Text style={styles.sectionMeta}>
-            {pendingReminders.length > 0
-              ? plural(pendingReminders.length, 'aktiv', 'aktive')
-              : '-'}
-          </Text>
-        </View>
-        <View style={styles.inkRule} />
-        {pendingReminders.length === 0 ? (
-          <EmptyState
-            icon={false}
-            title="Ingen aktive påmindelser"
-            body={'Skriv "mind mig om at ringe til Lars torsdag" - så lægger jeg den her.'}
-            ctaLabel="Skriv til Zolva"
-            onCta={onOpenChat}
-          />
-        ) : (
-          pendingReminders.map((r, i) => (
-            <ReminderRow
-              key={r.id}
-              reminder={r}
-              now={today}
-              onDone={() => markDone(r.id)}
-              onDelete={() => removeReminder(r.id)}
-              border={i > 0}
+      {/* ── Fakta tab ── */}
+      {tab === 'fakta' && (
+        <View style={styles.section}>
+          {/* Kill-switch row */}
+          <View style={styles.killRow}>
+            <Text style={styles.killRowLabel}>
+              {memoryEnabled ? 'Zolva husker dig' : 'Zolva husker ikke dig'}
+            </Text>
+            <Pressable onPress={() => { void toggleMemory(); }}>
+              <Text style={styles.killRowAction}>{memoryEnabled ? 'Slå fra' : 'Slå til'}</Text>
+            </Pressable>
+          </View>
+
+          {!memoryEnabled ? (
+            <EmptyState
+              mood="calm"
+              icon={false}
+              title="Hukommelse er slået fra"
+              body="Slå hukommelse til for at lade Zolva lære dig at kende over tid."
             />
-          ))
-        )}
-      </View>
-
-      <View style={[styles.section, { paddingTop: 28 }]}>
-        <View style={styles.sectionHead}>
-          <Text style={styles.sectionTitle}>Noter</Text>
-          <Text style={styles.sectionMeta}>
-            {notes.length > 0 ? plural(notes.length, 'gemt', 'gemte') : '-'}
-          </Text>
-        </View>
-        <View style={styles.inkRule} />
-        {notes.length === 0 ? (
-          <EmptyState
-            icon={false}
-            title="Din anden hjerne er tom"
-            body={'Sig "husk at vi vil prøve grøn te-leverandør" - jeg sorterer det selv.'}
-            ctaLabel="Skriv til Zolva"
-            onCta={onOpenChat}
-          />
-        ) : (
-          CATEGORY_ORDER.filter((c) => notesByCategory[c].length > 0).map((category) => (
-            <View key={category} style={styles.categoryGroup}>
-              <View style={styles.categoryHead}>
-                <View style={[styles.categoryPill, { backgroundColor: CATEGORY_TONE[category].bg }]}>
-                  <Text style={[styles.categoryPillText, { color: CATEGORY_TONE[category].fg }]}>
-                    {CATEGORY_LABEL[category]}
-                  </Text>
-                </View>
-                <Text style={styles.categoryCount}>{notesByCategory[category].length}</Text>
+          ) : (
+            <>
+              <View style={styles.sectionHead}>
+                <Text style={styles.sectionTitle}>Fakta</Text>
+                <Text style={styles.sectionMeta}>
+                  {facts.length > 0 ? plural(facts.length, 'gemt', 'gemte') : '-'}
+                </Text>
               </View>
-              {notesByCategory[category].map((n, i) => (
-                <NoteRow
-                  key={n.id}
-                  note={n}
+              <View style={styles.inkRule} />
+              {facts.length === 0 ? (
+                <EmptyState
+                  mood="calm"
+                  icon={false}
+                  title="Ingen fakta endnu"
+                  body="Zolva lærer dig at kende gennem jeres samtaler."
+                />
+              ) : (
+                facts.map((f, i) => (
+                  <View key={f.id} style={i > 0 ? styles.rowBorder : undefined}>
+                    <FactRow
+                      fact={f}
+                      onDelete={() => { void deleteFactAndRefresh(f.id); }}
+                    />
+                  </View>
+                ))
+              )}
+
+              {/* Danger actions */}
+              <View style={{ marginTop: 32, gap: 1 }}>
+                <Pressable style={styles.dangerRow} onPress={confirmWipeFacts}>
+                  <Text style={styles.dangerText}>Slet hele profilen</Text>
+                </Pressable>
+                <Pressable style={styles.dangerRow} onPress={confirmWipeChat}>
+                  <Text style={styles.dangerText}>Slet samtalehistorik</Text>
+                </Pressable>
+              </View>
+            </>
+          )}
+        </View>
+      )}
+
+      {/* ── Noter tab ── */}
+      {tab === 'noter' && (
+        <>
+          <View style={styles.speech}>
+            <Stone mood="thinking" size={40} onPress={onOpenChat} />
+            <View style={{ flex: 1 }}>
+              {/* Quote style: standard "…" (straight double quotes). The quoted
+                  content here is conversational prompt examples — not editorial
+                  citations — and modern Danish digital writing favours "…" over
+                  guillemets (»…«) for this register. Keep this consistent across
+                  the app; we are the only screen that quotes inline. */}
+              <Text style={styles.speechText}>
+                Tilføj nye ved at skrive{' '}
+                <Text style={styles.accent}>"mind mig om…"</Text> eller{' '}
+                <Text style={styles.accent}>"husk at…"</Text> til mig.
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <View style={styles.sectionHead}>
+              <Text style={styles.sectionTitle}>Påmindelser</Text>
+              <Text style={styles.sectionMeta}>
+                {pendingReminders.length > 0
+                  ? plural(pendingReminders.length, 'aktiv', 'aktive')
+                  : '-'}
+              </Text>
+            </View>
+            <View style={styles.inkRule} />
+            {pendingReminders.length === 0 ? (
+              <EmptyState
+                icon={false}
+                title="Ingen aktive påmindelser"
+                body={'Skriv "mind mig om at ringe til Lars torsdag" - så lægger jeg den her.'}
+                ctaLabel="Skriv til Zolva"
+                onCta={onOpenChat}
+              />
+            ) : (
+              pendingReminders.map((r, i) => (
+                <ReminderRow
+                  key={r.id}
+                  reminder={r}
                   now={today}
-                  onDelete={() => removeNote(n.id)}
+                  onDone={() => markDone(r.id)}
+                  onDelete={() => removeReminder(r.id)}
                   border={i > 0}
                 />
-              ))}
-            </View>
-          ))
-        )}
-      </View>
+              ))
+            )}
+          </View>
 
-      {isEmpty && <View style={{ height: 24 }} />}
+          <View style={[styles.section, { paddingTop: 28 }]}>
+            <View style={styles.sectionHead}>
+              <Text style={styles.sectionTitle}>Noter</Text>
+              <Text style={styles.sectionMeta}>
+                {notes.length > 0 ? plural(notes.length, 'gemt', 'gemte') : '-'}
+              </Text>
+            </View>
+            <View style={styles.inkRule} />
+            {notes.length === 0 ? (
+              <EmptyState
+                icon={false}
+                title="Din anden hjerne er tom"
+                body={'Sig "husk at vi vil prøve grøn te-leverandør" - jeg sorterer det selv.'}
+                ctaLabel="Skriv til Zolva"
+                onCta={onOpenChat}
+              />
+            ) : (
+              CATEGORY_ORDER.filter((c) => notesByCategory[c].length > 0).map((category) => (
+                <View key={category} style={styles.categoryGroup}>
+                  <View style={styles.categoryHead}>
+                    <View style={[styles.categoryPill, { backgroundColor: CATEGORY_TONE[category].bg }]}>
+                      <Text style={[styles.categoryPillText, { color: CATEGORY_TONE[category].fg }]}>
+                        {CATEGORY_LABEL[category]}
+                      </Text>
+                    </View>
+                    <Text style={styles.categoryCount}>{notesByCategory[category].length}</Text>
+                  </View>
+                  {notesByCategory[category].map((n, i) => (
+                    <NoteRow
+                      key={n.id}
+                      note={n}
+                      now={today}
+                      onDelete={() => removeNote(n.id)}
+                      border={i > 0}
+                    />
+                  ))}
+                </View>
+              ))
+            )}
+          </View>
+
+          {isEmpty && <View style={{ height: 24 }} />}
+        </>
+      )}
+
+      {/* ── Samtaler tab ── */}
+      {tab === 'samtaler' && (
+        <View style={styles.section}>
+          <View style={styles.sectionHead}>
+            <Text style={styles.sectionTitle}>Samtaler</Text>
+            <Text style={styles.sectionMeta}>
+              {chat.length > 0 ? `${chat.length} beskeder` : '-'}
+            </Text>
+          </View>
+          <View style={styles.inkRule} />
+          {chat.length === 0 ? (
+            <EmptyState
+              mood="calm"
+              icon={false}
+              title="Ingen samtalehistorik"
+              body="Tidligere beskeder med Zolva vises her, når hukommelse er slået til."
+            />
+          ) : (
+            chat.map((msg, i) => (
+              <View key={msg.id} style={[styles.chatRow, i > 0 && styles.rowBorder]}>
+                <Text style={styles.chatRowRole}>
+                  {msg.role === 'user' ? 'Dig' : msg.role === 'assistant' ? 'Zolva' : 'System'}
+                </Text>
+                <Text style={styles.chatRowText} numberOfLines={3}>{msg.content}</Text>
+                <Text style={styles.timeMeta}>{formatChatTime(msg.createdAt, today)}</Text>
+              </View>
+            ))
+          )}
+        </View>
+      )}
     </ScrollView>
   );
+}
+
+function formatChatTime(then: Date, now: Date): string {
+  const diffMin = Math.round((now.getTime() - then.getTime()) / 60000);
+  if (diffMin < 1) return 'lige nu';
+  if (diffMin < 60) return `${diffMin} min siden`;
+  const diffH = Math.round(diffMin / 60);
+  if (diffH < 24) return `${diffH} t siden`;
+  const diffD = Math.round(diffH / 24);
+  if (diffD < 7) return `${diffD} d siden`;
+  return `${pad(then.getDate())} ${formatToday(then).monthShort}`;
 }
 
 function ReminderRow({
@@ -321,6 +507,90 @@ const styles = StyleSheet.create({
     backgroundColor: colors.fg4,
     marginHorizontal: 6,
     alignSelf: 'center',
+  },
+
+  // ── Tab row ──────────────────────────────────────────────────────────────
+  tabRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 4,
+    gap: 4,
+    backgroundColor: colors.paper,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.line,
+  },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  tabActive: {
+    backgroundColor: colors.sageSoft,
+  },
+  tabText: {
+    fontFamily: fonts.uiSemi,
+    fontSize: 12,
+    letterSpacing: 0.4,
+    color: colors.fg3,
+    textTransform: 'uppercase',
+  },
+  tabTextActive: {
+    color: colors.sageDeep,
+  },
+
+  // ── Kill-switch ───────────────────────────────────────────────────────────
+  killRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    marginBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.line,
+  },
+  killRowLabel: {
+    fontFamily: fonts.ui,
+    fontSize: 14,
+    color: colors.ink,
+  },
+  killRowAction: {
+    fontFamily: fonts.uiSemi,
+    fontSize: 13,
+    color: colors.sageDeep,
+  },
+
+  // ── Danger actions ────────────────────────────────────────────────────────
+  dangerRow: {
+    paddingVertical: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.line,
+  },
+  dangerText: {
+    fontFamily: fonts.ui,
+    fontSize: 14,
+    color: colors.danger,
+  },
+
+  // ── Chat rows ─────────────────────────────────────────────────────────────
+  chatRow: {
+    paddingVertical: 12,
+    gap: 2,
+  },
+  chatRowRole: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: colors.fg3,
+    marginBottom: 2,
+  },
+  chatRowText: {
+    fontFamily: fonts.ui,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.ink,
   },
 
   speech: { flexDirection: 'row', gap: 12, paddingHorizontal: 20, paddingTop: 24 },
