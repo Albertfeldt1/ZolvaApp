@@ -172,3 +172,53 @@ export type FeedEntry = {
   readAt: Date | null;
   payload: NotificationPayload;
 };
+
+export type FactCategory =
+  | 'relationship'
+  | 'role'
+  | 'preference'
+  | 'project'
+  | 'commitment'
+  | 'other';
+
+export type FactStatus = 'pending' | 'confirmed' | 'rejected';
+
+export type Fact = {
+  id: string;
+  userId: string;
+  text: string;
+  normalizedText: string;
+  category: FactCategory;
+  status: FactStatus;
+  source: string | null;
+  createdAt: Date;
+  confirmedAt: Date | null;
+  rejectedAt: Date | null;
+  rejectionTtl: Date | null;
+};
+
+export type MailEventType =
+  | 'read'
+  | 'deferred'
+  | 'dismissed'
+  | 'drafted_reply'
+  | 'replied';
+
+export type MailEvent = {
+  id: string;
+  userId: string;
+  eventType: MailEventType;
+  providerThreadId: string;
+  providerFrom: string | null;
+  providerSubject: string | null;
+  occurredAt: Date;
+};
+
+export type ChatMessageRow = {
+  id: string;
+  userId: string;
+  clientId: string;
+  role: 'user' | 'assistant' | 'tool';
+  content: string;
+  createdAt: Date;
+};
