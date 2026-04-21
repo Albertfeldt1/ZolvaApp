@@ -563,29 +563,41 @@ function shortTime(then: Date, now: Date): string {
   return `${pad(then.getDate())}/${pad(then.getMonth() + 1)}`;
 }
 
-export function useUpcoming(): Result<UpcomingEvent[]> & { todayMeetingCount: number } {
+export function useUpcoming(): Result<UpcomingEvent[]> & {
+  todayMeetingCount: number;
+  todayEvents: UpcomingEvent[];
+} {
   const { user } = useAuth();
   const { items, loading, error } = useCalendarItems();
   if (isDemoUser(user)) {
     const demo = demoUpcoming();
-    return { data: demo, loading: false, error: null, todayMeetingCount: demo.length };
+    return {
+      data: demo,
+      loading: false,
+      error: null,
+      todayMeetingCount: demo.length,
+      todayEvents: demo,
+    };
   }
   const now = new Date();
-  const todayMeetingCount = items.filter((e) => !e.allDay).length;
+  const toUpcoming = (e: NormalizedEvent, i: number): UpcomingEvent => ({
+    id: e.id,
+    time: e.allDay ? 'hele dagen' : clockOf(e.start),
+    meta: relativeMeta(e.start, e.end, now),
+    title: e.title,
+    sub: e.location ?? durationLabel(e.start, e.end),
+    tone: TONES[i % TONES.length],
+    start: e.start,
+    end: e.end,
+    allDay: e.allDay ?? false,
+  });
+  const timedItems = items.filter((e) => !e.allDay);
+  const todayMeetingCount = timedItems.length;
+  const todayEvents = timedItems.map(toUpcoming);
   const data: UpcomingEvent[] = items
     .filter((e) => e.end.getTime() >= now.getTime())
-    .map((e, i) => ({
-      id: e.id,
-      time: e.allDay ? 'hele dagen' : clockOf(e.start),
-      meta: relativeMeta(e.start, e.end, now),
-      title: e.title,
-      sub: e.location ?? durationLabel(e.start, e.end),
-      tone: TONES[i % TONES.length],
-      start: e.start,
-      end: e.end,
-      allDay: e.allDay ?? false,
-    }));
-  return { data, loading, error, todayMeetingCount };
+    .map(toUpcoming);
+  return { data, loading, error, todayMeetingCount, todayEvents };
 }
 
 const draftCache = new Map<string, string>();

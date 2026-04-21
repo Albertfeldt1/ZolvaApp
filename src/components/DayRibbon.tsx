@@ -11,8 +11,8 @@ export type RibbonEvent = {
   label: string;
 };
 
-const START_HOUR = 8;
-const END_HOUR = 18;
+const START_HOUR = 6;
+const END_HOUR = 22;
 const SPAN = END_HOUR - START_HOUR;
 
 const colorOf = (k: RibbonKind) =>
@@ -57,7 +57,7 @@ export function DayRibbon({ events = [], now }: Props) {
         )}
       </View>
       <View style={styles.labels}>
-        {['08', '10', '12', '14', '16', '18'].map((h) => (
+        {['06', '10', '14', '18', '22'].map((h) => (
           <Text key={h} style={styles.label}>{h}</Text>
         ))}
       </View>

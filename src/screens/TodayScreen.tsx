@@ -80,6 +80,7 @@ export function TodayScreen({
     loading: upcomingLoading,
     error: upcomingError,
     todayMeetingCount,
+    todayEvents,
   } = useUpcoming();
   const { data: waiting } = useInboxWaiting();
   const { data: reminders } = useReminders();
@@ -144,7 +145,7 @@ export function TodayScreen({
       if (t.includes('fokus') || t.includes('focus') || t.includes('deep work')) return 'focus';
       return 'meeting';
     };
-    return upcoming
+    return todayEvents
       .filter((e) => !e.allDay && e.start < endOfDay && e.end > startOfDay)
       .map((e) => ({
         startHour: toHour(e.start),
@@ -152,7 +153,7 @@ export function TodayScreen({
         kind: kindFor(e.title),
         label: e.title,
       }));
-  }, [upcoming, today]);
+  }, [todayEvents, today]);
 
   const scrollYRef = useRef(0);
   const viewportHRef = useRef(0);
