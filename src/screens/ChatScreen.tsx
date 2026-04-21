@@ -26,15 +26,15 @@ const SUGGESTIONS = [
   'Hvad har jeg noteret?',
 ];
 
-type Props = { onBack: () => void };
+type Props = { onBack: () => void; initialDraft?: string };
 
-export function ChatScreen({ onBack }: Props) {
+export function ChatScreen({ onBack, initialDraft }: Props) {
   const today = useMemo(() => new Date(), []);
   const dateInfo = useMemo(() => formatToday(today), [today]);
   const clock = useMemo(() => formatClock(today), [today]);
 
   const { data: messages, typing, send } = useChat();
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(initialDraft ?? '');
   const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {

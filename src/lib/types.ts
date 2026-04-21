@@ -13,11 +13,17 @@ export type Subscription = {
   renewalDate: string;
 };
 
+export type ObservationAction =
+  | { kind: 'chat' }
+  | { kind: 'prompt'; prompt: string }
+  | { kind: 'openMail'; mailId: string };
+
 export type Observation = {
   id: string;
   text: string;
   cta: string;
   mood: StoneMood;
+  action?: ObservationAction;
 };
 
 export type UpcomingEvent = {

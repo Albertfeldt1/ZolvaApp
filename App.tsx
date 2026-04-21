@@ -70,6 +70,7 @@ export default function App() {
   const { user } = useAuth();
   const [tab, setTab] = useState<TabId>('today');
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatDraft, setChatDraft] = useState<string | undefined>(undefined);
   const [openMail, setOpenMail] = useState<InboxMail | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [chromeOverDark, setChromeOverDark] = useState(false);
@@ -120,6 +121,10 @@ export default function App() {
   }, [migrationsDone]);
 
   useEffect(() => {
+    if (!chatOpen) setChatDraft(undefined);
+  }, [chatOpen]);
+
+  useEffect(() => {
     const unsub = registerResponseHandler((payload) => {
       setChatOpen(false);
       setOpenMail(null);
@@ -155,12 +160,20 @@ export default function App() {
 
   const openChat = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setChatDraft(undefined);
+    setChatOpen(true);
+  };
+
+  const openChatWithPrompt = (prompt: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setChatDraft(prompt);
     setChatOpen(true);
   };
 
   const closeChat = () => {
     Haptics.selectionAsync();
     setChatOpen(false);
+    setChatDraft(undefined);
   };
 
   const switchTab = (t: TabId) => {
@@ -227,7 +240,7 @@ export default function App() {
             entering={SlideInDown.duration(320)}
             exiting={SlideOutDown.duration(260)}
           >
-            <ChatScreen onBack={closeChat} />
+            <ChatScreen onBack={closeChat} initialDraft={chatDraft} />
           </Animated.View>
         ) : (
           <Animated.View
@@ -239,6 +252,8 @@ export default function App() {
             {tab === 'today' && (
               <TodayScreen
                 onOpenChat={openChat}
+                onOpenChatWithPrompt={openChatWithPrompt}
+                onOpenMail={openMailDetail}
                 onGoToSettings={() => switchTab('settings')}
                 onGoToMemory={() => switchTab('memory')}
                 onOpenNotifications={openNotifications}
