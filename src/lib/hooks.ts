@@ -1536,7 +1536,6 @@ export function useChat() {
       const nextHistory = [...messages, userMsg];
       setMessages(nextHistory);
       setTyping(true);
-      if (userId) syncChatMessage(userId, userMsg);
 
       if (demo) {
         const idx = demoIndexRef.current;
@@ -1551,6 +1550,8 @@ export function useChat() {
         }, 900);
         return;
       }
+
+      if (userId) syncChatMessage(userId, userMsg);
 
       const metadata =
         getPrivacyFlag('training-opt-in') && userId ? { user_id: userId } : undefined;
