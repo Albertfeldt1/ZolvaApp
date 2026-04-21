@@ -42,6 +42,9 @@ import { initNotificationSettings } from './src/lib/notification-settings';
 import { initNotificationFeed, markFeedByPayload } from './src/lib/notification-feed';
 import type { InboxMail, NotificationPayload } from './src/lib/types';
 import { colors } from './src/theme';
+import { useAuth } from './src/lib/auth';
+import { shouldShowMemoryConsent, markMemoryConsentShown } from './src/lib/hooks';
+import { MemoryConsentModal } from './src/components/MemoryConsentModal';
 
 export default function App() {
   const [fraunces] = useFraunces({
@@ -62,6 +65,7 @@ export default function App() {
     JetBrainsMono_600SemiBold,
   });
 
+  const { user } = useAuth();
   const [tab, setTab] = useState<TabId>('today');
   const [chatOpen, setChatOpen] = useState(false);
   const [openMail, setOpenMail] = useState<InboxMail | null>(null);
@@ -69,6 +73,17 @@ export default function App() {
   const [chromeOverDark, setChromeOverDark] = useState(false);
   const [chromeHeight, setChromeHeight] = useState(0);
   const [migrationsDone, setMigrationsDone] = useState(false);
+  const [memoryConsentOpen, setMemoryConsentOpen] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    void shouldShowMemoryConsent(user.id).then((show) => {
+      if (cancelled || !show) return;
+      setMemoryConsentOpen(true);
+    });
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   // Gate render on migrations. Screens read legacy AsyncStorage keys during
   // mount — if a previous user's data hasn't been purged yet, it would leak
@@ -263,6 +278,17 @@ export default function App() {
           </Animated.View>
         )}
       </View>
+      {user?.id && (
+        <MemoryConsentModal
+          visible={memoryConsentOpen}
+          userId={user.id}
+          onClose={() => {
+            const uid = user.id;
+            setMemoryConsentOpen(false);
+            void markMemoryConsentShown(uid);
+          }}
+        />
+      )}
       {!chatOpen && !openMail && !notificationsOpen && (
         <View
           style={styles.chrome}

@@ -1667,3 +1667,42 @@ function useMemoryEnabled(): boolean {
   }, []);
   return enabled;
 }
+
+// ─── Memory consent helpers ────────────────────────────────────────────────
+
+const memoryConsentKey = (uid: string) => `zolva.${uid}.memory.consent-shown-at`;
+
+export async function shouldShowMemoryConsent(uid: string): Promise<boolean> {
+  if (getPrivacyFlag('memory-enabled')) return false;
+  try {
+    const raw = await AsyncStorage.getItem(memoryConsentKey(uid));
+    if (!raw) return true;
+    const shownAt = parseInt(raw, 10);
+    if (Number.isNaN(shownAt)) return true;
+    const daysSince = (Date.now() - shownAt) / (1000 * 60 * 60 * 24);
+    // Re-prompt once after 14 days if still off.
+    return daysSince >= 14 && daysSince < 28;
+  } catch {
+    return true;
+  }
+}
+
+export async function markMemoryConsentShown(uid: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(memoryConsentKey(uid), Date.now().toString());
+  } catch {}
+}
+
+// ─── setPrivacyFlag ────────────────────────────────────────────────────────
+
+export async function setPrivacyFlag(id: PrivacyFlagId, value: boolean): Promise<void> {
+  ensurePrivacyUserSubscription();
+  await hydratePrivacyCache();
+  privacyCache = { ...privacyCache, [id]: value };
+  const uid = privacyUid;
+  if (uid) {
+    try {
+      await AsyncStorage.setItem(privacyTogglesKey(uid), JSON.stringify(privacyCache));
+    } catch {}
+  }
+}
