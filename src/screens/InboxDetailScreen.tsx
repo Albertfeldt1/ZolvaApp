@@ -51,7 +51,7 @@ export function InboxDetailScreen({ mail, onClose }: Props) {
       if (user?.id) {
         recordMailEvent({
           userId: user.id,
-          eventType: 'drafted_reply',
+          eventType: 'replied',
           providerThreadId: replyContextThreadId(detail.replyContext),
           providerFrom: mail.from,
           providerSubject: mail.subject,
