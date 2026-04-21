@@ -93,6 +93,7 @@ import {
   padSuggestions,
   type MailForSuggestion,
 } from './chat-suggestions';
+import { supabase } from './supabase';
 
 const PROFILE_MEMORY_FLAG = process.env.EXPO_PUBLIC_PROFILE_MEMORY === '1';
 
@@ -1110,9 +1111,19 @@ const DEFAULT_WORK_PREFERENCES: WorkPreference[] = [
 
 const workPrefsKey = (uid: string) => `zolva.${uid}.prefs.work`;
 
+function applySavedPrefs(
+  prev: WorkPreference[],
+  saved: Record<string, string>,
+): WorkPreference[] {
+  return prev.map((r) =>
+    saved[r.id] && r.options.includes(saved[r.id]) ? { ...r, value: saved[r.id] } : r,
+  );
+}
+
 export function useWorkPreferences() {
   const { user } = useAuth();
   const userId = user?.id ?? null;
+  const demo = isDemoUser(user);
   const [rows, setRows] = useState<WorkPreference[]>(DEFAULT_WORK_PREFERENCES);
 
   useEffect(() => {
@@ -1123,17 +1134,31 @@ export function useWorkPreferences() {
       if (cancelled || !raw) return;
       try {
         const saved = JSON.parse(raw) as Record<WorkPreferenceId, string>;
-        setRows((prev) =>
-          prev.map((r) =>
-            saved[r.id] && r.options.includes(saved[r.id]) ? { ...r, value: saved[r.id] } : r,
-          ),
-        );
+        setRows((prev) => applySavedPrefs(prev, saved));
       } catch {}
     });
+    if (!demo) {
+      supabase
+        .from('work_preferences')
+        .select('id, value')
+        .eq('user_id', userId)
+        .then(({ data, error }) => {
+          if (cancelled || error || !data) return;
+          const saved = Object.fromEntries(
+            data.map((r) => [r.id as string, r.value as string]),
+          );
+          setRows((prev) => {
+            const next = applySavedPrefs(prev, saved);
+            const snapshot = Object.fromEntries(next.map((r) => [r.id, r.value]));
+            AsyncStorage.setItem(workPrefsKey(userId), JSON.stringify(snapshot)).catch(() => {});
+            return next;
+          });
+        });
+    }
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [userId, demo]);
 
   const setValue = useCallback(
     (id: WorkPreferenceId, value: string) => {
@@ -1142,11 +1167,24 @@ export function useWorkPreferences() {
         if (userId) {
           const snapshot = Object.fromEntries(next.map((r) => [r.id, r.value]));
           AsyncStorage.setItem(workPrefsKey(userId), JSON.stringify(snapshot)).catch(() => {});
+          if (!demo) {
+            void supabase
+              .from('work_preferences')
+              .upsert(
+                { user_id: userId, id, value, updated_at: new Date().toISOString() },
+                { onConflict: 'user_id,id' },
+              )
+              .then(({ error }) => {
+                if (error && __DEV__) {
+                  console.warn('[work-prefs] upsert failed:', error.message);
+                }
+              });
+          }
         }
         return next;
       });
     },
-    [userId],
+    [userId, demo],
   );
 
   return { data: rows, loading: false, error: null as Error | null, setValue };
