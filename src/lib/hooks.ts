@@ -975,7 +975,14 @@ export function useDaySchedule(targetDate?: Date): Result<CalendarSlot[]> {
     // Round the end-hour up when there are minutes left, so a 09:45-10:15
     // meeting contributes an 11 bound and the 10 slot stays visible.
     const rawEnd = e.end.getHours() + (e.end.getMinutes() > 0 ? 1 : 0);
-    endHour = Math.min(ABSOLUTE_END_HOUR, Math.max(endHour, rawEnd));
+    // Also guarantee the event's start slot exists — events that cross
+    // midnight have e.end "next day" with getHours()=0, which would leave
+    // the start slot (e.g., 23) without a home. Widen to start+1.
+    const startSlotNeeded = e.start.getHours() + 1;
+    endHour = Math.min(
+      ABSOLUTE_END_HOUR,
+      Math.max(endHour, rawEnd, startSlotNeeded),
+    );
   }
 
   const hourSlots = makeHourSlots(startHour, endHour);
