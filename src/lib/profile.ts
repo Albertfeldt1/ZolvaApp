@@ -1,3 +1,7 @@
+// Persistent memory feature (spec: docs/superpowers/specs/2026-04-21-persistent-memory-design.md).
+// Gated by EXPO_PUBLIC_PROFILE_MEMORY=1 + user toggle memory-enabled.
+// Without either, no preamble is built, no extractor fires, no chat sync, no mail events recorded.
+
 import type { Fact, FactCategory, MailEvent, ChatMessageRow } from './types';
 import {
   getFactsSignature,

@@ -88,6 +88,8 @@ import {
 import { syncChatMessage } from './chat-sync';
 import { runExtractor } from './profile-extractor';
 
+const PROFILE_MEMORY_FLAG = process.env.EXPO_PUBLIC_PROFILE_MEMORY === '1';
+
 // All hooks return placeholder/empty state. When the backend is wired,
 // swap the internals for real data sources (Supabase auth, API fetches,
 // realtime subscriptions) without touching the screens.
@@ -1101,6 +1103,7 @@ function ensurePrivacyUserSubscription() {
 }
 
 export function getPrivacyFlag(id: PrivacyFlagId): boolean {
+  if (id === 'memory-enabled' && !PROFILE_MEMORY_FLAG) return false;
   const cached = privacyCache[id];
   return cached === undefined ? PRIVACY_DEFAULTS[id] : cached;
 }

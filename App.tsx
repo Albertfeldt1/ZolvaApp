@@ -46,6 +46,8 @@ import { useAuth } from './src/lib/auth';
 import { shouldShowMemoryConsent, markMemoryConsentShown } from './src/lib/hooks';
 import { MemoryConsentModal } from './src/components/MemoryConsentModal';
 
+const PROFILE_MEMORY_FLAG = process.env.EXPO_PUBLIC_PROFILE_MEMORY === '1';
+
 export default function App() {
   const [fraunces] = useFraunces({
     Fraunces_500Medium,
@@ -76,6 +78,7 @@ export default function App() {
   const [memoryConsentOpen, setMemoryConsentOpen] = useState(false);
 
   useEffect(() => {
+    if (!PROFILE_MEMORY_FLAG) return;
     if (!user?.id) return;
     let cancelled = false;
     void shouldShowMemoryConsent(user.id).then((show) => {
