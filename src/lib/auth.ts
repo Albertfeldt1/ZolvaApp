@@ -39,6 +39,7 @@ import { useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import { supabase } from './supabase';
 import * as secureStorage from './secure-storage';
+import { buildDemoSession, isDemoCredentials, isDemoUser } from './demo';
 import {
   getNotificationSettings,
   hydrateNotificationSettingsForUser,
@@ -184,6 +185,9 @@ const init = () => {
     await migrateAsyncStorageToSecureStore();
 
     const { data } = await supabase.auth.getSession();
+    // Don't clobber an active demo session — the user may have already
+    // signed in as demo while getSession was in flight.
+    if (isDemoUser(cachedSession?.user)) return;
     broadcastSession(data.session);
     const uid = data.session?.user?.id ?? null;
     await hydrateNotificationSettingsForUser(uid);
@@ -195,6 +199,9 @@ const init = () => {
   })();
 
   supabase.auth.onAuthStateChange((event, session) => {
+    // Ignore Supabase events while demo is active (except explicit SIGNED_IN
+    // as a real user — let that take over).
+    if (isDemoUser(cachedSession?.user) && event !== 'SIGNED_IN') return;
     const prevUserId = cachedSession?.user?.id ?? null;
     const nextUserId = session?.user?.id ?? null;
     broadcastSession(session);
@@ -647,6 +654,15 @@ async function performSignOut(): Promise<void> {
   const uid = currentUserId();
   const googleToken = cachedGoogleToken;
 
+  // Demo session lives entirely client-side — skip Supabase teardown, edge
+  // function calls, and token revocation. Just drop the fake session.
+  if (isDemoUser(cachedSession?.user)) {
+    broadcastGoogle(null);
+    broadcastMicrosoft(null);
+    broadcastSession(null);
+    return;
+  }
+
   if (uid) {
     await runSignOutTeardown(uid);
   }
@@ -664,6 +680,18 @@ async function performSignOut(): Promise<void> {
   broadcastMicrosoft(null);
 
   await supabase.auth.signOut();
+}
+
+function signInWithPasswordOrDemo(email: string, password: string) {
+  if (isDemoCredentials(email, password)) {
+    const session = buildDemoSession();
+    broadcastSession(session);
+    return Promise.resolve({
+      data: { session, user: session.user },
+      error: null,
+    });
+  }
+  return supabase.auth.signInWithPassword({ email, password });
 }
 
 export function useAuth() {
@@ -700,7 +728,7 @@ export function useAuth() {
     microsoftAccessToken: microsoftToken,
     initializing,
     signIn: (email: string, password: string) =>
-      supabase.auth.signInWithPassword({ email, password }),
+      signInWithPasswordOrDemo(email, password),
     signUp: (email: string, password: string) =>
       supabase.auth.signUp({ email, password }),
     signOut: performSignOut,

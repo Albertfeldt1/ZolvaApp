@@ -2,6 +2,21 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { subscribeUserId, useAuth } from './auth';
 import {
+  DEMO_CHAT_FALLBACK,
+  DEMO_CHAT_SCRIPT,
+  DEMO_CONNECTIONS,
+  DEMO_OBSERVATIONS,
+  DEMO_SUBSCRIPTION,
+  demoDaySchedule,
+  demoInboxCleared,
+  demoInboxWaiting,
+  demoMailDetail,
+  demoNotes,
+  demoReminders,
+  demoUpcoming,
+  isDemoUser,
+} from './demo';
+import {
   complete,
   completeJson,
   completeRaw,
@@ -84,6 +99,8 @@ export function useUser(): Result<UserProfile | null> {
 }
 
 export function useSubscription(): Result<Subscription | null> {
+  const { user } = useAuth();
+  if (isDemoUser(user)) return empty(DEMO_SUBSCRIPTION);
   return empty(null);
 }
 
@@ -140,6 +157,8 @@ function sanitizeObservations(raw: unknown): Observation[] {
 }
 
 export function useObservations(): Result<Observation[]> {
+  const { user } = useAuth();
+  const demo = isDemoUser(user);
   const { items: calendarItems, loading: calendarLoading, error: calendarError } =
     useCalendarItems();
   const { items: mailItems, loading: mailLoading, error: mailError } = useMailItems();
@@ -153,6 +172,10 @@ export function useObservations(): Result<Observation[]> {
   });
 
   useEffect(() => {
+    if (demo) {
+      setState({ data: DEMO_OBSERVATIONS, loading: false, error: null });
+      return;
+    }
     if (calendarLoading || mailLoading) {
       setState({ data: [], loading: true, error: null });
       return;
@@ -213,6 +236,7 @@ export function useObservations(): Result<Observation[]> {
       controller.abort();
     };
   }, [
+    demo,
     calendarItems,
     mailItems,
     calendarLoading,
@@ -469,7 +493,8 @@ function useMailItems(): {
 }
 
 export function useHasProvider(): boolean {
-  const { googleAccessToken, microsoftAccessToken } = useAuth();
+  const { googleAccessToken, microsoftAccessToken, user } = useAuth();
+  if (isDemoUser(user)) return true;
   return !!(googleAccessToken || microsoftAccessToken);
 }
 
@@ -485,7 +510,11 @@ function shortTime(then: Date, now: Date): string {
 }
 
 export function useUpcoming(): Result<UpcomingEvent[]> {
+  const { user } = useAuth();
   const { items, loading, error } = useCalendarItems();
+  if (isDemoUser(user)) {
+    return { data: demoUpcoming(), loading: false, error: null };
+  }
   const now = new Date();
   const data: UpcomingEvent[] = items
     .filter((e) => e.end.getTime() >= now.getTime())
@@ -553,6 +582,8 @@ async function generateDraft(
 }
 
 export function useInboxWaiting(): Result<InboxMail[]> {
+  const { user } = useAuth();
+  const demo = isDemoUser(user);
   const { items, loading, error } = useMailItems();
   const dismissed = useDismissedMailIds();
   const { data: workRows } = useWorkPreferences();
@@ -563,6 +594,7 @@ export function useInboxWaiting(): Result<InboxMail[]> {
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    if (demo) return;
     if (!hasClaudeKey() || items.length === 0) return;
     if (isInQuietHours(quietHours, new Date())) return;
 
@@ -617,7 +649,15 @@ export function useInboxWaiting(): Result<InboxMail[]> {
     });
 
     return () => controller.abort();
-  }, [items, autonomy, tone, quietHours]);
+  }, [demo, items, autonomy, tone, quietHours]);
+
+  if (demo) {
+    return {
+      data: demoInboxWaiting().filter((m) => !dismissed.has(m.id)),
+      loading: false,
+      error: null,
+    };
+  }
 
   const now = new Date();
   const tones: InboxMail['tone'][] = ['sage', 'clay', 'mist'];
@@ -638,8 +678,23 @@ export function useInboxWaiting(): Result<InboxMail[]> {
 }
 
 export function useInboxCleared(): Result<{ items: DoneMail[]; count: number }> {
+  const { user } = useAuth();
   const { items, loading, error } = useMailItems();
   const dismissed = useDismissedMailIds();
+  if (isDemoUser(user)) {
+    const base = demoInboxCleared();
+    const justDismissed = demoInboxWaiting()
+      .filter((m) => dismissed.has(m.id))
+      .map((m) => ({ id: m.id, from: m.from, note: m.subject }));
+    return {
+      data: {
+        items: [...justDismissed, ...base.items].slice(0, 6),
+        count: base.count + justDismissed.length,
+      },
+      loading: false,
+      error: null,
+    };
+  }
   const cleared = items.filter((m) => m.isRead || dismissed.has(m.id));
   const data = {
     items: cleared.slice(0, 6).map((m) => ({
@@ -656,6 +711,8 @@ export function useMailDetail(
   id: string | null,
   provider: MailProvider | null,
 ): Result<MailDetail | null> {
+  const { user } = useAuth();
+  const demo = isDemoUser(user);
   const [state, setState] = useState<Result<MailDetail | null>>({
     data: null,
     loading: false,
@@ -665,6 +722,10 @@ export function useMailDetail(
   useEffect(() => {
     if (!id || !provider) {
       setState({ data: null, loading: false, error: null });
+      return;
+    }
+    if (demo) {
+      setState({ data: demoMailDetail(id), loading: false, error: null });
       return;
     }
     let cancelled = false;
@@ -710,12 +771,14 @@ export function useMailDetail(
     return () => {
       cancelled = true;
     };
-  }, [id, provider]);
+  }, [id, provider, demo]);
 
   return state;
 }
 
 export function useSendReply() {
+  const { user } = useAuth();
+  const demo = isDemoUser(user);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
@@ -723,6 +786,12 @@ export function useSendReply() {
     async (mailId: string, body: string, ctx: ReplyContext): Promise<boolean> => {
       setSending(true);
       setError(null);
+      if (demo) {
+        await new Promise((r) => setTimeout(r, 400));
+        markMailDismissed(mailId);
+        setSending(false);
+        return true;
+      }
       try {
         if (ctx.provider === 'google') {
           await gmailSendReply({
@@ -760,13 +829,19 @@ export function useSendReply() {
       setSending(false);
       return true;
     },
-    [],
+    [demo],
   );
 
   const archive = useCallback(
     async (mailId: string, provider: MailProvider): Promise<boolean> => {
       setSending(true);
       setError(null);
+      if (demo) {
+        await new Promise((r) => setTimeout(r, 200));
+        markMailDismissed(mailId);
+        setSending(false);
+        return true;
+      }
       try {
         if (provider === 'google') {
           await gmailArchiveMessage(mailId);
@@ -784,7 +859,7 @@ export function useSendReply() {
         return false;
       }
     },
-    [],
+    [demo],
   );
 
   return { send, archive, sending, error };
@@ -800,11 +875,15 @@ const buildScaffold = (): CalendarSlot[] =>
   }));
 
 export function useDaySchedule(targetDate?: Date): Result<CalendarSlot[]> {
+  const { user } = useAuth();
   const bounds = targetDate ? dayBounds(targetDate) : undefined;
   const { items, loading, error } = useCalendarItems(
     bounds?.start.getTime(),
     bounds?.end.getTime(),
   );
+  if (isDemoUser(user)) {
+    return { data: demoDaySchedule(), loading: false, error: null };
+  }
   const slots = buildScaffold();
   const slotTones: ('sage' | 'clay' | 'mist')[] = ['sage', 'clay', 'mist'];
 
@@ -840,18 +919,23 @@ const GOOGLE_INTEGRATIONS = new Set<Connection['id']>(['google-calendar', 'gmail
 const MICROSOFT_INTEGRATIONS = new Set<Connection['id']>(['outlook-calendar', 'outlook-mail']);
 
 export function useConnections() {
-  const { googleAccessToken, microsoftAccessToken, signInWithGoogle, signInWithMicrosoft } = useAuth();
-  const data: Connection[] = DEFAULT_CONNECTIONS.map((c) => {
-    if (GOOGLE_INTEGRATIONS.has(c.id) && googleAccessToken) {
-      return { ...c, status: 'connected' as const };
-    }
-    if (MICROSOFT_INTEGRATIONS.has(c.id) && microsoftAccessToken) {
-      return { ...c, status: 'connected' as const };
-    }
-    return c;
-  });
+  const { user, googleAccessToken, microsoftAccessToken, signInWithGoogle, signInWithMicrosoft } = useAuth();
+  const demo = isDemoUser(user);
+
+  const data: Connection[] = demo
+    ? DEMO_CONNECTIONS
+    : DEFAULT_CONNECTIONS.map((c) => {
+        if (GOOGLE_INTEGRATIONS.has(c.id) && googleAccessToken) {
+          return { ...c, status: 'connected' as const };
+        }
+        if (MICROSOFT_INTEGRATIONS.has(c.id) && microsoftAccessToken) {
+          return { ...c, status: 'connected' as const };
+        }
+        return c;
+      });
 
   const connect = async (id: Connection['id']) => {
+    if (demo) return { data: null, error: null };
     if (GOOGLE_INTEGRATIONS.has(id)) return signInWithGoogle();
     if (MICROSOFT_INTEGRATIONS.has(id)) return signInWithMicrosoft();
     return { data: null, error: new Error('Ukendt integration.') };
@@ -1074,15 +1158,57 @@ export function usePrivacyToggles() {
 }
 
 export function useReminders() {
-  const [reminders, setReminders] = useState<Reminder[]>(() => listReminders());
-  useEffect(() => subscribeReminders(setReminders), []);
-  const markDone = useCallback((id: string) => {
-    void storeMarkReminderDone(id);
-  }, []);
-  const remove = useCallback((id: string) => {
-    void storeRemoveReminder(id);
-  }, []);
-  const add = useCallback((text: string, dueAt?: Date) => storeAddReminder(text, dueAt), []);
+  const { user } = useAuth();
+  const demo = isDemoUser(user);
+  const [reminders, setReminders] = useState<Reminder[]>(() =>
+    isDemoUser(user) ? demoReminders() : listReminders(),
+  );
+  useEffect(() => {
+    if (demo) {
+      setReminders(demoReminders());
+      return;
+    }
+    return subscribeReminders(setReminders);
+  }, [demo]);
+  const markDone = useCallback(
+    (id: string) => {
+      if (demo) {
+        setReminders((prev) =>
+          prev.map((r) => (r.id === id ? { ...r, status: 'done' as const } : r)),
+        );
+        return;
+      }
+      void storeMarkReminderDone(id);
+    },
+    [demo],
+  );
+  const remove = useCallback(
+    (id: string) => {
+      if (demo) {
+        setReminders((prev) => prev.filter((r) => r.id !== id));
+        return;
+      }
+      void storeRemoveReminder(id);
+    },
+    [demo],
+  );
+  const add = useCallback(
+    (text: string, dueAt?: Date): Promise<Reminder> => {
+      if (demo) {
+        const r: Reminder = {
+          id: `d-r-${Date.now()}`,
+          text,
+          dueAt: dueAt ?? null,
+          status: 'pending',
+          createdAt: new Date(),
+        };
+        setReminders((prev) => [...prev, r]);
+        return Promise.resolve(r);
+      }
+      return storeAddReminder(text, dueAt);
+    },
+    [demo],
+  );
   return {
     data: reminders,
     loading: false,
@@ -1094,12 +1220,44 @@ export function useReminders() {
 }
 
 export function useNotes() {
-  const [notes, setNotes] = useState<Note[]>(() => listNotes());
-  useEffect(() => subscribeNotes(setNotes), []);
-  const remove = useCallback((id: string) => {
-    void storeRemoveNote(id);
-  }, []);
-  const add = useCallback((text: string) => storeAddNote(text), []);
+  const { user } = useAuth();
+  const demo = isDemoUser(user);
+  const [notes, setNotes] = useState<Note[]>(() =>
+    isDemoUser(user) ? demoNotes() : listNotes(),
+  );
+  useEffect(() => {
+    if (demo) {
+      setNotes(demoNotes());
+      return;
+    }
+    return subscribeNotes(setNotes);
+  }, [demo]);
+  const remove = useCallback(
+    (id: string) => {
+      if (demo) {
+        setNotes((prev) => prev.filter((n) => n.id !== id));
+        return;
+      }
+      void storeRemoveNote(id);
+    },
+    [demo],
+  );
+  const add = useCallback(
+    (text: string): Promise<Note> => {
+      if (demo) {
+        const n: Note = {
+          id: `d-n-${Date.now()}`,
+          text,
+          category: 'note',
+          createdAt: new Date(),
+        };
+        setNotes((prev) => [...prev, n]);
+        return Promise.resolve(n);
+      }
+      return storeAddNote(text);
+    },
+    [demo],
+  );
   return {
     data: notes,
     loading: false,
@@ -1298,6 +1456,8 @@ export function useChat() {
   const [hydrated, setHydrated] = useState(false);
   const { data: profile } = useUser();
   const { user } = useAuth();
+  const demo = isDemoUser(user);
+  const demoIndexRef = useRef(0);
   const name = profile?.name ?? '';
   const userId = user?.id;
 
@@ -1306,7 +1466,12 @@ export function useChat() {
   useEffect(() => {
     setMessages([]);
     setHydrated(false);
+    demoIndexRef.current = 0;
     if (!userId) {
+      setHydrated(true);
+      return;
+    }
+    if (demo) {
       setHydrated(true);
       return;
     }
@@ -1329,10 +1494,10 @@ export function useChat() {
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [userId, demo]);
 
   useEffect(() => {
-    if (!hydrated || !userId) return;
+    if (!hydrated || !userId || demo) return;
     const key = chatHistoryKey(userId);
     if (!getPrivacyFlag('local-only')) {
       AsyncStorage.removeItem(key).catch(() => {});
@@ -1354,6 +1519,20 @@ export function useChat() {
       const nextHistory = [...messages, userMsg];
       setMessages(nextHistory);
       setTyping(true);
+
+      if (demo) {
+        const idx = demoIndexRef.current;
+        demoIndexRef.current = idx + 1;
+        const reply = DEMO_CHAT_SCRIPT[idx] ?? DEMO_CHAT_FALLBACK;
+        setTimeout(() => {
+          setMessages((cur) => [
+            ...cur,
+            { id: `a-${Date.now()}`, from: 'zolva', text: reply },
+          ]);
+          setTyping(false);
+        }, 900);
+        return;
+      }
 
       const metadata =
         getPrivacyFlag('training-opt-in') && userId ? { user_id: userId } : undefined;
@@ -1409,7 +1588,7 @@ export function useChat() {
         })
         .finally(() => setTyping(false));
     },
-    [messages, name, userId],
+    [messages, name, userId, demo],
   );
 
   return { data: messages, typing, loading: false, error: null as Error | null, send };
