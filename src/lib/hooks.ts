@@ -60,6 +60,7 @@ import type {
   ChatMessage,
   Connection,
   DoneMail,
+  Fact,
   FeedEntry,
   InboxMail,
   MailDetail,
@@ -76,6 +77,8 @@ import type {
   WorkPreference,
   WorkPreferenceId,
 } from './types';
+import { confirmFact, listFacts, rejectFact } from './profile-store';
+import { invalidatePreamble } from './profile';
 import {
   listFeedEntries,
   markAllFeedRead,
@@ -1611,4 +1614,56 @@ export function useChat() {
   );
 
   return { data: messages, typing, loading: false, error: null as Error | null, send };
+}
+
+export function usePendingFacts(): Result<Fact[]> & {
+  accept: (id: string) => Promise<void>;
+  reject: (id: string) => Promise<void>;
+} {
+  const { user } = useAuth();
+  const userId = user?.id;
+  const [state, setState] = useState<Result<Fact[]>>({ data: [], loading: false, error: null });
+  const memoryEnabled = useMemoryEnabled();
+
+  const refresh = useCallback(async () => {
+    if (!userId || !memoryEnabled) {
+      setState({ data: [], loading: false, error: null });
+      return;
+    }
+    setState((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      const rows = await listFacts(userId, 'pending');
+      setState({ data: rows, loading: false, error: null });
+    } catch (err) {
+      setState({ data: [], loading: false, error: err as Error });
+    }
+  }, [userId, memoryEnabled]);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const accept = useCallback(async (id: string) => {
+    await confirmFact(id);
+    if (userId) invalidatePreamble(userId);
+    void refresh();
+  }, [refresh, userId]);
+
+  const reject = useCallback(async (id: string) => {
+    await rejectFact(id);
+    if (userId) invalidatePreamble(userId);
+    void refresh();
+  }, [refresh, userId]);
+
+  return { ...state, accept, reject };
+}
+
+function useMemoryEnabled(): boolean {
+  const [enabled, setEnabled] = useState<boolean>(() => getPrivacyFlag('memory-enabled'));
+  useEffect(() => {
+    let cancelled = false;
+    void hydratePrivacyCache().then(() => {
+      if (!cancelled) setEnabled(getPrivacyFlag('memory-enabled'));
+    });
+    return () => { cancelled = true; };
+  }, []);
+  return enabled;
 }

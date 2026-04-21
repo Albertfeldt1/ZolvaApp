@@ -25,12 +25,13 @@ import {
   useInboxWaiting,
   useNotes,
   useObservations,
+  usePendingFacts,
   useReminders,
   useUnreadNotificationCount,
   useUpcoming,
   useUser,
 } from '../lib/hooks';
-import type { Observation, Reminder, UpcomingEvent } from '../lib/types';
+import type { Fact, Observation, Reminder, UpcomingEvent } from '../lib/types';
 import { colors, fonts } from '../theme';
 import { plural, translateProviderError } from '../utils/danish';
 
@@ -67,6 +68,7 @@ export function TodayScreen({
   const { data: notes } = useNotes();
   const unreadNotifications = useUnreadNotificationCount();
   const hasProvider = useHasProvider();
+  const { data: pendingFacts, accept: acceptFact, reject: rejectFactHook } = usePendingFacts();
 
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set());
   const visibleObservations = useMemo(
@@ -278,7 +280,7 @@ export function TodayScreen({
         }}
       >
         <Text style={styles.darkTitle}>Hvad jeg har bemærket</Text>
-        {visibleObservations.length === 0 ? (
+        {pendingFacts.length === 0 && visibleObservations.length === 0 ? (
           observationsError ? (
             <EmptyState
               dark
@@ -305,6 +307,14 @@ export function TodayScreen({
           )
         ) : (
           <View style={{ gap: 14 }}>
+            {pendingFacts.map((f) => (
+              <PendingFactRow
+                key={f.id}
+                fact={f}
+                onAccept={() => acceptFact(f.id)}
+                onReject={() => rejectFactHook(f.id)}
+              />
+            ))}
             {feedObservations.map((n, i) => (
               <NoticedRow
                 key={n.id}
@@ -436,6 +446,33 @@ function NoticedRow({
         </View>
       </View>
     </Animated.View>
+  );
+}
+
+function PendingFactRow({
+  fact,
+  onAccept,
+  onReject,
+}: {
+  fact: Fact;
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  return (
+    <View style={styles.noticedRow}>
+      <Stone mood="thinking" size={36} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.noticedText}>Skal jeg huske at {fact.text}?</Text>
+        <View style={styles.noticedActions}>
+          <Pressable onPress={onAccept}>
+            <Text style={styles.noticedCta}>Ja, husk det</Text>
+          </Pressable>
+          <Pressable onPress={onReject}>
+            <Text style={styles.noticedDismiss}>Nej</Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
   );
 }
 
