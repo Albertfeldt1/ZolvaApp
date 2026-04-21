@@ -4,6 +4,8 @@
 // / completeJson / hasClaudeKey as before.
 
 import { supabase } from './supabase';
+import { buildProfilePreamble } from './profile';
+import { getPrivacyFlag } from './hooks';
 
 const MODEL = 'claude-haiku-4-5-20251001';
 
@@ -41,14 +43,21 @@ export type ClaudeToolSchema = {
   input_schema: Record<string, unknown>;
 };
 
+export type ClaudeSystemBlock = {
+  type: 'text';
+  text: string;
+  cache_control?: { type: 'ephemeral' };
+};
+
 type CompleteOptions = {
-  system?: string;
+  system?: string | ClaudeSystemBlock[];
   messages: ClaudeMessage[];
   maxTokens?: number;
   temperature?: number;
   signal?: AbortSignal;
   tools?: ClaudeToolSchema[];
   metadata?: { user_id?: string };
+  attachProfile?: boolean; // default true
 };
 
 type AnthropicResponse = {
@@ -76,8 +85,25 @@ export async function completeRaw(opts: CompleteOptions): Promise<ClaudeCompleti
 
   const { data: sessionData } = await supabase.auth.getSession();
   const accessToken = sessionData.session?.access_token;
+  const userId = sessionData.session?.user?.id;
   if (!accessToken) {
     throw new ClaudeConfigError('Du skal være logget ind for at bruge Claude.');
+  }
+
+  const attach = opts.attachProfile !== false && userId;
+  let systemBlocks: ClaudeSystemBlock[] = [];
+  if (attach && getPrivacyFlag('memory-enabled')) {
+    const preamble = await buildProfilePreamble(userId, { user: sessionData.session!.user });
+    if (preamble) {
+      systemBlocks.push({ type: 'text', text: preamble, cache_control: { type: 'ephemeral' } });
+    }
+  }
+  if (opts.system != null) {
+    if (typeof opts.system === 'string') {
+      systemBlocks.push({ type: 'text', text: opts.system });
+    } else {
+      systemBlocks.push(...opts.system);
+    }
   }
 
   const payload: Record<string, unknown> = {
@@ -86,7 +112,7 @@ export async function completeRaw(opts: CompleteOptions): Promise<ClaudeCompleti
     temperature: opts.temperature ?? 0.7,
     messages: opts.messages,
   };
-  if (opts.system != null) payload.system = opts.system;
+  if (systemBlocks.length > 0) payload.system = systemBlocks;
   if (opts.tools != null) payload.tools = opts.tools;
 
   const res = await fetch(PROXY_URL, {
@@ -127,8 +153,9 @@ export async function complete(opts: CompleteOptions): Promise<string> {
 
 // Structured JSON response. Prompts the model to return JSON and parses it.
 export async function completeJson<T>(opts: CompleteOptions & { schemaHint: string }): Promise<T> {
+  const existingSystem = typeof opts.system === 'string' ? opts.system : '';
   const systemWithSchema = [
-    opts.system ?? '',
+    existingSystem,
     '',
     'Return ONLY valid JSON matching this schema. No markdown fences, no prose.',
     opts.schemaHint,
