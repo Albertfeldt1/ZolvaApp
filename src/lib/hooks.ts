@@ -125,10 +125,14 @@ const OBSERVATION_SYSTEM =
   'Hver observation skal være maks én sætning og undgå at gentage selvfølgeligheder.';
 
 const OBSERVATION_SCHEMA =
-  '[{"id": string, "text": string, "cta": string, "mood": "calm" | "thinking" | "happy"}]\n' +
+  '[{"id": string, "text": string, "cta": string, "mood": "calm" | "thinking" | "happy", "action"?: Action}]\n' +
   '- text: selve observationen på dansk (maks én sætning).\n' +
-  '- cta: kort handlingsforslag på dansk (maks 4 ord), fx "Omrokér møde" eller "Svar senere".\n' +
-  '- mood: "thinking" for noget der kræver beslutning, "calm" for rolig observation, "happy" for positivt.';
+  '- cta: kort handlingsforslag på dansk (maks 4 ord), fx "Åbn mail", "Gennemgå senere" eller "Bloker tid".\n' +
+  '- mood: "thinking" for noget der kræver beslutning, "calm" for rolig observation, "happy" for positivt.\n' +
+  '- action (valgfri): hvad der skal ske når brugeren trykker på CTA\'en. Typer:\n' +
+  '  • {"kind":"openMail","mailId": string} — kun hvis observationen handler om en specifik mail. Brug mail-id\'et vist i [id:…] i mail-listen.\n' +
+  '  • {"kind":"prompt","prompt": string} — når brugeren skal notere noget eller følge op senere. "prompt" skal være en færdig 1. person-besked til Zolva på dansk, fx "Noter lige at jeg skal gennemgå Mettes kontrakt senere i dag." Så åbner chatten med beskeden klar til at sende.\n' +
+  '  • {"kind":"chat"} — generisk; bruges når intet af ovenstående passer. Udelad action for denne default.';
 
 function summarizeDay(events: NormalizedEvent[], mails: NormalizedMail[]): string {
   const calendar = events.length
@@ -143,10 +147,23 @@ function summarizeDay(events: NormalizedEvent[], mails: NormalizedMail[]): strin
 
   const unread = mails.filter((m) => !m.isRead).slice(0, 12);
   const inbox = unread.length
-    ? unread.map((m) => `- ${m.from}: ${m.subject}`).join('\n')
+    ? unread.map((m) => `- [id:${m.id}] ${m.from}: ${m.subject}`).join('\n')
     : '(ingen ulæste)';
 
   return `Dagens kalender:\n${calendar}\n\nUlæste mails:\n${inbox}`;
+}
+
+function sanitizeAction(raw: unknown): Observation['action'] {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const a = raw as { kind?: unknown; mailId?: unknown; prompt?: unknown };
+  if (a.kind === 'openMail' && typeof a.mailId === 'string' && a.mailId.trim()) {
+    return { kind: 'openMail', mailId: a.mailId.trim() };
+  }
+  if (a.kind === 'prompt' && typeof a.prompt === 'string' && a.prompt.trim()) {
+    return { kind: 'prompt', prompt: a.prompt.trim() };
+  }
+  if (a.kind === 'chat') return { kind: 'chat' };
+  return undefined;
 }
 
 function sanitizeObservations(raw: unknown): Observation[] {
@@ -154,7 +171,7 @@ function sanitizeObservations(raw: unknown): Observation[] {
   const moods: Observation['mood'][] = ['calm', 'thinking', 'happy'];
   return raw.slice(0, OBSERVATION_MAX).flatMap((item, i): Observation[] => {
     if (!item || typeof item !== 'object') return [];
-    const o = item as Partial<Observation>;
+    const o = item as Partial<Observation> & { action?: unknown };
     const text = typeof o.text === 'string' ? o.text.trim() : '';
     if (!text) return [];
     const cta = typeof o.cta === 'string' ? o.cta.trim() : '';
@@ -162,7 +179,8 @@ function sanitizeObservations(raw: unknown): Observation[] {
       ? (o.mood as Observation['mood'])
       : 'calm';
     const id = typeof o.id === 'string' && o.id ? o.id : `obs-${i + 1}`;
-    return [{ id, text, cta, mood }];
+    const action = sanitizeAction(o.action);
+    return [action ? { id, text, cta, mood, action } : { id, text, cta, mood }];
   });
 }
 
@@ -347,6 +365,8 @@ function useDismissedMailIds(): Set<string> {
   return dismissedMailIds;
 }
 
+const CALENDAR_FETCH_TIMEOUT_MS = 20_000;
+
 function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
   items: NormalizedEvent[];
   loading: boolean;
@@ -408,8 +428,23 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
       );
     }
 
+    // Outer timeout so a hung silent-refresh (Microsoft browser session
+    // waiting on tenant consent) or a dead Graph endpoint surfaces as an
+    // error instead of leaving the UI skeleton-forever.
+    const timeoutId = setTimeout(() => {
+      if (cancelled) return;
+      if (__DEV__) console.warn('[hooks] calendar fetch timed out');
+      setState({
+        items: [],
+        loading: false,
+        error: new Error('Kalender-forespørgslen tog for lang tid. Prøv igen.'),
+      });
+      cancelled = true;
+    }, CALENDAR_FETCH_TIMEOUT_MS);
+
     Promise.all(tasks)
       .then((results) => {
+        clearTimeout(timeoutId);
         if (cancelled) return;
         const merged = results
           .flat()
@@ -417,6 +452,7 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
         setState({ items: merged, loading: false, error: null });
       })
       .catch((err: Error) => {
+        clearTimeout(timeoutId);
         if (cancelled) return;
         if (__DEV__) console.warn('[hooks] calendar fetch failed:', err.message);
         setState({ items: [], loading: false, error: err });
@@ -424,6 +460,7 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
 
     return () => {
       cancelled = true;
+      clearTimeout(timeoutId);
     };
   }, [googleAccessToken, microsoftAccessToken, user, rangeStartMs, rangeEndMs]);
 
@@ -519,13 +556,15 @@ function shortTime(then: Date, now: Date): string {
   return `${pad(then.getDate())}/${pad(then.getMonth() + 1)}`;
 }
 
-export function useUpcoming(): Result<UpcomingEvent[]> {
+export function useUpcoming(): Result<UpcomingEvent[]> & { todayMeetingCount: number } {
   const { user } = useAuth();
   const { items, loading, error } = useCalendarItems();
   if (isDemoUser(user)) {
-    return { data: demoUpcoming(), loading: false, error: null };
+    const demo = demoUpcoming();
+    return { data: demo, loading: false, error: null, todayMeetingCount: demo.length };
   }
   const now = new Date();
+  const todayMeetingCount = items.filter((e) => !e.allDay).length;
   const data: UpcomingEvent[] = items
     .filter((e) => e.end.getTime() >= now.getTime())
     .map((e, i) => ({
@@ -539,7 +578,7 @@ export function useUpcoming(): Result<UpcomingEvent[]> {
       end: e.end,
       allDay: e.allDay ?? false,
     }));
-  return { data, loading, error };
+  return { data, loading, error, todayMeetingCount };
 }
 
 const draftCache = new Map<string, string>();
@@ -875,14 +914,35 @@ export function useSendReply() {
   return { send, archive, sending, error };
 }
 
-const SLOT_START_HOUR = 9;
-const SLOT_COUNT = 8;
+// Default visible window for the day grid. Adaptive: if any real event
+// lives outside this range the window expands to include it, so 07:00 or
+// 20:30 meetings never silently disappear. Upper bound on end-hour avoids
+// a 22→23 slot for events that end exactly on the hour.
+const DEFAULT_GRID_START_HOUR = 7;
+const DEFAULT_GRID_END_HOUR = 21;
+const ABSOLUTE_START_HOUR = 0;
+const ABSOLUTE_END_HOUR = 24;
 
-const buildScaffold = (): CalendarSlot[] =>
-  Array.from({ length: SLOT_COUNT }, (_, i) => ({
-    hour: String(SLOT_START_HOUR + i).padStart(2, '0'),
+const slotTones: ('sage' | 'clay' | 'mist')[] = ['sage', 'clay', 'mist'];
+
+function makeHourSlots(startHour: number, endHour: number): CalendarSlot[] {
+  const count = Math.max(0, endHour - startHour);
+  return Array.from({ length: count }, (_, i) => ({
+    hour: String(startHour + i).padStart(2, '0'),
     event: null,
   }));
+}
+
+function describeTimedEvent(e: NormalizedEvent, tone: 'sage' | 'clay' | 'mist') {
+  return {
+    id: e.id,
+    title: e.title,
+    sub: e.location
+      ? `${e.location} · ${durationLabel(e.start, e.end)}`
+      : durationLabel(e.start, e.end),
+    tone,
+  };
+}
 
 export function useDaySchedule(targetDate?: Date): Result<CalendarSlot[]> {
   const { user } = useAuth();
@@ -894,27 +954,47 @@ export function useDaySchedule(targetDate?: Date): Result<CalendarSlot[]> {
   if (isDemoUser(user)) {
     return { data: demoDaySchedule(), loading: false, error: null };
   }
-  const slots = buildScaffold();
-  const slotTones: ('sage' | 'clay' | 'mist')[] = ['sage', 'clay', 'mist'];
 
-  items.forEach((e, i) => {
-    if (e.allDay) return;
-    const idx = e.start.getHours() - SLOT_START_HOUR;
-    if (idx < 0 || idx >= SLOT_COUNT) return;
-    slots[idx] = {
-      hour: slots[idx].hour,
-      event: {
-        id: e.id,
-        title: e.title,
-        sub: e.location
-          ? `${e.location} · ${durationLabel(e.start, e.end)}`
-          : durationLabel(e.start, e.end),
-        tone: slotTones[i % slotTones.length],
-      },
+  const allDay = items.filter((e) => e.allDay);
+  const timed = items.filter((e) => !e.allDay);
+
+  // Expand the grid window so every timed event has a home.
+  let startHour = DEFAULT_GRID_START_HOUR;
+  let endHour = DEFAULT_GRID_END_HOUR;
+  for (const e of timed) {
+    startHour = Math.max(
+      ABSOLUTE_START_HOUR,
+      Math.min(startHour, e.start.getHours()),
+    );
+    // Round the end-hour up when there are minutes left, so a 09:45-10:15
+    // meeting contributes an 11 bound and the 10 slot stays visible.
+    const rawEnd = e.end.getHours() + (e.end.getMinutes() > 0 ? 1 : 0);
+    endHour = Math.min(ABSOLUTE_END_HOUR, Math.max(endHour, rawEnd));
+  }
+
+  const hourSlots = makeHourSlots(startHour, endHour);
+  timed.forEach((e, i) => {
+    const idx = e.start.getHours() - startHour;
+    if (idx < 0 || idx >= hourSlots.length) return;
+    hourSlots[idx] = {
+      hour: hourSlots[idx].hour,
+      event: describeTimedEvent(e, slotTones[i % slotTones.length]),
     };
   });
 
-  return { data: slots, loading, error };
+  // All-day events pin above the hourly grid so multi-day holidays,
+  // birthdays, and OOO blocks never get dropped.
+  const allDaySlots: CalendarSlot[] = allDay.map((e, i) => ({
+    hour: '—',
+    event: {
+      id: e.id,
+      title: e.title,
+      sub: e.location ?? 'Hele dagen',
+      tone: slotTones[i % slotTones.length],
+    },
+  }));
+
+  return { data: [...allDaySlots, ...hourSlots], loading, error };
 }
 
 const DEFAULT_CONNECTIONS: Connection[] = [

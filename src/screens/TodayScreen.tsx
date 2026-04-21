@@ -31,7 +31,14 @@ import {
   useUpcoming,
   useUser,
 } from '../lib/hooks';
-import type { Fact, Observation, Reminder, UpcomingEvent } from '../lib/types';
+import type {
+  Fact,
+  InboxMail,
+  Observation,
+  ObservationAction,
+  Reminder,
+  UpcomingEvent,
+} from '../lib/types';
 import { colors, fonts } from '../theme';
 import { plural, translateProviderError } from '../utils/danish';
 
@@ -40,6 +47,8 @@ const toneColor = (t: UpcomingEvent['tone']) =>
 
 type Props = {
   onOpenChat: () => void;
+  onOpenChatWithPrompt: (prompt: string) => void;
+  onOpenMail: (mail: InboxMail) => void;
   onGoToSettings: () => void;
   onGoToMemory: () => void;
   onOpenNotifications: () => void;
@@ -50,6 +59,8 @@ const PILL_CLEARANCE = 76;
 
 export function TodayScreen({
   onOpenChat,
+  onOpenChatWithPrompt,
+  onOpenMail,
   onGoToSettings,
   onGoToMemory,
   onOpenNotifications,
@@ -62,7 +73,12 @@ export function TodayScreen({
 
   const { data: user } = useUser();
   const { data: observations, error: observationsError } = useObservations();
-  const { data: upcoming, loading: upcomingLoading, error: upcomingError } = useUpcoming();
+  const {
+    data: upcoming,
+    loading: upcomingLoading,
+    error: upcomingError,
+    todayMeetingCount,
+  } = useUpcoming();
   const { data: waiting } = useInboxWaiting();
   const { data: reminders } = useReminders();
   const { data: notes } = useNotes();
@@ -81,6 +97,23 @@ export function TodayScreen({
       next.add(id);
       return next;
     });
+
+  const handleObservationAction = (action: ObservationAction | undefined) => {
+    if (!action || action.kind === 'chat') {
+      onOpenChat();
+      return;
+    }
+    if (action.kind === 'prompt') {
+      onOpenChatWithPrompt(action.prompt);
+      return;
+    }
+    const mail = waiting.find((m) => m.id === action.mailId);
+    if (mail) {
+      onOpenMail(mail);
+      return;
+    }
+    onOpenChat();
+  };
 
   const FEED_OBSERVATION_COUNT = 3;
   const feedObservations = visibleObservations.slice(0, FEED_OBSERVATION_COUNT);
@@ -177,7 +210,7 @@ export function TodayScreen({
 
         <View style={styles.statsRow}>
           <View>
-            <CountUp to={upcoming.length} style={styles.statBig} />
+            <CountUp to={todayMeetingCount} style={styles.statBig} />
             <Text style={styles.statLabel}>Møder</Text>
           </View>
           <View style={styles.statDivider} />
@@ -320,7 +353,7 @@ export function TodayScreen({
                 key={n.id}
                 item={n}
                 index={i}
-                onOpenChat={onOpenChat}
+                onAction={() => handleObservationAction(n.action)}
                 onDismiss={() => dismissObservation(n.id)}
               />
             ))}
@@ -368,9 +401,9 @@ export function TodayScreen({
                   key={n.id}
                   item={n}
                   index={i}
-                  onOpenChat={() => {
+                  onAction={() => {
                     setObservationsModalOpen(false);
-                    onOpenChat();
+                    handleObservationAction(n.action);
                   }}
                   onDismiss={() => dismissObservation(n.id)}
                 />
@@ -407,12 +440,12 @@ function HuskReminderLine({ reminder, now }: { reminder: Reminder; now: Date }) 
 function NoticedRow({
   item,
   index,
-  onOpenChat,
+  onAction,
   onDismiss,
 }: {
   item: Observation;
   index: number;
-  onOpenChat: () => void;
+  onAction: () => void;
   onDismiss: () => void;
 }) {
   const fade = React.useRef(new Animated.Value(0)).current;
@@ -437,7 +470,7 @@ function NoticedRow({
       <View style={{ flex: 1 }}>
         <Text style={styles.noticedText}>{item.text}</Text>
         <View style={styles.noticedActions}>
-          <Pressable onPress={onOpenChat}>
+          <Pressable onPress={onAction}>
             <Text style={styles.noticedCta}>{item.cta} →</Text>
           </Pressable>
           <Pressable onPress={() => animateOut(onDismiss)}>
