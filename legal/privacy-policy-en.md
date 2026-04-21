@@ -1,196 +1,207 @@
 # Zolva Privacy Policy
 
-**Effective date:** 20 April 2026
-**Last updated:** 20 April 2026
+Effective date: 20 April 2026
+Last updated: 20 April 2026
 
-<!--
-TODO for the data controller before publishing:
-- Fill in contact email (search "TODO_CONTACT_EMAIL")
-- Fill in legal entity / company registration (search "TODO_LEGAL_ENTITY")
-- Confirm retention windows (search "TODO_CONFIRM")
--->
-
-Zolva ("we", "us", "the app") is a personal AI assistant that helps you with
-your daily overview, calendar and email. This policy explains what data we
-process, why we process it, who we share it with and what rights you have.
+Zolva ("we", "us", "the app") is a personal AI assistant that helps you
+with your daily overview, calendar, and email. This policy explains
+what information we process, why we process it, who we share it with,
+and what rights you have.
 
 ## 1. Data controller
 
-TODO_LEGAL_ENTITY
-Contact: TODO_CONTACT_EMAIL
+Oscar Hangaard
+Vilkestrupvej 1
+4623 Lille Skensved
+Denmark
+Contact: kontakt@zolva.io
 
-## 2. Data we process
+## 2. What information we process
 
-When you use Zolva, we process the following categories of personal data:
+When you use Zolva, we process the following categories of personal
+data:
 
-- **Account information:** email address and an internal user ID from our
-  backend provider (Supabase). If you sign in with Apple, we may receive
-  a relay email. If you sign in with Google or Microsoft, we may receive
-  your name and profile picture from the provider.
-- **OAuth tokens:** when you connect Gmail/Google Calendar or Outlook, we
-  store a refresh token in our database so we can fetch new mail on your
-  behalf. Provider access tokens are stored locally on your device in
-  encrypted app storage.
-- **Mail metadata and mail content:** to generate summaries and drafts,
-  we read subject, sender, recipients and body text of the emails you
-  interact with or that land in your inbox after you have enabled the
-  "New mail" notification.
-- **Calendar events:** title, time, location and attendees — used for
-  the daily overview and reminders.
-- **Push token:** an anonymous token from Apple/Expo that lets us send
+- Account information: email address and an internal user ID with our
+  backend provider (Supabase). If you sign in with Apple, we may
+  receive a private relay address. If you sign in with Google or
+  Microsoft, we may receive your name and profile picture from the
+  provider.
+- OAuth tokens: when you connect Gmail/Google Calendar or Outlook, we
+  store a refresh token in our database so we can fetch new emails on
+  your behalf. Provider access tokens are stored locally on your device
+  in encrypted app storage.
+- Email metadata and email content: to generate summaries and drafts,
+  we retrieve subject line, sender, recipients, and body text from the
+  emails you interact with, or that arrive in your inbox after you
+  enable "New mail" notifications.
+- Calendar events: title, time, location, and attendees. Used for your
+  daily overview and reminders.
+- Push token: an anonymous token from Apple/Expo that lets us send
   notifications to your device.
-- **Push notification content:** when you enable "New mail", our pushes
-  include the mail's **sender** (in the notification title) and
-  **subject** (in the body) by default. This is visible on your lock
-  screen depending on your iOS notification settings. You can hide the
-  content by opening **iOS Settings → Notifications → Zolva → Show
-  Previews** and choosing "When Unlocked" or "Never". You can also turn
-  "Nye mails" off in Zolva.
-- **App settings:** notification preferences, work preferences and
-  privacy toggles are stored locally and/or in our database tied to
-  your user ID.
-- **Chat and reminder history:** text you type into Zolva (chat with
-  the assistant, notes, reminders).
+- Push notification content: when you enable "New mail", we send push
+  notifications that by default contain the email's sender (in the
+  notification title) and subject line (in the body). This is also
+  shown on your lock screen depending on your iOS notification
+  settings. You can hide content by opening iOS Settings >
+  Notifications > Zolva > Show Previews and selecting "When Unlocked"
+  or "Never". You can also turn off "New mail" in Zolva.
+- App settings: notification preferences, work preferences, and privacy
+  toggles are stored locally and/or in our database linked to your
+  user ID.
+- Chat and reminder history: text you enter in Zolva (chat with the
+  assistant, notes, reminders).
 
-We do **not** collect advertising IDs, location or contacts.
+We do not collect advertising IDs, location, or contacts.
 
-## 3. OAuth scopes and what they're used for
+## 3. OAuth scopes and what they are used for
 
-When you connect an account we request the following permissions. You can
-revoke them at any time in your Google or Microsoft account settings.
+When you connect an account, we request the following permissions. You
+can revoke them at any time in your Google or Microsoft account.
 
 ### Google
 
-- `openid`, `email`, `profile` — to sign you in and show your name.
-- `gmail.modify` — read and modify your email (e.g. mark as read, create
-  drafts). We never delete mail without your action.
-- `calendar.readonly` — read calendar events for the daily overview.
-- `drive.readonly` — read files you explicitly reference in Zolva.
+- openid, email, profile: to sign you in and display your name.
+- gmail.modify: read and modify your emails (for example, mark as
+  read, create drafts). We never delete emails without your action.
+- calendar.readonly: read calendar events for your daily overview.
 
 ### Microsoft
 
-- `openid`, `email`, `profile`, `offline_access` — sign-in and persistent access.
-- `Mail.ReadWrite`, `Mail.Send` — read mail, create drafts and send
+- openid, email, profile, offline_access: sign-in and persistent access.
+- Mail.ReadWrite, Mail.Send: read emails, create drafts, and send
   replies you explicitly approve.
-- `Calendars.Read` — read calendar events.
+- Calendars.Read: read calendar events.
 
-## 4. Processors and sub-processors
+## 4. Data processors and sub-processors
 
-We use the following providers (processors) to operate the service:
+We use the following providers to operate the service:
 
-- **Supabase (TODO_CONFIRM_REGION — e.g. "eu-central-1, Frankfurt"):**
-  hosted database, auth and edge functions. Confirm the actual region
-  of your Supabase project (Dashboard → Project Settings → General)
-  and update this text before publishing. If the region is outside
-  the EU/EEA, transfers must be covered by Standard Contractual
-  Clauses (SCCs) — see section 7.
-- **Expo Application Services:** push notifications and build infrastructure.
-- **Google LLC / Microsoft Corp.:** OAuth and APIs for Gmail/Calendar
-  and Outlook/Calendar respectively. Your data lives in those systems —
-  we fetch it using your tokens.
-- **Anthropic PBC (sub-processor):** we send mail subjects, senders,
-  mail content you open/ask to summarise, calendar titles and your
-  chat messages to Anthropic's Claude model to generate responses and
-  summaries. Anthropic **does not** use this data to train models under
-  their API business terms.
+- Supabase (eu-west-1, Ireland): hosted database, auth, and edge
+  functions. All your account and user data is stored in the EU.
+- Expo Application Services: push notifications and build
+  infrastructure.
+- Google LLC / Microsoft Corp.: OAuth and APIs for Gmail/Calendar and
+  Outlook/Calendar respectively. Your data resides in these systems.
+  We retrieve it via your tokens.
+- Anthropic PBC (sub-processor): we send email subjects, senders,
+  content from emails you explicitly ask Zolva to summarize or reply
+  to, calendar titles, and your chat messages to Anthropic's Claude
+  model to generate replies and summaries. Anthropic does not use this
+  data to train models, per their business terms for API access.
+  Anthropic may retain prompts for up to 30 days for abuse monitoring.
+- Vercel Inc.: hosting of this privacy policy. No personal data from
+  the app is sent to Vercel.
 
 ## 5. Why we process your data (legal basis)
 
-- **Performance of contract (Art. 6(1)(b)):** to deliver Zolva's core
-  features — daily overview, mail assistant, calendar, reminders.
-- **Consent (Art. 6(1)(a)):** when you enable specific optional
-  features (e.g. "New mail" notifications, connecting Google/Microsoft,
-  push notifications). You can withdraw consent at any time in Settings.
-- **Legitimate interest (Art. 6(1)(f)):** for debugging and security,
-  e.g. logging errors without the content of your messages.
+- Performance of contract (Art. 6(1)(b)): to deliver Zolva's core
+  features. Daily overview, mail assistant, calendar, reminders.
+- Consent (Art. 6(1)(a)): when you enable specific optional features,
+  for example "New mail" notifications, connecting Google/Microsoft,
+  or push notifications. You can withdraw consent at any time in
+  Settings.
 
 ## 6. Data storage and retention
 
-- **OAuth refresh tokens:** kept while you have the account connected.
-  Deleted when you disconnect the account or delete your Zolva account.
-- **Mail content sent to Claude:** sent to Anthropic on demand and not
-  stored long-term by Zolva. Anthropic may retain prompts for up to
-  30 days for abuse monitoring (TODO_CONFIRM).
-- **Chat and reminder history:** kept locally on your device and/or in
-  our database tied to your user ID, until you delete them or delete
-  your account.
-- **Push token:** kept until you disable notifications or delete your
+- OAuth refresh tokens: retained for as long as you have the account
+  connected. Deleted when you disconnect the account or delete your
   account.
-- **Logs without content:** up to 30 days (TODO_CONFIRM), then deleted.
-- **Account data on deletion:** removed within 30 days of your request
-  in-app. Backups roll over on a rotating cycle of up to 30 days
-  (TODO_CONFIRM).
+- Email content sent to Claude: sent directly to Anthropic on demand
+  and not retained permanently by Zolva. Anthropic may retain prompts
+  for up to 30 days for abuse monitoring.
+- Chat and reminder history: stored locally on your device and/or in
+  our database linked to your user ID, until you delete them or delete
+  your account.
+- Push token: retained until you disable notifications or delete your
+  account.
+- Error logs without content: up to 30 days, then deleted.
+- Account data upon deletion: deleted within 30 days of you deleting
+  your account in the app. Backups are overwritten in a rolling cycle
+  of up to 30 days.
 
-## 7. Data location and transfers
+## 7. Data location and transfer
 
-TODO_CONFIRM: Confirm the actual hosting region of your Supabase project
-and adapt the paragraph below accordingly.
+Databases and edge functions run in the EU (Ireland, eu-west-1).
+Transfers to Anthropic (USA) are based on Standard Contractual Clauses
+(SCCs) per Commission Decision 2021/914. Google and Microsoft process
+your data in accordance with their own policies and transfer
+mechanisms, including the EU-U.S. Data Privacy Framework.
 
-**If the database is in the EU/EEA (e.g. Frankfurt, Dublin, Stockholm):**
-Databases and edge functions run in the EU/EEA. Transfers to Anthropic
-(US) and to Google/Microsoft (global data centres) rely on Standard
-Contractual Clauses (SCCs) under Commission Decision 2021/914 and,
-for Google/Microsoft, the EU-U.S. Data Privacy Framework.
+## 8. Security
 
-**If the database is outside the EU/EEA (e.g. us-east-1):**
-Data is transferred to the US and covered by Standard Contractual
-Clauses (SCCs) between us and Supabase as the transfer mechanism.
-The same applies to Anthropic. Google and Microsoft process your
-data under their own policies and applicable transfer mechanisms.
+All connections between the app and our backend use TLS. OAuth tokens
+are stored in iOS Keychain or Android Keystore via encrypted app
+storage. Database access is restricted via Row-Level Security, so
+users can only access their own data.
 
-## 8. Your rights (GDPR)
+## 9. Cookies and local storage
+
+Zolva is a mobile app and does not use cookies. The app uses iOS
+Keychain and Android Keystore to securely store OAuth tokens locally
+on your device, and standard app storage for preferences and cache.
+
+## 10. Your rights (GDPR)
 
 You have the right to:
 
-- **Access:** know what data we hold about you.
-- **Rectification:** have incorrect data corrected.
-- **Erasure ("right to be forgotten"):** have your data deleted. Use
-  "Delete account" in Settings — deletion runs within seconds and
-  covers OAuth tokens, push tokens, mail watchers and the account itself.
-- **Data portability:** receive your data in a machine-readable format.
-  Use "Export all data" in Settings.
-- **Restriction and objection:** restrict or object to processing.
-- **Withdraw consent:** where processing is based on consent, you can
-  withdraw it without affecting the legality of past processing.
+- Access: be informed of what data we hold about you.
+- Rectification: have incorrect data corrected.
+- Erasure ("right to be forgotten"): have your data deleted. Use
+  "Delete account" in Settings. Deletion completes automatically
+  within seconds and includes OAuth tokens, push tokens, mail
+  watchers, and the user account itself.
+- Data portability: receive a machine-readable copy of your data.
+  Write to kontakt@zolva.io and we will provide a copy within 30 days.
+- Restriction and objection: have processing restricted or object to
+  it.
+- Withdrawal of consent: where processing is based on consent, you
+  can withdraw it. Withdrawal does not affect the lawfulness of
+  processing that took place before the withdrawal.
 
-Send your request to TODO_CONTACT_EMAIL. We respond within 30 days.
+Send your request to kontakt@zolva.io. We will respond within 30 days.
 
-## 9. Right to complain
+## 11. Right to complain
 
-You have the right to complain to the supervisory authority. In Denmark
-that is:
+You have the right to complain to the supervisory authority. In
+Denmark this is:
 
-**Datatilsynet (Danish Data Protection Agency)**
+Datatilsynet
 Carl Jacobsens Vej 35
-2500 Valby, Denmark
+2500 Valby
+Denmark
 Phone: +45 33 19 32 00
 Email: dt@datatilsynet.dk
 Web: https://www.datatilsynet.dk
 
-## 10. Deleting your account
+If you reside elsewhere in the EU, you may also contact your local
+supervisory authority.
+
+## 12. Account deletion
 
 You can delete your account at any time:
 
-1. Open **Settings** in Zolva.
-2. Scroll to **Konto** → **Slet konto** (Account → Delete account).
-3. Confirm by typing "SLET" and tapping **Slet konto permanent**.
+1. Open Settings in Zolva.
+2. Scroll to Account > Delete account.
+3. Confirm by typing "SLET" and tap Delete account permanently.
 
-Deletion covers: account information, OAuth refresh tokens, push tokens,
-mail-watcher state and every row in our database tied to your user ID.
-We also attempt to revoke your OAuth tokens at Google/Microsoft. The
-action **cannot** be undone.
+Deletion includes: account information, OAuth refresh tokens, push
+tokens, mail-watcher state, and all rows in our database linked to
+your user ID. We also attempt to revoke your OAuth tokens at Google
+and Microsoft. The action cannot be undone.
 
-## 11. Children
+## 13. Children
 
-Zolva is not directed at children under 13, and we do not knowingly
-collect data about them. If you believe a child has given us data,
-please contact us and we will delete it.
+Zolva is not directed at children under 13 (per the Danish Data
+Protection Act § 6), and we do not knowingly collect data from
+children. If you believe a child has provided us data, contact us and
+we will delete it.
 
-## 12. Changes to this policy
+## 14. Changes to this policy
 
-We update the policy when our data processing changes. Material changes
-are announced in the app. The latest update date is shown at the top.
+We update the policy when our data processing changes. Material
+changes will be announced in the app. The last update date appears at
+the top.
 
-## 13. Contact
+## 15. Contact
 
-Questions? Write to TODO_CONTACT_EMAIL.
+Questions? Write to kontakt@zolva.io.
