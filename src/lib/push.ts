@@ -4,6 +4,7 @@
 
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
+import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { supabase } from './supabase';
 
@@ -23,6 +24,11 @@ export async function registerPushToken(): Promise<RegisterResult> {
   const { data: sessionData } = await supabase.auth.getSession();
   const userId = sessionData.session?.user?.id;
   if (!userId) return { ok: false, reason: 'no-session' };
+
+  // iOS simulator cannot obtain a push token and expo-notifications emits a
+  // yellow-box warning on every call. Short-circuit here so dev-on-sim is
+  // quiet — real devices keep working.
+  if (!Device.isDevice) return { ok: false, reason: 'no-token' };
 
   let tokenValue: string;
   try {
@@ -60,14 +66,16 @@ export async function unregisterPushToken(): Promise<void> {
   if (!userId) return;
 
   let tokenValue: string | null = null;
-  try {
-    const projectId = getProjectId();
-    const res = await Notifications.getExpoPushTokenAsync(
-      projectId ? { projectId } : undefined,
-    );
-    tokenValue = res.data;
-  } catch (err) {
-    if (__DEV__) console.warn('[push] getExpoPushTokenAsync during unregister failed:', err);
+  if (Device.isDevice) {
+    try {
+      const projectId = getProjectId();
+      const res = await Notifications.getExpoPushTokenAsync(
+        projectId ? { projectId } : undefined,
+      );
+      tokenValue = res.data;
+    } catch (err) {
+      if (__DEV__) console.warn('[push] getExpoPushTokenAsync during unregister failed:', err);
+    }
   }
 
   const query = supabase.from('push_tokens').delete().eq('user_id', userId);

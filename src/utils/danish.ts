@@ -42,6 +42,17 @@ export function translateProviderError(error: unknown): TranslatedError {
   }
 
   if (
+    raw.includes('identity is already linked') ||
+    raw.includes('identity_already_exists')
+  ) {
+    return {
+      message:
+        'Den konto er allerede tilknyttet en anden bruger. Log ud og log ind med Google/Microsoft i stedet.',
+      kind: 'auth',
+    };
+  }
+
+  if (
     raw.includes('401') ||
     raw.includes('unauthorized') ||
     raw.includes('invalid_grant') ||

@@ -195,7 +195,10 @@ export function SettingsScreen() {
     setConnectingId(id);
     const { error } = await connect(id);
     setConnectingId(null);
-    if (error) Alert.alert('Kunne ikke forbinde', translateProviderError(error).message);
+    if (error) {
+      if (__DEV__) console.warn('[auth] connect provider failed:', id, error);
+      Alert.alert('Kunne ikke forbinde', translateProviderError(error).message);
+    }
   };
 
   const isLoggedIn = !!user;
@@ -477,10 +480,20 @@ function LoginCard() {
     const { data, error: err } = await fn(trimmed, password);
     setBusy(false);
     if (err) {
+      if (__DEV__) console.warn('[auth] email sign-in failed:', err);
       setError(translateProviderError(err).message);
       return;
     }
     if (mode === 'sign-up' && !data.session) {
+      // Supabase returns a fake user with empty identities when the email
+      // is already registered (enumeration protection). Detect that and
+      // nudge the user toward sign-in instead of telling them to check a
+      // mail that will never arrive.
+      const identities = data.user?.identities;
+      if (Array.isArray(identities) && identities.length === 0) {
+        setError('Der findes allerede en konto med den mail. Log ind i stedet.');
+        return;
+      }
       setInfo('Tjek din mail for at bekræfte din konto.');
     }
   };
