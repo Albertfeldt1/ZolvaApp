@@ -510,11 +510,15 @@ function LoginCard() {
     try {
       const { error: err } =
         provider === 'google' ? await signInWithGoogle() : await signInWithApple();
-      if (err) setError(translateProviderError(err).message);
+      if (err) {
+        if (__DEV__) console.warn(`[auth] ${provider} sign-in returned error:`, err);
+        setError(translateProviderError(err).message);
+      }
     } catch (e) {
       const raw = e instanceof Error ? e.message : String(e);
       // Apple's user-cancel throws ERR_REQUEST_CANCELED — silent ignore
       if (!raw.includes('CANCELED') && !raw.includes('canceled')) {
+        if (__DEV__) console.warn(`[auth] ${provider} sign-in threw:`, e);
         setError(translateProviderError(e).message);
       }
     } finally {
