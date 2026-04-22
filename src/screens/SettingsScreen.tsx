@@ -478,7 +478,20 @@ export function SettingsScreen() {
               style={styles.signOutRow}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                signOut();
+                Alert.alert(
+                  'Log ud',
+                  'Er du sikker på, at du vil logge ud?',
+                  [
+                    { text: 'Annullér', style: 'cancel' },
+                    {
+                      text: 'Log ud',
+                      style: 'destructive',
+                      onPress: () => {
+                        void signOut();
+                      },
+                    },
+                  ],
+                );
               }}
             >
               <Text style={styles.signOutText}>Log ud</Text>
