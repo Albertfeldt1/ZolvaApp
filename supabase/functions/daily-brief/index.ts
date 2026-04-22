@@ -51,6 +51,13 @@ serve(async (req) => {
 
   const presentedSecret = req.headers.get('x-cron-secret');
   const isCron = !!cronSecret && presentedSecret === cronSecret;
+  console.log('[daily-brief][debug]', {
+    cronSecretSet: !!cronSecret,
+    cronSecretLen: cronSecret?.length ?? 0,
+    presentedSet: !!presentedSecret,
+    presentedLen: presentedSecret?.length ?? 0,
+    match: isCron,
+  });
 
   let scopedUserId: string | null = null;
   if (!isCron) {
@@ -197,7 +204,14 @@ async function generateOneBrief(
     .single();
   if (insertErr || !inserted) return 'insert-failed';
 
-  await sendPush(client, userId, kind, brief.headline, inserted.id as string);
+  await sendPush(
+    client,
+    userId,
+    kind,
+    brief.headline,
+    inserted.id as string,
+    brief.body[0] ?? null,
+  );
   await client
     .from('briefs')
     .update({ delivered_at: new Date().toISOString() })
@@ -295,6 +309,7 @@ async function sendPush(
   kind: 'morning' | 'evening',
   headline: string,
   briefId: string,
+  firstLine: string | null,
 ): Promise<void> {
   const { data: tokens } = await client
     .from('push_tokens')
@@ -303,10 +318,13 @@ async function sendPush(
   if (!tokens || tokens.length === 0) return;
 
   const title = kind === 'morning' ? 'Morgenbrief fra Zolva' : 'Aftenbrief fra Zolva';
+  // Multi-line push: headline as bold first, then the first body item
+  // as a preview. iOS/Android expand when the user long-presses.
+  const body = firstLine ? `${headline}\n\n${firstLine}` : headline;
   const messages = tokens.map((t) => ({
     to: (t as Record<string, string>).token,
     title,
-    body: headline,
+    body,
     sound: 'default',
     data: { type: 'brief', briefId },
   }));

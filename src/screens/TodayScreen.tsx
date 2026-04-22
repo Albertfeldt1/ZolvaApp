@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { BriefBanner } from '../components/BriefBanner';
+import { BriefModal } from '../components/BriefModal';
 import { CountUp } from '../components/CountUp';
 import { DayRibbon, RibbonEvent } from '../components/DayRibbon';
 import { EmptyState } from '../components/EmptyState';
@@ -55,6 +56,8 @@ type Props = {
   onGoToMemory: () => void;
   onOpenNotifications: () => void;
   onOverDarkChange?: (over: boolean) => void;
+  // Incremented by App whenever a brief push is tapped — triggers the modal.
+  briefOpenTrigger?: number;
 };
 
 const PILL_CLEARANCE = 76;
@@ -67,6 +70,7 @@ export function TodayScreen({
   onGoToMemory,
   onOpenNotifications,
   onOverDarkChange,
+  briefOpenTrigger,
 }: Props) {
   const today = useMemo(() => new Date(), []);
   const dateInfo = useMemo(() => formatToday(today), [today]);
@@ -89,6 +93,15 @@ export function TodayScreen({
   const hasProvider = useHasProvider();
   const { data: pendingFacts, accept: acceptFact, reject: rejectFactHook } = usePendingFacts();
   const { brief, markRead: markBriefRead } = useTodayBrief();
+  const [briefModalOpen, setBriefModalOpen] = useState(false);
+
+  // Notification taps: App.tsx bumps briefOpenTrigger — we open the modal
+  // if we have a brief to show.
+  useEffect(() => {
+    if (briefOpenTrigger && briefOpenTrigger > 0 && brief) {
+      setBriefModalOpen(true);
+    }
+  }, [briefOpenTrigger, brief]);
 
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set());
   const visibleObservations = useMemo(
@@ -310,8 +323,23 @@ export function TodayScreen({
       </View>
 
       {brief && !brief.readAt && (
-        <BriefBanner brief={brief} onDismiss={() => { void markBriefRead(); }} />
+        <BriefBanner
+          brief={brief}
+          onOpen={() => setBriefModalOpen(true)}
+          onDismiss={() => {
+            void markBriefRead();
+          }}
+        />
       )}
+      <BriefModal
+        brief={brief}
+        visible={briefModalOpen}
+        onClose={() => {
+          setBriefModalOpen(false);
+          // Mark read when the user has seen the full content.
+          if (brief && !brief.readAt) void markBriefRead();
+        }}
+      />
 
       <View
         style={[styles.dark, { paddingBottom: chromeBottom }]}

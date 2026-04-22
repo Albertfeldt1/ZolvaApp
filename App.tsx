@@ -91,6 +91,9 @@ export default function App() {
   const [chromeHeight, setChromeHeight] = useState(0);
   const [migrationsDone, setMigrationsDone] = useState(false);
   const [memoryConsentOpen, setMemoryConsentOpen] = useState(false);
+  // Bumped whenever a 'brief' push or in-app notification row is tapped.
+  // TodayScreen opens the brief modal on each change.
+  const [briefOpenTrigger, setBriefOpenTrigger] = useState(0);
 
   useEffect(() => {
     if (!PROFILE_MEMORY_FLAG) return;
@@ -153,8 +156,11 @@ export default function App() {
         case 'reminder':
         case 'digest':
         case 'reminderAdded':
+          setTab('today');
+          break;
         case 'brief':
           setTab('today');
+          setBriefOpenTrigger((v) => v + 1);
           break;
         case 'calendarPreAlert':
           setTab('calendar');
@@ -225,8 +231,11 @@ export default function App() {
       case 'reminder':
       case 'digest':
       case 'reminderAdded':
+        setTab('today');
+        break;
       case 'brief':
         setTab('today');
+        setBriefOpenTrigger((v) => v + 1);
         break;
       case 'calendarPreAlert':
         setTab('calendar');
@@ -279,6 +288,7 @@ export default function App() {
                 onGoToMemory={() => switchTab('memory')}
                 onOpenNotifications={openNotifications}
                 onOverDarkChange={setChromeOverDark}
+                briefOpenTrigger={briefOpenTrigger}
               />
             )}
             {tab === 'inbox' && (
