@@ -16,10 +16,12 @@
     "ios": {
       "supportsTablet": true,
       "usesAppleSignIn": true,
-      "bundleIdentifier": "com.zolva.app",
+      "bundleIdentifier": "io.zolva.app",
       "infoPlist": {
-        "NSUserNotificationsUsageDescription": "Zolva sender notifikationer om påmindelser, dagens overblik og kommende møder."
-      }
+        "NSUserNotificationsUsageDescription": "Zolva sender notifikationer om påmindelser, dagens overblik og kommende møder.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "buildNumber": "2"
     },
     "android": {
       "package": "com.zolva.app",
@@ -33,8 +35,15 @@
         {
           "action": "VIEW",
           "autoVerify": true,
-          "data": [{ "scheme": "zolva" }],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "data": [
+            {
+              "scheme": "zolva"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ],
       "edgeToEdgeEnabled": true,
