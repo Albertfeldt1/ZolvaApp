@@ -123,7 +123,7 @@ function useNotificationPermission(): PermissionStatus {
 export function SettingsScreen() {
   const { data: user, loading: userLoading } = useUser();
   const { data: subscription } = useSubscription();
-  const { data: connections, connect } = useConnections();
+  const { data: connections, connect, disconnect } = useConnections();
   const { data: workRows, setValue: setWorkValue } = useWorkPreferences();
   const { data: toggles, flip } = usePrivacyToggles();
   const { signOut } = useAuth();
@@ -202,6 +202,44 @@ export function SettingsScreen() {
     }
   };
 
+  // Per-provider disconnect. A single OAuth grant covers all Google (Gmail +
+  // Calendar + Drive) or all Microsoft (Outlook Mail + Calendar), so the
+  // confirmation copy tells the user which services they're giving up.
+  const disconnectCopy = (id: typeof connections[number]['id']): { title: string; message: string } => {
+    const isGoogle = id === 'google-calendar' || id === 'gmail' || id === 'google-drive';
+    if (isGoogle) {
+      return {
+        title: 'Frakobl Google',
+        message: 'Zolva mister adgang til Gmail, Google Kalender og Google Drive. Du kan forbinde igen når som helst.',
+      };
+    }
+    return {
+      title: 'Frakobl Microsoft',
+      message: 'Zolva mister adgang til Outlook Mail og Kalender. Du kan forbinde igen når som helst.',
+    };
+  };
+
+  const handleDisconnect = (id: typeof connections[number]['id']) => {
+    if (connectingId) return;
+    const { title, message } = disconnectCopy(id);
+    Alert.alert(title, message, [
+      { text: 'Annullér', style: 'cancel' },
+      {
+        text: 'Frakobl',
+        style: 'destructive',
+        onPress: async () => {
+          setConnectingId(id);
+          const { error } = await disconnect(id);
+          setConnectingId(null);
+          if (error) {
+            if (__DEV__) console.warn('[auth] disconnect provider failed:', id, error);
+            Alert.alert('Kunne ikke frakoble', translateProviderError(error).message);
+          }
+        },
+      },
+    ]);
+  };
+
   const isLoggedIn = !!user;
   const { bottom: chromeBottom } = useChromeInsets();
 
@@ -261,12 +299,16 @@ export function SettingsScreen() {
                   c.status === 'connected' ? styles.statusTextSage :
                     c.status === 'pending' ? styles.statusTextWarn :
                       styles.statusTextNeutral;
-                const tappable = c.status !== 'connected';
+                const isConnected = c.status === 'connected';
+                const tappable = isConnected || c.status === 'disconnected';
                 const isBusy = connectingId === c.id;
+                const onRowPress = isConnected
+                  ? () => handleDisconnect(c.id)
+                  : () => handleConnect(c.id);
                 return (
                   <Pressable
                     key={c.id}
-                    onPress={tappable ? () => handleConnect(c.id) : undefined}
+                    onPress={tappable ? onRowPress : undefined}
                     disabled={!tappable || isBusy}
                     style={({ pressed }) => [
                       styles.connRow,
@@ -287,7 +329,7 @@ export function SettingsScreen() {
                     </View>
                     {isBusy ? (
                       <ActivityIndicator color={colors.sageDeep} />
-                    ) : tappable ? (
+                    ) : c.status === 'disconnected' ? (
                       <View style={styles.connectPill}>
                         <Text style={styles.connectPillText}>Forbind →</Text>
                       </View>

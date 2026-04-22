@@ -519,6 +519,46 @@ async function clearProviderToken(provider: 'google' | 'microsoft') {
   else broadcastMicrosoft(null);
 }
 
+// User-initiated "Frakobl" — withdraw the OAuth grant for a single provider
+// without signing the user out of Zolva. GDPR Art. 7(3): withdrawal must be
+// as easy as giving consent.
+//
+// Teardown sequence mirrors performSignOut, scoped to one provider:
+//   1. Best-effort revoke at Google (Microsoft has no clean revoke endpoint)
+//   2. Delete user_oauth_tokens row so the server stops minting fresh tokens
+//   3. Flip mail_watchers.enabled = false so the cron stops polling
+//   4. Clear secure-store provider_token + broadcast null so the UI flips
+export async function disconnectProvider(
+  provider: 'google' | 'microsoft',
+): Promise<void> {
+  init();
+  const uid = currentUserId();
+  if (!uid) return;
+
+  // Demo user — no real tokens exist server-side. Just drop the local cache.
+  if (isDemoUser(cachedSession?.user)) {
+    if (provider === 'google') broadcastGoogle(null);
+    else broadcastMicrosoft(null);
+    return;
+  }
+
+  const token = provider === 'google' ? cachedGoogleToken : cachedMicrosoftToken;
+  if (provider === 'google' && token) {
+    await revokeGoogleToken(token);
+  }
+
+  await Promise.allSettled([
+    supabase.from('user_oauth_tokens').delete().eq('user_id', uid).eq('provider', provider),
+    supabase
+      .from('mail_watchers')
+      .update({ enabled: false, updated_at: new Date().toISOString() })
+      .eq('user_id', uid)
+      .eq('provider', provider),
+  ]);
+
+  await clearProviderToken(provider);
+}
+
 export async function tryWithRefresh<T>(
   provider: 'google' | 'microsoft',
   fn: (token: string) => Promise<T>,
@@ -736,6 +776,7 @@ export function useAuth() {
     signInWithGoogle,
     signInWithMicrosoft,
     signInWithApple,
+    disconnectProvider,
     appleAvailable: Platform.OS === 'ios',
   };
 }

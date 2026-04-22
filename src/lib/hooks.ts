@@ -1111,7 +1111,14 @@ const GOOGLE_INTEGRATIONS = new Set<Connection['id']>(['google-calendar', 'gmail
 const MICROSOFT_INTEGRATIONS = new Set<Connection['id']>(['outlook-calendar', 'outlook-mail']);
 
 export function useConnections() {
-  const { user, googleAccessToken, microsoftAccessToken, signInWithGoogle, signInWithMicrosoft } = useAuth();
+  const {
+    user,
+    googleAccessToken,
+    microsoftAccessToken,
+    signInWithGoogle,
+    signInWithMicrosoft,
+    disconnectProvider,
+  } = useAuth();
   const demo = isDemoUser(user);
 
   const data: Connection[] = demo
@@ -1133,7 +1140,18 @@ export function useConnections() {
     return { data: null, error: new Error('Ukendt integration.') };
   };
 
-  return { data, loading: false, error: null as Error | null, connect };
+  const disconnect = async (id: Connection['id']): Promise<{ error: Error | null }> => {
+    try {
+      if (GOOGLE_INTEGRATIONS.has(id)) await disconnectProvider('google');
+      else if (MICROSOFT_INTEGRATIONS.has(id)) await disconnectProvider('microsoft');
+      else return { error: new Error('Ukendt integration.') };
+      return { error: null };
+    } catch (err) {
+      return { error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  };
+
+  return { data, loading: false, error: null as Error | null, connect, disconnect };
 }
 
 function prefValue(rows: WorkPreference[], id: WorkPreferenceId): string {
