@@ -15,8 +15,11 @@ create table if not exists public.briefs (
   read_at timestamptz
 );
 
+-- Index uses an explicit UTC cast because plain `generated_at::date` is
+-- STABLE (depends on session timezone) — Postgres rejects it in an index
+-- expression. `AT TIME ZONE 'UTC'` is IMMUTABLE.
 create unique index if not exists briefs_user_kind_day_idx
-  on public.briefs (user_id, kind, (generated_at::date));
+  on public.briefs (user_id, kind, ((generated_at at time zone 'UTC')::date));
 
 create index if not exists briefs_user_generated_idx
   on public.briefs (user_id, generated_at desc);
