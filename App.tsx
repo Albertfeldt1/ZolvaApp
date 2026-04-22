@@ -26,6 +26,7 @@ import { AppState, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { ChromeInsetsContext, PhoneChrome, TabId } from './src/components/PhoneChrome';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { IntroVideo } from './src/components/IntroVideo';
 import { OfflineBanner } from './src/components/OfflineBanner';
 import { StatusBarScrim } from './src/components/StatusBarScrim';
 import { CalendarScreen } from './src/screens/CalendarScreen';
@@ -50,6 +51,12 @@ import { syncUserProfile } from './src/lib/user-profile';
 
 const PROFILE_MEMORY_FLAG = process.env.EXPO_PUBLIC_PROFILE_MEMORY === '1';
 
+// Module-level flag — persists across component re-renders and across
+// background/foreground transitions (JS VM stays warm), but resets on cold
+// start (new VM → module re-evaluated). That's exactly "play once per
+// cold launch, skip on resume from background".
+let introShownThisSession = false;
+
 export default function App() {
   const [fraunces] = useFraunces({
     Fraunces_500Medium,
@@ -70,6 +77,11 @@ export default function App() {
   });
 
   const { user } = useAuth();
+  const [introPlaying, setIntroPlaying] = useState(!introShownThisSession);
+  const dismissIntro = () => {
+    introShownThisSession = true;
+    setIntroPlaying(false);
+  };
   const [tab, setTab] = useState<TabId>('today');
   const [chatOpen, setChatOpen] = useState(false);
   const [chatDraft, setChatDraft] = useState<string | undefined>(undefined);
@@ -331,6 +343,7 @@ export default function App() {
         </View>
       )}
       <StatusBarScrim />
+      {introPlaying && <IntroVideo onEnd={dismissIntro} />}
     </View>
     </ChromeInsetsContext.Provider>
     </ErrorBoundary>
