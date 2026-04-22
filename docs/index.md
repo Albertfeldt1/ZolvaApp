@@ -14,6 +14,14 @@ title: Zolva
 - [Vilkår for brug (dansk)](./terms-da.html)
 - [Terms of Service (English)](./terms-en.html)
 
+## Databehandleraftale / Data Processing Agreement
+
+Standard-skabelon til erhvervskunder. Underskrives ved påbegyndt
+samarbejde.
+
+- [Databehandleraftale (dansk)](./dpa-da.html)
+- [Data Processing Agreement (English)](./dpa-en.html)
+
 ## Contact
 
 For spørgsmål / questions: [kontakt@zolva.io](mailto:kontakt@zolva.io)

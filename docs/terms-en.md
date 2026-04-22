@@ -178,8 +178,9 @@ accept the Privacy Policy.
 
 If you use the Service as a business on behalf of a company — and
 Zolva thereby processes personal data on the company's behalf — a
-data processing agreement (DPA) must be signed. Contact us at
-kontakt@zolva.io to obtain our standard DPA.
+data processing agreement (DPA) must be signed. Our standard DPA is
+available at [zolva.io/dpa-en](./dpa-en.html). Email kontakt@zolva.io
+with your details to have it countersigned.
 
 ## 11. Intellectual property
 

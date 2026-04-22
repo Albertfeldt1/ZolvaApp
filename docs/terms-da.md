@@ -178,8 +178,9 @@ Tjenesten accepterer du Privatlivspolitikken.
 
 Hvis du bruger Tjenesten som erhvervsdrivende på vegne af en
 virksomhed — og Zolva derved behandler personoplysninger på
-virksomhedens vegne — skal der indgås en databehandleraftale. Kontakt
-os på kontakt@zolva.io for at få adgang til vores standard-DPA.
+virksomhedens vegne — skal der indgås en databehandleraftale. Vores
+standard-DPA er tilgængelig på [zolva.io/dpa-da](./dpa-da.html). Skriv
+til kontakt@zolva.io med jeres oplysninger for at få den underskrevet.
 
 ## 11. Immaterielle rettigheder
 
