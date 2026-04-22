@@ -137,7 +137,7 @@ export function SettingsScreen() {
     if (!url) {
       Alert.alert(
         'Privatlivspolitik',
-        'Privatlivspolitikken er ikke publiceret endnu. Skriv til feldten@me.com for at få en kopi.',
+        'Privatlivspolitikken er ikke publiceret endnu. Skriv til Kontakt@zolva.io for at få en kopi.',
       );
       return;
     }
@@ -321,7 +321,7 @@ export function SettingsScreen() {
                   onPress={() =>
                     Alert.alert(
                       subscription ? 'Skift plan' : 'Vælg plan',
-                      'Abonnementshåndtering er på vej. Kontakt os på feldten@me.com for at ændre din plan.',
+                      'Abonnementshåndtering er på vej. Kontakt os på Kontakt@zolva.io for at ændre din plan.',
                     )
                   }
                 >

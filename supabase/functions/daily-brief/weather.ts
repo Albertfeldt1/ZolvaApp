@@ -1,4 +1,4 @@
-const USER_AGENT = 'Zolva/1.0 feldten@me.com';
+const USER_AGENT = 'Zolva/1.0 Kontakt@zolva.io';
 
 export type Weather = {
   tempC: number;
