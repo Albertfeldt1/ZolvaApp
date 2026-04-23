@@ -410,11 +410,11 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.clayInk,
+    backgroundColor: '#C8392A',
   },
   nowBar: {
     flex: 1,
     height: 1.5,
-    backgroundColor: colors.clayInk,
+    backgroundColor: '#C8392A',
   },
 });
