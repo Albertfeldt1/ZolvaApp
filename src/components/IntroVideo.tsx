@@ -8,18 +8,25 @@ import { colors } from '../theme';
 // with the binary — no network required.
 const INTRO_SOURCE = require('../../assets/intro.mp4');
 
-// Fraction of the screen's shorter edge the video occupies. Keeps it
-// centered as a small reveal element over the paper background instead
-// of a full-screen takeover.
-const INTRO_SIZE_FRACTION = 0.63;
+// Fraction of the device height the video occupies. Container width
+// follows VIDEO_ASPECT so the video fills its container exactly — no
+// letterbox bars around it, no color matching needed against the
+// surrounding splash.
+const INTRO_HEIGHT_FRACTION = 0.50;
+
+// width / height of the mp4 in assets/intro.mp4. If you swap the
+// video for a different shape, update this to match or you'll get
+// letterbox bars back. 9/16 is portrait HD.
+const VIDEO_ASPECT = 9 / 16;
 
 type Props = {
   onEnd: () => void;
 };
 
 export function IntroVideo({ onEnd }: Props) {
-  const { width, height } = useWindowDimensions();
-  const size = Math.min(width, height) * INTRO_SIZE_FRACTION;
+  const { width: screenW, height: screenH } = useWindowDimensions();
+  const videoHeight = screenH * INTRO_HEIGHT_FRACTION;
+  const videoWidth = Math.min(videoHeight * VIDEO_ASPECT, screenW);
 
   const player = useVideoPlayer(INTRO_SOURCE, (p) => {
     p.loop = false;
@@ -40,7 +47,7 @@ export function IntroVideo({ onEnd }: Props) {
         <View style={styles.center}>
           <VideoView
             player={player}
-            style={{ width: size, height: size }}
+            style={{ width: videoWidth, height: videoHeight }}
             contentFit="contain"
             nativeControls={false}
           />
