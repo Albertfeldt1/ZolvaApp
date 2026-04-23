@@ -340,6 +340,7 @@ type NormalizedMail = {
   subject: string;
   receivedAt: Date;
   isRead: boolean;
+  preview: string;
 };
 
 const dismissedMailIds = new Set<string>();
@@ -538,6 +539,7 @@ function useMailItems(): {
             subject: m.subject,
             receivedAt: m.date,
             isRead: !m.unread,
+            preview: m.snippet ?? '',
           })),
         ),
       );
@@ -552,6 +554,7 @@ function useMailItems(): {
             subject: m.subject,
             receivedAt: m.receivedAt,
             isRead: m.isRead,
+            preview: m.preview ?? '',
           })),
         ),
       );
@@ -709,15 +712,132 @@ function setDraftInCache(key: string, text: string): void {
   persistDraftCacheSoon();
 }
 
-// Intentionally conservative. Prefer false negatives (missing a filter)
-// over false positives (filtering a real email). False positives cause
-// users to miss real correspondence — destructive. False negatives cause
-// a visibly-silly drafted reply — embarrassing but recoverable.
+// The regex below is a cheap first-pass filter on the From address. It catches
+// obvious automated senders (noreply@, mailer-daemon, Stripe receipts, etc.)
+// without paying a Claude call, so we don't waste tokens classifying those.
+// Mails that pass this filter go to the LLM classifier below for content-based
+// verification before we spend an even bigger call drafting a reply.
 const NO_REPLY_PATTERN =
   /noreply|no-reply|no_reply|donotreply|do-not-reply|mailer-daemon|bounce@|newsletter|marketing|notifications?@|alerts?@|updates?@|info@|support@|no-reply@accounts\.google\.com|(no-reply|receipts|notifications|invoice\+.*)@stripe\.com/i;
 
 function needsReply(from: string): boolean {
   return !NO_REPLY_PATTERN.test(from);
+}
+
+// Reply-verdict cache. Classifier output is deterministic for a given mail,
+// so we keep a persisted 24h cache to avoid re-paying on refresh / cold start.
+// Separate from draftCache because verdicts are tone-agnostic (one entry per
+// mail id) while drafts depend on the user's configured tone.
+type VerdictCacheEntry = { needsReply: boolean; expiresAt: number };
+const VERDICT_TTL_MS = 24 * 60 * 60 * 1000;
+const VERDICT_STORAGE_KEY = 'zolva.mail.reply-verdicts';
+const verdictCache = new Map<string, VerdictCacheEntry>();
+let verdictCacheHydrated = false;
+let verdictCacheHydrationPromise: Promise<void> | null = null;
+let verdictCacheWriteTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function hydrateVerdictCache(): Promise<void> {
+  if (verdictCacheHydrated) return;
+  if (verdictCacheHydrationPromise) return verdictCacheHydrationPromise;
+  verdictCacheHydrationPromise = (async () => {
+    try {
+      const raw = await AsyncStorage.getItem(VERDICT_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Record<string, VerdictCacheEntry>;
+        const now = Date.now();
+        for (const [k, v] of Object.entries(parsed)) {
+          if (
+            v &&
+            typeof v.needsReply === 'boolean' &&
+            typeof v.expiresAt === 'number' &&
+            v.expiresAt > now
+          ) {
+            verdictCache.set(k, v);
+          }
+        }
+      }
+    } catch (err) {
+      if (__DEV__) console.warn('[verdict-cache] hydrate failed:', err);
+    }
+    verdictCacheHydrated = true;
+  })();
+  return verdictCacheHydrationPromise;
+}
+
+function persistVerdictCacheSoon(): void {
+  if (verdictCacheWriteTimer) clearTimeout(verdictCacheWriteTimer);
+  verdictCacheWriteTimer = setTimeout(() => {
+    verdictCacheWriteTimer = null;
+    const snapshot: Record<string, VerdictCacheEntry> = {};
+    verdictCache.forEach((v, k) => {
+      snapshot[k] = v;
+    });
+    AsyncStorage.setItem(VERDICT_STORAGE_KEY, JSON.stringify(snapshot)).catch((err) => {
+      if (__DEV__) console.warn('[verdict-cache] persist failed:', err);
+    });
+  }, 300);
+}
+
+function getVerdictFromCache(id: string): boolean | undefined {
+  const entry = verdictCache.get(id);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    verdictCache.delete(id);
+    persistVerdictCacheSoon();
+    return undefined;
+  }
+  return entry.needsReply;
+}
+
+function setVerdictInCache(id: string, needsReply: boolean): void {
+  verdictCache.set(id, { needsReply, expiresAt: Date.now() + VERDICT_TTL_MS });
+  persistVerdictCacheSoon();
+}
+
+const CLASSIFIER_SYSTEM_PROMPT =
+  'You decide whether an incoming email warrants a human reply from the recipient. ' +
+  'Answer YES only for messages from a real person that ask a question, make a request, ' +
+  'invite the recipient, follow up on a conversation, or otherwise need a response to ' +
+  'continue. Answer NO for: receipts, shipping or booking confirmations, login alerts, ' +
+  'OTP and verification codes, marketing and newsletters, automated status notifications, ' +
+  'calendar invites, subscription renewals, delivery updates, and anything that says ' +
+  '"do not reply" in the body. When genuinely uncertain, answer YES — missing a real ' +
+  'reply is worse than declining one.';
+
+// Classifies one mail. Fails open: any error (network, rate limit, parse)
+// returns true so the downstream draft call still runs, matching legacy
+// over-drafting behavior on transient failures.
+async function classifyNeedsReply(
+  mail: NormalizedMail,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const preview = (mail.preview ?? '').slice(0, 400);
+  try {
+    const verdict = await completeJson<{ needsReply: boolean; reason?: string }>({
+      system: CLASSIFIER_SYSTEM_PROMPT,
+      messages: [
+        {
+          role: 'user',
+          content: `From: ${mail.from}\nSubject: ${mail.subject}\n\n${preview}`,
+        },
+      ],
+      maxTokens: 80,
+      temperature: 0.1,
+      attachProfile: false,
+      signal,
+      schemaHint: '{"needsReply": boolean, "reason": "short phrase"}',
+    });
+    if (__DEV__) {
+      console.log(
+        `[classifier] ${mail.subject.slice(0, 40)} → ${verdict.needsReply ? 'REPLY' : 'SKIP'}${verdict.reason ? ` (${verdict.reason})` : ''}`,
+      );
+    }
+    return verdict.needsReply;
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') throw err;
+    if (__DEV__) console.warn('[classifier] failed, failing open:', (err as Error).message);
+    return true;
+  }
 }
 
 const TONE_INSTRUCTIONS: Record<string, string> = {
@@ -791,15 +911,50 @@ export function useInboxWaiting(): Result<InboxMail[]> {
 
     const draftKey = (id: string) => `${id}::${tone || 'default'}`;
 
-    // Wait for the persisted draft cache to hydrate before deciding which
-    // mails need a fresh generation — otherwise every cold launch re-pays
-    // for drafts AsyncStorage already has.
-    void hydrateDraftCache().then(() => {
+    // Wait for both persisted caches to hydrate — otherwise every cold launch
+    // re-pays for classifications and drafts AsyncStorage already has.
+    void Promise.all([hydrateDraftCache(), hydrateVerdictCache()]).then(async () => {
       if (controller.signal.aborted) return;
+
+      // Classification pass: short-circuit cached verdicts, classify the rest
+      // in parallel. Cached positives go straight into the draft pipeline
+      // below; cached negatives are dropped before any draft call.
+      const awaitingClassification: NormalizedMail[] = [];
+      const confirmedTargets: NormalizedMail[] = [];
+      for (const m of targets) {
+        const verdict = getVerdictFromCache(m.id);
+        if (verdict === true) confirmedTargets.push(m);
+        else if (verdict === undefined) awaitingClassification.push(m);
+        // verdict === false → skip entirely
+      }
+
+      if (awaitingClassification.length > 0) {
+        const results = await Promise.all(
+          awaitingClassification.map((m) =>
+            classifyNeedsReply(m, controller.signal)
+              .then((needs) => {
+                setVerdictInCache(m.id, needs);
+                return needs ? m : null;
+              })
+              .catch((err: Error) => {
+                if (err.name !== 'AbortError' && __DEV__) {
+                  console.warn('[hooks] classifier failed:', err.message);
+                }
+                // Fail open on unexpected errors — caller of classifyNeedsReply
+                // already swallows non-abort errors, so reaching here means abort.
+                return null;
+              }),
+          ),
+        );
+        if (controller.signal.aborted) return;
+        for (const m of results) if (m) confirmedTargets.push(m);
+      }
+
+      if (confirmedTargets.length === 0) return;
 
       const cached: Record<string, string> = {};
       const pending: NormalizedMail[] = [];
-      for (const m of targets) {
+      for (const m of confirmedTargets) {
         const hit = getDraftFromCache(draftKey(m.id));
         if (hit) cached[m.id] = hit;
         else pending.push(m);
@@ -809,7 +964,7 @@ export function useInboxWaiting(): Result<InboxMail[]> {
       }
       if (pending.length === 0) return;
 
-      void Promise.all(
+      const results = await Promise.all(
         pending.map((m) =>
           generateDraft(m, tone, controller.signal)
             .then((text) => {
@@ -824,14 +979,13 @@ export function useInboxWaiting(): Result<InboxMail[]> {
               return null;
             }),
         ),
-      ).then((results) => {
-        if (controller.signal.aborted) return;
-        const next: Record<string, string> = {};
-        for (const r of results) if (r) next[r[0]] = r[1];
-        if (Object.keys(next).length > 0) {
-          setDrafts((prev) => ({ ...prev, ...next }));
-        }
-      });
+      );
+      if (controller.signal.aborted) return;
+      const next: Record<string, string> = {};
+      for (const r of results) if (r) next[r[0]] = r[1];
+      if (Object.keys(next).length > 0) {
+        setDrafts((prev) => ({ ...prev, ...next }));
+      }
     });
 
     return () => controller.abort();
