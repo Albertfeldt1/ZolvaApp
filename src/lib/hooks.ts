@@ -1241,21 +1241,21 @@ export function useSendReply() {
   return { send, archive, sending, error };
 }
 
-// Default visible window for the day grid. Adaptive: if any real event
-// lives outside this range the window expands to include it, so 07:00 or
-// 20:30 meetings never silently disappear. Upper bound on end-hour avoids
-// a 22→23 slot for events that end exactly on the hour.
-const DEFAULT_GRID_START_HOUR = 0;
-const DEFAULT_GRID_END_HOUR = 21;
+// Day grid runs 06:00 → 05:00 next morning. Encoded as 6..30 so the
+// expansion math stays linear; makeHourSlots folds the label back with
+// (hour % 24). Hours 00..05 display at the end of the grid as the
+// "after-midnight" tail of the day.
+const DEFAULT_GRID_START_HOUR = 6;
+const DEFAULT_GRID_END_HOUR = 30;
 const ABSOLUTE_START_HOUR = 0;
-const ABSOLUTE_END_HOUR = 24;
+const ABSOLUTE_END_HOUR = 30;
 
 const slotTones: ('sage' | 'clay' | 'mist')[] = ['sage', 'clay', 'mist'];
 
 function makeHourSlots(startHour: number, endHour: number): CalendarSlot[] {
   const count = Math.max(0, endHour - startHour);
   return Array.from({ length: count }, (_, i) => ({
-    hour: String(startHour + i).padStart(2, '0'),
+    hour: String((startHour + i) % 24).padStart(2, '0'),
     event: null,
   }));
 }
@@ -1285,25 +1285,21 @@ export function useDaySchedule(targetDate?: Date): Result<CalendarSlot[]> {
   const allDay = items.filter((e) => e.allDay);
   const timed = items.filter((e) => !e.allDay);
 
-  // Expand the grid window so every timed event has a home.
+  // Expand the grid window so every timed event has a home. Hours
+  // before DEFAULT_GRID_START_HOUR get shifted up by 24 so they sit in
+  // the after-midnight tail of the wrap window.
   let startHour = DEFAULT_GRID_START_HOUR;
   let endHour = DEFAULT_GRID_END_HOUR;
   for (const e of timed) {
-    startHour = Math.max(
-      ABSOLUTE_START_HOUR,
-      Math.min(startHour, e.start.getHours()),
-    );
+    const sh = e.start.getHours();
+    const effStart = sh >= DEFAULT_GRID_START_HOUR ? sh : sh + 24;
+    startHour = Math.max(ABSOLUTE_START_HOUR, Math.min(startHour, effStart));
     // Round the end-hour up when there are minutes left, so a 09:45-10:15
     // meeting contributes an 11 bound and the 10 slot stays visible.
-    const rawEnd = e.end.getHours() + (e.end.getMinutes() > 0 ? 1 : 0);
-    // Also guarantee the event's start slot exists — events that cross
-    // midnight have e.end "next day" with getHours()=0, which would leave
-    // the start slot (e.g., 23) without a home. Widen to start+1.
-    const startSlotNeeded = e.start.getHours() + 1;
-    endHour = Math.min(
-      ABSOLUTE_END_HOUR,
-      Math.max(endHour, rawEnd, startSlotNeeded),
-    );
+    const eh = e.end.getHours();
+    const rawEnd = eh + (e.end.getMinutes() > 0 ? 1 : 0);
+    const effEnd = rawEnd >= DEFAULT_GRID_START_HOUR ? rawEnd : rawEnd + 24;
+    endHour = Math.min(ABSOLUTE_END_HOUR, Math.max(endHour, effEnd, effStart + 1));
   }
 
   // On today, ensure the current hour has a row so the now-line has
@@ -1315,14 +1311,21 @@ export function useDaySchedule(targetDate?: Date): Result<CalendarSlot[]> {
       targetDate.getMonth() === now.getMonth() &&
       targetDate.getDate() === now.getDate()
     ) {
-      startHour = Math.max(ABSOLUTE_START_HOUR, Math.min(startHour, now.getHours()));
-      endHour = Math.min(ABSOLUTE_END_HOUR, Math.max(endHour, now.getHours() + 1));
+      const nh = now.getHours();
+      const effNow = nh >= DEFAULT_GRID_START_HOUR ? nh : nh + 24;
+      startHour = Math.max(ABSOLUTE_START_HOUR, Math.min(startHour, effNow));
+      endHour = Math.min(ABSOLUTE_END_HOUR, Math.max(endHour, effNow + 1));
     }
   }
 
   const hourSlots = makeHourSlots(startHour, endHour);
   timed.forEach((e, i) => {
-    const idx = e.start.getHours() - startHour;
+    const h = e.start.getHours();
+    // Hours before DEFAULT_GRID_START_HOUR belong to the after-midnight
+    // tail of the wrap window; shift them up by 24 so the slot index math
+    // lands in the second half of the grid.
+    const effHour = h >= DEFAULT_GRID_START_HOUR ? h : h + 24;
+    const idx = effHour - startHour;
     if (idx < 0 || idx >= hourSlots.length) return;
     hourSlots[idx] = {
       hour: hourSlots[idx].hour,
