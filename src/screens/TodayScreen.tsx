@@ -152,19 +152,19 @@ export function TodayScreen({
     const endOfDay = new Date(today);
     endOfDay.setHours(23, 59, 59, 999);
     const toHour = (d: Date) => d.getHours() + d.getMinutes() / 60;
-    const kindFor = (title: string): RibbonEvent['kind'] => {
-      const t = title.toLowerCase();
-      if (t.includes('frokost') || t.includes('lunch')) return 'lunch';
-      if (t.includes('fokus') || t.includes('focus') || t.includes('deep work')) return 'focus';
-      return 'meeting';
-    };
     return todayEvents
       .filter((e) => !e.allDay && e.start < endOfDay && e.end > startOfDay)
       .map((e) => ({
+        id: e.id,
         startHour: toHour(e.start),
         endHour: toHour(e.end),
-        kind: kindFor(e.title),
-        label: e.title,
+        title: e.title,
+        start: e.start,
+        end: e.end,
+        color: e.color,
+        location: e.location,
+        description: e.description,
+        attendees: e.attendees,
       }));
   }, [todayEvents, today]);
 

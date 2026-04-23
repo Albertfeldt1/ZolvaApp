@@ -25,6 +25,11 @@ export type GraphMessageBody = {
 
 export type GraphAttendeeStatus = 'none' | 'accepted' | 'tentativelyAccepted' | 'declined' | 'notResponded' | 'organizer';
 
+export type GraphAttendee = {
+  name?: string;
+  email?: string;
+};
+
 export type GraphCalendarEvent = {
   id: string;
   subject: string;
@@ -34,7 +39,92 @@ export type GraphCalendarEvent = {
   isAllDay: boolean;
   hasOtherAttendees: boolean;
   userResponse: GraphAttendeeStatus;
+  description?: string;
+  attendeeList: GraphAttendee[];
+  categories: string[];
+  categoryColor?: string;
 };
+
+// Outlook master-category preset → hex. The preset strings are part of the
+// Graph schema; values approximate what Outlook renders. `none` means the
+// user picked a category without a color.
+const OUTLOOK_PRESET_COLORS: Record<string, string> = {
+  preset0: '#E7453C',
+  preset1: '#F9A03C',
+  preset2: '#FDC68C',
+  preset3: '#F7E269',
+  preset4: '#6BCB5F',
+  preset5: '#52D1DA',
+  preset6: '#A9C26D',
+  preset7: '#2F97F9',
+  preset8: '#9569E4',
+  preset9: '#E84D8F',
+  preset10: '#8C8C8C',
+  preset11: '#454545',
+  preset12: '#B8B8B8',
+  preset13: '#6D6D6D',
+  preset14: '#222222',
+  preset15: '#9B2210',
+  preset16: '#CC6E00',
+  preset17: '#D69B72',
+  preset18: '#CCB300',
+  preset19: '#1F7A13',
+  preset20: '#1A8A93',
+  preset21: '#4E7011',
+  preset22: '#004B9B',
+  preset23: '#4E2F89',
+  preset24: '#9B0952',
+};
+
+type MasterCategory = { displayName?: string; color?: string };
+
+// Cache master categories across renders. The master-category list almost
+// never changes, so a single fetch per session is plenty. `null` means we
+// tried and failed (usually a scope/permissions issue on older tenants) —
+// we don't keep retrying in that case.
+let masterCategoryCache: Map<string, string> | null | undefined;
+let masterCategoryFetchPromise: Promise<Map<string, string> | null> | null =
+  null;
+
+async function loadMasterCategories(): Promise<Map<string, string> | null> {
+  if (masterCategoryCache !== undefined) return masterCategoryCache;
+  if (masterCategoryFetchPromise) return masterCategoryFetchPromise;
+  masterCategoryFetchPromise = tryWithRefresh('microsoft', async (token) => {
+    try {
+      const data = await graphFetch<{ value: MasterCategory[] }>(
+        token,
+        `/me/outlook/masterCategories`,
+      );
+      const map = new Map<string, string>();
+      for (const c of data.value ?? []) {
+        if (!c.displayName || !c.color) continue;
+        const hex = OUTLOOK_PRESET_COLORS[c.color];
+        if (hex) map.set(c.displayName, hex);
+      }
+      masterCategoryCache = map;
+      return map;
+    } catch (err) {
+      if (__DEV__) console.warn('[graph] masterCategories fetch failed:', err);
+      masterCategoryCache = null;
+      return null;
+    }
+  }).finally(() => {
+    masterCategoryFetchPromise = null;
+  });
+  return masterCategoryFetchPromise;
+}
+
+function resolveCategoryColor(
+  categories: string[],
+  categoryMap: Map<string, string> | null,
+): string | undefined {
+  if (!categoryMap) return undefined;
+  for (const name of categories) {
+    const hex = categoryMap.get(name);
+    if (hex) return hex;
+  }
+  return undefined;
+}
 
 type RawMessage = {
   id: string;
@@ -56,8 +146,12 @@ type RawEvent = {
   end: { dateTime: string; timeZone?: string };
   location?: { displayName?: string };
   isAllDay?: boolean;
-  attendees?: Array<{ emailAddress?: { address?: string } }>;
+  attendees?: Array<{
+    emailAddress?: { name?: string; address?: string };
+  }>;
   responseStatus?: { response?: GraphAttendeeStatus };
+  body?: { contentType?: string; content?: string };
+  categories?: string[];
 };
 
 async function graphFetch<T>(
@@ -163,22 +257,43 @@ export async function listCalendarEvents(
   start: Date,
   end: Date,
 ): Promise<GraphCalendarEvent[]> {
+  // Master categories fetch is fire-and-forget: if it resolves before the
+  // events do (usually the case after warm cache) we get colors; otherwise
+  // events render in the palette fallback.
+  const categoryMapPromise = loadMasterCategories();
   return tryWithRefresh('microsoft', async (token) => {
     const path =
       `/me/calendarView?startDateTime=${start.toISOString()}&endDateTime=${end.toISOString()}` +
-      `&$select=id,subject,start,end,location,isAllDay,attendees,responseStatus` +
+      `&$select=id,subject,start,end,location,isAllDay,attendees,responseStatus,body,categories` +
       `&$orderby=start/dateTime&$top=50`;
-    const data = await graphFetch<{ value: RawEvent[] }>(token, path);
-    return (data.value ?? []).map((e) => ({
-      id: e.id,
-      subject: e.subject || 'Uden titel',
-      start: new Date(`${e.start.dateTime}Z`),
-      end: new Date(`${e.end.dateTime}Z`),
-      location: e.location?.displayName,
-      isAllDay: e.isAllDay ?? false,
-      hasOtherAttendees: (e.attendees ?? []).length > 0,
-      userResponse: e.responseStatus?.response ?? 'none',
-    }));
+    const [data, categoryMap] = await Promise.all([
+      graphFetch<{ value: RawEvent[] }>(token, path),
+      categoryMapPromise,
+    ]);
+    return (data.value ?? []).map((e): GraphCalendarEvent => {
+      const attendeeList: GraphAttendee[] = (e.attendees ?? []).map((a) => ({
+        name: a.emailAddress?.name,
+        email: a.emailAddress?.address,
+      }));
+      const categories = e.categories ?? [];
+      const rawBody = e.body?.content ?? '';
+      const description =
+        e.body?.contentType === 'html' ? stripHtml(rawBody) : rawBody;
+      return {
+        id: e.id,
+        subject: e.subject || 'Uden titel',
+        start: new Date(`${e.start.dateTime}Z`),
+        end: new Date(`${e.end.dateTime}Z`),
+        location: e.location?.displayName,
+        isAllDay: e.isAllDay ?? false,
+        hasOtherAttendees: attendeeList.length > 0,
+        userResponse: e.responseStatus?.response ?? 'none',
+        description: description || undefined,
+        attendeeList,
+        categories,
+        categoryColor: resolveCategoryColor(categories, categoryMap),
+      };
+    });
   });
 }
 

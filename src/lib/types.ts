@@ -26,6 +26,11 @@ export type Observation = {
   action?: ObservationAction;
 };
 
+export type EventAttendee = {
+  name?: string;
+  email?: string;
+};
+
 export type UpcomingEvent = {
   id: string;
   time: string;
@@ -36,6 +41,11 @@ export type UpcomingEvent = {
   start: Date;
   end: Date;
   allDay: boolean;
+  location?: string;
+  description?: string;
+  attendees?: EventAttendee[];
+  color?: string;
+  source: 'google' | 'microsoft' | 'demo';
 };
 
 export type MailProvider = 'google' | 'microsoft';

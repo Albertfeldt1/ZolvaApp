@@ -97,13 +97,73 @@ type DemoEventSeed = {
   title: string;
   sub: string;
   tone: 'sage' | 'clay' | 'mist';
+  location?: string;
+  description?: string;
+  attendees?: Array<{ name: string; email?: string }>;
+  color: string;
 };
 
+// Colors mirror Google Calendar's palette so demo events look native alongside
+// real-data users.
 const DEMO_EVENTS: DemoEventSeed[] = [
-  { id: 'd-ev-1', hour: 9, min: 30, durationMin: 30, title: 'Stand-up', sub: 'Zoom · 30 min', tone: 'sage' },
-  { id: 'd-ev-2', hour: 11, min: 0, durationMin: 60, title: 'Kundemøde · Lunar', sub: 'Tingbjergvej 5 · 60 min', tone: 'clay' },
-  { id: 'd-ev-3', hour: 13, min: 0, durationMin: 45, title: 'Frokost med Jonas', sub: 'Café Norden · 45 min', tone: 'mist' },
-  { id: 'd-ev-4', hour: 15, min: 30, durationMin: 30, title: '1:1 med Sofia', sub: 'Kontoret · 30 min', tone: 'sage' },
+  {
+    id: 'd-ev-1',
+    hour: 9,
+    min: 30,
+    durationMin: 30,
+    title: 'Stand-up',
+    sub: 'Zoom · 30 min',
+    tone: 'sage',
+    location: 'Zoom',
+    description: 'Daglig synk med teamet. Hurtige opdateringer, ingen beslutninger.',
+    attendees: [
+      { name: 'Sofia Wang', email: 'sofia@zolva.dk' },
+      { name: 'Jonas Krogh', email: 'jonas@zolva.dk' },
+    ],
+    color: '#0B8043', // Basil
+  },
+  {
+    id: 'd-ev-2',
+    hour: 11,
+    min: 0,
+    durationMin: 60,
+    title: 'Kundemøde · Lunar',
+    sub: 'Tingbjergvej 5 · 60 min',
+    tone: 'clay',
+    location: 'Tingbjergvej 5, 2. sal',
+    description:
+      'Gennemgang af Q3-oplæg. Mette vil gerne se det færdige tilbud, og vi tager en runde om leverancetider. Husk at printe kontraktudkastet.',
+    attendees: [
+      { name: 'Mette Halling', email: 'mette@lunar.dk' },
+      { name: 'Anders Brix', email: 'anders@lunar.dk' },
+    ],
+    color: '#F4511E', // Tangerine
+  },
+  {
+    id: 'd-ev-3',
+    hour: 13,
+    min: 0,
+    durationMin: 45,
+    title: 'Frokost med Jonas',
+    sub: 'Café Norden · 45 min',
+    tone: 'mist',
+    location: 'Café Norden, Østergade 61',
+    attendees: [{ name: 'Jonas Krogh' }],
+    color: '#F6BF26', // Banana
+  },
+  {
+    id: 'd-ev-4',
+    hour: 15,
+    min: 30,
+    durationMin: 30,
+    title: '1:1 med Sofia',
+    sub: 'Kontoret · 30 min',
+    tone: 'sage',
+    location: 'Kontoret, mødelokale 2',
+    description: 'Fortsættelse fra sidste uges samtale om onboarding.',
+    attendees: [{ name: 'Sofia Wang' }],
+    color: '#3F51B5', // Blueberry
+  },
 ];
 
 export function demoUpcoming(): UpcomingEvent[] {
@@ -130,6 +190,11 @@ export function demoUpcoming(): UpcomingEvent[] {
       start,
       end,
       allDay: false,
+      location: e.location,
+      description: e.description,
+      attendees: e.attendees,
+      color: e.color,
+      source: 'demo' as const,
     };
   }).filter((e) => e.end.getTime() >= now.getTime());
 }

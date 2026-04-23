@@ -9,6 +9,7 @@ const BASE = 'https://www.googleapis.com/calendar/v3';
 
 export type GoogleCalendarAttendee = {
   email?: string;
+  displayName?: string;
   self?: boolean;
   responseStatus?: 'accepted' | 'declined' | 'tentative' | 'needsAction';
 };
@@ -16,11 +17,47 @@ export type GoogleCalendarAttendee = {
 export type GoogleCalendarEvent = {
   id: string;
   summary?: string;
+  description?: string;
   location?: string;
+  colorId?: string;
   start: { dateTime?: string; date?: string; timeZone?: string };
   end: { dateTime?: string; date?: string; timeZone?: string };
   attendees?: GoogleCalendarAttendee[];
 };
+
+// Google Calendar event color palette (colorId "1"-"11"). Values from the
+// /calendar/v3/colors endpoint — the palette is stable, hardcoded to avoid
+// a second round-trip per calendar fetch.
+export const GOOGLE_EVENT_COLORS: Record<string, string> = {
+  '1': '#7986CB', // Lavender
+  '2': '#33B679', // Sage
+  '3': '#8E24AA', // Grape
+  '4': '#E67C73', // Flamingo
+  '5': '#F6BF26', // Banana
+  '6': '#F4511E', // Tangerine
+  '7': '#039BE5', // Peacock
+  '8': '#616161', // Graphite
+  '9': '#3F51B5', // Blueberry
+  '10': '#0B8043', // Basil
+  '11': '#D50000', // Tomato
+};
+
+// Google's default color for an event with no explicit colorId set — the
+// primary calendar's default ("Blueberry").
+export const GOOGLE_DEFAULT_EVENT_COLOR = GOOGLE_EVENT_COLORS['9'];
+
+export function resolveGoogleEventColor(e: GoogleCalendarEvent): string {
+  if (e.colorId && GOOGLE_EVENT_COLORS[e.colorId]) {
+    return GOOGLE_EVENT_COLORS[e.colorId];
+  }
+  return GOOGLE_DEFAULT_EVENT_COLOR;
+}
+
+// Narrow the payload to the fields we actually consume. Without this the
+// events.list response includes organizer, creator, conferenceData, etc.
+const EVENT_FIELDS =
+  'items(id,summary,description,location,colorId,start,end,' +
+  'attendees(email,displayName,self,responseStatus))';
 
 export async function listEvents(
   timeMin: Date,
@@ -33,6 +70,7 @@ export async function listEvents(
       singleEvents: 'true',
       orderBy: 'startTime',
       maxResults: '50',
+      fields: EVENT_FIELDS,
     });
     const url = `${BASE}/calendars/primary/events?${params.toString()}`;
     const res = await fetchWithTimeout('google', url, {

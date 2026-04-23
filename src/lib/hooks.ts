@@ -41,6 +41,7 @@ import {
   eventStart,
   isAllDay as isGoogleAllDay,
   listEvents as listGoogleEvents,
+  resolveGoogleEventColor,
 } from './google-calendar';
 import {
   archiveMessage as gmailArchiveMessage,
@@ -61,6 +62,7 @@ import type {
   ChatMessage,
   Connection,
   DoneMail,
+  EventAttendee,
   Fact,
   FeedEntry,
   InboxMail,
@@ -325,6 +327,10 @@ type NormalizedEvent = {
   start: Date;
   end: Date;
   allDay: boolean;
+  description?: string;
+  attendees?: EventAttendee[];
+  color?: string;
+  source: 'google' | 'microsoft';
 };
 
 type NormalizedMail = {
@@ -406,6 +412,9 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
               const s = eventStart(e);
               const ev = eventEnd(e);
               if (!s || !ev) return null;
+              const attendees = (e.attendees ?? [])
+                .filter((a) => a.self !== true)
+                .map((a) => ({ name: a.displayName, email: a.email }));
               return {
                 id: e.id,
                 title: e.summary ?? 'Uden titel',
@@ -413,6 +422,10 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
                 start: s,
                 end: ev,
                 allDay: isGoogleAllDay(e),
+                description: e.description,
+                attendees: attendees.length ? attendees : undefined,
+                color: resolveGoogleEventColor(e),
+                source: 'google',
               };
             })
             .filter((e): e is NormalizedEvent => e !== null),
@@ -422,13 +435,17 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
     if (microsoftAccessToken) {
       tasks.push(
         listGraphEvents(start, end).then((evts) =>
-          evts.map((e) => ({
+          evts.map((e): NormalizedEvent => ({
             id: e.id,
             title: e.subject,
             location: e.location,
             start: e.start,
             end: e.end,
             allDay: e.isAllDay,
+            description: e.description,
+            attendees: e.attendeeList.length ? e.attendeeList : undefined,
+            color: e.categoryColor,
+            source: 'microsoft',
           })),
         ),
       );
@@ -589,6 +606,11 @@ export function useUpcoming(): Result<UpcomingEvent[]> & {
     start: e.start,
     end: e.end,
     allDay: e.allDay ?? false,
+    location: e.location,
+    description: e.description,
+    attendees: e.attendees,
+    color: e.color,
+    source: e.source,
   });
   const timedItems = items.filter((e) => !e.allDay);
   const todayMeetingCount = timedItems.length;
