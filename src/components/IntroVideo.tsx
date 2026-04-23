@@ -25,8 +25,15 @@ type Props = {
 
 export function IntroVideo({ onEnd }: Props) {
   const { width: screenW, height: screenH } = useWindowDimensions();
-  const videoHeight = screenH * INTRO_HEIGHT_FRACTION;
-  const videoWidth = Math.min(videoHeight * VIDEO_ASPECT, screenW);
+  // Start from a height-based target, then fall back to width-based
+  // sizing (maintaining aspect) if the video would overflow screen
+  // width. Prevents the container from going off-aspect — off-aspect
+  // + contentFit=contain re-introduces letterbox bars.
+  const targetHeight = screenH * INTRO_HEIGHT_FRACTION;
+  const targetWidth = targetHeight * VIDEO_ASPECT;
+  const widthCap = screenW * 0.92;
+  const videoWidth = Math.min(targetWidth, widthCap);
+  const videoHeight = videoWidth / VIDEO_ASPECT;
 
   const player = useVideoPlayer(INTRO_SOURCE, (p) => {
     p.loop = false;
