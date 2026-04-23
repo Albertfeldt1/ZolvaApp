@@ -40,10 +40,10 @@ export const colors = {
   sageDim: '#C3D4B8',
 
   // Launch-transition color. Must match app.json splash.backgroundColor
-  // and IntroVideo root so the native splash → intro → app handoff has
-  // no visible color jitter. Currently equals `paper` so the whole
-  // startup frames as a single cream canvas with just the Z reveal.
-  intro: '#F6F1E8',
+  // and IntroVideo root so the native splash → intro handoff has no
+  // visible border around the video. Sampled from inside the intro mp4
+  // (a warmer, slightly darker cream than the app's paper tone).
+  intro: '#ECE4D8',
 };
 
 export const fonts = {
