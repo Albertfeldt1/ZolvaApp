@@ -2,7 +2,6 @@ import { X } from 'lucide-react-native';
 import React from 'react';
 import {
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -26,56 +25,78 @@ export function BriefModal({ brief, visible, onClose }: Props) {
   return (
     <Modal
       visible={visible && !!brief}
-      animationType="slide"
-      presentationStyle="pageSheet"
+      animationType="fade"
+      transparent
       onRequestClose={onClose}
     >
-      <View style={styles.root}>
-        <View style={styles.topBar}>
-          <View style={styles.eyebrowWrap}>
-            <Text style={styles.eyebrow}>
-              {brief?.kind === 'morning' ? 'Morgenbrief' : 'Aftenbrief'}
-            </Text>
-            {weatherLine && <Text style={styles.weather}>{weatherLine}</Text>}
+      <Pressable style={styles.backdrop} onPress={onClose}>
+        <Pressable style={styles.card} onPress={() => {}}>
+          <View style={styles.topBar}>
+            <View style={styles.eyebrowWrap}>
+              <Text style={styles.eyebrow}>
+                {brief?.kind === 'morning' ? 'Morgenbrief' : 'Aftenbrief'}
+              </Text>
+              {weatherLine && <Text style={styles.weather}>{weatherLine}</Text>}
+            </View>
+            <Pressable
+              onPress={onClose}
+              style={styles.closeBtn}
+              hitSlop={12}
+              accessibilityLabel="Luk brief"
+            >
+              <X size={18} color={colors.ink} strokeWidth={1.75} />
+            </Pressable>
           </View>
-          <Pressable
-            onPress={onClose}
-            style={styles.closeBtn}
-            hitSlop={12}
-            accessibilityLabel="Luk brief"
-          >
-            <X size={18} color={colors.ink} strokeWidth={1.75} />
-          </Pressable>
-        </View>
 
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          showsVerticalScrollIndicator={false}
-        >
-          {brief && (
-            <>
-              <Text style={styles.headline}>{brief.headline}</Text>
-              <View style={styles.inkRule} />
-              {brief.body.map((line, i) => (
-                <Text key={i} style={styles.body}>
-                  {line}
-                </Text>
-              ))}
-            </>
-          )}
-        </ScrollView>
-      </View>
+          <ScrollView
+            contentContainerStyle={styles.scroll}
+            showsVerticalScrollIndicator={false}
+          >
+            {brief && (
+              <>
+                <Text style={styles.headline}>{brief.headline}</Text>
+                <View style={styles.inkRule} />
+                {brief.body.map((line, i) => (
+                  <Text key={i} style={styles.body}>
+                    {line}
+                  </Text>
+                ))}
+              </>
+            )}
+          </ScrollView>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.paper },
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 60,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 480,
+    maxHeight: '100%',
+    backgroundColor: colors.paper,
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 20,
+    elevation: 12,
+  },
   topBar: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 20 : 16,
+    paddingTop: 20,
     paddingHorizontal: 22,
     paddingBottom: 10,
   },
@@ -102,7 +123,7 @@ const styles = StyleSheet.create({
   },
   scroll: {
     paddingHorizontal: 22,
-    paddingBottom: 40,
+    paddingBottom: 28,
   },
   headline: {
     fontFamily: fonts.display,
