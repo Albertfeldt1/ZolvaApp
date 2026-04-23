@@ -111,9 +111,12 @@ export function CalendarScreen({ onGoToSettings }: Props) {
   }, [today]);
 
   const [rowLayouts, setRowLayouts] = useState<Record<string, { y: number; height: number }>>({});
+  // Reset when the user picks a different day; don't reset on every
+  // `slots` reference change — useDaySchedule returns a fresh array each
+  // render, which turned this into an infinite setState loop.
   useEffect(() => {
     setRowLayouts({});
-  }, [slots]);
+  }, [selectedDate]);
   const onRowLayout = (hour: string, y: number, height: number) => {
     setRowLayouts((prev) => {
       const cur = prev[hour];
