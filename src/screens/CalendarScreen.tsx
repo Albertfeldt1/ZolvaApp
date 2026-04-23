@@ -22,6 +22,22 @@ type EventTone = NonNullable<CalendarSlot['event']>['tone'];
 const toneColor = (t: EventTone) =>
   t === 'sage' ? colors.sage : t === 'clay' ? colors.clay : colors.stone;
 
+function copenhagenNowMinutes(): { hour: number; minute: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Copenhagen',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  }).formatToParts(new Date());
+  const rawH = Number(parts.find((p) => p.type === 'hour')?.value ?? '0');
+  const m = Number(parts.find((p) => p.type === 'minute')?.value ?? '0');
+  return { hour: rawH === 24 ? 0 : rawH, minute: m };
+}
+
+function copenhagenDateKey(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Copenhagen' }).format(d);
+}
+
 type Props = { onGoToSettings: () => void };
 
 // Horizontal paging window: ~1 year each way is plenty for finger scrolling.
@@ -44,7 +60,7 @@ function sameDay(a: Date, b: Date): boolean {
 }
 
 export function CalendarScreen({ onGoToSettings }: Props) {
-  const today = useMemo(() => new Date(), []);
+  const [today, setToday] = useState<Date>(() => new Date());
   const [selectedDate, setSelectedDate] = useState<Date>(today);
   const [pageIndex, setPageIndex] = useState<number>(WEEKS_BEFORE);
   const [pageWidth, setPageWidth] = useState<number>(0);
@@ -80,6 +96,36 @@ export function CalendarScreen({ onGoToSettings }: Props) {
   const hasEvents = slots.some((s) => s.event);
   const hasProvider = useHasProvider();
   const { bottom: chromeBottom } = useChromeInsets();
+
+  const [now, setNow] = useState(copenhagenNowMinutes);
+  useEffect(() => {
+    const tick = () => {
+      const fresh = new Date();
+      if (copenhagenDateKey(fresh) !== copenhagenDateKey(today)) {
+        setToday(fresh);
+      }
+      setNow(copenhagenNowMinutes());
+    };
+    const id = setInterval(tick, 60_000);
+    return () => clearInterval(id);
+  }, [today]);
+
+  const [rowLayouts, setRowLayouts] = useState<Record<string, { y: number; height: number }>>({});
+  useEffect(() => {
+    setRowLayouts({});
+  }, [slots]);
+  const onRowLayout = (hour: string, y: number, height: number) => {
+    setRowLayouts((prev) => {
+      const cur = prev[hour];
+      if (cur && cur.y === y && cur.height === height) return prev;
+      return { ...prev, [hour]: { y, height } };
+    });
+  };
+
+  const nowHourKey = String(now.hour).padStart(2, '0');
+  const nowRow = rowLayouts[nowHourKey];
+  const showNowLine = isSelectedToday && hasEvents && Boolean(nowRow);
+  const nowTop = nowRow ? nowRow.y + (now.minute / 60) * nowRow.height : 0;
 
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (!pageWidth) return;
@@ -228,21 +274,35 @@ export function CalendarScreen({ onGoToSettings }: Props) {
             />
           )
         ) : (
-          slots.map((row, i) => (
-            <View key={i} style={[styles.row, i > 0 && styles.rowBorder]}>
-              <Text style={[styles.hour, !row.event && styles.hourDim]}>{row.hour}</Text>
-              <View style={{ flex: 1 }}>
-                {row.event ? (
-                  <View style={[styles.event, { borderLeftColor: toneColor(row.event.tone) }]}>
-                    <Text style={styles.eventTitle}>{row.event.title}</Text>
-                    <Text style={styles.eventSub}>{row.event.sub}</Text>
-                  </View>
-                ) : (
-                  <Text style={styles.empty}>-</Text>
-                )}
+          <View style={styles.grid}>
+            {slots.map((row, i) => (
+              <View
+                key={i}
+                style={[styles.row, i > 0 && styles.rowBorder]}
+                onLayout={(e) =>
+                  onRowLayout(row.hour, e.nativeEvent.layout.y, e.nativeEvent.layout.height)
+                }
+              >
+                <Text style={[styles.hour, !row.event && styles.hourDim]}>{row.hour}</Text>
+                <View style={{ flex: 1 }}>
+                  {row.event ? (
+                    <View style={[styles.event, { borderLeftColor: toneColor(row.event.tone) }]}>
+                      <Text style={styles.eventTitle}>{row.event.title}</Text>
+                      <Text style={styles.eventSub}>{row.event.sub}</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.empty}>-</Text>
+                  )}
+                </View>
               </View>
-            </View>
-          ))
+            ))}
+            {showNowLine && (
+              <View style={[styles.nowWrap, { top: nowTop }]} pointerEvents="none">
+                <View style={styles.nowDot} />
+                <View style={styles.nowBar} />
+              </View>
+            )}
+          </View>
         )}
       </View>
     </ScrollView>
@@ -334,4 +394,24 @@ const styles = StyleSheet.create({
   eventTitle: { fontFamily: fonts.uiSemi, fontSize: 14, color: colors.ink },
   eventSub: { marginTop: 2, fontFamily: fonts.ui, fontSize: 12.5, color: colors.fg3 },
   empty: { fontFamily: 'Inter_500Medium_Italic', fontSize: 12, color: colors.fg4 },
+  grid: { position: 'relative' },
+  nowWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  nowDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.clayInk,
+  },
+  nowBar: {
+    flex: 1,
+    height: 1.5,
+    backgroundColor: colors.clayInk,
+  },
 });
