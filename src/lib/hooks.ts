@@ -669,8 +669,12 @@ function setDraftInCache(key: string, text: string): void {
   persistDraftCacheSoon();
 }
 
+// Intentionally conservative. Prefer false negatives (missing a filter)
+// over false positives (filtering a real email). False positives cause
+// users to miss real correspondence — destructive. False negatives cause
+// a visibly-silly drafted reply — embarrassing but recoverable.
 const NO_REPLY_PATTERN =
-  /noreply|no-reply|no_reply|donotreply|do-not-reply|mailer-daemon|newsletter|marketing|notifications?@|updates?@|info@|support@/i;
+  /noreply|no-reply|no_reply|donotreply|do-not-reply|mailer-daemon|bounce@|newsletter|marketing|notifications?@|alerts?@|updates?@|info@|support@|no-reply@accounts\.google\.com|(no-reply|receipts|notifications|invoice\+.*)@stripe\.com/i;
 
 function needsReply(from: string): boolean {
   return !NO_REPLY_PATTERN.test(from);
