@@ -41,8 +41,9 @@ export const colors = {
 
   // Launch-transition color. Must match app.json splash.backgroundColor
   // and IntroVideo root so the native splash → intro → app handoff has
-  // no visible color jitter.
-  intro: '#2596be',
+  // no visible color jitter. Currently equals `paper` so the whole
+  // startup frames as a single cream canvas with just the Z reveal.
+  intro: '#F6F1E8',
 };
 
 export const fonts = {

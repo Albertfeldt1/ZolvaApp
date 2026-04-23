@@ -9,7 +9,7 @@
     "newArchEnabled": true,
     "scheme": "zolva",
     "splash": {
-      "backgroundColor": "#2596be"
+      "backgroundColor": "#F6F1E8"
     },
     "ios": {
       "supportsTablet": true,
@@ -19,7 +19,7 @@
         "NSUserNotificationsUsageDescription": "Zolva sender notifikationer om påmindelser, dagens overblik og kommende møder.",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "6"
+      "buildNumber": "8"
     },
     "android": {
       "package": "com.zolva.app",
