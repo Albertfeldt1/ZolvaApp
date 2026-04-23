@@ -266,10 +266,11 @@ function RibbonBlock({
   return (
     <Animated.View style={[styles.blockWrap, wrapStyle]} pointerEvents="box-none">
       <Pressable
-        onPress={isSelected ? undefined : onPress}
+        onPress={onPress}
         accessibilityRole="button"
         accessibilityLabel={`${event.title}, ${formatClock(event.start)} til ${formatClock(event.end)}`}
         accessibilityState={{ expanded: isSelected }}
+        accessibilityHint={isSelected ? 'Tryk hvor som helst for at lukke' : undefined}
         hitSlop={isSelected ? undefined : { top: 6, bottom: 6, left: 2, right: 2 }}
         style={[
           styles.block,
