@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Animated, { FadeOut } from 'react-native-reanimated';
 import { colors } from '../theme';
@@ -8,11 +8,19 @@ import { colors } from '../theme';
 // with the binary — no network required.
 const INTRO_SOURCE = require('../../assets/intro.mp4');
 
+// Fraction of the screen's shorter edge the video occupies. Keeps it
+// centered as a small reveal element over the paper background instead
+// of a full-screen takeover.
+const INTRO_SIZE_FRACTION = 0.55;
+
 type Props = {
   onEnd: () => void;
 };
 
 export function IntroVideo({ onEnd }: Props) {
+  const { width, height } = useWindowDimensions();
+  const size = Math.min(width, height) * INTRO_SIZE_FRACTION;
+
   const player = useVideoPlayer(INTRO_SOURCE, (p) => {
     p.loop = false;
     p.muted = true;
@@ -28,12 +36,12 @@ export function IntroVideo({ onEnd }: Props) {
 
   return (
     <Animated.View exiting={FadeOut.duration(280)} style={styles.root} pointerEvents="auto">
-      <Pressable style={StyleSheet.absoluteFill} onPress={onEnd}>
-        <View style={StyleSheet.absoluteFill}>
+      <Pressable style={styles.fill} onPress={onEnd}>
+        <View style={styles.center}>
           <VideoView
             player={player}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
+            style={{ width: size, height: size }}
+            contentFit="contain"
             nativeControls={false}
           />
         </View>
@@ -45,7 +53,15 @@ export function IntroVideo({ onEnd }: Props) {
 const styles = StyleSheet.create({
   root: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: colors.paper,
+    backgroundColor: colors.intro,
     zIndex: 9999,
+  },
+  fill: {
+    flex: 1,
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

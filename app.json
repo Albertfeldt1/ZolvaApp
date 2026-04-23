@@ -9,9 +9,7 @@
     "newArchEnabled": true,
     "scheme": "zolva",
     "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#0F4C2A"
+      "backgroundColor": "#2596be"
     },
     "ios": {
       "supportsTablet": true,

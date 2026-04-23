@@ -38,6 +38,11 @@ export const colors = {
   paperOn20: 'rgba(246,241,232,0.20)',
   paperOn95: 'rgba(246,241,232,0.95)',
   sageDim: '#C3D4B8',
+
+  // Launch-transition color. Must match app.json splash.backgroundColor
+  // and IntroVideo root so the native splash → intro → app handoff has
+  // no visible color jitter.
+  intro: '#2596be',
 };
 
 export const fonts = {

@@ -181,7 +181,7 @@ export default function App() {
   );
 
   if (!fraunces || !playfair || !inter || !mono || !migrationsDone) {
-    return <View style={[styles.root, { backgroundColor: colors.paper }]} />;
+    return <View style={[styles.root, { backgroundColor: colors.intro }]} />;
   }
 
   const openChat = () => {
