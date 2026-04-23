@@ -21,6 +21,7 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { fetchWeather, Weather } from './weather.ts';
+import { fetchCalendarForUser } from '../_shared/calendar.ts';
 import {
   BriefInputs,
   BriefOutput,
@@ -105,7 +106,7 @@ serve(async (req) => {
     const local = localHourMinute(now, tz);
     if (!windowMatches(pref.value, local.hour, local.minute)) continue;
     const kind = pref.id === 'morning-brief' ? 'morning' : 'evening';
-    const status = await generateOneBrief(client, anthropicKey, pref.user_id, kind);
+    const status = await generateOneBrief(client, anthropicKey, pref.user_id, kind, tz);
     results.push({ userId: pref.user_id, kind, status });
   }
 
@@ -168,6 +169,7 @@ async function generateOneBrief(
   anthropicKey: string,
   userId: string,
   kind: 'morning' | 'evening',
+  timezone: string,
 ): Promise<string> {
   const today = new Date().toISOString().slice(0, 10);
   const { data: existing } = await client
@@ -179,7 +181,7 @@ async function generateOneBrief(
     .limit(1);
   if (existing && existing.length > 0) return 'already-briefed';
 
-  const inputs = await assembleInputs(client, userId, kind);
+  const inputs = await assembleInputs(client, userId, kind, timezone);
   const nonEmpty =
     inputs.events.length > 0 ||
     inputs.unread.length > 0 ||
@@ -223,8 +225,9 @@ async function assembleInputs(
   client: SupabaseClient,
   userId: string,
   kind: 'morning' | 'evening',
+  timezone: string,
 ): Promise<BriefInputs> {
-  const [commitmentsRes, mailRes, weather] = await Promise.all([
+  const [commitmentsRes, mailRes, weather, events] = await Promise.all([
     client
       .from('facts')
       .select('text')
@@ -238,16 +241,17 @@ async function assembleInputs(
       .order('occurred_at', { ascending: false })
       .limit(3),
     fetchWeather(DEFAULT_LAT, DEFAULT_LNG),
+    fetchCalendarForUser(client, userId, timezone),
   ]);
 
-  // NOTE: calendar and reminders are local-only today — the edge function
-  // cannot reach them. Brief body ignores meetings/reminders in v1; the
-  // Today banner still shows them client-side via the existing hooks.
+  // Reminders are still local-only (AsyncStorage on the phone). The Today
+  // banner shows them client-side via the existing hooks.
 
   return {
     kind,
     name: null,
-    events: [],
+    timezone,
+    events,
     unread: (mailRes.data ?? []).map((r) => ({
       from: (r as Record<string, string>).provider_from ?? 'ukendt',
       subject: (r as Record<string, string>).provider_subject ?? '(intet emne)',
@@ -267,7 +271,7 @@ async function composeWithClaude(
   const body = {
     model: MODEL,
     max_tokens: 512,
-    temperature: 0.3,
+    temperature: 0.2,
     system: [
       {
         type: 'text',
