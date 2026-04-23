@@ -417,50 +417,37 @@ export class ProviderAuthError extends Error {
 let googleRefreshInflight: Promise<string | null> | null = null;
 let microsoftRefreshInflight: Promise<string | null> | null = null;
 
+// Refresh the provider access_token via the server-side edge function.
+// Previously this opened ASWebAuthenticationSession with prompt=none, but
+// iOS still shows its "App wants to use supabase.co to sign you in" dialog
+// every cold-launch for any browser auth — completely unsuppressable. The
+// edge function does the refresh_token → access_token exchange server-side
+// using the stored refresh_token + server-held client_secret, so no
+// browser is involved and the dialog never fires on the hot path.
 async function silentRefresh(provider: 'google' | 'microsoft'): Promise<string | null> {
-  const supabaseProvider = provider === 'google' ? 'google' : 'azure';
-  const scopes = provider === 'google' ? GOOGLE_SCOPES : MICROSOFT_SCOPES;
-  const redirectTo = oauthRedirect();
-
-  const queryParams: Record<string, string> = { prompt: 'none' };
-  if (provider === 'google') queryParams.access_type = 'offline';
-
   if (__DEV__) console.log('[auth] silent refresh attempt:', provider);
 
-  const initiator = await supabase.auth.signInWithOAuth({
-    provider: supabaseProvider,
-    options: { redirectTo, skipBrowserRedirect: true, scopes, queryParams },
-  });
-  if (initiator.error || !initiator.data?.url) {
-    if (__DEV__) console.warn('[auth] silent refresh URL failed:', initiator.error?.message);
+  try {
+    const { data, error } = await supabase.functions.invoke<{
+      access_token?: string;
+      expires_in?: number;
+      error?: string;
+    }>('refresh-provider-token', {
+      body: { provider },
+    });
+    if (error) {
+      if (__DEV__) console.warn('[auth] refresh-provider-token err:', error.message);
+      return null;
+    }
+    const token = (data as { access_token?: string } | null)?.access_token ?? null;
+    if (!token && __DEV__) {
+      console.warn('[auth] refresh-provider-token returned no token:', data);
+    }
+    return token;
+  } catch (err) {
+    if (__DEV__) console.warn('[auth] refresh-provider-token threw:', err);
     return null;
   }
-
-  const result = await WebBrowser.openAuthSessionAsync(initiator.data.url, redirectTo);
-  if (result.type !== 'success' || !result.url) {
-    if (__DEV__) console.warn('[auth] silent refresh browser result:', result.type);
-    return null;
-  }
-
-  const { code, error: cbError } = parseCallback(result.url);
-  if (cbError || !code) {
-    if (__DEV__) console.warn('[auth] silent refresh callback error:', cbError);
-    return null;
-  }
-
-  const exchange = await supabase.auth.exchangeCodeForSession(code);
-  if (exchange.error) {
-    if (__DEV__) console.warn('[auth] silent refresh exchange failed:', exchange.error.message);
-    return null;
-  }
-
-  const refreshToken = exchange.data.session?.provider_refresh_token ?? null;
-  const uid = exchange.data.session?.user?.id ?? currentUserId();
-  if (uid && refreshToken) {
-    await persistProviderRefreshToken(uid, provider, refreshToken);
-  }
-
-  return exchange.data.session?.provider_token ?? null;
 }
 
 async function doRefresh(provider: 'google' | 'microsoft'): Promise<string | null> {
