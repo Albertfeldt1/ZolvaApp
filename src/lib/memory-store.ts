@@ -39,12 +39,19 @@ function notifyNotes() {
 
 function reviveReminder(raw: unknown): Reminder | null {
   if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Partial<Reminder> & { dueAt?: string | Date; createdAt?: string | Date };
+  const r = raw as Partial<Reminder> & {
+    dueAt?: string | Date | null;
+    createdAt?: string | Date;
+    doneAt?: string | Date | null;
+  };
   if (typeof r.id !== 'string' || typeof r.text !== 'string') return null;
-  const dueAt = r.dueAt instanceof Date ? r.dueAt : new Date(r.dueAt ?? Date.now());
+  const dueAt =
+    r.dueAt == null ? null : r.dueAt instanceof Date ? r.dueAt : new Date(r.dueAt);
   const createdAt = r.createdAt instanceof Date ? r.createdAt : new Date(r.createdAt ?? Date.now());
   const status: ReminderStatus = r.status === 'done' ? 'done' : 'pending';
-  return { id: r.id, text: r.text, dueAt, createdAt, status };
+  const doneAt =
+    r.doneAt == null ? null : r.doneAt instanceof Date ? r.doneAt : new Date(r.doneAt);
+  return { id: r.id, text: r.text, dueAt, createdAt, status, doneAt };
 }
 
 function reviveNote(raw: unknown): Note | null {
@@ -186,6 +193,7 @@ export async function addReminder(text: string, dueAt?: Date | null): Promise<Re
     dueAt: dueAt ?? null,
     createdAt: new Date(),
     status: 'pending',
+    doneAt: null,
   };
   remindersCache = [...remindersCache, reminder];
   notifyReminders();
@@ -206,7 +214,9 @@ export async function addReminder(text: string, dueAt?: Date | null): Promise<Re
 export async function markReminderDone(id: string): Promise<void> {
   ensureUserSubscription();
   await hydrate();
-  remindersCache = remindersCache.map((r) => (r.id === id ? { ...r, status: 'done' } : r));
+  remindersCache = remindersCache.map((r) =>
+    r.id === id ? { ...r, status: 'done', doneAt: new Date() } : r,
+  );
   notifyReminders();
   await persistReminders();
   void cancelReminderNotification(id);

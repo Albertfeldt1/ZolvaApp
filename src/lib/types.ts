@@ -142,6 +142,7 @@ export type Reminder = {
   dueAt: Date | null;
   status: ReminderStatus;
   createdAt: Date;
+  doneAt: Date | null;
 };
 
 export type NoteCategory = 'task' | 'idea' | 'note' | 'info';

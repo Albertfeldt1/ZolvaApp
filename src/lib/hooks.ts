@@ -1467,7 +1467,9 @@ export function useReminders() {
     (id: string) => {
       if (demo) {
         setReminders((prev) =>
-          prev.map((r) => (r.id === id ? { ...r, status: 'done' as const } : r)),
+          prev.map((r) =>
+            r.id === id ? { ...r, status: 'done' as const, doneAt: new Date() } : r,
+          ),
         );
         return;
       }
@@ -1494,6 +1496,7 @@ export function useReminders() {
           dueAt: dueAt ?? null,
           status: 'pending',
           createdAt: new Date(),
+          doneAt: null,
         };
         setReminders((prev) => [...prev, r]);
         return Promise.resolve(r);
@@ -1645,6 +1648,12 @@ function buildChatSystemPrompt(name: string): string {
     timeContext,
     'Hold svar korte, konkrete og handlingsorienterede, medmindre der bliver spurgt om detaljer.',
     'Når brugeren beder dig huske noget tidsbundet (et møde, en opgave med deadline), brug add_reminder.',
+    'VIGTIGT om add_reminder: hvis brugeren beder om en påmindelse uden at angive et konkret tidspunkt, ' +
+      'så spørg dem først hvornår de vil mindes — fx "Hvornår skal jeg minde dig om det?". ' +
+      'Kald først add_reminder når brugeren har bekræftet et tidspunkt, ELLER hvis brugeren ' +
+      'eksplicit siger "uden tidspunkt" / "når som helst" / "ingen bestemt tid" — i det tilfælde ' +
+      'kald add_reminder uden due_at, og fortæl brugeren at du minder dem løbende indtil de markerer den som klaret.',
+    'Brug ALDRIG nuværende lokaltid eller "om lidt" som standard-tidspunkt — det skal komme fra brugeren.',
     'Når brugeren beder dig notere en idé, en tanke eller noget uden tid, brug add_note.',
     'Brug list_reminders og list_notes hvis brugeren spørger hvad du har gemt.',
     'Kald værktøjer FØR du bekræfter — bekræft først når værktøjet faktisk er kørt.',

@@ -102,57 +102,96 @@ export function registerResponseHandler(
   return () => sub.remove();
 }
 
+// "Når som helst" nudges: a reminder created without a specific time gets
+// daily-repeating nudges at these hours, asking "Fik du gjort det?". They
+// fire forever until the user marks the reminder done (or deletes it).
+const NUDGE_HOURS: ReadonlyArray<number> = [9, 13, 18];
+const NUDGE_BODY = 'Fik du gjort det?';
+
 export async function scheduleReminderNotification(reminder: Reminder): Promise<void> {
   const settings = getNotificationSettings();
   if (!settings.reminders) return;
-  if (!reminder.dueAt) return;
-  if (reminder.dueAt.getTime() <= Date.now()) return;
 
   const permission = await getPermissionStatus();
   if (permission !== 'granted') return;
 
-  const identifier = reminderIdentifier(reminder.id);
-  // Cancel any prior scheduled version first so edits don't double-fire.
-  try {
-    await Notifications.cancelScheduledNotificationAsync(identifier);
-  } catch {
-    // iOS throws if the identifier is unknown; that's fine.
+  // Wipe any prior schedules for this reminder (one-shot or nudge slots) so
+  // edits don't double-fire and switching between timed/no-time works.
+  await cancelReminderNotification(reminder.id);
+
+  if (reminder.dueAt) {
+    if (reminder.dueAt.getTime() <= Date.now()) return;
+    try {
+      await Notifications.scheduleNotificationAsync({
+        identifier: reminderIdentifier(reminder.id),
+        content: {
+          title: reminder.text,
+          data: { type: 'reminder', reminderId: reminder.id } satisfies NotificationPayload,
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: reminder.dueAt,
+        },
+      });
+      void recordFeedEntry({
+        id: `reminder:${reminder.id}:${reminder.dueAt.getTime()}`,
+        type: 'reminder',
+        title: reminder.text,
+        firesAt: reminder.dueAt,
+        payload: { type: 'reminder', reminderId: reminder.id },
+      });
+    } catch (err) {
+      if (__DEV__) console.warn('[notifications] schedule reminder failed:', err);
+    }
+    return;
   }
 
-  try {
-    await Notifications.scheduleNotificationAsync({
-      identifier,
-      content: {
-        title: reminder.text,
-        data: { type: 'reminder', reminderId: reminder.id } satisfies NotificationPayload,
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: reminder.dueAt,
-      },
-    });
-    void recordFeedEntry({
-      id: `reminder:${reminder.id}:${reminder.dueAt.getTime()}`,
-      type: 'reminder',
-      title: reminder.text,
-      firesAt: reminder.dueAt,
-      payload: { type: 'reminder', reminderId: reminder.id },
-    });
-  } catch (err) {
-    if (__DEV__) console.warn('[notifications] schedule reminder failed:', err);
+  // No dueAt → schedule daily-repeating "fik du gjort det?" nudges.
+  for (const hour of NUDGE_HOURS) {
+    try {
+      await Notifications.scheduleNotificationAsync({
+        identifier: nudgeIdentifier(reminder.id, hour),
+        content: {
+          title: reminder.text,
+          body: NUDGE_BODY,
+          data: { type: 'reminder', reminderId: reminder.id } satisfies NotificationPayload,
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DAILY,
+          hour,
+          minute: 0,
+        },
+      });
+    } catch (err) {
+      if (__DEV__) console.warn('[notifications] schedule nudge failed:', err);
+    }
   }
 }
 
 export async function cancelReminderNotification(reminderId: string): Promise<void> {
+  // Cancel both the one-shot reminder and any nudge slots scheduled for it.
+  // Listing scheduled notifications is cheap and avoids tracking slot state.
   try {
-    await Notifications.cancelScheduledNotificationAsync(reminderIdentifier(reminderId));
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    const prefix = `reminder:${reminderId}`;
+    await Promise.all(
+      scheduled
+        .filter((s) => s.identifier === prefix || s.identifier.startsWith(`${prefix}:`))
+        .map((s) =>
+          Notifications.cancelScheduledNotificationAsync(s.identifier).catch(() => {}),
+        ),
+    );
   } catch {
-    // Unknown identifier on iOS throws; treat as no-op.
+    // ignore — best effort
   }
 }
 
 function reminderIdentifier(id: string): string {
   return `reminder:${id}`;
+}
+
+function nudgeIdentifier(id: string, hour: number): string {
+  return `reminder:${id}:nudge:${hour}`;
 }
 
 function digestIdentifier(date: Date): string {

@@ -30,7 +30,26 @@ const CATEGORY_TONE: Record<NoteCategory, { bg: string; fg: string }> = {
   info: { bg: colors.warningSoft, fg: colors.warningInk },
 };
 
-type MemoryTab = 'fakta' | 'noter' | 'samtaler';
+type MemoryTab = 'paaminelser' | 'noter' | 'fakta' | 'samtaler';
+
+const TAB_LABELS: Record<MemoryTab, string> = {
+  paaminelser: 'Påmindelser',
+  noter: 'Noter',
+  fakta: 'Fakta',
+  samtaler: 'Samtaler',
+};
+
+function startOfToday(now: Date): Date {
+  const d = new Date(now);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function endOfToday(now: Date): Date {
+  const d = new Date(now);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
 
 type Props = { onOpenChat: () => void };
 
@@ -55,7 +74,7 @@ export function MemoryScreen({ onOpenChat }: Props) {
   const { user } = useAuth();
   const userId = user?.id ?? '';
 
-  const [tab, setTab] = useState<MemoryTab>('fakta');
+  const [tab, setTab] = useState<MemoryTab>('paaminelser');
   const [privacyVersion, setPrivacyVersion] = useState(0);
   const memoryEnabled = useMemoryEnabledLocal(privacyVersion);
   const [facts, setFacts] = useState<Fact[]>([]);
@@ -110,13 +129,48 @@ export function MemoryScreen({ onOpenChat }: Props) {
     [reminders],
   );
 
+  // For the Påmindelser tab: keep done reminders visible the rest of the day
+  // they were marked done in. The next morning they fall out naturally.
+  const visibleReminders = useMemo(() => {
+    const startToday = startOfToday(today).getTime();
+    return reminders.filter(
+      (r) => r.status === 'pending' || (r.doneAt != null && r.doneAt.getTime() >= startToday),
+    );
+  }, [reminders, today]);
+
+  const reminderSections = useMemo(() => {
+    const endToday = endOfToday(today).getTime();
+    const today_ = { label: 'I dag', items: [] as Reminder[] };
+    const upcoming = { label: 'Kommende', items: [] as Reminder[] };
+    const anytime = { label: 'Når som helst', items: [] as Reminder[] };
+    for (const r of visibleReminders) {
+      if (r.dueAt == null) {
+        anytime.items.push(r);
+      } else if (r.dueAt.getTime() <= endToday) {
+        today_.items.push(r);
+      } else {
+        upcoming.items.push(r);
+      }
+    }
+    today_.items.sort(
+      (a, b) => (a.dueAt?.getTime() ?? Infinity) - (b.dueAt?.getTime() ?? Infinity),
+    );
+    upcoming.items.sort(
+      (a, b) => (a.dueAt?.getTime() ?? Infinity) - (b.dueAt?.getTime() ?? Infinity),
+    );
+    anytime.items.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    return [today_, upcoming, anytime];
+  }, [visibleReminders, today]);
+
+  const hasAnyReminder = visibleReminders.length > 0;
+
   const notesByCategory = useMemo(() => {
     const groups: Record<NoteCategory, Note[]> = { task: [], idea: [], note: [], info: [] };
     for (const n of notes) groups[n.category].push(n);
     return groups;
   }, [notes]);
 
-  const isEmpty = pendingReminders.length === 0 && notes.length === 0;
+  const isEmpty = notes.length === 0;
   const { bottom: chromeBottom } = useChromeInsets();
 
   return (
@@ -135,14 +189,70 @@ export function MemoryScreen({ onOpenChat }: Props) {
 
       {/* Tab row */}
       <View style={styles.tabRow}>
-        {(['fakta', 'noter', 'samtaler'] as const).map((t) => (
+        {(['paaminelser', 'noter', 'fakta', 'samtaler'] as const).map((t) => (
           <Pressable key={t} onPress={() => setTab(t)} style={[styles.tab, tab === t && styles.tabActive]}>
             <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>
-              {t === 'fakta' ? 'Fakta' : t === 'noter' ? 'Noter' : 'Samtaler'}
+              {TAB_LABELS[t]}
             </Text>
           </Pressable>
         ))}
       </View>
+
+      {/* ── Påmindelser tab ── */}
+      {tab === 'paaminelser' && (
+        <>
+          <View style={styles.speech}>
+            <Stone mood="thinking" size={40} onPress={onOpenChat} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.speechText}>
+                Tilføj nye ved at skrive{' '}
+                <Text style={styles.accent}>"mind mig om…"</Text> til mig.
+              </Text>
+            </View>
+          </View>
+
+          {!hasAnyReminder ? (
+            <View style={styles.section}>
+              <EmptyState
+                icon={false}
+                title="Ingen aktive påmindelser"
+                body={'Skriv "mind mig om at ringe til Lars torsdag" - så lægger jeg den her.'}
+                ctaLabel="Skriv til Zolva"
+                onCta={onOpenChat}
+              />
+            </View>
+          ) : (
+            reminderSections.map((sec) =>
+              sec.items.length === 0 ? null : (
+                <View key={sec.label} style={[styles.section, { paddingTop: 24 }]}>
+                  <View style={styles.sectionHead}>
+                    <Text style={styles.sectionTitle}>{sec.label}</Text>
+                    <Text style={styles.sectionMeta}>
+                      {plural(sec.items.length, 'aktiv', 'aktive')}
+                    </Text>
+                  </View>
+                  <View style={styles.inkRule} />
+                  {sec.label === 'Når som helst' && (
+                    <Text style={styles.sectionHint}>
+                      Jeg minder dig løbende indtil du markerer dem som klaret.
+                    </Text>
+                  )}
+                  {sec.items.map((r, i) => (
+                    <ReminderRow
+                      key={r.id}
+                      reminder={r}
+                      now={today}
+                      onDone={() => markDone(r.id)}
+                      onDelete={() => removeReminder(r.id)}
+                      border={i > 0}
+                    />
+                  ))}
+                </View>
+              ),
+            )
+          )}
+        </>
+      )}
 
       {/* ── Fakta tab ── */}
       {tab === 'fakta' && (
@@ -225,42 +335,9 @@ export function MemoryScreen({ onOpenChat }: Props) {
                   the app; we are the only screen that quotes inline. */}
               <Text style={styles.speechText}>
                 Tilføj nye ved at skrive{' '}
-                <Text style={styles.accent}>"mind mig om…"</Text> eller{' '}
                 <Text style={styles.accent}>"husk at…"</Text> til mig.
               </Text>
             </View>
-          </View>
-
-          <View style={styles.section}>
-            <View style={styles.sectionHead}>
-              <Text style={styles.sectionTitle}>Påmindelser</Text>
-              <Text style={styles.sectionMeta}>
-                {pendingReminders.length > 0
-                  ? plural(pendingReminders.length, 'aktiv', 'aktive')
-                  : '-'}
-              </Text>
-            </View>
-            <View style={styles.inkRule} />
-            {pendingReminders.length === 0 ? (
-              <EmptyState
-                icon={false}
-                title="Ingen aktive påmindelser"
-                body={'Skriv "mind mig om at ringe til Lars torsdag" - så lægger jeg den her.'}
-                ctaLabel="Skriv til Zolva"
-                onCta={onOpenChat}
-              />
-            ) : (
-              pendingReminders.map((r, i) => (
-                <ReminderRow
-                  key={r.id}
-                  reminder={r}
-                  now={today}
-                  onDone={() => markDone(r.id)}
-                  onDelete={() => removeReminder(r.id)}
-                  border={i > 0}
-                />
-              ))
-            )}
           </View>
 
           <View style={[styles.section, { paddingTop: 28 }]}>
@@ -366,26 +443,42 @@ function ReminderRow({
   onDelete: () => void;
   border: boolean;
 }) {
+  const isDone = reminder.status === 'done';
   const due = reminder.dueAt ? formatDue(reminder.dueAt, now) : { head: 'Ingen tid', meta: '' };
-  const isOverdue = reminder.dueAt != null && reminder.dueAt.getTime() < now.getTime();
+  const isOverdue =
+    !isDone && reminder.dueAt != null && reminder.dueAt.getTime() < now.getTime();
   return (
-    <View style={[styles.row, border && styles.rowBorder]}>
+    <View style={[styles.row, border && styles.rowBorder, isDone && styles.rowDone]}>
       <View style={styles.timeCol}>
-        <Text style={[styles.timeTop, isOverdue && styles.timeOverdue]}>{due.head}</Text>
-        <Text style={styles.timeMeta}>{due.meta}</Text>
+        <Text
+          style={[
+            styles.timeTop,
+            isOverdue && styles.timeOverdue,
+            isDone && styles.timeDone,
+          ]}
+        >
+          {due.head}
+        </Text>
+        <Text style={styles.timeMeta}>{isDone ? 'Klaret' : due.meta}</Text>
       </View>
       <View style={styles.rowBody}>
-        <Text style={styles.rowTitle}>{reminder.text}</Text>
+        <Text style={[styles.rowTitle, isDone && styles.rowTitleDone]}>{reminder.text}</Text>
       </View>
       <View style={styles.rowActions}>
         <Pressable
-          onPress={onDone}
-          style={styles.doneBtn}
+          onPress={isDone ? undefined : onDone}
+          disabled={isDone}
+          style={[styles.doneBtn, isDone && styles.doneBtnFilled]}
           hitSlop={8}
           accessibilityRole="button"
-          accessibilityLabel="Markér som færdig"
+          accessibilityLabel={isDone ? 'Klaret' : 'Markér som færdig'}
+          accessibilityState={{ disabled: isDone, checked: isDone }}
         >
-          <Check size={16} color={colors.sageDeep} strokeWidth={2.2} />
+          <Check
+            size={16}
+            color={isDone ? colors.paper : colors.sageDeep}
+            strokeWidth={2.2}
+          />
         </Pressable>
         <Pressable
           onPress={onDelete}
@@ -614,28 +707,42 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontFamily: fonts.display, fontSize: 22, letterSpacing: -0.44, color: colors.ink },
   sectionMeta: { fontFamily: fonts.mono, fontSize: 11, color: colors.fg3 },
+  sectionHint: {
+    marginTop: 6,
+    fontFamily: fonts.ui,
+    fontSize: 12,
+    lineHeight: 18,
+    color: colors.fg3,
+  },
   inkRule: { height: 1, backgroundColor: colors.ink, marginBottom: 2 },
 
   row: { flexDirection: 'row', gap: 12, alignItems: 'center', paddingVertical: 14 },
   rowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+  rowDone: { opacity: 0.5 },
   timeCol: { width: 72 },
   timeTop: {
     fontFamily: fonts.display, fontSize: 18,
     letterSpacing: -0.36, lineHeight: 22, color: colors.ink,
   },
   timeOverdue: { color: colors.warningInk },
+  timeDone: { color: colors.fg3 },
   timeMeta: {
     marginTop: 2, fontFamily: fonts.mono, fontSize: 10,
     letterSpacing: 0.6, textTransform: 'uppercase', color: colors.fg3,
   },
   rowBody: { flex: 1 },
   rowTitle: { fontFamily: fonts.ui, fontSize: 14, lineHeight: 20, color: colors.ink },
+  rowTitleDone: { textDecorationLine: 'line-through', color: colors.fg3 },
   rowActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   doneBtn: {
     width: 32, height: 32, borderRadius: 999,
     alignItems: 'center', justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth, borderColor: colors.sage,
     backgroundColor: colors.sageSoft,
+  },
+  doneBtnFilled: {
+    backgroundColor: colors.sageDeep,
+    borderColor: colors.sageDeep,
   },
 
   categoryGroup: { paddingTop: 14, paddingBottom: 4 },

@@ -232,9 +232,9 @@ export const DEMO_SUBSCRIPTION: Subscription = {
 export function demoReminders(): Reminder[] {
   const now = Date.now();
   return [
-    { id: 'd-r-1', text: 'Ring til tandlægen', dueAt: today(14, 0), status: 'pending', createdAt: new Date(now - 3 * 86400000) },
-    { id: 'd-r-2', text: 'Godkend faktura #4021', dueAt: today(16, 30), status: 'pending', createdAt: new Date(now - 86400000) },
-    { id: 'd-r-3', text: 'Svar Sofia om retro', dueAt: null, status: 'pending', createdAt: new Date(now - 7200000) },
+    { id: 'd-r-1', text: 'Ring til tandlægen', dueAt: today(14, 0), status: 'pending', createdAt: new Date(now - 3 * 86400000), doneAt: null },
+    { id: 'd-r-2', text: 'Godkend faktura #4021', dueAt: today(16, 30), status: 'pending', createdAt: new Date(now - 86400000), doneAt: null },
+    { id: 'd-r-3', text: 'Svar Sofia om retro', dueAt: null, status: 'pending', createdAt: new Date(now - 7200000), doneAt: null },
   ];
 }
 
