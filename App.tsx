@@ -49,8 +49,6 @@ import { MemoryConsentModal } from './src/components/MemoryConsentModal';
 import { isDemoUser } from './src/lib/demo';
 import { syncUserProfile } from './src/lib/user-profile';
 
-const PROFILE_MEMORY_FLAG = process.env.EXPO_PUBLIC_PROFILE_MEMORY === '1';
-
 // Module-level flag — persists across component re-renders and across
 // background/foreground transitions (JS VM stays warm), but resets on cold
 // start (new VM → module re-evaluated). That's exactly "play once per
@@ -96,7 +94,6 @@ export default function App() {
   const [briefOpenTrigger, setBriefOpenTrigger] = useState(0);
 
   useEffect(() => {
-    if (!PROFILE_MEMORY_FLAG) return;
     if (!user?.id) return;
     let cancelled = false;
     void shouldShowMemoryConsent(user.id).then((show) => {

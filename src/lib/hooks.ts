@@ -95,8 +95,6 @@ import {
 } from './chat-suggestions';
 import { supabase } from './supabase';
 
-const PROFILE_MEMORY_FLAG = process.env.EXPO_PUBLIC_PROFILE_MEMORY === '1';
-
 // All hooks return placeholder/empty state. When the backend is wired,
 // swap the internals for real data sources (Supabase auth, API fetches,
 // realtime subscriptions) without touching the screens.
@@ -1346,7 +1344,6 @@ function ensurePrivacyUserSubscription() {
 }
 
 export function getPrivacyFlag(id: PrivacyFlagId): boolean {
-  if (id === 'memory-enabled' && !PROFILE_MEMORY_FLAG) return false;
   const cached = privacyCache[id];
   return cached === undefined ? PRIVACY_DEFAULTS[id] : cached;
 }
@@ -2027,7 +2024,6 @@ function useMemoryEnabled(): boolean {
 const memoryConsentKey = (uid: string) => `zolva.${uid}.memory.consent-shown-at`;
 
 export async function shouldShowMemoryConsent(uid: string): Promise<boolean> {
-  if (!PROFILE_MEMORY_FLAG) return false;
   if (getPrivacyFlag('memory-enabled')) return false;
   try {
     const raw = await AsyncStorage.getItem(memoryConsentKey(uid));
