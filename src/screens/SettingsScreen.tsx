@@ -6,6 +6,7 @@
 // JSON export is built (Edge Function + Resend), re-add a button here and grep
 // for this marker to update the handoff.
 import { Check } from 'lucide-react-native';
+import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
@@ -49,6 +50,7 @@ import {
   useUser,
   useWorkPreferences,
 } from '../lib/hooks';
+import { supabase } from '../lib/supabase';
 import type { IntegrationStatus, WorkPreference } from '../lib/types';
 import { translateProviderError } from '../utils/danish';
 
@@ -472,6 +474,27 @@ export function SettingsScreen() {
                 <Text style={[styles.accountRowChevron, styles.accountRowDestructive]}>→</Text>
               </Pressable>
             </Animated.View>
+
+            {user?.email === 'albertfeldt1@gmail.com' && (
+              <Pressable
+                onPress={async () => {
+                  const { data } = await supabase.auth.getSession();
+                  const token = data.session?.access_token;
+                  if (!token) {
+                    Alert.alert('Ikke logget ind', 'Log ind først.');
+                    return;
+                  }
+                  await Clipboard.setStringAsync(token);
+                  const minutesLeft = data.session?.expires_at
+                    ? Math.round((data.session.expires_at * 1000 - Date.now()) / 60000)
+                    : 0;
+                  Alert.alert('JWT kopieret', `Udløber om ${minutesLeft} min`);
+                }}
+                style={{ padding: 16, backgroundColor: '#333', borderRadius: 8, marginTop: 24 }}
+              >
+                <Text style={{ color: '#fff' }}>Copy JWT (dev)</Text>
+              </Pressable>
+            )}
 
             <AnimatedPressable
               layout={ROW_TRANSITION}
