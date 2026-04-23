@@ -7,7 +7,11 @@ import { supabase } from './supabase';
 import { buildProfilePreamble } from './profile';
 import { getPrivacyFlag } from './hooks';
 
-const MODEL = 'claude-haiku-4-5-20251001';
+// Default model for all Claude calls unless a caller passes `model` explicitly.
+// Haiku is cheap and fast, the right fit for classification and short extraction
+// work. User-visible copy (reply drafts, daily briefs) overrides this — see
+// individual call sites in hooks.ts.
+const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const SUPABASE_ANON = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
@@ -73,6 +77,7 @@ type CompleteOptions = {
   tools?: ClaudeToolSchema[];
   metadata?: { user_id?: string };
   attachProfile?: boolean; // default true
+  model?: string; // overrides DEFAULT_MODEL; proxy forwards as-is
 };
 
 type AnthropicResponse = {
@@ -122,7 +127,7 @@ export async function completeRaw(opts: CompleteOptions): Promise<ClaudeCompleti
   }
 
   const payload: Record<string, unknown> = {
-    model: MODEL,
+    model: opts.model ?? DEFAULT_MODEL,
     max_tokens: opts.maxTokens ?? 1024,
     temperature: opts.temperature ?? 0.7,
     messages: opts.messages,

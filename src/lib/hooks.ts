@@ -861,12 +861,18 @@ const AUTONOMY_TARGETS: Record<string, number> = {
   'Handl selv': 6,
 };
 
+// Drafts are user-facing Danish copy — Sonnet 4.6 is meaningfully better at
+// tone calibration and Danish phrasing than Haiku. Cost delta is small since
+// drafts are ~160 tokens each and only a handful run per inbox refresh.
+const DRAFT_MODEL = 'claude-sonnet-4-6';
+
 async function generateDraft(
   mail: NormalizedMail,
   tone: string,
   signal: AbortSignal,
 ): Promise<string> {
   return complete({
+    model: DRAFT_MODEL,
     system: draftSystemPrompt(tone),
     messages: [
       {
