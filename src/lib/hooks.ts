@@ -379,6 +379,22 @@ function useDismissedMailIds(): Set<string> {
 
 const CALENDAR_FETCH_TIMEOUT_MS = 20_000;
 
+// Rotate events through a distinct subset of the Google palette so the ribbon
+// reads as varied instead of every untagged event defaulting to Blueberry.
+// Deterministic (by sorted-start index) so colors don't shuffle on refresh.
+const RIBBON_PALETTE = [
+  '#3F51B5', // Blueberry
+  '#0B8043', // Basil
+  '#F4511E', // Tangerine
+  '#8E24AA', // Grape
+  '#039BE5', // Peacock
+  '#D50000', // Tomato
+  '#7986CB', // Lavender
+  '#33B679', // Sage
+  '#F6BF26', // Banana
+  '#E67C73', // Flamingo
+];
+
 function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
   items: NormalizedEvent[];
   loading: boolean;
@@ -471,7 +487,8 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
         if (cancelled) return;
         const merged = results
           .flat()
-          .sort((a, b) => a.start.getTime() - b.start.getTime());
+          .sort((a, b) => a.start.getTime() - b.start.getTime())
+          .map((e, i) => ({ ...e, color: RIBBON_PALETTE[i % RIBBON_PALETTE.length] }));
         setState({ items: merged, loading: false, error: null });
       })
       .catch((err: Error) => {
