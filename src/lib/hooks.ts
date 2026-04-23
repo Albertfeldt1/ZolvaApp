@@ -1306,6 +1306,20 @@ export function useDaySchedule(targetDate?: Date): Result<CalendarSlot[]> {
     );
   }
 
+  // On today, ensure the current hour has a row so the now-line has
+  // something to anchor to even if no event runs that late (or early).
+  if (targetDate) {
+    const now = new Date();
+    if (
+      targetDate.getFullYear() === now.getFullYear() &&
+      targetDate.getMonth() === now.getMonth() &&
+      targetDate.getDate() === now.getDate()
+    ) {
+      startHour = Math.max(ABSOLUTE_START_HOUR, Math.min(startHour, now.getHours()));
+      endHour = Math.min(ABSOLUTE_END_HOUR, Math.max(endHour, now.getHours() + 1));
+    }
+  }
+
   const hourSlots = makeHourSlots(startHour, endHour);
   timed.forEach((e, i) => {
     const idx = e.start.getHours() - startHour;
