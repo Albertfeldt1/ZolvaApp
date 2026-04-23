@@ -1245,7 +1245,7 @@ export function useSendReply() {
 // lives outside this range the window expands to include it, so 07:00 or
 // 20:30 meetings never silently disappear. Upper bound on end-hour avoids
 // a 22→23 slot for events that end exactly on the hour.
-const DEFAULT_GRID_START_HOUR = 7;
+const DEFAULT_GRID_START_HOUR = 0;
 const DEFAULT_GRID_END_HOUR = 21;
 const ABSOLUTE_START_HOUR = 0;
 const ABSOLUTE_END_HOUR = 24;
