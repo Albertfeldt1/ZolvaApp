@@ -9,7 +9,7 @@
     "newArchEnabled": true,
     "scheme": "zolva",
     "splash": {
-      "backgroundColor": "#ECE4D8"
+      "backgroundColor": "#EBE3D7"
     },
     "ios": {
       "supportsTablet": true,

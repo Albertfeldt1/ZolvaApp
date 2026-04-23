@@ -41,9 +41,12 @@ export const colors = {
 
   // Launch-transition color. Must match app.json splash.backgroundColor
   // and IntroVideo root so the native splash → intro handoff has no
-  // visible border around the video. Sampled from inside the intro mp4
-  // (a warmer, slightly darker cream than the app's paper tone).
-  intro: '#ECE4D8',
+  // visible border around the video. Nudged 1 point darker than the
+  // video's dominant interior pixels (#ECE4D8) because iOS native
+  // splash and AVFoundation video rendering land 1-2 points apart in
+  // practice — this biases the splash darker so the letterbox seam
+  // visually closes.
+  intro: '#EBE3D7',
 };
 
 export const fonts = {

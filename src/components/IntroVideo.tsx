@@ -11,7 +11,7 @@ const INTRO_SOURCE = require('../../assets/intro.mp4');
 // Fraction of the screen's shorter edge the video occupies. Keeps it
 // centered as a small reveal element over the paper background instead
 // of a full-screen takeover.
-const INTRO_SIZE_FRACTION = 0.55;
+const INTRO_SIZE_FRACTION = 0.63;
 
 type Props = {
   onEnd: () => void;
