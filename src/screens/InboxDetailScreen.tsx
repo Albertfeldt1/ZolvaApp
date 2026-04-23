@@ -2,6 +2,7 @@ import { Archive, ChevronDown, ChevronLeft, ChevronUp, Send } from 'lucide-react
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -67,7 +68,7 @@ export function InboxDetailScreen({ mail, onClose }: Props) {
     }
   };
 
-  const handleArchive = async () => {
+  const performArchive = async () => {
     const ok = await archive(mail.id, mail.provider);
     if (ok) {
       if (user?.id) {
@@ -87,6 +88,25 @@ export function InboxDetailScreen({ mail, onClose }: Props) {
       }
       onClose();
     }
+  };
+
+  const handleArchive = () => {
+    // Only nag when there's actually a draft at risk. Empty textarea → archive
+    // straight through. Any non-whitespace content → confirm, because the draft
+    // is neither sent nor persisted anywhere the user can recover it.
+    if (draft.trim().length === 0) {
+      void performArchive();
+      return;
+    }
+    Alert.alert(
+      'Arkivér udkast?',
+      'Dit svar bliver ikke sendt eller gemt.',
+      [
+        { text: 'Annullér', style: 'cancel' },
+        { text: 'Arkivér', style: 'destructive', onPress: () => void performArchive() },
+      ],
+      { cancelable: true },
+    );
   };
 
   return (

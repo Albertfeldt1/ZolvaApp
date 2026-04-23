@@ -8,6 +8,7 @@ import {
   DEMO_OBSERVATIONS,
   DEMO_SUBSCRIPTION,
   demoDaySchedule,
+  demoInboxArchived,
   demoInboxCleared,
   demoInboxWaiting,
   demoMailDetail,
@@ -819,6 +820,36 @@ export function useInboxWaiting(): Result<InboxMail[]> {
       tone: tones[i % tones.length],
       initials: initialsOf(m.from),
       aiDraft: drafts[m.id] ?? null,
+    }));
+  return { data, loading, error };
+}
+
+export function useInboxArchived(): Result<InboxMail[]> {
+  const { user } = useAuth();
+  const { items, loading, error } = useMailItems();
+  const dismissed = useDismissedMailIds();
+  if (isDemoUser(user)) {
+    const base = demoInboxArchived();
+    const justDismissed = demoInboxWaiting().filter((m) => dismissed.has(m.id));
+    return {
+      data: [...justDismissed, ...base],
+      loading: false,
+      error: null,
+    };
+  }
+  const now = new Date();
+  const tones: InboxMail['tone'][] = ['sage', 'clay', 'mist'];
+  const data: InboxMail[] = items
+    .filter((m) => m.isRead || dismissed.has(m.id))
+    .map((m, i) => ({
+      id: m.id,
+      provider: m.provider,
+      from: m.from,
+      subject: m.subject,
+      time: shortTime(m.receivedAt, now),
+      tone: tones[i % tones.length],
+      initials: initialsOf(m.from),
+      aiDraft: null,
     }));
   return { data, loading, error };
 }

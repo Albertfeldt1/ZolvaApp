@@ -180,6 +180,23 @@ export function demoInboxCleared(): { items: DoneMail[]; count: number } {
   };
 }
 
+export function demoInboxArchived(): InboxMail[] {
+  const now = new Date();
+  const tones: InboxMail['tone'][] = ['sage', 'clay', 'mist'];
+  return DEMO_MAILS
+    .filter((m) => !m.unread)
+    .map((m, i) => ({
+      id: m.id,
+      provider: 'google' as const,
+      from: m.from,
+      subject: m.subject,
+      time: timeAgoLabel(minutesAgo(m.minutesAgo), now),
+      tone: tones[i % tones.length],
+      initials: initialsOf(m.from),
+      aiDraft: m.aiDraft,
+    }));
+}
+
 export function demoDaySchedule(): CalendarSlot[] {
   const SLOT_START = 9;
   const SLOT_COUNT = 8;
