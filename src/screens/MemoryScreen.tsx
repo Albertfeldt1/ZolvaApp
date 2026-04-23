@@ -30,10 +30,9 @@ const CATEGORY_TONE: Record<NoteCategory, { bg: string; fg: string }> = {
   info: { bg: colors.warningSoft, fg: colors.warningInk },
 };
 
-type MemoryTab = 'paaminelser' | 'noter' | 'fakta' | 'samtaler';
+type MemoryTab = 'noter' | 'fakta' | 'samtaler';
 
 const TAB_LABELS: Record<MemoryTab, string> = {
-  paaminelser: 'Påmindelser',
   noter: 'Noter',
   fakta: 'Fakta',
   samtaler: 'Samtaler',
@@ -74,7 +73,7 @@ export function MemoryScreen({ onOpenChat }: Props) {
   const { user } = useAuth();
   const userId = user?.id ?? '';
 
-  const [tab, setTab] = useState<MemoryTab>('paaminelser');
+  const [tab, setTab] = useState<MemoryTab>('noter');
   const [privacyVersion, setPrivacyVersion] = useState(0);
   const memoryEnabled = useMemoryEnabledLocal(privacyVersion);
   const [facts, setFacts] = useState<Fact[]>([]);
@@ -189,7 +188,7 @@ export function MemoryScreen({ onOpenChat }: Props) {
 
       {/* Tab row */}
       <View style={styles.tabRow}>
-        {(['paaminelser', 'noter', 'fakta', 'samtaler'] as const).map((t) => (
+        {(['noter', 'fakta', 'samtaler'] as const).map((t) => (
           <Pressable key={t} onPress={() => setTab(t)} style={[styles.tab, tab === t && styles.tabActive]}>
             <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>
               {TAB_LABELS[t]}
@@ -197,62 +196,6 @@ export function MemoryScreen({ onOpenChat }: Props) {
           </Pressable>
         ))}
       </View>
-
-      {/* ── Påmindelser tab ── */}
-      {tab === 'paaminelser' && (
-        <>
-          <View style={styles.speech}>
-            <Stone mood="thinking" size={40} onPress={onOpenChat} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.speechText}>
-                Tilføj nye ved at skrive{' '}
-                <Text style={styles.accent}>"mind mig om…"</Text> til mig.
-              </Text>
-            </View>
-          </View>
-
-          {!hasAnyReminder ? (
-            <View style={styles.section}>
-              <EmptyState
-                icon={false}
-                title="Ingen aktive påmindelser"
-                body={'Skriv "mind mig om at ringe til Lars torsdag" - så lægger jeg den her.'}
-                ctaLabel="Skriv til Zolva"
-                onCta={onOpenChat}
-              />
-            </View>
-          ) : (
-            reminderSections.map((sec) =>
-              sec.items.length === 0 ? null : (
-                <View key={sec.label} style={[styles.section, { paddingTop: 24 }]}>
-                  <View style={styles.sectionHead}>
-                    <Text style={styles.sectionTitle}>{sec.label}</Text>
-                    <Text style={styles.sectionMeta}>
-                      {plural(sec.items.length, 'aktiv', 'aktive')}
-                    </Text>
-                  </View>
-                  <View style={styles.inkRule} />
-                  {sec.label === 'Når som helst' && (
-                    <Text style={styles.sectionHint}>
-                      Jeg minder dig løbende indtil du markerer dem som klaret.
-                    </Text>
-                  )}
-                  {sec.items.map((r, i) => (
-                    <ReminderRow
-                      key={r.id}
-                      reminder={r}
-                      now={today}
-                      onDone={() => markDone(r.id)}
-                      onDelete={() => removeReminder(r.id)}
-                      border={i > 0}
-                    />
-                  ))}
-                </View>
-              ),
-            )
-          )}
-        </>
-      )}
 
       {/* ── Fakta tab ── */}
       {tab === 'fakta' && (
@@ -335,10 +278,41 @@ export function MemoryScreen({ onOpenChat }: Props) {
                   the app; we are the only screen that quotes inline. */}
               <Text style={styles.speechText}>
                 Tilføj nye ved at skrive{' '}
+                <Text style={styles.accent}>"mind mig om…"</Text> eller{' '}
                 <Text style={styles.accent}>"husk at…"</Text> til mig.
               </Text>
             </View>
           </View>
+
+          {hasAnyReminder &&
+            reminderSections.map((sec) =>
+              sec.items.length === 0 ? null : (
+                <View key={sec.label} style={[styles.section, { paddingTop: 24 }]}>
+                  <View style={styles.sectionHead}>
+                    <Text style={styles.sectionTitle}>{sec.label}</Text>
+                    <Text style={styles.sectionMeta}>
+                      {plural(sec.items.length, 'aktiv', 'aktive')}
+                    </Text>
+                  </View>
+                  <View style={styles.inkRule} />
+                  {sec.label === 'Når som helst' && (
+                    <Text style={styles.sectionHint}>
+                      Jeg minder dig løbende indtil du markerer dem som klaret.
+                    </Text>
+                  )}
+                  {sec.items.map((r, i) => (
+                    <ReminderRow
+                      key={r.id}
+                      reminder={r}
+                      now={today}
+                      onDone={() => markDone(r.id)}
+                      onDelete={() => removeReminder(r.id)}
+                      border={i > 0}
+                    />
+                  ))}
+                </View>
+              ),
+            )}
 
           <View style={[styles.section, { paddingTop: 28 }]}>
             <View style={styles.sectionHead}>
