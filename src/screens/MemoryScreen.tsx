@@ -152,7 +152,12 @@ export function MemoryScreen({ onOpenChat }: Props) {
             <Text style={styles.killRowLabel}>
               {memoryEnabled ? 'Zolva husker dig' : 'Zolva husker ikke dig'}
             </Text>
-            <Pressable onPress={() => { void toggleMemory(); }}>
+            <Pressable
+              onPress={() => { void toggleMemory(); }}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel={memoryEnabled ? 'Slå hukommelse fra' : 'Slå hukommelse til'}
+            >
               <Text style={styles.killRowAction}>{memoryEnabled ? 'Slå fra' : 'Slå til'}</Text>
             </Pressable>
           </View>
@@ -163,6 +168,8 @@ export function MemoryScreen({ onOpenChat }: Props) {
               icon={false}
               title="Hukommelse er slået fra"
               body="Slå hukommelse til for at lade Zolva lære dig at kende over tid."
+              ctaLabel="Slå hukommelse til"
+              onCta={() => { void toggleMemory(); }}
             />
           ) : (
             <>
