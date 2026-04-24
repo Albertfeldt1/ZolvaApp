@@ -284,7 +284,15 @@ export function SettingsScreen() {
                 <WorkPreferenceRow
                   key={r.id}
                   pref={r}
-                  onChange={(v) => setWorkValue(r.id, v)}
+                  onChange={async (v) => {
+                    const result = await setWorkValue(r.id, v);
+                    if (result.ok) return;
+                    const message =
+                      result.reason === 'unauthenticated' || result.reason === 'rls'
+                        ? 'Kunne ikke gemme — log ind igen.'
+                        : 'Kunne ikke gemme. Prøv igen om lidt.';
+                    Alert.alert('Indstillinger', message);
+                  }}
                 />
               ))}
             </Animated.View>

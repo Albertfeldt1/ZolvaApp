@@ -1470,10 +1470,12 @@ function applySavedPrefs(
   prev: WorkPreference[],
   saved: Record<string, string>,
 ): WorkPreference[] {
-  return prev.map((r) =>
-    saved[r.id] && r.options.includes(saved[r.id]) ? { ...r, value: saved[r.id] } : r,
-  );
+  return prev.map((r) => (saved[r.id] ? { ...r, value: saved[r.id] } : r));
 }
+
+export type SetWorkPreferenceResult =
+  | { ok: true }
+  | { ok: false; reason: 'unauthenticated' | 'rls' | 'error'; message?: string };
 
 export function useWorkPreferences() {
   const { user } = useAuth();
@@ -1508,6 +1510,23 @@ export function useWorkPreferences() {
             AsyncStorage.setItem(workPrefsKey(userId), JSON.stringify(snapshot)).catch(() => {});
             return next;
           });
+          if (data.length === 0) {
+            const nowIso = new Date().toISOString();
+            const seed = DEFAULT_WORK_PREFERENCES.map((r) => ({
+              user_id: userId,
+              id: r.id,
+              value: r.value,
+              updated_at: nowIso,
+            }));
+            void supabase
+              .from('work_preferences')
+              .upsert(seed, { onConflict: 'user_id,id' })
+              .then(({ error: seedError }) => {
+                if (seedError && __DEV__) {
+                  console.warn('[work-prefs] seed failed:', seedError.message);
+                }
+              });
+          }
         });
     }
     return () => {
@@ -1516,28 +1535,52 @@ export function useWorkPreferences() {
   }, [userId, demo]);
 
   const setValue = useCallback(
-    (id: WorkPreferenceId, value: string) => {
+    async (id: WorkPreferenceId, value: string): Promise<SetWorkPreferenceResult> => {
+      if (!userId) return { ok: false, reason: 'unauthenticated' };
+
+      let previousValue: string | null | undefined;
+      let previousSnapshot: Record<string, string | null> | undefined;
       setRows((prev) => {
+        previousValue = prev.find((r) => r.id === id)?.value;
+        previousSnapshot = Object.fromEntries(prev.map((r) => [r.id, r.value]));
         const next = prev.map((r) => (r.id === id ? { ...r, value } : r));
-        if (userId) {
-          const snapshot = Object.fromEntries(next.map((r) => [r.id, r.value]));
-          AsyncStorage.setItem(workPrefsKey(userId), JSON.stringify(snapshot)).catch(() => {});
-          if (!demo) {
-            void supabase
-              .from('work_preferences')
-              .upsert(
-                { user_id: userId, id, value, updated_at: new Date().toISOString() },
-                { onConflict: 'user_id,id' },
-              )
-              .then(({ error }) => {
-                if (error && __DEV__) {
-                  console.warn('[work-prefs] upsert failed:', error.message);
-                }
-              });
-          }
-        }
+        const snapshot = Object.fromEntries(next.map((r) => [r.id, r.value]));
+        AsyncStorage.setItem(workPrefsKey(userId), JSON.stringify(snapshot)).catch(() => {});
         return next;
       });
+
+      if (demo) return { ok: true };
+
+      const { data, error } = await supabase
+        .from('work_preferences')
+        .upsert(
+          { user_id: userId, id, value, updated_at: new Date().toISOString() },
+          { onConflict: 'user_id,id' },
+        )
+        .select('id');
+
+      const rowsAffected = data?.length ?? 0;
+      if (error || rowsAffected === 0) {
+        if (__DEV__) {
+          console.warn(
+            '[work-prefs] upsert failed:',
+            error?.message ?? `0 rows affected (RLS/session?)`,
+          );
+        }
+        setRows((prev) =>
+          prev.map((r) => (r.id === id ? { ...r, value: previousValue ?? r.value } : r)),
+        );
+        if (previousSnapshot) {
+          AsyncStorage.setItem(workPrefsKey(userId), JSON.stringify(previousSnapshot)).catch(
+            () => {},
+          );
+        }
+        return error
+          ? { ok: false, reason: 'error', message: error.message }
+          : { ok: false, reason: 'rls' };
+      }
+
+      return { ok: true };
     },
     [userId, demo],
   );
