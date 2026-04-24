@@ -1,4 +1,4 @@
-import { Bell, Bookmark, ChevronRight, X } from 'lucide-react-native';
+import { Bell, Bookmark, ChevronRight, Moon, Sun, X } from 'lucide-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { BriefBanner } from '../components/BriefBanner';
+import { BriefHistoryModal } from '../components/BriefHistoryModal';
 import { BriefModal } from '../components/BriefModal';
 import { CountUp } from '../components/CountUp';
 import { DayRibbon, RibbonEvent } from '../components/DayRibbon';
@@ -21,6 +22,7 @@ import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { SkeletonRow } from '../components/Skeleton';
 import { Stone } from '../components/Stone';
+import type { Brief } from '../lib/briefs';
 import { useTodayBrief } from '../lib/briefs';
 import { formatToday, greeting } from '../lib/date';
 import {
@@ -93,13 +95,14 @@ export function TodayScreen({
   const hasProvider = useHasProvider();
   const { data: pendingFacts, accept: acceptFact, reject: rejectFactHook } = usePendingFacts();
   const { brief, markRead: markBriefRead } = useTodayBrief();
-  const [briefModalOpen, setBriefModalOpen] = useState(false);
+  const [viewingBrief, setViewingBrief] = useState<Brief | null>(null);
+  const [historyKind, setHistoryKind] = useState<'morning' | 'evening' | null>(null);
 
   // Notification taps: App.tsx bumps briefOpenTrigger — we open the modal
   // if we have a brief to show.
   useEffect(() => {
     if (briefOpenTrigger && briefOpenTrigger > 0 && brief) {
-      setBriefModalOpen(true);
+      setViewingBrief(brief);
     }
   }, [briefOpenTrigger, brief]);
 
@@ -325,19 +328,54 @@ export function TodayScreen({
       {brief && !brief.readAt && (
         <BriefBanner
           brief={brief}
-          onOpen={() => setBriefModalOpen(true)}
+          onOpen={() => setViewingBrief(brief)}
           onDismiss={() => {
             void markBriefRead();
           }}
         />
       )}
+
+      <View style={styles.briefHistoryRow}>
+        <Pressable
+          onPress={() => setHistoryKind('morning')}
+          style={styles.briefHistoryBtn}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Tidligere morgenbriefs"
+        >
+          <Sun size={14} color={colors.sageDeep} strokeWidth={1.75} />
+          <Text style={styles.briefHistoryLabel}>Morgen</Text>
+        </Pressable>
+        <View style={styles.briefHistoryDot} />
+        <Pressable
+          onPress={() => setHistoryKind('evening')}
+          style={styles.briefHistoryBtn}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Tidligere aftenbriefs"
+        >
+          <Moon size={14} color={colors.sageDeep} strokeWidth={1.75} />
+          <Text style={styles.briefHistoryLabel}>Aften</Text>
+        </Pressable>
+      </View>
+
       <BriefModal
-        brief={brief}
-        visible={briefModalOpen}
+        brief={viewingBrief}
+        visible={viewingBrief !== null}
         onClose={() => {
-          setBriefModalOpen(false);
-          // Mark read when the user has seen the full content.
-          if (brief && !brief.readAt) void markBriefRead();
+          const wasTodayUnread =
+            viewingBrief !== null && brief !== null && viewingBrief.id === brief.id && !brief.readAt;
+          setViewingBrief(null);
+          // Mark read when the user has seen today's unread brief.
+          if (wasTodayUnread) void markBriefRead();
+        }}
+      />
+      <BriefHistoryModal
+        kind={historyKind}
+        onClose={() => setHistoryKind(null)}
+        onSelect={(b) => {
+          setViewingBrief(b);
+          setHistoryKind(null);
         }}
       />
 
@@ -764,5 +802,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     color: colors.paperOn55,
+  },
+
+  briefHistoryRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 14,
+    paddingTop: 14,
+    paddingBottom: 4,
+  },
+  briefHistoryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  briefHistoryDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 999,
+    backgroundColor: colors.sageDeep,
+    opacity: 0.4,
+  },
+  briefHistoryLabel: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    letterSpacing: 0.88,
+    textTransform: 'uppercase',
+    color: colors.sageDeep,
   },
 });

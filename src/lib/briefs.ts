@@ -85,3 +85,44 @@ export function useTodayBrief(): {
 
   return { brief, loading, markRead, refresh };
 }
+
+export function useBriefHistory(
+  kind: 'morning' | 'evening',
+  limit = 30,
+): { items: Brief[]; loading: boolean; refresh: () => Promise<void> } {
+  const { user } = useAuth();
+  const userId = user?.id;
+  const demo = isDemoUser(user);
+  const [items, setItems] = useState<Brief[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(async () => {
+    if (!userId || demo) {
+      setItems([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('briefs')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('kind', kind)
+        .order('generated_at', { ascending: false })
+        .limit(limit);
+      if (error) throw error;
+      setItems((data ?? []).map((r) => rowToBrief(r as Record<string, unknown>)));
+    } catch (err) {
+      if (__DEV__) console.warn('[briefs] history refresh failed:', err);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [userId, demo, kind, limit]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  return { items, loading, refresh };
+}
