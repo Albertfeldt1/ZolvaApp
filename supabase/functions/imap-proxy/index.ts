@@ -209,14 +209,146 @@ function mapImapError(caughtErr: unknown): Response {
   return err('protocol', 502);
 }
 
-// Forward declaration — real implementation in Task 2.3.
-// Remove this stub when Task 2.3 lands and the real `handleListInbox` is added.
 async function handleListInbox(
-  _body: ListInboxReq,
-  _userId: string,
-  _pepper: string,
-  _supabaseUrl: string,
-  _serviceKey: string,
+  body: ListInboxReq,
+  userId: string,
+  pepper: string,
+  supabaseUrl: string,
+  serviceKey: string,
 ): Promise<Response> {
-  return err('internal', 501);
+  const password = normalizePassword(body.password);
+  const email = body.email.trim().toLowerCase();
+  const limit = clampLimit(body.limit);
+
+  const hash = await hashCredential(pepper, email, password);
+  const svc = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false },
+  });
+
+  // Binding check: if a row exists, hash MUST match. If absent, this is the
+  // first call — proceed and create the row on success.
+  const { data: existing, error: bindReadErr } = await svc
+    .from('icloud_credential_bindings')
+    .select('credential_hash')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (bindReadErr) {
+    console.warn('[imap-proxy] binding read failed:', bindReadErr.message);
+    return err('internal', 500);
+  }
+  if (existing && existing.credential_hash !== hash) {
+    return err('auth-failed', 422); // same shape as wrong-password; no oracle
+  }
+
+  let client: ImapFlow | null = null;
+  try {
+    client = newImapClient(email, password);
+    await client.connect();
+    const lock = await client.getMailboxLock('INBOX');
+    const messages: Array<{
+      uid: number;
+      from: string;
+      subject: string;
+      date: string;
+      unread: boolean;
+      preview: string;
+    }> = [];
+    try {
+      const mbox = client.mailbox;
+      if (!mbox || typeof mbox === 'boolean') throw new Error('mailbox not open');
+      const total = mbox.exists;
+      if (total > 0) {
+        const lo = Math.max(1, total - limit + 1);
+        const range = `${lo}:${total}`;
+        for await (const m of client.fetch(range, {
+          uid: true,
+          envelope: true,
+          flags: true,
+          bodyParts: ['1'],
+        })) {
+          const env = m.envelope;
+          if (!env) continue;
+          messages.push({
+            uid: m.uid,
+            from: formatFrom(env.from),
+            subject: env.subject ?? '(uden emne)',
+            date: env.date ? new Date(env.date).toISOString() : new Date().toISOString(),
+            unread: !(m.flags && m.flags.has('\\Seen')),
+            preview: extractPreview(m.bodyParts?.get('1')),
+          });
+        }
+      }
+    } finally {
+      lock.release();
+    }
+    await client.logout();
+
+    // Bind on first-success / refresh on subsequent
+    const { error: bindWriteErr } = await svc
+      .from('icloud_credential_bindings')
+      .upsert(
+        {
+          user_id: userId,
+          credential_hash: hash,
+          last_validated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id' },
+      );
+    if (bindWriteErr) {
+      console.warn('[imap-proxy] binding write failed:', bindWriteErr.message);
+      // don't fail the request — user got their data; binding can repair next call
+    }
+
+    return Response.json({ ok: true, messages });
+  } catch (caughtErr) {
+    return mapImapError(caughtErr);
+  } finally {
+    if (client && client.usable) {
+      try { await client.close(); } catch { /* ignore */ }
+    }
+  }
+}
+
+function clampLimit(n: number | undefined): number {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return 12;
+  return Math.max(1, Math.min(50, Math.floor(n)));
+}
+
+async function hashCredential(pepper: string, email: string, password: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(pepper),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${email}:${password}`));
+  return Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function formatFrom(from: Array<{ name?: string; address?: string }> | undefined | null): string {
+  if (!from || from.length === 0) return '';
+  const f = from[0];
+  if (f.name && f.address) return `${f.name} <${f.address}>`;
+  return f.address ?? f.name ?? '';
+}
+
+function extractPreview(part: Uint8Array | undefined): string {
+  if (!part) return '';
+  const text = new TextDecoder().decode(part);
+  if (text.length === 0) return '';
+  const looksHtml = text.slice(0, 100).includes('<');
+  const stripped = looksHtml
+    ? text
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&#(\d+);/g, (_m, n) => String.fromCodePoint(parseInt(n, 10)))
+    : text;
+  return stripped.replace(/\s+/g, ' ').trim().slice(0, 140);
 }
