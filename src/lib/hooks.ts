@@ -194,6 +194,7 @@ function sanitizeObservations(raw: unknown): Observation[] {
 
 export function useObservations(): Result<Observation[]> {
   const { user } = useAuth();
+  const userId = user?.id;
   const demo = isDemoUser(user);
   const { items: calendarItems, loading: calendarLoading, error: calendarError } =
     useCalendarItems();
@@ -261,6 +262,9 @@ export function useObservations(): Result<Observation[]> {
           expiresAt: Date.now() + OBSERVATION_TTL_MS,
         });
         setState({ data: sanitized, loading: false, error: null });
+        if (userId && sanitized.length > 0) {
+          void persistObservations(userId, sanitized);
+        }
       })
       .catch((err: Error) => {
         if (controller.signal.aborted || err.name === 'AbortError') return;
@@ -273,6 +277,7 @@ export function useObservations(): Result<Observation[]> {
     };
   }, [
     demo,
+    userId,
     calendarItems,
     mailItems,
     calendarLoading,
@@ -284,6 +289,107 @@ export function useObservations(): Result<Observation[]> {
   ]);
 
   return state;
+}
+
+async function persistObservations(userId: string, items: Observation[]): Promise<void> {
+  const sourceDate = new Date().toISOString().slice(0, 10);
+  const rows = items.map((o) => ({
+    user_id: userId,
+    text: o.text,
+    cta: o.cta,
+    mood: o.mood,
+    source_date: sourceDate,
+    action_kind: o.action?.kind ?? null,
+    action_payload: actionPayloadFor(o.action),
+  }));
+  try {
+    const { error } = await supabase
+      .from('observations')
+      .upsert(rows, { onConflict: 'user_id,source_date,text', ignoreDuplicates: true });
+    if (error && __DEV__) console.warn('[hooks] observations persist failed:', error.message);
+  } catch (err) {
+    if (__DEV__) console.warn('[hooks] observations persist failed:', err);
+  }
+}
+
+function actionPayloadFor(action: Observation['action']): Record<string, string> | null {
+  if (!action) return null;
+  if (action.kind === 'openMail') return { mailId: action.mailId };
+  if (action.kind === 'prompt') return { prompt: action.prompt };
+  return null;
+}
+
+export type StoredObservation = Observation & {
+  generatedAt: Date;
+  sourceDate: string;
+};
+
+export function useObservationHistory(
+  limit = 60,
+): { items: StoredObservation[]; loading: boolean; refresh: () => Promise<void> } {
+  const { user } = useAuth();
+  const userId = user?.id;
+  const demo = isDemoUser(user);
+  const [items, setItems] = useState<StoredObservation[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(async () => {
+    if (!userId || demo) {
+      setItems([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('observations')
+        .select('*')
+        .eq('user_id', userId)
+        .order('generated_at', { ascending: false })
+        .limit(limit);
+      if (error) throw error;
+      setItems((data ?? []).map(rowToStoredObservation));
+    } catch (err) {
+      if (__DEV__) console.warn('[hooks] observation history failed:', err);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [userId, demo, limit]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  return { items, loading, refresh };
+}
+
+function rowToStoredObservation(r: Record<string, unknown>): StoredObservation {
+  const moods: Observation['mood'][] = ['calm', 'thinking', 'happy'];
+  const mood = moods.includes(r.mood as Observation['mood'])
+    ? (r.mood as Observation['mood'])
+    : 'calm';
+  return {
+    id: r.id as string,
+    text: r.text as string,
+    cta: (r.cta as string) ?? '',
+    mood,
+    action: actionFromRow(r),
+    generatedAt: new Date(r.generated_at as string),
+    sourceDate: r.source_date as string,
+  };
+}
+
+function actionFromRow(r: Record<string, unknown>): Observation['action'] {
+  const kind = r.action_kind;
+  const payload = (r.action_payload as Record<string, unknown> | null) ?? null;
+  if (kind === 'openMail' && typeof payload?.mailId === 'string') {
+    return { kind: 'openMail', mailId: payload.mailId };
+  }
+  if (kind === 'prompt' && typeof payload?.prompt === 'string') {
+    return { kind: 'prompt', prompt: payload.prompt };
+  }
+  if (kind === 'chat') return { kind: 'chat' };
+  return undefined;
 }
 
 const TONES: UpcomingEvent['tone'][] = ['sage', 'clay', 'mist'];

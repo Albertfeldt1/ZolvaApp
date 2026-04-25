@@ -16,6 +16,7 @@ import {
 import { BriefBanner } from '../components/BriefBanner';
 import { BriefHistoryModal } from '../components/BriefHistoryModal';
 import { BriefModal } from '../components/BriefModal';
+import { ObservationHistoryModal } from '../components/ObservationHistoryModal';
 import { CountUp } from '../components/CountUp';
 import { DayRibbon, RibbonEvent } from '../components/DayRibbon';
 import { EmptyState } from '../components/EmptyState';
@@ -97,6 +98,7 @@ export function TodayScreen({
   const { brief, markRead: markBriefRead } = useTodayBrief();
   const [viewingBrief, setViewingBrief] = useState<Brief | null>(null);
   const [historyKind, setHistoryKind] = useState<'morning' | 'evening' | null>(null);
+  const [observationHistoryOpen, setObservationHistoryOpen] = useState(false);
 
   // Notification taps: App.tsx bumps briefOpenTrigger — we open the modal
   // if we have a brief to show.
@@ -378,6 +380,10 @@ export function TodayScreen({
           setHistoryKind(null);
         }}
       />
+      <ObservationHistoryModal
+        visible={observationHistoryOpen}
+        onClose={() => setObservationHistoryOpen(false)}
+      />
 
       <View
         style={[styles.dark, { paddingBottom: chromeBottom }]}
@@ -386,7 +392,17 @@ export function TodayScreen({
           checkOverDark();
         }}
       >
-        <Text style={styles.darkTitle}>Hvad jeg har bemærket</Text>
+        <View style={styles.darkTitleRow}>
+          <Text style={styles.darkTitle}>Hvad jeg har bemærket</Text>
+          <Pressable
+            onPress={() => setObservationHistoryOpen(true)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Tidligere observationer"
+          >
+            <Text style={styles.darkTitleLink}>Tidligere</Text>
+          </Pressable>
+        </View>
         {pendingFacts.length === 0 && visibleObservations.length === 0 ? (
           observationsError ? (
             <EmptyState
@@ -739,12 +755,24 @@ const styles = StyleSheet.create({
     paddingVertical: 32,
     paddingHorizontal: 20,
   },
-  darkTitle: {
+  darkTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
     marginBottom: 14,
+  },
+  darkTitle: {
     fontFamily: fonts.displayItalic,
     fontSize: 24,
     letterSpacing: -0.36,
     color: colors.paper,
+  },
+  darkTitleLink: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    letterSpacing: 0.88,
+    textTransform: 'uppercase',
+    color: colors.paperOn55,
   },
   darkEmpty: {
     fontFamily: 'Inter_500Medium_Italic',
