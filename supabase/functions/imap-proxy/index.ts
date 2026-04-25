@@ -45,6 +45,13 @@ function err(code: ErrCode, status: number): Response {
 serve(async (req) => {
   if (req.method !== 'POST') return err('bad-request', 405);
 
+  // --- JWT gate (precedes env-guard so unauthenticated callers always get
+  //     401, never a 500 leaking the env-misconfig signal).
+  const authHeader = req.headers.get('Authorization') ?? '';
+  if (!authHeader.toLowerCase().startsWith('bearer ')) {
+    return err('unauthorized', 401);
+  }
+
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -59,11 +66,6 @@ serve(async (req) => {
     return err('internal', 500);
   }
 
-  // --- JWT gate ---
-  const authHeader = req.headers.get('Authorization') ?? '';
-  if (!authHeader.toLowerCase().startsWith('bearer ')) {
-    return err('unauthorized', 401);
-  }
   const authClient = createClient(supabaseUrl, anonKey, {
     global: { headers: { Authorization: authHeader } },
     auth: { persistSession: false, autoRefreshToken: false },
