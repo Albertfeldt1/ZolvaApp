@@ -209,6 +209,58 @@ function mapImapError(caughtErr: unknown): Response {
   return err('protocol', 502);
 }
 
+function clampLimit(n: number | undefined): number {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return 12;
+  return Math.max(1, Math.min(50, Math.floor(n)));
+}
+
+// Pepper is consumed as UTF-8 bytes of its string representation — NOT
+// hex-decoded. The runbook stores it as a 64-char hex string and the function
+// must keep treating it that way; switching to hex-decoded raw bytes would
+// produce different key material and invalidate every existing binding row.
+async function hashCredential(pepper: string, email: string, password: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(pepper),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${email}:${password}`));
+  return Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function formatFrom(from: Array<{ name?: string; address?: string }> | undefined | null): string {
+  if (!from || from.length === 0) return '';
+  const f = from[0];
+  if (f.name && f.address) return `${f.name} <${f.address}>`;
+  return f.address ?? f.name ?? '';
+}
+
+// Naive tag stripper — does not handle attributes containing ">", CDATA,
+// HTML comments, or HTML-like text that starts after the first 100 chars.
+// Decodes only five entities (&amp; &lt; &gt; &nbsp; and numeric &#NNN;).
+// Lossy by design — full BODYSTRUCTURE parsing is future work.
+function extractPreview(part: Uint8Array | undefined): string {
+  if (!part) return '';
+  const text = new TextDecoder().decode(part);
+  if (text.length === 0) return '';
+  const looksHtml = text.slice(0, 100).includes('<');
+  const stripped = looksHtml
+    ? text
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&#(\d+);/g, (_m, n) => String.fromCodePoint(parseInt(n, 10)))
+    : text;
+  return stripped.replace(/\s+/g, ' ').trim().slice(0, 140);
+}
+
 async function handleListInbox(
   body: ListInboxReq,
   userId: string,
@@ -237,14 +289,22 @@ async function handleListInbox(
     return err('internal', 500);
   }
   if (existing && existing.credential_hash !== hash) {
-    return err('auth-failed', 422); // same shape as wrong-password; no oracle
+    // Not a perfect oracle: response time distinguishes mismatch (~10ms DB)
+    // from a real Apple rejection (~500ms IMAP roundtrip). With 60/hr rate
+    // limit, an attacker who already holds the JWT learns only "this guess
+    // doesn't match the binding" — not the bound credential itself.
+    return err('auth-failed', 422);
   }
 
   let client: ImapFlow | null = null;
   try {
     client = newImapClient(email, password);
     await client.connect();
-    const lock = await client.getMailboxLock('INBOX');
+    // readOnly: true makes the server open INBOX with EXAMINE rather than
+    // SELECT, so the BODY[1] fetch below does not implicitly set \Seen on
+    // unread messages. Without this, every list-inbox would mark mail as
+    // read in the user's iCloud account.
+    const lock = await client.getMailboxLock('INBOX', { readOnly: true });
     const messages: Array<{
       uid: number;
       from: string;
@@ -279,7 +339,9 @@ async function handleListInbox(
         }
       }
     } finally {
-      lock.release();
+      // Guard release so a release-time error doesn't shadow the original
+      // fetch-loop error on its way to the outer catch.
+      try { lock.release(); } catch { /* release errors are secondary */ }
     }
     await client.logout();
 
@@ -307,48 +369,4 @@ async function handleListInbox(
       try { await client.close(); } catch { /* ignore */ }
     }
   }
-}
-
-function clampLimit(n: number | undefined): number {
-  if (typeof n !== 'number' || !Number.isFinite(n)) return 12;
-  return Math.max(1, Math.min(50, Math.floor(n)));
-}
-
-async function hashCredential(pepper: string, email: string, password: string): Promise<string> {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw',
-    enc.encode(pepper),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${email}:${password}`));
-  return Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-function formatFrom(from: Array<{ name?: string; address?: string }> | undefined | null): string {
-  if (!from || from.length === 0) return '';
-  const f = from[0];
-  if (f.name && f.address) return `${f.name} <${f.address}>`;
-  return f.address ?? f.name ?? '';
-}
-
-function extractPreview(part: Uint8Array | undefined): string {
-  if (!part) return '';
-  const text = new TextDecoder().decode(part);
-  if (text.length === 0) return '';
-  const looksHtml = text.slice(0, 100).includes('<');
-  const stripped = looksHtml
-    ? text
-        .replace(/<[^>]*>/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&#(\d+);/g, (_m, n) => String.fromCodePoint(parseInt(n, 10)))
-    : text;
-  return stripped.replace(/\s+/g, ' ').trim().slice(0, 140);
 }
