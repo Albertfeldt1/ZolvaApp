@@ -33,6 +33,9 @@ yarn-error.*
 # Claude Code local config (permissions allowlist, scheduled task locks)
 .claude/
 
+# Git worktrees (isolated workspaces for feature branches)
+.worktrees/
+
 # local env files
 .env
 .env.*
