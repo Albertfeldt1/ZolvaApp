@@ -258,24 +258,38 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
       queryParams,
     };
 
+    // Supabase quirk: signInWithOAuth on an already-linked identity returns
+    // a session WITHOUT provider_token / provider_refresh_token, so we never
+    // capture an access token to store and the UI flips to "disconnected"
+    // on every cold launch. linkIdentity DOES forward both tokens, so when
+    // the identity is already linked we unlink it first and re-enter through
+    // linkIdentity. Unlink fails if it would leave the user with no
+    // identities; in that case we fall through to the legacy path.
     const identities = cachedSession?.user?.identities ?? [];
-    const alreadyLinked = identities.some((i) => i.provider === provider);
+    const linkedIdentity = identities.find((i) => i.provider === provider);
+    let identityUnlinked = false;
+    if (cachedSession && linkedIdentity) {
+      const { error: unlinkError } = await supabase.auth.unlinkIdentity(linkedIdentity);
+      if (unlinkError) {
+        console.warn('[auth] unlinkIdentity failed (using signInWithOAuth fallback):', unlinkError.message);
+      } else {
+        identityUnlinked = true;
+      }
+    }
 
     let initiator;
     let usedLinkIdentity = false;
-    if (cachedSession && !alreadyLinked) {
+    const useLinkIdentity = cachedSession && (!linkedIdentity || identityUnlinked);
+    if (useLinkIdentity) {
       const linked = await supabase.auth.linkIdentity({ provider, options: params });
       if (linked.error) {
-        if (__DEV__) console.warn('[auth] linkIdentity failed, falling back to signInWithOAuth:', linked.error.message);
+        console.warn('[auth] linkIdentity failed, falling back to signInWithOAuth:', linked.error.message);
         initiator = await supabase.auth.signInWithOAuth({ provider, options: params });
       } else {
         initiator = linked;
         usedLinkIdentity = true;
       }
     } else {
-      if (__DEV__ && alreadyLinked) {
-        console.log('[auth] identity already linked to current user, using signInWithOAuth to refresh provider token');
-      }
       initiator = await supabase.auth.signInWithOAuth({ provider, options: params });
     }
 
@@ -330,8 +344,8 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
       } catch (storageErr) {
         if (__DEV__) console.warn('[auth] token storage failed:', storageErr);
       }
-    } else if (!token && __DEV__) {
-      console.warn('[auth] No provider_token in exchange response');
+    } else if (!token) {
+      console.warn('[auth] No provider_token in exchange response (linkIdentity:', usedLinkIdentity, ')');
     }
     if (uid) {
       await persistProviderRefreshToken(uid, providerKey, refreshToken);
