@@ -399,8 +399,8 @@ export function TodayScreen({
             <EmptyState
               dark
               mood="thinking"
-              title="Intet at fortælle endnu"
-              body="Jeg lærer stadig dine mønstre at kende. De første observationer dukker op efter et par dage."
+              title="Intet at fremhæve lige nu"
+              body="Jeg kigger på dagens kalender og indbakke og fremhæver det vigtigste. Tjek tilbage når der er noget nyt."
             />
           ) : (
             <EmptyState
