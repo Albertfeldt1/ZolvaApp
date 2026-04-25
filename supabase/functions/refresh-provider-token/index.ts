@@ -20,14 +20,14 @@
 //   400/500 otherwise
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import {
+  loadRefreshToken,
+  refreshAccessToken,
+  RefreshRejectedError,
+} from '../_shared/oauth.ts';
 
 type Body = { provider?: 'google' | 'microsoft' };
-type RefreshResult = {
-  accessToken: string;
-  expiresIn: number;
-  refreshToken?: string;
-};
 
 const MICROSOFT_REFRESH_SCOPE =
   'openid email profile offline_access Mail.ReadWrite Mail.Send Calendars.Read';
@@ -72,133 +72,20 @@ serve(async (req) => {
   if (!refreshToken) return json({ error: 'no-refresh-token' }, 404);
 
   try {
-    const result = await refreshAccessToken(provider, refreshToken);
-    // Some providers (Google occasionally, Microsoft sometimes) rotate the
-    // refresh_token on refresh. Persist the new one if returned so the next
-    // refresh doesn't fail with invalid_grant.
-    if (result.refreshToken && result.refreshToken !== refreshToken) {
-      await persistRefreshToken(client, userId, provider, result.refreshToken);
-    }
+    const result = await refreshAccessToken(client, userId, provider, refreshToken, {
+      microsoftScope: MICROSOFT_REFRESH_SCOPE,
+    });
     return json({ access_token: result.accessToken, expires_in: result.expiresIn });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn('[refresh-provider-token] provider rejected:', provider, msg);
-    // Distinguish provider rejection (refresh_token no longer valid — user
-    // must re-auth through full OAuth) from transient errors.
-    if (/invalid_grant|400/.test(msg)) {
+    if (err instanceof RefreshRejectedError) {
+      console.warn('[refresh-provider-token] rejected:', provider, err.message);
       return json({ error: 'refresh-rejected' }, 401);
     }
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn('[refresh-provider-token] failed:', provider, msg);
     return json({ error: msg }, 500);
   }
 });
-
-async function loadRefreshToken(
-  client: SupabaseClient,
-  userId: string,
-  provider: 'google' | 'microsoft',
-): Promise<string | null> {
-  const { data, error } = await client
-    .from('user_oauth_tokens')
-    .select('refresh_token')
-    .eq('user_id', userId)
-    .eq('provider', provider)
-    .maybeSingle();
-  if (error) {
-    console.warn('[refresh-provider-token] load refresh token failed:', error.message);
-    return null;
-  }
-  return (data as { refresh_token?: string } | null)?.refresh_token ?? null;
-}
-
-async function persistRefreshToken(
-  client: SupabaseClient,
-  userId: string,
-  provider: 'google' | 'microsoft',
-  refreshToken: string,
-): Promise<void> {
-  const { error } = await client
-    .from('user_oauth_tokens')
-    .upsert(
-      {
-        user_id: userId,
-        provider,
-        refresh_token: refreshToken,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id,provider' },
-    );
-  if (error) {
-    console.warn('[refresh-provider-token] persist refresh token failed:', error.message);
-  }
-}
-
-async function refreshAccessToken(
-  provider: 'google' | 'microsoft',
-  refreshToken: string,
-): Promise<RefreshResult> {
-  if (provider === 'google') {
-    const clientId = Deno.env.get('GOOGLE_OAUTH_CLIENT_ID');
-    const clientSecret = Deno.env.get('GOOGLE_OAUTH_CLIENT_SECRET');
-    if (!clientId || !clientSecret) throw new Error('google oauth env missing');
-    const body = new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: refreshToken,
-      grant_type: 'refresh_token',
-    });
-    const res = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body,
-    });
-    const text = await res.text();
-    if (!res.ok) throw new Error(`google refresh ${res.status}: ${text}`);
-    const j = JSON.parse(text) as {
-      access_token?: string;
-      expires_in?: number;
-      refresh_token?: string;
-    };
-    if (!j.access_token) throw new Error('google refresh missing access_token');
-    return {
-      accessToken: j.access_token,
-      expiresIn: j.expires_in ?? 3600,
-      refreshToken: j.refresh_token,
-    };
-  }
-
-  const clientId = Deno.env.get('MICROSOFT_OAUTH_CLIENT_ID');
-  const clientSecret = Deno.env.get('MICROSOFT_OAUTH_CLIENT_SECRET');
-  const tenant = Deno.env.get('MICROSOFT_OAUTH_TENANT') ?? 'common';
-  if (!clientId || !clientSecret) throw new Error('microsoft oauth env missing');
-  const body = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    refresh_token: refreshToken,
-    grant_type: 'refresh_token',
-    scope: MICROSOFT_REFRESH_SCOPE,
-  });
-  const res = await fetch(
-    `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body,
-    },
-  );
-  const text = await res.text();
-  if (!res.ok) throw new Error(`microsoft refresh ${res.status}: ${text}`);
-  const j = JSON.parse(text) as {
-    access_token?: string;
-    expires_in?: number;
-    refresh_token?: string;
-  };
-  if (!j.access_token) throw new Error('microsoft refresh missing access_token');
-  return {
-    accessToken: j.access_token,
-    expiresIn: j.expires_in ?? 3600,
-    refreshToken: j.refresh_token,
-  };
-}
 
 function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {

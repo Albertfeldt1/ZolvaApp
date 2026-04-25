@@ -36,9 +36,10 @@ export async function fetchCalendarForUser(
 
   let accessToken: string;
   try {
-    accessToken = await refreshAccessToken(provider, refreshToken, {
+    const result = await refreshAccessToken(client, userId, provider, refreshToken, {
       microsoftScope: 'offline_access Calendars.Read',
     });
+    accessToken = result.accessToken;
   } catch (err) {
     console.warn(`[calendar] refresh failed user=${userId} provider=${provider}:`, err);
     return [];

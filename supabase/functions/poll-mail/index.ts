@@ -116,7 +116,12 @@ async function processWatcher(client: SupabaseClient, watcher: Watcher): Promise
     throw new Error('no refresh token — complete auth.ts capture first');
   }
 
-  const accessToken = await refreshAccessToken(watcher.provider, refreshToken);
+  const { accessToken } = await refreshAccessToken(
+    client,
+    watcher.user_id,
+    watcher.provider,
+    refreshToken,
+  );
   const { messages, nextHistoryId, nextDeltaLink } =
     watcher.provider === 'google'
       ? await fetchGmailSince(accessToken, watcher.last_history_id)
