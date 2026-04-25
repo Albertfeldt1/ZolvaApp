@@ -174,32 +174,37 @@ function mapImapError(caughtErr: unknown): Response {
   // imapflow throws structured errors with serverResponseCode
   const code =
     (caughtErr as { serverResponseCode?: string })?.serverResponseCode ?? '';
-  if (
-    code === 'AUTHENTICATIONFAILED' ||
-    /AUTHENTICATIONFAILED/i.test(msg) ||
-    /\bLOGIN failed\b/i.test(msg)
-  ) {
-    return err('auth-failed', 422);
-  }
-  if (
-    code === 'INUSE' ||
-    code === 'UNAVAILABLE' ||
-    code === 'ALERT' ||
-    /^NO\b/i.test(msg)
-  ) {
+
+  // Structured IMAP response codes are authoritative. Check them first so a
+  // transient like `NO [UNAVAILABLE] LOGIN failed - try again` (code=UNAVAILABLE,
+  // msg contains "LOGIN failed") routes to temporarily-unavailable rather than
+  // being misclassified as auth-failed and triggering a re-enter loop.
+  if (code === 'AUTHENTICATIONFAILED') return err('auth-failed', 422);
+  if (code === 'INUSE' || code === 'UNAVAILABLE' || code === 'ALERT') {
     return err('temporarily-unavailable', 503);
   }
-  if (
-    /AbortError|aborted/i.test(msg) ||
-    /timeout/i.test(msg)
-  ) {
+
+  // Fall back to message-text patterns ONLY when no structured code is present.
+  if (!code) {
+    if (
+      /AUTHENTICATIONFAILED/i.test(msg) ||
+      /\bLOGIN failed\b/i.test(msg)
+    ) {
+      return err('auth-failed', 422);
+    }
+    if (/^NO\b/i.test(msg)) {
+      return err('temporarily-unavailable', 503);
+    }
+  }
+
+  // Transport-level errors don't carry an IMAP code regardless.
+  if (/AbortError|aborted/i.test(msg) || /timeout/i.test(msg)) {
     return err('timeout', 504);
   }
-  if (
-    /ENOTFOUND|ECONNREFUSED|ECONNRESET|EHOSTUNREACH/i.test(msg)
-  ) {
+  if (/ENOTFOUND|ECONNREFUSED|ECONNRESET|EHOSTUNREACH/i.test(msg)) {
     return err('network', 503);
   }
+
   console.warn('[imap-proxy] unmapped imap error:', msg);
   return err('protocol', 502);
 }
