@@ -99,6 +99,7 @@ const LOGOS: Record<string, ImageSourcePropType> = {
 const STATUS_LABEL: Record<IntegrationStatus, string> = {
   connected: 'Forbundet',
   pending: 'Venter',
+  expired: 'Udløbet', // TODO(icloud): Phase 8/9 will surface a re-enter-credentials CTA
   disconnected: 'Ikke forbundet',
 };
 

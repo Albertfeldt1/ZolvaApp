@@ -25,6 +25,7 @@ import { translateProviderError } from '../utils/danish';
 const PROVIDER_LOGOS: Record<MailProvider, ReturnType<typeof require>> = {
   google: require('../../assets/logos/gmail.png'),
   microsoft: require('../../assets/logos/outlook-mail.png'),
+  icloud: null, // TODO(icloud): replace with iCloud logo asset when added
 };
 
 const ARCHIVE_HINT_KEY = 'zolva.inbox.archive-fab-hint-shown';
