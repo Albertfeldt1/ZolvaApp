@@ -16,8 +16,9 @@ const PROXY_URL = `${SUPABASE_URL}/functions/v1/imap-proxy`;
 const VALIDATE_TIMEOUT_MS = 30_000;
 const LIST_INBOX_TIMEOUT_MS = 25_000;
 
-// Codes the edge function may return on the wire. 'network' / 'no-credential'
-// are client-synthesized and must not be accepted from the server side.
+// Codes the edge function may return on the wire. 'network', 'not-connected'
+// and 'credential-rejected' are client-synthesized and must not be accepted
+// from the server side.
 const KNOWN_WIRE_CODES: ReadonlySet<IcloudErrorCode> = new Set([
   'auth-failed',
   'rate-limited',
@@ -36,6 +37,12 @@ export type IcloudMessage = {
   preview: string;
 };
 
+// Action-oriented error codes — names describe what the caller should do, not
+// the underlying storage state. Asymmetric reachability via the hook layer:
+// hooks gate on `loadCredential().kind === 'valid'` before calling listInbox,
+// so 'not-connected' is unreachable from the hot path. The hot path is
+// 'credential-rejected' when a previously-valid credential was flipped to
+// invalid by a prior listInbox auth-failure.
 export type IcloudErrorCode =
   | 'auth-failed'
   | 'rate-limited'
@@ -43,7 +50,8 @@ export type IcloudErrorCode =
   | 'temporarily-unavailable'
   | 'network'
   | 'timeout'
-  | 'no-credential'
+  | 'not-connected'        // credential is 'absent' — caller should suppress UI silently
+  | 'credential-rejected'  // credential is 'invalid' — caller should surface re-entry banner
   | 'unauthorized';
 
 export type IcloudResult<T> =
@@ -53,8 +61,8 @@ export type IcloudResult<T> =
 export async function validate(
   email: string,
   password: string,
-): Promise<IcloudResult<void>> {
-  return await call<void>('validate', { email, password });
+): Promise<IcloudResult<null>> {
+  return await call<null>('validate', { email, password });
 }
 
 export async function listInbox(
@@ -62,8 +70,11 @@ export async function listInbox(
   limit = 12,
 ): Promise<IcloudResult<IcloudMessage[]>> {
   const cred = await loadCredential(userId);
-  if (cred.kind !== 'valid') {
-    return { ok: false, error: 'no-credential' };
+  if (cred.kind === 'absent') {
+    return { ok: false, error: 'not-connected' };
+  }
+  if (cred.kind === 'invalid') {
+    return { ok: false, error: 'credential-rejected' };
   }
   const res = await call<{ messages: RawMessage[] }>('list-inbox', {
     email: cred.credential.email,
@@ -130,9 +141,11 @@ async function call<T>(
   }
   clearTimeout(timer);
   if (res.status === 200) {
-    const j = (await res.json()) as { ok: true } & T;
-    if (op === 'validate') return { ok: true, data: undefined as T };
-    return { ok: true, data: j as T };
+    if (op === 'validate') return { ok: true, data: null as T };
+    const j = (await res.json()) as Record<string, unknown>;
+    // Strip the wire envelope's `ok` so it doesn't leak into IcloudResult.data.
+    const { ok: _wire, ...payload } = j;
+    return { ok: true, data: payload as T };
   }
   let errCode: IcloudErrorCode;
   try {
