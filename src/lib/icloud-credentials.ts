@@ -65,10 +65,11 @@ export async function loadCredential(userId: string): Promise<IcloudCredentialSt
     password: parsed.password,
     lastSyncCursor: parsed.lastSyncCursor ?? null,
   };
+  if (parsed.state === 'valid') return { kind: 'valid', credential };
   if (parsed.state === 'invalid') {
     return { kind: 'invalid', credential, reason: parsed.invalidReason };
   }
-  return { kind: 'valid', credential };
+  return { kind: 'absent' };
 }
 
 export async function saveCredential(
@@ -92,7 +93,7 @@ export async function saveCredential(
 }
 
 export async function markInvalid(userId: string, reason?: string): Promise<void> {
-  if (!userId) return;
+  if (!userId) throw new Error('markInvalid: missing userId');
   const current = await loadCredential(userId);
   if (current.kind === 'absent') return;
   const stored: StoredShape = {
@@ -106,6 +107,6 @@ export async function markInvalid(userId: string, reason?: string): Promise<void
 }
 
 export async function clearCredential(userId: string): Promise<void> {
-  if (!userId) return;
+  if (!userId) throw new Error('clearCredential: missing userId');
   await secureStorage.deleteItem(credKey(userId));
 }
