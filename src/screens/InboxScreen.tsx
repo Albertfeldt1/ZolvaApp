@@ -168,13 +168,15 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange }: Pr
               >
                 <View style={styles.avatarWrap}>
                   <Avatar initials={m.initials} tone={m.tone} />
-                  <View style={styles.providerBadge}>
-                    <Image
-                      source={PROVIDER_LOGOS[m.provider]}
-                      style={styles.providerLogo}
-                      resizeMode="contain"
-                    />
-                  </View>
+                  {PROVIDER_LOGOS[m.provider] != null && (
+                    <View style={styles.providerBadge}>
+                      <Image
+                        source={PROVIDER_LOGOS[m.provider]}
+                        style={styles.providerLogo}
+                        resizeMode="contain"
+                      />
+                    </View>
+                  )}
                 </View>
                 <View style={styles.rowBody}>
                   <View style={styles.rowTopLine}>

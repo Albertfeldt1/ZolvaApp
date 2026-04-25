@@ -99,7 +99,8 @@ const LOGOS: Record<string, ImageSourcePropType> = {
 const STATUS_LABEL: Record<IntegrationStatus, string> = {
   connected: 'Forbundet',
   pending: 'Venter',
-  expired: 'Udløbet', // TODO(icloud): Phase 8/9 will surface a re-enter-credentials CTA
+  // TODO(icloud): Phase 8/9 — add tappable re-enter flow for 'expired'; the row is currently non-interactive (see `tappable` expression below).
+  expired: 'Udløbet',
   disconnected: 'Ikke forbundet',
 };
 
