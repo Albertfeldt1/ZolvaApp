@@ -7,8 +7,25 @@
 import { supabase } from './supabase';
 import { loadCredential, markInvalid } from './icloud-credentials';
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
+if (!SUPABASE_URL) {
+  throw new Error('icloud-mail: missing EXPO_PUBLIC_SUPABASE_URL');
+}
 const PROXY_URL = `${SUPABASE_URL}/functions/v1/imap-proxy`;
+
+const VALIDATE_TIMEOUT_MS = 30_000;
+const LIST_INBOX_TIMEOUT_MS = 25_000;
+
+// Codes the edge function may return on the wire. 'network' / 'no-credential'
+// are client-synthesized and must not be accepted from the server side.
+const KNOWN_WIRE_CODES: ReadonlySet<IcloudErrorCode> = new Set([
+  'auth-failed',
+  'rate-limited',
+  'protocol',
+  'temporarily-unavailable',
+  'unauthorized',
+  'timeout',
+]);
 
 export type IcloudMessage = {
   uid: number;
@@ -90,19 +107,28 @@ async function call<T>(
   if (!accessToken) {
     return { ok: false, error: 'unauthorized' };
   }
+  const timeoutMs = op === 'validate' ? VALIDATE_TIMEOUT_MS : LIST_INBOX_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
     res = await fetch(PROXY_URL, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ op, ...body }),
     });
-  } catch {
+  } catch (err) {
+    clearTimeout(timer);
+    if (err instanceof Error && err.name === 'AbortError') {
+      return { ok: false, error: 'timeout' };
+    }
     return { ok: false, error: 'network' };
   }
+  clearTimeout(timer);
   if (res.status === 200) {
     const j = (await res.json()) as { ok: true } & T;
     if (op === 'validate') return { ok: true, data: undefined as T };
@@ -111,7 +137,10 @@ async function call<T>(
   let errCode: IcloudErrorCode;
   try {
     const j = (await res.json()) as { error?: string };
-    errCode = (j.error as IcloudErrorCode) ?? 'protocol';
+    const raw = j.error;
+    errCode = typeof raw === 'string' && KNOWN_WIRE_CODES.has(raw as IcloudErrorCode)
+      ? (raw as IcloudErrorCode)
+      : 'protocol';
   } catch {
     errCode = 'protocol';
   }
