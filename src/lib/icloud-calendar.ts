@@ -16,6 +16,8 @@ import { loadCredential, markInvalid } from './icloud-credentials';
 const CALDAV_HOST = 'https://caldav.icloud.com';
 const PRINCIPAL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const CALENDAR_LIST_TTL_MS = 24 * 60 * 60 * 1000;
+const CALDAV_TIMEOUT_MS = 25_000;
+// Used by Task 5.3 for parallel REPORT fan-out across calendars.
 const CONCURRENCY = 5;
 
 export type IcloudCalendarMeta = {
@@ -25,6 +27,9 @@ export type IcloudCalendarMeta = {
 };
 
 type CalDiscoveryCache = {
+  // Stamped so account rotation (saveCredential with a different Apple ID)
+  // can't reuse a stale principalUrl belonging to the previous account.
+  email: string;
   principalUrl: string;
   calendarHomeUrl: string;
   principalDiscoveredAt: number;
@@ -35,11 +40,32 @@ type CalDiscoveryCache = {
 const discoveryCacheKey = (uid: string) =>
   `zolva.${uid}.icloud.caldav.discovery`;
 
-async function loadDiscoveryCache(userId: string): Promise<CalDiscoveryCache | null> {
+function isValidCache(c: Partial<CalDiscoveryCache>): c is CalDiscoveryCache {
+  return (
+    typeof c.email === 'string' &&
+    typeof c.principalUrl === 'string' &&
+    typeof c.calendarHomeUrl === 'string' &&
+    typeof c.principalDiscoveredAt === 'number' &&
+    typeof c.calendarsListedAt === 'number' &&
+    Array.isArray(c.calendars)
+  );
+}
+
+async function loadDiscoveryCache(
+  userId: string,
+  email: string,
+): Promise<CalDiscoveryCache | null> {
   const raw = await secureStorage.getItem(discoveryCacheKey(userId));
   if (!raw) return null;
-  try { return JSON.parse(raw) as CalDiscoveryCache; }
+  let parsed: Partial<CalDiscoveryCache>;
+  try { parsed = JSON.parse(raw) as Partial<CalDiscoveryCache>; }
   catch { return null; }
+  // Treat malformed blobs as cache miss — secureStorage.setItem swallows
+  // failures, so partial writes can land here. fullDiscover will repopulate.
+  if (!isValidCache(parsed)) return null;
+  // Account rotation: stored principalUrl belongs to a different Apple ID.
+  if (parsed.email !== email) return null;
+  return parsed;
 }
 
 async function saveDiscoveryCache(userId: string, cache: CalDiscoveryCache): Promise<void> {
@@ -55,8 +81,15 @@ export async function clearDiscoveryCacheFor(userId: string): Promise<void> {
   await clearDiscoveryCache(userId);
 }
 
-function basicAuth(email: string, password: string): string {
-  return 'Basic ' + btoa(`${email}:${password}`);
+function basicAuth(email: string, password: string): string | null {
+  // btoa throws on non-Latin-1 input. App-specific passwords are 16 lowercase
+  // letters so this never bites in practice; setup-screen validation is the
+  // primary defense. Returning null lets callers map this to 'auth-failed'.
+  try {
+    return 'Basic ' + btoa(`${email}:${password}`);
+  } catch {
+    return null;
+  }
 }
 
 // Action-oriented error codes — mirror the action codes in icloud-mail.ts so
@@ -93,8 +126,9 @@ export async function listEvents(
   if (cred.kind === 'absent') return { ok: false, error: 'not-connected' };
   if (cred.kind === 'invalid') return { ok: false, error: 'credential-rejected' };
   const auth = basicAuth(cred.credential.email, cred.credential.password);
+  if (!auth) return { ok: false, error: 'auth-failed' };
 
-  let cache = await loadDiscoveryCache(userId);
+  let cache = await loadDiscoveryCache(userId, cred.credential.email);
   const now = Date.now();
   if (!cache || now - cache.principalDiscoveredAt > PRINCIPAL_TTL_MS) {
     const fresh = await fullDiscover(cred.credential.email, cred.credential.password, userId);
@@ -122,18 +156,22 @@ async function fullDiscover(
   password: string,
   userId: string,
 ): Promise<CalDavResult<CalDiscoveryCache>> {
+  const auth = basicAuth(email, password);
+  if (!auth) return { ok: false, error: 'auth-failed' };
+
   const principalRes = await propfindPrincipal(email, password);
   if (!principalRes.ok) return principalRes;
   const principalUrl = principalRes.data.principalUrl;
 
-  const homeRes = await propfindCalendarHome(principalUrl, basicAuth(email, password));
+  const homeRes = await propfindCalendarHome(principalUrl, auth);
   if (!homeRes.ok) return homeRes;
   const calendarHomeUrl = homeRes.data.calendarHomeUrl;
 
-  const calsRes = await listCalendarsAt(calendarHomeUrl, basicAuth(email, password));
+  const calsRes = await listCalendarsAt(calendarHomeUrl, auth);
   if (!calsRes.ok) return calsRes;
 
   const cache: CalDiscoveryCache = {
+    email,
     principalUrl,
     calendarHomeUrl,
     principalDiscoveredAt: Date.now(),
@@ -148,6 +186,8 @@ async function propfindPrincipal(
   email: string,
   password: string,
 ): Promise<CalDavResult<{ principalUrl: string }>> {
+  const auth = basicAuth(email, password);
+  if (!auth) return { ok: false, error: 'auth-failed' };
   const body =
     `<?xml version="1.0" encoding="utf-8"?>
 <d:propfind xmlns:d="DAV:">
@@ -156,7 +196,7 @@ async function propfindPrincipal(
   const res = await caldavFetch(
     `${CALDAV_HOST}/.well-known/caldav`,
     'PROPFIND',
-    basicAuth(email, password),
+    auth,
     { Depth: '0' },
     body,
   );
@@ -248,10 +288,13 @@ async function caldavFetch(
   headers: Record<string, string>,
   body: string,
 ): Promise<CalDavResult<string>> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CALDAV_TIMEOUT_MS);
   let res: Response;
   try {
     res = await fetch(url, {
       method,
+      signal: controller.signal,
       headers: {
         Authorization: auth,
         'Content-Type': 'application/xml; charset=utf-8',
@@ -259,9 +302,14 @@ async function caldavFetch(
       },
       body,
     });
-  } catch {
+  } catch (err) {
+    clearTimeout(timer);
+    if (err instanceof Error && err.name === 'AbortError') {
+      return { ok: false, error: 'timeout' };
+    }
     return { ok: false, error: 'network' };
   }
+  clearTimeout(timer);
   if (res.status === 401 || res.status === 403) {
     return { ok: false, error: 'auth-failed' };
   }
