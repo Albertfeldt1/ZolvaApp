@@ -163,6 +163,13 @@ export async function markInvalid(userId: string, reason?: string): Promise<void
 
 Backed by secureStorage with key `zolva.${userId}.icloud.credential`. The interface is the seam for migrating to a server-side credential store later (see "Future" section).
 
+**Platform behaviour for credential persistence across reinstall:**
+
+- **iOS** — Keychain entries can survive app uninstall by default. Reuse the existing `SECURE_STORE_MIGRATION_FLAG` pattern (see `src/lib/auth.ts`) to wipe orphaned iCloud credential entries on first launch after install. Without this, a user who reinstalls Zolva would find iCloud "still connected" with credentials they may have forgotten.
+- **Android** — `expo-secure-store` (Keystore-backed) is wiped on app uninstall by default; no migration flag needed. Behaviour can change if the user has Android Auto Backup enabled — verify during implementation that `android.allowBackup=false` (or appropriate `dataExtractionRules` for Android 12+) is set on the manifest, so credentials don't sync to Google Drive.
+
+Add to verification items below: confirm the manifest backup config and document the iOS-vs-Android divergence in code comments where the credential is stored.
+
 ### New tables (`supabase/migrations/2026XXXX_icloud_proxy.sql`)
 
 ```sql
@@ -186,20 +193,19 @@ ALTER TABLE icloud_credential_bindings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE icloud_proxy_calls         ENABLE ROW LEVEL SECURITY;
 
 -- Cron: daily cleanup of stale bindings AND old call records.
--- A binding row whose last_validated_at is older than 30 days is treated as
--- abandoned. After cleanup the next list-inbox fails closed (auth-failed),
--- the user re-enters their password, and the binding is re-created.
 SELECT cron.schedule(
   'icloud-binding-sweep',
   '0 4 * * *',  -- daily 04:00 UTC
   $$
-  DELETE FROM icloud_credential_bindings WHERE last_validated_at < now() - interval '30 days';
-  DELETE FROM icloud_proxy_calls         WHERE called_at         < now() - interval '7 days';
+  DELETE FROM icloud_credential_bindings WHERE last_validated_at < now() - interval '90 days';
+  DELETE FROM icloud_proxy_calls         WHERE called_at         < now() - interval '30 days';
   $$
 );
 ```
 
-The 30-day re-auth interval is acceptable: a user who hasn't opened Zolva in a month being prompted to re-enter their iCloud password is normal hygiene, not a UX failure.
+**Why these numbers:**
+- **Bindings: 90 days.** App-specific passwords don't expire on Apple's side, so any cleanup interval is artificial. With bind-on-first-list-inbox + refresh-on-every-list-inbox, the row stays alive as long as the user actively fetches mail. 90 days is generous enough that vacationers, less-active users, or users who set up iCloud and primarily check mail in iCloud Mail.app don't hit a re-auth cliff. The 30-day number that appeared in earlier drafts was security theater. After cleanup the next list-inbox fails closed (auth-failed), the user re-enters, the binding is recreated.
+- **Proxy calls: 30 days.** Long enough to investigate any abuse pattern that surfaces (bursty validate spam, unusual rate-limit triggers). Tiny table — a row per call, one row per user-call-event.
 
 ## iCloud Mail (IMAP via edge proxy)
 
@@ -213,7 +219,10 @@ Deploy a 12-line throwaway probe:
 // supabase/functions/tcp-probe/index.ts
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 
-const PROBE_EXPIRY = 1745784000000; // unix ms — 48h after intended deploy
+// IMPORTANT: recompute at deploy time. This is "intended deploy date + 48h".
+// Set via Date.UTC(year, monthIndex, day) so it cannot silently rot to a past date.
+// monthIndex is 0-based (3 = April).
+const PROBE_EXPIRY = Date.UTC(2026, 3, 28); // 2026-04-28 00:00 UTC
 
 serve(async () => {
   if (Date.now() > PROBE_EXPIRY) return new Response('Gone', { status: 410 });
@@ -292,20 +301,24 @@ Both ops use a fresh imapflow connection per request (no pooling, no IDLE). Stat
 **`validate`** (called from the setup screen):
 1. `client.connect()` — performs LOGIN.
 2. `client.logout()`.
-3. On success: upsert binding row with `credential_hash = HMAC-SHA256(BINDING_HASH_PEPPER, email + ':' + password)`, `last_validated_at = now()`. Return `{ ok: true }`.
-4. On auth failure: return 422 `auth-failed`.
+3. Return `{ ok: true }` or 422 `auth-failed`. **No DB writes.** Binding is established on first successful `list-inbox`, not here. Reason: a CalDAV-fails-but-IMAP-succeeded scenario at setup-screen time would otherwise create an orphan binding row for a credential the user never persists. Binding only on real-data fetch eliminates the orphan class entirely.
 
 ~1-2 round trips, typically <2s.
 
 **`list-inbox`** (called from `useMailItems`):
-1. Recompute hash from request body. Look up `icloud_credential_bindings` for the JWT's `user_id`. If row missing OR `credential_hash` doesn't match → return 422 `auth-failed`. (Same response shape as wrong password; no oracle.)
-2. `client.connect()` — LOGIN.
-3. `client.mailboxOpen('INBOX', { readOnly: true })`. Read-only is critical — prevents accidental `\Seen` flag mutations.
-4. Get message count `n`. Range = `${Math.max(1, n - limit + 1)}:${n}` (last `limit` by sequence number).
-5. `client.fetch(range, { uid: true, envelope: true, flags: true, bodyParts: ['1'] })`.
-6. Map to response shape. Drop messages with malformed envelope. For preview: if `bodyParts['1']` looks like HTML (`<` in first 100 chars), strip tags via `replace(/<[^>]*>/g, '')` + decode common entities (`&amp; &lt; &gt; &nbsp; &#\d+;`), trim to 140. Otherwise use as-is, trim to 140. Lossy by design — full BODYSTRUCTURE parsing is future work.
-7. `client.logout()`.
-8. Refresh binding `last_validated_at = now()` (extends the 30-day TTL).
+1. Recompute hash from request body: `credential_hash = HMAC-SHA256(BINDING_HASH_PEPPER, email + ':' + password)`.
+2. Look up `icloud_credential_bindings` for the JWT's `user_id`.
+   - **Row exists**: `credential_hash` must match. Mismatch → return 422 `auth-failed` (same response shape as wrong password; no oracle).
+   - **Row missing**: this is the user's first `list-inbox` for this credential. Proceed to step 3; on success, insert the binding row.
+3. `client.connect()` — LOGIN.
+4. `client.mailboxOpen('INBOX', { readOnly: true })`. Read-only is critical — prevents accidental `\Seen` flag mutations.
+5. Get message count `n`. Range = `${Math.max(1, n - limit + 1)}:${n}` (last `limit` by sequence number).
+6. `client.fetch(range, { uid: true, envelope: true, flags: true, bodyParts: ['1'] })`.
+7. Map to response shape. Drop messages with malformed envelope. For preview: if `bodyParts['1']` looks like HTML (`<` in first 100 chars), strip tags via `replace(/<[^>]*>/g, '')` + decode common entities (`&amp; &lt; &gt; &nbsp; &#\d+;`), trim to 140. Otherwise use as-is, trim to 140. Lossy by design — full BODYSTRUCTURE parsing is future work.
+8. `client.logout()`.
+9. Upsert binding row: `credential_hash = <computed>`, `last_validated_at = now()`. (First call: insert. Subsequent calls: refresh `last_validated_at`, extends the 90-day TTL.)
+
+**Security property** of the bind-on-first-list-inbox design: an attacker with a stolen JWT (and no existing binding for that user_id) gets exactly one shot to introduce any credential into the binding before being constrained to that credential. Combined with the 60/hour list-inbox rate limit, the abuse window is small. For users who already have a binding, the rate-limited validate endpoint exists for credential-checking without affecting the binding.
 
 ### Timeout semantics
 
@@ -632,7 +645,9 @@ Pushed from Settings via new `'icloud-setup'` route. Accepts optional `prefilled
 
 **Capture-time validation lifecycle and binding row:**
 
-The proxy's `validate` op upserts the binding row on IMAP success. If the parallel CalDAV probe fails, the client never calls `saveCredential`. This leaves an orphan binding row server-side. Per the binding-lifecycle policy: orphan bindings are harmless (one row per user, idempotent on re-validate, swept by cron after 30 days of no activity). Document this; do not over-engineer a two-phase commit.
+The proxy's `validate` op does NOT touch the binding table — it just probes Apple's auth and returns ok/error. The binding is established by the first successful `list-inbox` call, which happens *after* the user's credential is persisted on the device. This eliminates the orphan-binding class entirely: there's no path where a binding row exists for a credential the user never saved.
+
+If the parallel CalDAV probe fails at setup time, the client doesn't `saveCredential`, no list-inbox is ever attempted, no binding row is created. Clean failure with no server-side residue.
 
 **Error mapping** (after submit failure, inline above form):
 
@@ -768,3 +783,13 @@ None of this is a one-line storage swap. Future work to size honestly when the t
 - **`CALENDAR_TIME_HORIZON`** — read `src/lib/google-calendar.ts`, extract the actual time-range constant into a shared module, apply same range to iCloud CalDAV REPORT.
 - **Verify `react-native-tcp-socket` was correctly excluded from the implementation** — we deliberately do NOT use it. If anyone proposes adding it during implementation review, push back: that decision was made deliberately to avoid hand-rolling an IMAP parser and to dodge the unverified new-arch compat issue.
 - **VTIMEZONE fallback** must be wired before shipping, not "we'll see if it bites users." Wrong-time events are the kind of bug people uninstall over.
+- **Android manifest backup config** — confirm `android.allowBackup=false` (or appropriate `dataExtractionRules` for Android 12+) so iCloud credentials don't sync to Google Drive via Auto Backup. Document iOS Keychain vs Android Keystore behaviour difference in a code comment where the credential is stored.
+
+## Implementation notes (improvements the implementer can adopt without re-review)
+
+These were raised during brainstorm and judged as quality improvements that don't need a redesign — apply if convenient, defer if other work is more pressing.
+
+- **Tighten the wrong-format password check.** The current spec says "warn if the password contains anything other than `[a-z\-\s]` after ≥8 chars." Strictly more correct: after stripping hyphens and whitespace, the result should be exactly 16 chars of `[a-z]`. Anything else triggers the warning. Catches half-pasted passwords and trailing hyphens that the looser check would miss.
+- **"Forbind Gmail" CTA in the brief-row bottom sheet** — handle the case where the user's Google connection is in `expired` state (refresh token rejected). Detect the existing connection state in the sheet; render "Genforbind Gmail" + route to re-auth flow if expired, "Forbind Gmail" + standard OAuth if disconnected. Edge case (the brief row only shows when iCloud is the only provider, so Google would have to be manually disconnected for this to fire) but cheap to handle.
+- **Privacy bottom-sheet copy honesty.** The `Læs mere` sheet currently says *"Apple tillader ikke den type baggrundsadgang vi har brug for…"* — diplomatic but slightly misleading. The actual reason is that we don't put iCloud credentials on our servers (a Zolva choice), not that Apple forbids it. More honest version: *"Vi sender ikke iCloud-adgangskoder til vores servere, og morgenbrief'en kræver server-side adgang til din mail. Vi arbejder på en løsning."* Slightly longer, more truthful — pick whichever the founder prefers when shipping.
+- **`BINDING_HASH_PEPPER` rotation runbook** — not now, but if the pepper ever needs to rotate (suspected leak), every binding row becomes garbage and every active iCloud user re-auths on their next list-inbox call. Worth documenting the procedure in the deployment runbook even if you never use it.
