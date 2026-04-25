@@ -30,6 +30,9 @@ yarn-error.*
 .DS_Store
 *.pem
 
+# Claude Code local config (permissions allowlist, scheduled task locks)
+.claude/
+
 # local env files
 .env
 .env.*

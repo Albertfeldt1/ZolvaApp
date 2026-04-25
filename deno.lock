@@ -1,0 +1,53 @@
+{
+  "version": "5",
+  "redirects": {
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.104.1"
+  },
+  "remote": {
+    "https://deno.land/std@0.224.0/async/delay.ts": "f90dd685b97c2f142b8069082993e437b1602b8e2561134827eeb7c12b95c499",
+    "https://deno.land/std@0.224.0/http/server.ts": "f9313804bf6467a1704f45f76cb6cd0a3396a3b31c316035e6a4c2035d1ea514",
+    "https://esm.sh/@supabase/supabase-js@2.104.1": "bad73bfa9aac8a6d896e7a1d4449c7c2ece9a01bccca9e9569f1ed0fc76b5222"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@expo-google-fonts/fraunces@~0.4.1",
+        "npm:@expo-google-fonts/inter@~0.4.2",
+        "npm:@expo-google-fonts/jetbrains-mono@~0.4.1",
+        "npm:@expo-google-fonts/playfair-display@~0.4.2",
+        "npm:@react-native-async-storage/async-storage@2.2.0",
+        "npm:@react-native-community/netinfo@11.4.1",
+        "npm:@supabase/supabase-js@^2.103.3",
+        "npm:@types/react@19.1",
+        "npm:babel-preset-expo@~54.0.10",
+        "npm:expo-apple-authentication@~8.0.8",
+        "npm:expo-auth-session@~7.0.10",
+        "npm:expo-blur@~15.0.8",
+        "npm:expo-clipboard@~8.0.8",
+        "npm:expo-crypto@~15.0.8",
+        "npm:expo-device@~8.0.10",
+        "npm:expo-font@~14.0.11",
+        "npm:expo-glass-effect@~0.1.9",
+        "npm:expo-haptics@~15.0.8",
+        "npm:expo-linear-gradient@~15.0.8",
+        "npm:expo-linking@~8.0.11",
+        "npm:expo-notifications@~0.32.16",
+        "npm:expo-secure-store@~15.0.8",
+        "npm:expo-status-bar@~3.0.9",
+        "npm:expo-updates@~29.0.16",
+        "npm:expo-video@~3.0.16",
+        "npm:expo-web-browser@~15.0.10",
+        "npm:expo@~54.0.33",
+        "npm:lucide-react-native@^1.8.0",
+        "npm:react-native-get-random-values@1.11",
+        "npm:react-native-reanimated@~4.1.1",
+        "npm:react-native-svg@15.12.1",
+        "npm:react-native-url-polyfill@3",
+        "npm:react-native-worklets@0.5.1",
+        "npm:react-native@0.81.5",
+        "npm:react@19.1.0",
+        "npm:typescript@~5.9.2"
+      ]
+    }
+  }
+}
