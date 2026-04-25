@@ -44,6 +44,7 @@ type StoredShape = {
   invalidReason?: string;
 };
 
+// Empty userId returns 'absent' (not throw) — read paths run during auth-state resolution.
 export async function loadCredential(userId: string): Promise<IcloudCredentialState> {
   if (!userId) return { kind: 'absent' };
   const raw = await secureStorage.getItem(credKey(userId));
