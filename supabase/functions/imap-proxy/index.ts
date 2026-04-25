@@ -94,6 +94,124 @@ serve(async (req) => {
     return err('bad-request', 400);
   }
 
-  // (rate limit + per-op handling added in subsequent tasks)
-  return Response.json({ ok: false, error: 'internal' }, { status: 501 });
+  // --- Rate limit ---
+  const rateOk = await checkRateLimit(serviceKey, supabaseUrl, userId, body.op);
+  if (!rateOk) return err('rate-limited', 429);
+
+  if (body.op === 'validate') {
+    return await handleValidate(body);
+  }
+  if (body.op === 'list-inbox') {
+    return await handleListInbox(body, userId, pepper, supabaseUrl, serviceKey);
+  }
+  return err('bad-request', 400);
 });
+
+async function checkRateLimit(
+  serviceKey: string,
+  supabaseUrl: string,
+  userId: string,
+  op: 'validate' | 'list-inbox',
+): Promise<boolean> {
+  const limit = op === 'validate' ? RATE_LIMIT_VALIDATE : RATE_LIMIT_LIST_INBOX;
+  const svc = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false },
+  });
+  const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { count, error } = await svc
+    .from('icloud_proxy_calls')
+    .select('id', { head: true, count: 'exact' })
+    .eq('user_id', userId)
+    .eq('op', op)
+    .gte('called_at', since);
+  if (error) {
+    console.warn('[imap-proxy] rate-limit check failed:', error.message);
+    return true; // fail open on infrastructure errors; don't block legit users
+  }
+  if ((count ?? 0) >= limit) return false;
+  // Record this call (fire-and-forget — rate limit window already computed)
+  void svc.from('icloud_proxy_calls').insert({ user_id: userId, op });
+  return true;
+}
+
+async function handleValidate(body: ValidateReq): Promise<Response> {
+  const password = normalizePassword(body.password);
+  const email = body.email.trim().toLowerCase();
+
+  let client: ImapFlow | null = null;
+  try {
+    client = newImapClient(email, password);
+    await client.connect();
+    await client.logout();
+    return Response.json({ ok: true });
+  } catch (caughtErr) {
+    return mapImapError(caughtErr);
+  } finally {
+    if (client && client.usable) {
+      try { await client.close(); } catch { /* ignore */ }
+    }
+  }
+}
+
+function newImapClient(email: string, password: string): ImapFlow {
+  return new ImapFlow({
+    host: IMAP_HOST,
+    port: IMAP_PORT,
+    secure: true,
+    auth: { user: email, pass: password },
+    logger: false,                  // never log credentials
+    socketTimeout: COMMAND_TIMEOUT_MS,
+    greetingTimeout: CONNECT_TIMEOUT_MS,
+  });
+}
+
+function normalizePassword(input: string): string {
+  return input.replace(/[\s-]/g, '');
+}
+
+function mapImapError(caughtErr: unknown): Response {
+  const msg = caughtErr instanceof Error ? caughtErr.message : String(caughtErr);
+  // imapflow throws structured errors with serverResponseCode
+  const code =
+    (caughtErr as { serverResponseCode?: string })?.serverResponseCode ?? '';
+  if (
+    code === 'AUTHENTICATIONFAILED' ||
+    /AUTHENTICATIONFAILED/i.test(msg) ||
+    /\bLOGIN failed\b/i.test(msg)
+  ) {
+    return err('auth-failed', 422);
+  }
+  if (
+    code === 'INUSE' ||
+    code === 'UNAVAILABLE' ||
+    code === 'ALERT' ||
+    /^NO\b/i.test(msg)
+  ) {
+    return err('temporarily-unavailable', 503);
+  }
+  if (
+    /AbortError|aborted/i.test(msg) ||
+    /timeout/i.test(msg)
+  ) {
+    return err('timeout', 504);
+  }
+  if (
+    /ENOTFOUND|ECONNREFUSED|ECONNRESET|EHOSTUNREACH/i.test(msg)
+  ) {
+    return err('network', 503);
+  }
+  console.warn('[imap-proxy] unmapped imap error:', msg);
+  return err('protocol', 502);
+}
+
+// Forward declaration — real implementation in Task 2.3.
+// Remove this stub when Task 2.3 lands and the real `handleListInbox` is added.
+async function handleListInbox(
+  _body: ListInboxReq,
+  _userId: string,
+  _pepper: string,
+  _supabaseUrl: string,
+  _serviceKey: string,
+): Promise<Response> {
+  return err('internal', 501);
+}
