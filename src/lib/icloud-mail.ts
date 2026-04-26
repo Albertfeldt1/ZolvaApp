@@ -184,6 +184,10 @@ async function call<T>(
     if (err instanceof Error && err.name === 'AbortError') {
       return { ok: false, error: 'timeout' };
     }
+    if (__DEV__) {
+      const e = err as { name?: string; message?: string };
+      console.warn(`[icloud-mail] ${op} fetch threw:`, e?.name, e?.message);
+    }
     return { ok: false, error: 'network' };
   }
   clearTimeout(timer);
