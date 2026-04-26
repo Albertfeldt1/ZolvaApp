@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ChevronRight, PackageOpen, X } from 'lucide-react-native';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  AppState,
   Image,
   Pressable,
   ScrollView,
@@ -9,6 +10,8 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useAuth } from '../lib/auth';
+import { loadCredential } from '../lib/icloud-credentials';
 import { ArchiveModal } from '../components/ArchiveModal';
 import { Avatar } from '../components/Avatar';
 import { CountUp } from '../components/CountUp';
@@ -35,9 +38,10 @@ type Props = {
   onGoToSettings: () => void;
   onOpenMail: (mail: InboxMail) => void;
   onOverDarkChange?: (over: boolean) => void;
+  onOpenIcloudSetup?: (prefilledEmail?: string) => void;
 };
 
-export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange }: Props) {
+export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOpenIcloudSetup }: Props) {
   const today = useMemo(() => new Date(), []);
   const date = useMemo(() => formatToday(today), [today]);
   const clock = useMemo(() => formatClock(today), [today]);
@@ -46,6 +50,25 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange }: Pr
   const { data: waiting, loading: waitingLoading, error: waitingError } = useInboxWaiting();
   const { data: cleared } = useInboxCleared();
   const hasProvider = useHasProvider();
+
+  const { user } = useAuth();
+  const userId = user?.id ?? '';
+  const [icloudExpired, setIcloudExpired] = useState(false);
+  const [icloudExpiredEmail, setIcloudExpiredEmail] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!userId) { setIcloudExpired(false); return; }
+    const refresh = () => {
+      void loadCredential(userId).then((c) => {
+        if (cancelled) return;
+        setIcloudExpired(c.kind === 'invalid');
+        setIcloudExpiredEmail(c.kind === 'invalid' ? c.credential.email : null);
+      });
+    };
+    refresh();
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') refresh(); });
+    return () => { cancelled = true; sub.remove(); };
+  }, [userId]);
 
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [hintVisible, setHintVisible] = useState(false);
@@ -106,6 +129,18 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange }: Pr
             </View>
           </View>
         </View>
+
+        {icloudExpired && (
+          <Pressable
+            style={styles.expiredBanner}
+            onPress={() => onOpenIcloudSetup?.(icloudExpiredEmail ?? undefined)}
+            accessibilityRole="button"
+          >
+            <Text style={styles.expiredBannerText}>
+              Apple afviste adgangskoden — iCloud-mails vises ikke. Tryk for at genindtaste.
+            </Text>
+          </Pressable>
+        )}
 
         <View style={styles.list}>
           <View style={styles.sectionHead}>
@@ -275,6 +310,14 @@ const styles = StyleSheet.create({
   statDivider: {
     width: StyleSheet.hairlineWidth, alignSelf: 'stretch',
     backgroundColor: colors.line, marginBottom: 6,
+  },
+
+  expiredBanner: {
+    marginHorizontal: 20, marginTop: 12,
+    backgroundColor: colors.warningSoft, padding: 12, borderRadius: 8,
+  },
+  expiredBannerText: {
+    fontFamily: fonts.ui, fontSize: 13, lineHeight: 19, color: colors.warningInk,
   },
 
   list: { paddingHorizontal: 20, paddingTop: 28 },

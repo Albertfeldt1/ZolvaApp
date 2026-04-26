@@ -2,6 +2,7 @@ import { Bell, Bookmark, ChevronRight, Moon, Sun, X } from 'lucide-react-native'
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  AppState,
   Easing,
   Modal,
   NativeScrollEvent,
@@ -13,6 +14,8 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useAuth } from '../lib/auth';
+import { loadCredential } from '../lib/icloud-credentials';
 import { BriefBanner } from '../components/BriefBanner';
 import { BriefHistoryModal } from '../components/BriefHistoryModal';
 import { BriefModal } from '../components/BriefModal';
@@ -61,6 +64,7 @@ type Props = {
   onOverDarkChange?: (over: boolean) => void;
   // Incremented by App whenever a brief push is tapped — triggers the modal.
   briefOpenTrigger?: number;
+  onOpenIcloudSetup?: (prefilledEmail?: string) => void;
 };
 
 const PILL_CLEARANCE = 76;
@@ -74,11 +78,31 @@ export function TodayScreen({
   onOpenNotifications,
   onOverDarkChange,
   briefOpenTrigger,
+  onOpenIcloudSetup,
 }: Props) {
   const today = useMemo(() => new Date(), []);
   const dateInfo = useMemo(() => formatToday(today), [today]);
   const hello = useMemo(() => greeting(today), [today]);
   const { bottom: chromeBottom } = useChromeInsets();
+
+  const { user: authUser } = useAuth();
+  const userId = authUser?.id ?? '';
+  const [icloudExpired, setIcloudExpired] = useState(false);
+  const [icloudExpiredEmail, setIcloudExpiredEmail] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!userId) { setIcloudExpired(false); return; }
+    const refresh = () => {
+      void loadCredential(userId).then((c) => {
+        if (cancelled) return;
+        setIcloudExpired(c.kind === 'invalid');
+        setIcloudExpiredEmail(c.kind === 'invalid' ? c.credential.email : null);
+      });
+    };
+    refresh();
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') refresh(); });
+    return () => { cancelled = true; sub.remove(); };
+  }, [userId]);
 
   const { data: user } = useUser();
   const { data: observations, error: observationsError } = useObservations();
@@ -244,6 +268,18 @@ export function TodayScreen({
 
         <DayRibbon events={ribbonEvents} now={today} />
       </View>
+
+      {icloudExpired && (
+        <Pressable
+          style={styles.expiredBanner}
+          onPress={() => onOpenIcloudSetup?.(icloudExpiredEmail ?? undefined)}
+          accessibilityRole="button"
+        >
+          <Text style={styles.expiredBannerText}>
+            Apple afviste adgangskoden — iCloud-begivenheder vises ikke. Tryk for at genindtaste.
+          </Text>
+        </Pressable>
+      )}
 
       {showHuskPreview && (
         <Pressable onPress={onGoToMemory} style={styles.huskCard}>
@@ -601,6 +637,14 @@ function PendingFactRow({
 
 const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1, backgroundColor: colors.paper },
+
+  expiredBanner: {
+    marginHorizontal: 20, marginTop: 12,
+    backgroundColor: colors.warningSoft, padding: 12, borderRadius: 8,
+  },
+  expiredBannerText: {
+    fontFamily: fonts.ui, fontSize: 13, lineHeight: 19, color: colors.warningInk,
+  },
 
   hero: {
     backgroundColor: colors.sageSoft,

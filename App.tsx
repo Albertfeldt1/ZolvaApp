@@ -307,6 +307,7 @@ export default function App() {
                 onOpenNotifications={openNotifications}
                 onOverDarkChange={setChromeOverDark}
                 briefOpenTrigger={briefOpenTrigger}
+                onOpenIcloudSetup={openIcloudSetup}
               />
             )}
             {tab === 'inbox' && (
@@ -314,6 +315,7 @@ export default function App() {
                 onGoToSettings={() => switchTab('settings')}
                 onOpenMail={openMailDetail}
                 onOverDarkChange={setChromeOverDark}
+                onOpenIcloudSetup={openIcloudSetup}
               />
             )}
             {tab === 'calendar' && <CalendarScreen onGoToSettings={() => switchTab('settings')} />}
