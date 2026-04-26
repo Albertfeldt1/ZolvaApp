@@ -10,6 +10,8 @@
 //
 // Split TTL: principal/calendar-home cached 30 days, calendar list cached 24h.
 
+import ICAL from 'ical.js';
+
 import * as secureStorage from './secure-storage';
 import { loadCredential, markInvalid } from './icloud-credentials';
 
@@ -147,8 +149,44 @@ export async function listEvents(
     await saveDiscoveryCache(userId, cache);
   }
 
-  // (event fetch added in Task 5.3)
-  return { ok: true, data: [] };
+  // Fetch events from each calendar in parallel, capped at CONCURRENCY.
+  const range = caldavTimeRange(rangeStart, rangeEnd);
+  const cals = cache.calendars;
+  // Re-bind with explicit type so the async worker closure below keeps the
+  // string narrowing — TS un-narrows captured locals inside async functions.
+  const authStr: string = auth;
+
+  const results: IcloudCalEvent[] = [];
+  let nextIndex = 0;
+  let firstFatalError: CalDavErrorCode | null = null;
+
+  async function worker() {
+    while (true) {
+      const i = nextIndex++;
+      if (i >= cals.length) return;
+      const cal = cals[i];
+      const r = await reportEvents(cal.url, authStr, range);
+      if (!r.ok) {
+        if (r.error === 'auth-failed' && firstFatalError == null) firstFatalError = 'auth-failed';
+        // Other errors: skip this calendar (best-effort) — partial result preferred.
+        continue;
+      }
+      for (const raw of r.data) {
+        const events = parseVcalendarEvents(raw, rangeStart, rangeEnd, cal);
+        results.push(...events);
+      }
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(CONCURRENCY, cals.length) }, () => worker());
+  await Promise.all(workers);
+
+  if (firstFatalError === 'auth-failed') {
+    await markInvalid(userId, 'caldav-rejected');
+    return { ok: false, error: 'auth-failed' };
+  }
+
+  return { ok: true, data: results };
 }
 
 async function fullDiscover(
@@ -333,3 +371,166 @@ export type IcloudCalEvent = {
   calendarColor?: string;
   calendarName: string;
 };
+
+function caldavTimeRange(start: Date, end: Date): { start: string; end: string } {
+  const fmt = (d: Date) =>
+    d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  return { start: fmt(start), end: fmt(end) };
+}
+
+async function reportEvents(
+  calendarUrl: string,
+  auth: string,
+  range: { start: string; end: string },
+): Promise<CalDavResult<string[]>> {
+  const body =
+    `<?xml version="1.0" encoding="utf-8"?>
+<c:calendar-query xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:d="DAV:">
+  <d:prop>
+    <d:getetag/>
+    <c:calendar-data/>
+  </d:prop>
+  <c:filter>
+    <c:comp-filter name="VCALENDAR">
+      <c:comp-filter name="VEVENT">
+        <c:time-range start="${range.start}" end="${range.end}"/>
+      </c:comp-filter>
+    </c:comp-filter>
+  </c:filter>
+</c:calendar-query>`;
+  const res = await caldavFetch(calendarUrl, 'REPORT', auth, { Depth: '1' }, body);
+  if (!res.ok) return res;
+  const blocks: string[] = [];
+  for (const m of res.data.matchAll(/<[^>]*calendar-data[^>]*>([\s\S]*?)<\/[^>]*calendar-data[^>]*>/gi)) {
+    blocks.push(m[1]
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .trim());
+  }
+  return { ok: true, data: blocks };
+}
+
+function parseVcalendarEvents(
+  vcalText: string,
+  rangeStart: Date,
+  rangeEnd: Date,
+  cal: IcloudCalendarMeta,
+): IcloudCalEvent[] {
+  let jcal: unknown;
+  try { jcal = ICAL.parse(vcalText); }
+  catch { return []; }
+  const vcalendar = new ICAL.Component(jcal as [string, unknown[], unknown[]]);
+  registerMissingTimezones(vcalendar);
+
+  const out: IcloudCalEvent[] = [];
+  for (const ve of vcalendar.getAllSubcomponents('vevent')) {
+    const event = new ICAL.Event(ve);
+    if (event.isRecurring()) {
+      const iter = event.iterator();
+      let next: ICAL.Time | null;
+      while ((next = iter.next()) && next.toJSDate().getTime() < rangeEnd.getTime()) {
+        if (next.toJSDate().getTime() < rangeStart.getTime()) continue;
+        const details = event.getOccurrenceDetails(next);
+        out.push(toIcloudEvent(details.item, details.startDate.toJSDate(), details.endDate.toJSDate(), cal));
+      }
+    } else {
+      out.push(toIcloudEvent(event, event.startDate.toJSDate(), event.endDate.toJSDate(), cal));
+    }
+  }
+  return out;
+}
+
+function toIcloudEvent(
+  source: ICAL.Event,
+  start: Date,
+  end: Date,
+  cal: IcloudCalendarMeta,
+): IcloudCalEvent {
+  return {
+    uid: source.uid,
+    start,
+    end,
+    allDay: !!source.startDate?.isDate,
+    title: source.summary || '(uden titel)',
+    location: source.location || undefined,
+    description: source.description || undefined,
+    calendarColor: cal.calendarColor,
+    calendarName: cal.displayName,
+  };
+}
+
+// VTIMEZONE fallback — when a VEVENT references TZID without an in-component
+// VTIMEZONE block, register an Intl-DateTimeFormat-backed timezone so ical.js
+// can resolve UTC offsets correctly. Without this, ical.js falls back to
+// floating time → silent wrong-time bug for DST users.
+
+function registerMissingTimezones(vcalendar: ICAL.Component): void {
+  const referenced = new Set<string>();
+  for (const ve of vcalendar.getAllSubcomponents('vevent')) {
+    for (const propName of ['dtstart', 'dtend']) {
+      const prop = ve.getFirstProperty(propName);
+      const tzid = prop?.getParameter('tzid');
+      if (typeof tzid === 'string') referenced.add(tzid);
+    }
+  }
+  for (const tzid of referenced) {
+    if (ICAL.TimezoneService.has(tzid)) continue;
+    const present = vcalendar.getAllSubcomponents('vtimezone').some(
+      (vtz) => vtz.getFirstPropertyValue('tzid') === tzid,
+    );
+    if (present) continue;
+    const fallback = makeIntlTimezone(tzid);
+    if (fallback) {
+      ICAL.TimezoneService.register(tzid, fallback);
+      if (__DEV__) {
+        console.warn('[icloud-cal] VTIMEZONE missing for', tzid, '— Intl fallback');
+      }
+    }
+  }
+}
+
+function makeIntlTimezone(tzid: string): ICAL.Timezone | null {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tzid });
+  } catch {
+    return null;
+  }
+  const probe = new Date();
+  const offsetMin = -getIntlOffsetMinutes(tzid, probe);
+  const sign = offsetMin >= 0 ? '+' : '-';
+  const abs = Math.abs(offsetMin);
+  const hh = String(Math.floor(abs / 60)).padStart(2, '0');
+  const mm = String(abs % 60).padStart(2, '0');
+  const vtimezone = `BEGIN:VTIMEZONE
+TZID:${tzid}
+BEGIN:STANDARD
+DTSTART:19700101T000000
+TZOFFSETFROM:${sign}${hh}${mm}
+TZOFFSETTO:${sign}${hh}${mm}
+TZNAME:${tzid}
+END:STANDARD
+END:VTIMEZONE`;
+  try {
+    const j = ICAL.parse(`BEGIN:VCALENDAR\nVERSION:2.0\n${vtimezone}\nEND:VCALENDAR`);
+    const c = new ICAL.Component(j as [string, unknown[], unknown[]]);
+    const tz = new ICAL.Timezone(c.getFirstSubcomponent('vtimezone')!);
+    return tz;
+  } catch {
+    return null;
+  }
+}
+
+function getIntlOffsetMinutes(tzid: string, atDate: Date): number {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: tzid,
+    timeZoneName: 'shortOffset',
+  });
+  const parts = dtf.formatToParts(atDate);
+  const tzPart = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT+0';
+  const m = tzPart.match(/GMT([+-]\d+)(?::(\d+))?/);
+  if (!m) return 0;
+  const hours = parseInt(m[1], 10);
+  const minutes = m[2] ? parseInt(m[2], 10) : 0;
+  return hours * 60 + (hours < 0 ? -minutes : minutes);
+}
