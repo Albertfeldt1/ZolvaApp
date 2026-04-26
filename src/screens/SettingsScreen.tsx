@@ -5,7 +5,7 @@
 // email the contact address and Zolva responds within 30 days. When/if a real
 // JSON export is built (Edge Function + Resend), re-add a button here and grep
 // for this marker to update the handoff.
-import { Check, Cloud } from 'lucide-react-native';
+import { Check } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
@@ -97,6 +97,7 @@ const LOGOS: Record<string, ImageSourcePropType> = {
   'google-drive.png': require('../../assets/logos/google-drive.png'),
   'outlook-calendar.png': require('../../assets/logos/outlook-calendar.png'),
   'outlook-mail.png': require('../../assets/logos/outlook-mail.png'),
+  'icloud.png': require('../../assets/logos/icloud.png'),
 };
 
 const STATUS_LABEL: Record<IntegrationStatus, string> = {
@@ -428,15 +429,11 @@ export function SettingsScreen({ onOpenIcloudSetup, icloudRefreshVersion = 0 }: 
                     ]}
                   >
                     <View style={styles.logoBox}>
-                      {c.id === 'icloud' ? (
-                        <Cloud size={28} color={colors.ink} strokeWidth={1.5} />
-                      ) : (
-                        <Image
-                          source={LOGOS[c.logo]}
-                          style={[styles.logo, c.logo === 'gmail.png' && { transform: [{ scale: 1.35 }] }]}
-                          resizeMode="contain"
-                        />
-                      )}
+                      <Image
+                        source={LOGOS[c.logo]}
+                        style={[styles.logo, c.logo === 'gmail.png' && { transform: [{ scale: 1.35 }] }]}
+                        resizeMode="contain"
+                      />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.connTitle}>{c.title}</Text>
