@@ -58,8 +58,13 @@ type ErrCode =
   | 'internal'
   | 'bad-request';
 
-function err(code: ErrCode, status: number): Response {
-  return Response.json({ ok: false, error: code }, { status });
+function err(code: ErrCode, status: number, detail?: string): Response {
+  // `detail` (when set) is a short truncated error message — used by the
+  // client to surface the actual IMAP failure cause for 'protocol' errors
+  // without round-tripping to Supabase function logs.
+  const body: Record<string, unknown> = { ok: false, error: code };
+  if (detail) body.detail = detail.slice(0, 200);
+  return Response.json(body, { status });
 }
 
 serve(async (req) => {
@@ -174,8 +179,16 @@ async function checkRateLimit(
     return true; // fail open on infrastructure errors; don't block legit users
   }
   if ((count ?? 0) >= limit) return false;
-  // Record this call (fire-and-forget — rate limit window already computed)
-  void svc.from('icloud_proxy_calls').insert({ user_id: userId, op });
+  // Await the insert — Supabase edge runtime can terminate the request
+  // context before fire-and-forget promises complete, which silently breaks
+  // rate-limit accounting (every call sees count=0 because no inserts ever
+  // land). Adds ~10-30ms but makes the limit actually enforce.
+  const { error: insertErr } = await svc
+    .from('icloud_proxy_calls')
+    .insert({ user_id: userId, op });
+  if (insertErr) {
+    console.warn('[imap-proxy] rate-limit insert failed:', insertErr.message);
+  }
   return true;
 }
 
@@ -260,19 +273,19 @@ function mapImapError(caughtErr: unknown): Response {
     responseStatus?: string;
     authenticationFailed?: boolean;
   } | null;
-  console.warn(
-    '[imap-proxy] unmapped imap error:',
-    JSON.stringify({
-      msg,
-      name: errObj?.name,
-      code: errObj?.code,
-      serverResponseCode: errObj?.serverResponseCode,
-      responseStatus: errObj?.responseStatus,
-      response: typeof errObj?.response === 'string' ? errObj.response.slice(0, 300) : undefined,
-      authenticationFailed: errObj?.authenticationFailed,
-    }),
-  );
-  return err('protocol', 502);
+  const ctx = JSON.stringify({
+    msg,
+    name: errObj?.name,
+    code: errObj?.code,
+    serverResponseCode: errObj?.serverResponseCode,
+    responseStatus: errObj?.responseStatus,
+    response: typeof errObj?.response === 'string' ? errObj.response.slice(0, 300) : undefined,
+    authenticationFailed: errObj?.authenticationFailed,
+  });
+  console.warn('[imap-proxy] unmapped imap error:', ctx);
+  // Return the truncated context to the client so __DEV__ logs reveal the
+  // actual IMAP failure without a function-logs dive.
+  return err('protocol', 502, ctx);
 }
 
 function clampLimit(n: number | undefined): number {

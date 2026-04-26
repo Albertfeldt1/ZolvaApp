@@ -201,11 +201,17 @@ async function call<T>(
   }
   let errCode: IcloudErrorCode;
   try {
-    const j = (await res.json()) as { error?: string };
+    const j = (await res.json()) as { error?: string; detail?: string };
     const raw = j.error;
     errCode = typeof raw === 'string' && KNOWN_WIRE_CODES.has(raw as IcloudErrorCode)
       ? (raw as IcloudErrorCode)
       : 'protocol';
+    // Server includes a `detail` field on protocol errors with the actual
+    // IMAP error context (msg, code, response excerpt). Log it so we can
+    // diagnose without diving into Supabase function logs.
+    if (__DEV__ && errCode === 'protocol' && j.detail) {
+      console.warn(`[icloud-mail] ${op} protocol detail:`, j.detail);
+    }
   } catch {
     errCode = 'protocol';
   }
