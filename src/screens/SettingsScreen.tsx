@@ -54,6 +54,7 @@ import { supabase } from '../lib/supabase';
 import type { Connection, IntegrationStatus, WorkPreference } from '../lib/types';
 import { clearCredential, loadCredential } from '../lib/icloud-credentials';
 import { clearDiscoveryCacheFor } from '../lib/icloud-calendar';
+import { clearBinding as clearIcloudBinding } from '../lib/icloud-mail';
 import { translateProviderError } from '../utils/danish';
 
 import {
@@ -288,10 +289,16 @@ export function SettingsScreen({ onOpenIcloudSetup, icloudRefreshVersion = 0 }: 
             if (!userId) return;
             await clearCredential(userId);
             await clearDiscoveryCacheFor(userId);
+            // Best-effort: wipe the server-side binding row so the user can
+            // reconnect with a freshly-rotated app-specific password without
+            // hitting the bound-hash mismatch (auth-failed). Failure is
+            // non-blocking — the cron sweep is the eventual fallback.
+            const r = await clearIcloudBinding();
+            if (!r.ok && __DEV__) {
+              console.warn('[settings] icloud clear-binding failed:', r.error);
+            }
             setIcloudCredState('absent');
             setIcloudEmail(null);
-            // Server-side binding row gets swept by cron after 90 days; no
-            // client-callable disconnect endpoint exists in v1.
           },
         },
       ],

@@ -1,12 +1,14 @@
 // supabase/functions/imap-proxy/index.ts
 //
-// Authenticated proxy for iCloud IMAP. Three ops:
-//   - validate:   LOGIN + LOGOUT only. No DB writes.
-//   - list-inbox: hash-bind check + LOGIN + SELECT INBOX + FETCH list + LOGOUT.
-//                 First successful call upserts the binding row.
-//   - get-body:   hash-bind check + LOGIN + EXAMINE INBOX + FETCH bodyStructure
-//                 + FETCH text part + LOGOUT. Read-only (EXAMINE) so opening
-//                 mail in Zolva does NOT mark it \Seen on iCloud.
+// Authenticated proxy for iCloud IMAP. Four ops:
+//   - validate:      LOGIN + LOGOUT only. No DB writes.
+//   - list-inbox:    hash-bind check + LOGIN + SELECT INBOX + FETCH list + LOGOUT.
+//                    First successful call upserts the binding row.
+//   - get-body:      hash-bind check + LOGIN + EXAMINE INBOX + FETCH bodyStructure
+//                    + FETCH text part + LOGOUT. Read-only (EXAMINE) so opening
+//                    mail in Zolva does NOT mark it \Seen on iCloud.
+//   - clear-binding: deletes the caller's binding row so a new app-specific
+//                    password can bind fresh. JWT-gated; no IMAP/Apple call.
 //
 // Hardcoded target imap.mail.me.com:993. No host param accepted.
 // JWT required for all calls. Per-user rate limits enforced server-side.
@@ -35,7 +37,15 @@ type GetBodyReq = {
   password: string;
   uid: number;
 };
-type Req = ValidateReq | ListInboxReq | GetBodyReq;
+// clear-binding doesn't need email/password — the JWT identifies the user
+// and the binding row is keyed by user_id. Email/password fields are
+// optional/ignored to keep the request shape uniform with the other ops.
+type ClearBindingReq = {
+  op: 'clear-binding';
+  email?: string;
+  password?: string;
+};
+type Req = ValidateReq | ListInboxReq | GetBodyReq | ClearBindingReq;
 
 type ErrCode =
   | 'unauthorized'
@@ -95,13 +105,20 @@ serve(async (req) => {
   }
   if (
     !body ||
-    (body.op !== 'validate' && body.op !== 'list-inbox' && body.op !== 'get-body') ||
-    typeof body.email !== 'string' ||
-    typeof body.password !== 'string' ||
-    body.email.length === 0 ||
-    body.password.length === 0
+    (body.op !== 'validate' && body.op !== 'list-inbox' && body.op !== 'get-body' && body.op !== 'clear-binding')
   ) {
     return err('bad-request', 400);
+  }
+  // Email/password required for IMAP-touching ops; clear-binding is JWT-only.
+  if (body.op !== 'clear-binding') {
+    if (
+      typeof body.email !== 'string' ||
+      typeof body.password !== 'string' ||
+      body.email.length === 0 ||
+      body.password.length === 0
+    ) {
+      return err('bad-request', 400);
+    }
   }
   if (body.op === 'get-body' && (typeof body.uid !== 'number' || !Number.isFinite(body.uid))) {
     return err('bad-request', 400);
@@ -120,6 +137,9 @@ serve(async (req) => {
   if (body.op === 'get-body') {
     return await handleGetBody(body, userId, pepper, supabaseUrl, serviceKey);
   }
+  if (body.op === 'clear-binding') {
+    return await handleClearBinding(userId, supabaseUrl, serviceKey);
+  }
   return err('bad-request', 400);
 });
 
@@ -127,8 +147,12 @@ async function checkRateLimit(
   serviceKey: string,
   supabaseUrl: string,
   userId: string,
-  op: 'validate' | 'list-inbox' | 'get-body',
+  op: 'validate' | 'list-inbox' | 'get-body' | 'clear-binding',
 ): Promise<boolean> {
+  // clear-binding doesn't need rate limiting — the JWT already authorizes,
+  // and a malicious user can only delete their OWN row. Skipping the check
+  // also means disconnect-then-reconnect doesn't false-trigger the limit.
+  if (op === 'clear-binding') return true;
   const limit =
     op === 'validate'
       ? RATE_LIMIT_VALIDATE
@@ -600,4 +624,29 @@ async function handleGetBody(
       try { await client.close(); } catch { /* ignore */ }
     }
   }
+}
+
+// --- clear-binding ----------------------------------------------------------
+//
+// Lets the user wipe their own binding row so a fresh app-specific password
+// can bind on the next list-inbox call. Without this, rotating the password
+// on Apple's side leaves the user locked out (the new password's hash
+// mismatches the bound hash → auth-failed) until the 90-day cron sweep.
+async function handleClearBinding(
+  userId: string,
+  supabaseUrl: string,
+  serviceKey: string,
+): Promise<Response> {
+  const svc = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false },
+  });
+  const { error } = await svc
+    .from('icloud_credential_bindings')
+    .delete()
+    .eq('user_id', userId);
+  if (error) {
+    console.warn('[imap-proxy] clear-binding delete failed:', error.message);
+    return err('internal', 500);
+  }
+  return Response.json({ ok: true });
 }

@@ -110,6 +110,14 @@ export async function listInbox(
   };
 }
 
+// Best-effort wipe of the server-side binding row so a freshly-rotated
+// Apple-Specific password can bind cleanly. Failures are non-fatal — the
+// 90-day cron sweep is the eventual fallback. Caller should not block the
+// UI on the result.
+export async function clearBinding(): Promise<IcloudResult<null>> {
+  return await call<null>('clear-binding', {});
+}
+
 export async function getMessageBody(
   userId: string,
   uid: number,
@@ -145,7 +153,7 @@ type RawMessage = {
 };
 
 async function call<T>(
-  op: 'validate' | 'list-inbox' | 'get-body',
+  op: 'validate' | 'list-inbox' | 'get-body' | 'clear-binding',
   body: Record<string, unknown>,
 ): Promise<IcloudResult<T>> {
   const session = await supabase.auth.getSession();
@@ -156,7 +164,8 @@ async function call<T>(
   const timeoutMs =
     op === 'validate' ? VALIDATE_TIMEOUT_MS
     : op === 'list-inbox' ? LIST_INBOX_TIMEOUT_MS
-    : GET_BODY_TIMEOUT_MS;
+    : op === 'get-body' ? GET_BODY_TIMEOUT_MS
+    : VALIDATE_TIMEOUT_MS; // clear-binding: same 30s ceiling as validate
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
@@ -179,7 +188,8 @@ async function call<T>(
   }
   clearTimeout(timer);
   if (res.status === 200) {
-    if (op === 'validate') return { ok: true, data: null as T };
+    // validate + clear-binding return only `{ok: true}` — no payload.
+    if (op === 'validate' || op === 'clear-binding') return { ok: true, data: null as T };
     const j = (await res.json()) as Record<string, unknown>;
     // Strip the wire envelope's `ok` so it doesn't leak into IcloudResult.data.
     const { ok: _wire, ...payload } = j;
