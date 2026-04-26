@@ -96,9 +96,28 @@ serve(async (req) => {
     metadata: { user_id: userId },
   };
   if (body.system != null) {
-    anthropicBody.system = Array.isArray(body.system)
-      ? body.system
-      : [{ type: 'text', text: body.system }];
+    if (Array.isArray(body.system)) {
+      // Whitelist fields per ClaudeSystemBlock — TypeScript doesn't survive
+      // the JSON.parse boundary, so an authenticated caller could otherwise
+      // smuggle arbitrary fields straight to Anthropic. Drop unknown shapes
+      // and re-emit a clean block list with only `type`, `text`, and an
+      // optional ephemeral `cache_control`.
+      anthropicBody.system = body.system
+        .filter((b): b is ClaudeSystemBlock =>
+          !!b && typeof b === 'object' &&
+          (b as { type?: unknown }).type === 'text' &&
+          typeof (b as { text?: unknown }).text === 'string'
+        )
+        .map((b) => {
+          const block: Record<string, unknown> = { type: 'text', text: b.text };
+          if (b.cache_control?.type === 'ephemeral') {
+            block.cache_control = { type: 'ephemeral' };
+          }
+          return block;
+        });
+    } else {
+      anthropicBody.system = [{ type: 'text', text: body.system }];
+    }
   }
   if (body.temperature != null) anthropicBody.temperature = body.temperature;
   if (body.tools != null) anthropicBody.tools = body.tools;
