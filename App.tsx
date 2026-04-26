@@ -31,6 +31,7 @@ import { OfflineBanner } from './src/components/OfflineBanner';
 import { StatusBarScrim } from './src/components/StatusBarScrim';
 import { CalendarScreen } from './src/screens/CalendarScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
+import { IcloudSetupScreen } from './src/screens/IcloudSetupScreen';
 import { InboxDetailScreen } from './src/screens/InboxDetailScreen';
 import { InboxScreen } from './src/screens/InboxScreen';
 import { MemoryScreen } from './src/screens/MemoryScreen';
@@ -85,6 +86,8 @@ export default function App() {
   const [chatDraft, setChatDraft] = useState<string | undefined>(undefined);
   const [openMail, setOpenMail] = useState<InboxMail | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [icloudSetupOpen, setIcloudSetupOpen] = useState(false);
+  const [icloudPrefilledEmail, setIcloudPrefilledEmail] = useState<string | undefined>(undefined);
   const [chromeOverDark, setChromeOverDark] = useState(false);
   const [chromeHeight, setChromeHeight] = useState(0);
   const [migrationsDone, setMigrationsDone] = useState(false);
@@ -148,6 +151,7 @@ export default function App() {
       setChatOpen(false);
       setOpenMail(null);
       setNotificationsOpen(false);
+      setIcloudSetupOpen(false);
       void markFeedByPayload(payload);
       switch (payload.type) {
         case 'reminder':
@@ -207,6 +211,7 @@ export default function App() {
     setChatOpen(false);
     setOpenMail(null);
     setNotificationsOpen(false);
+    setIcloudSetupOpen(false);
     if (t !== 'today' && t !== 'inbox') setChromeOverDark(false);
   };
 
@@ -220,10 +225,23 @@ export default function App() {
     setNotificationsOpen(false);
   };
 
+  const openIcloudSetup = (prefilledEmail?: string) => {
+    Haptics.selectionAsync();
+    setIcloudPrefilledEmail(prefilledEmail);
+    setIcloudSetupOpen(true);
+  };
+
+  const closeIcloudSetup = () => {
+    Haptics.selectionAsync();
+    setIcloudSetupOpen(false);
+    setIcloudPrefilledEmail(undefined);
+  };
+
   const handleNotificationNavigate = (payload: NotificationPayload) => {
     setNotificationsOpen(false);
     setChatOpen(false);
     setOpenMail(null);
+    setIcloudSetupOpen(false);
     switch (payload.type) {
       case 'reminder':
       case 'digest':
@@ -297,7 +315,7 @@ export default function App() {
             )}
             {tab === 'calendar' && <CalendarScreen onGoToSettings={() => switchTab('settings')} />}
             {tab === 'memory' && <MemoryScreen onOpenChat={openChat} />}
-            {tab === 'settings' && <SettingsScreen />}
+            {tab === 'settings' && <SettingsScreen onOpenIcloudSetup={openIcloudSetup} />}
           </Animated.View>
         )}
         {openMail && !chatOpen && (
@@ -323,6 +341,20 @@ export default function App() {
             />
           </Animated.View>
         )}
+        {icloudSetupOpen && !chatOpen && !openMail && !notificationsOpen && (
+          <Animated.View
+            key="icloud-setup"
+            style={StyleSheet.absoluteFill}
+            entering={SlideInDown.duration(320)}
+            exiting={SlideOutDown.duration(260)}
+          >
+            <IcloudSetupScreen
+              prefilledEmail={icloudPrefilledEmail}
+              onDone={closeIcloudSetup}
+              onCancel={closeIcloudSetup}
+            />
+          </Animated.View>
+        )}
       </View>
       {user?.id && (
         <MemoryConsentModal
@@ -335,7 +367,7 @@ export default function App() {
           }}
         />
       )}
-      {!chatOpen && !openMail && !notificationsOpen && (
+      {!chatOpen && !openMail && !notificationsOpen && !icloudSetupOpen && (
         <View
           style={styles.chrome}
           pointerEvents="box-none"

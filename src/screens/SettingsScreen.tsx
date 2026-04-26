@@ -124,7 +124,13 @@ function useNotificationPermission(): PermissionStatus {
   return status;
 }
 
-export function SettingsScreen() {
+type SettingsScreenProps = {
+  // Wired in Phase 8 — kept optional so this prop is a no-op until the
+  // Settings tap dispatch lands.
+  onOpenIcloudSetup?: (prefilledEmail?: string) => void;
+};
+
+export function SettingsScreen(_props: SettingsScreenProps) {
   const { data: user, loading: userLoading } = useUser();
   const { data: subscription } = useSubscription();
   const { data: connections, connect, disconnect } = useConnections();
