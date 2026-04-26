@@ -5,7 +5,7 @@
 // email the contact address and Zolva responds within 30 days. When/if a real
 // JSON export is built (Edge Function + Resend), re-add a button here and grep
 // for this marker to update the handoff.
-import { Check } from 'lucide-react-native';
+import { Check, Cloud } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
@@ -51,7 +51,9 @@ import {
   useWorkPreferences,
 } from '../lib/hooks';
 import { supabase } from '../lib/supabase';
-import type { IntegrationStatus, WorkPreference } from '../lib/types';
+import type { Connection, IntegrationStatus, WorkPreference } from '../lib/types';
+import { clearCredential, loadCredential } from '../lib/icloud-credentials';
+import { clearDiscoveryCacheFor } from '../lib/icloud-calendar';
 import { translateProviderError } from '../utils/danish';
 
 import {
@@ -99,8 +101,7 @@ const LOGOS: Record<string, ImageSourcePropType> = {
 const STATUS_LABEL: Record<IntegrationStatus, string> = {
   connected: 'Forbundet',
   pending: 'Venter',
-  // TODO(icloud): Phase 8/9 — add tappable re-enter flow for 'expired'; the row is currently non-interactive (see `tappable` expression below).
-  expired: 'Udløbet',
+  expired: 'Genindtast adgangskode',
   disconnected: 'Ikke forbundet',
 };
 
@@ -125,18 +126,53 @@ function useNotificationPermission(): PermissionStatus {
 }
 
 type SettingsScreenProps = {
-  // Wired in Phase 8 — kept optional so this prop is a no-op until the
-  // Settings tap dispatch lands.
   onOpenIcloudSetup?: (prefilledEmail?: string) => void;
+  // Bumped by App.tsx whenever the iCloud setup overlay closes, so this
+  // screen reloads the credential state without remounting.
+  icloudRefreshVersion?: number;
 };
 
-export function SettingsScreen(_props: SettingsScreenProps) {
+export function SettingsScreen({ onOpenIcloudSetup, icloudRefreshVersion = 0 }: SettingsScreenProps) {
   const { data: user, loading: userLoading } = useUser();
   const { data: subscription } = useSubscription();
   const { data: connections, connect, disconnect } = useConnections();
   const { data: workRows, setValue: setWorkValue } = useWorkPreferences();
   const { data: toggles, flip } = usePrivacyToggles();
-  const { signOut } = useAuth();
+  const { signOut, user: authUser } = useAuth();
+  const userId = authUser?.id ?? '';
+  const [icloudCredState, setIcloudCredState] = useState<'absent' | 'valid' | 'invalid'>('absent');
+  const [icloudEmail, setIcloudEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!userId) {
+      setIcloudCredState('absent');
+      setIcloudEmail(null);
+      return;
+    }
+    void loadCredential(userId).then((c) => {
+      if (cancelled) return;
+      setIcloudCredState(c.kind);
+      setIcloudEmail(c.kind !== 'absent' ? c.credential.email : null);
+    });
+    return () => { cancelled = true; };
+  }, [userId, icloudRefreshVersion]);
+
+  const icloudConnection: Connection = {
+    id: 'icloud',
+    title: 'iCloud',
+    sub:
+      icloudCredState === 'valid'   ? (icloudEmail ?? 'Mail og kalender')
+    : icloudCredState === 'invalid' ? 'Adgangskoden er afvist'
+                                    : 'Mail og kalender',
+    status:
+      icloudCredState === 'valid'   ? 'connected'
+    : icloudCredState === 'invalid' ? 'expired'
+                                    : 'disconnected',
+    logo: 'icloud.png', // never read — row renderer special-cases iCloud to use the lucide Cloud icon (Apple trademark constraint).
+  };
+  const allConnections: Connection[] = [icloudConnection, ...connections];
+
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const notificationSettings = useNotificationSettings();
@@ -229,6 +265,28 @@ export function SettingsScreen(_props: SettingsScreenProps) {
     };
   };
 
+  const confirmIcloudDisconnect = () => {
+    Alert.alert(
+      'Frakobl iCloud?',
+      'Mails og kalenderbegivenheder fra iCloud forsvinder fra Zolva.',
+      [
+        { text: 'Annullér', style: 'cancel' },
+        {
+          text: 'Frakobl', style: 'destructive',
+          onPress: async () => {
+            if (!userId) return;
+            await clearCredential(userId);
+            await clearDiscoveryCacheFor(userId);
+            setIcloudCredState('absent');
+            setIcloudEmail(null);
+            // Server-side binding row gets swept by cron after 90 days; no
+            // client-callable disconnect endpoint exists in v1.
+          },
+        },
+      ],
+    );
+  };
+
   const handleDisconnect = (id: typeof connections[number]['id']) => {
     if (connectingId) return;
     const { title, message } = disconnectCopy(id);
@@ -308,21 +366,33 @@ export function SettingsScreen(_props: SettingsScreenProps) {
             <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
               <Text style={styles.sectionTitle}>Forbundet</Text>
               <View style={styles.inkRule} />
-              {connections.map((c, i) => {
+              {allConnections.map((c, i) => {
                 const pillStyle =
                   c.status === 'connected' ? styles.statusSage :
                     c.status === 'pending' ? styles.statusWarn :
-                      styles.statusNeutral;
+                      c.status === 'expired' ? styles.statusWarn :
+                        styles.statusNeutral;
                 const textStyle =
                   c.status === 'connected' ? styles.statusTextSage :
                     c.status === 'pending' ? styles.statusTextWarn :
-                      styles.statusTextNeutral;
+                      c.status === 'expired' ? styles.statusTextWarn :
+                        styles.statusTextNeutral;
                 const isConnected = c.status === 'connected';
-                const tappable = isConnected || c.status === 'disconnected';
+                // iCloud's expired state is tappable (re-enter flow). Other
+                // providers' 'expired' remains non-interactive — no UI yet.
+                const tappable =
+                  isConnected ||
+                  c.status === 'disconnected' ||
+                  (c.id === 'icloud' && c.status === 'expired');
                 const isBusy = connectingId === c.id;
-                const onRowPress = isConnected
-                  ? () => handleDisconnect(c.id)
-                  : () => handleConnect(c.id);
+                const onRowPress =
+                  c.id === 'icloud'
+                    ? (isConnected
+                        ? () => confirmIcloudDisconnect()
+                        : () => onOpenIcloudSetup?.(icloudEmail ?? undefined))
+                    : (isConnected
+                        ? () => handleDisconnect(c.id)
+                        : () => handleConnect(c.id));
                 return (
                   <Pressable
                     key={c.id}
@@ -335,11 +405,15 @@ export function SettingsScreen(_props: SettingsScreenProps) {
                     ]}
                   >
                     <View style={styles.logoBox}>
-                      <Image
-                        source={LOGOS[c.logo]}
-                        style={[styles.logo, c.logo === 'gmail.png' && { transform: [{ scale: 1.35 }] }]}
-                        resizeMode="contain"
-                      />
+                      {c.id === 'icloud' ? (
+                        <Cloud size={28} color={colors.ink} strokeWidth={1.5} />
+                      ) : (
+                        <Image
+                          source={LOGOS[c.logo]}
+                          style={[styles.logo, c.logo === 'gmail.png' && { transform: [{ scale: 1.35 }] }]}
+                          resizeMode="contain"
+                        />
+                      )}
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.connTitle}>{c.title}</Text>

@@ -88,6 +88,8 @@ export default function App() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [icloudSetupOpen, setIcloudSetupOpen] = useState(false);
   const [icloudPrefilledEmail, setIcloudPrefilledEmail] = useState<string | undefined>(undefined);
+  // Bumped on overlay close so SettingsScreen's iCloud loadCredential effect re-runs.
+  const [icloudRefreshVersion, setIcloudRefreshVersion] = useState(0);
   const [chromeOverDark, setChromeOverDark] = useState(false);
   const [chromeHeight, setChromeHeight] = useState(0);
   const [migrationsDone, setMigrationsDone] = useState(false);
@@ -235,6 +237,7 @@ export default function App() {
     Haptics.selectionAsync();
     setIcloudSetupOpen(false);
     setIcloudPrefilledEmail(undefined);
+    setIcloudRefreshVersion((v) => v + 1);
   };
 
   const handleNotificationNavigate = (payload: NotificationPayload) => {
@@ -315,7 +318,12 @@ export default function App() {
             )}
             {tab === 'calendar' && <CalendarScreen onGoToSettings={() => switchTab('settings')} />}
             {tab === 'memory' && <MemoryScreen onOpenChat={openChat} />}
-            {tab === 'settings' && <SettingsScreen onOpenIcloudSetup={openIcloudSetup} />}
+            {tab === 'settings' && (
+              <SettingsScreen
+                onOpenIcloudSetup={openIcloudSetup}
+                icloudRefreshVersion={icloudRefreshVersion}
+              />
+            )}
           </Animated.View>
         )}
         {openMail && !chatOpen && (
