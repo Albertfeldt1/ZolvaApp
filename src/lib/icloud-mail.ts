@@ -200,15 +200,19 @@ async function call<T>(
     return { ok: true, data: payload as T };
   }
   let errCode: IcloudErrorCode;
+  // Read body as text first so we can log it raw if JSON.parse fails or the
+  // server didn't include the expected fields. Supabase gateway 502s during
+  // cold-start return HTML, not JSON — without this we'd just see 'protocol'.
+  const bodyText = await res.text();
+  if (__DEV__) {
+    console.warn(`[icloud-mail] ${op} non-200: status=${res.status} body=${bodyText.slice(0, 400)}`);
+  }
   try {
-    const j = (await res.json()) as { error?: string; detail?: string };
+    const j = JSON.parse(bodyText) as { error?: string; detail?: string };
     const raw = j.error;
     errCode = typeof raw === 'string' && KNOWN_WIRE_CODES.has(raw as IcloudErrorCode)
       ? (raw as IcloudErrorCode)
       : 'protocol';
-    // Server includes a `detail` field on protocol errors with the actual
-    // IMAP error context (msg, code, response excerpt). Log it so we can
-    // diagnose without diving into Supabase function logs.
     if (__DEV__ && errCode === 'protocol' && j.detail) {
       console.warn(`[icloud-mail] ${op} protocol detail:`, j.detail);
     }
