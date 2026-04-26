@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { upsertChatMessage } from './profile-store';
 import type { ChatMessage } from './types';
 import { getPrivacyFlag } from './hooks';
+import { PROFILE_MEMORY_ENABLED, invalidatePreamble } from './profile';
 
 const migrationFlagKey = (uid: string) => `zolva.${uid}.chat.synced`;
 const chatHistoryKey = (uid: string) => `zolva.${uid}.chat.history`;
@@ -10,16 +11,24 @@ const chatHistoryKey = (uid: string) => `zolva.${uid}.chat.history`;
 // so failures never block the UI. Local AsyncStorage persistence continues
 // unchanged.
 export function syncChatMessage(userId: string, msg: ChatMessage): void {
+  if (!PROFILE_MEMORY_ENABLED) return;
   if (!getPrivacyFlag('memory-enabled')) return;
   const role = msg.from === 'user' ? 'user' : 'assistant';
-  void upsertChatMessage(userId, { clientId: msg.id, role, content: msg.text }).catch((err) => {
-    if (__DEV__) console.warn('[chat-sync] upsert failed:', err);
-  });
+  void upsertChatMessage(userId, { clientId: msg.id, role, content: msg.text })
+    .then(() => {
+      // Recent chat is part of the preamble; invalidate so the next Claude
+      // call rebuilds it. getFactsSignature wouldn't otherwise change.
+      invalidatePreamble(userId);
+    })
+    .catch((err) => {
+      if (__DEV__) console.warn('[chat-sync] upsert failed:', err);
+    });
 }
 
 // One-shot migration of existing AsyncStorage chat history to Supabase.
 // Called on first toggle-on of memory-enabled. Idempotent via the synced flag.
 export async function migrateLocalChatIfNeeded(userId: string): Promise<void> {
+  if (!PROFILE_MEMORY_ENABLED) return;
   if (!getPrivacyFlag('memory-enabled')) return;
   try {
     const flag = await AsyncStorage.getItem(migrationFlagKey(userId));
