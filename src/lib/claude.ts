@@ -183,15 +183,21 @@ export async function complete(opts: CompleteOptions): Promise<string> {
 
 // Structured JSON response. Prompts the model to return JSON and parses it.
 export async function completeJson<T>(opts: CompleteOptions & { schemaHint: string }): Promise<T> {
-  const existingSystem = typeof opts.system === 'string' ? opts.system : '';
-  const systemWithSchema = [
-    existingSystem,
-    '',
+  const schemaSuffix = [
     'Return ONLY valid JSON matching this schema. No markdown fences, no prose.',
     opts.schemaHint,
-  ]
-    .filter(Boolean)
-    .join('\n');
+  ].join('\n');
+
+  // Preserve the caller's system shape: a string gets appended to with newlines;
+  // an array-form ClaudeSystemBlock[] gets a trailing text block. Previously
+  // the array path was silently dropped — completeJson is rarely called with
+  // arrays today but the type signature promises support.
+  let systemWithSchema: string | ClaudeSystemBlock[];
+  if (Array.isArray(opts.system)) {
+    systemWithSchema = [...opts.system, { type: 'text' as const, text: schemaSuffix }];
+  } else {
+    systemWithSchema = [opts.system ?? '', '', schemaSuffix].filter(Boolean).join('\n');
+  }
 
   const raw = await complete({ ...opts, system: systemWithSchema, temperature: opts.temperature ?? 0.3 });
   const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '').trim();

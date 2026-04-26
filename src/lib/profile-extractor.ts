@@ -2,7 +2,7 @@ import { completeJson } from './claude';
 import { findDuplicateFact, insertPendingFact, normalizeFactText } from './profile-store';
 import type { FactCategory } from './types';
 import { getPrivacyFlag } from './hooks';
-import { invalidatePreamble } from './profile';
+import { PROFILE_MEMORY_ENABLED, invalidatePreamble } from './profile';
 
 type Trigger = 'chat_turn' | 'mail_draft' | 'mail_decision' | 'mail_reply';
 
@@ -39,6 +39,7 @@ const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const inflight = new Set<string>();
 
 export function runExtractor(payload: ExtractionPayload): void {
+  if (!PROFILE_MEMORY_ENABLED) return;
   if (!getPrivacyFlag('memory-enabled')) return;
   const key = `${payload.userId}:${payload.trigger}`;
   const existing = debounceTimers.get(key);
