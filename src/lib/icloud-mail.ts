@@ -75,9 +75,32 @@ export async function validate(
   return await call<null>('validate', { email, password });
 }
 
+// In-flight dedup: useMailItems has multiple consumers (useInboxWaiting,
+// useInboxArchived, useInboxCleared, useObservations), each instantiating
+// its own fetch effect. Without dedup, one screen render fires 4 parallel
+// IMAP logins per refresh — iCloud throttles per-account and the Supabase
+// gateway 502s when it can't keep up. Concurrent listInbox calls for the
+// same user with the same limit share one in-flight Promise.
+const inflightListInbox = new Map<string, Promise<IcloudResult<IcloudMessage[]>>>();
+
 export async function listInbox(
   userId: string,
   limit = 12,
+): Promise<IcloudResult<IcloudMessage[]>> {
+  const key = `${userId}:${limit}`;
+  const existing = inflightListInbox.get(key);
+  if (existing) return existing;
+
+  const promise = listInboxImpl(userId, limit).finally(() => {
+    inflightListInbox.delete(key);
+  });
+  inflightListInbox.set(key, promise);
+  return promise;
+}
+
+async function listInboxImpl(
+  userId: string,
+  limit: number,
 ): Promise<IcloudResult<IcloudMessage[]>> {
   const cred = await loadCredential(userId);
   if (cred.kind === 'absent') {
