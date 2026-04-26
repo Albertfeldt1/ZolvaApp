@@ -283,11 +283,14 @@ const styles = StyleSheet.create({
   primaryBtnText: {
     fontFamily: fonts.uiSemi, fontSize: 14, color: colors.paper,
   },
-  // Apple-ID flow screenshots — capped aspect ratio so all three render at the
-  // same height regardless of crop. resizeMode="contain" letterboxes if needed.
+  // Apple-ID flow screenshots — fixed height so all three render at the same
+  // visual size regardless of source aspect (the find-page crop is ~1.6:1,
+  // the dialog crops are ~1.1:1). resizeMode="contain" letterboxes the
+  // narrower ones; backgroundColor matches Apple's modal scrim so the
+  // letterboxing is visually invisible.
   screenshot: {
     width: '100%',
-    aspectRatio: 16 / 9,
+    height: 200,
     borderRadius: 8,
     backgroundColor: colors.mist,
   },
