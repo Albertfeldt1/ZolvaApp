@@ -57,6 +57,9 @@ import {
   listInboxMessages as listGraphMessages,
   replyToMessage as graphReplyToMessage,
 } from './microsoft-graph';
+import { loadCredential } from './icloud-credentials';
+import { listInbox as listIcloudMessages } from './icloud-mail';
+import { listEvents as listIcloudEvents } from './icloud-calendar';
 import type {
   CalendarSlot,
   ChatMessage,
@@ -436,8 +439,24 @@ type NormalizedEvent = {
   description?: string;
   attendees?: EventAttendee[];
   color?: string;
-  source: 'google' | 'microsoft';
+  source: 'google' | 'microsoft' | 'icloud';
 };
+
+// Used by useMailItems / useCalendarItems / useHasProvider — credential
+// presence determines whether to fan out an iCloud request and whether the
+// account counts as "has any provider connected" for upstream gating.
+function useIcloudConnected(userId: string): boolean {
+  const [connected, setConnected] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    if (!userId) { setConnected(false); return; }
+    void loadCredential(userId).then((c) => {
+      if (!cancelled) setConnected(c.kind === 'valid');
+    });
+    return () => { cancelled = true; };
+  }, [userId]);
+  return connected;
+}
 
 type NormalizedMail = {
   id: string;
@@ -508,6 +527,8 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
   error: Error | null;
 } {
   const { googleAccessToken, microsoftAccessToken, user } = useAuth();
+  const userId = user?.id ?? '';
+  const icloudConnected = useIcloudConnected(userId);
   const [state, setState] = useState<{
     items: NormalizedEvent[];
     loading: boolean;
@@ -515,7 +536,7 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
   }>({ items: [], loading: false, error: null });
 
   useEffect(() => {
-    if (!user || (!googleAccessToken && !microsoftAccessToken)) {
+    if (!user || (!googleAccessToken && !microsoftAccessToken && !icloudConnected)) {
       setState({ items: [], loading: false, error: null });
       return;
     }
@@ -573,6 +594,24 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
         ),
       );
     }
+    if (icloudConnected && userId) {
+      tasks.push(
+        listIcloudEvents(userId, start, end).then((r) => {
+          if (!r.ok) throw new Error(`icloud:${r.error}`);
+          return r.data.map((e): NormalizedEvent => ({
+            id: `icloud:${e.uid}`,
+            title: e.title,
+            location: e.location,
+            start: e.start,
+            end: e.end,
+            allDay: e.allDay,
+            description: e.description,
+            color: e.calendarColor,
+            source: 'icloud',
+          }));
+        }),
+      );
+    }
 
     // Outer timeout so a hung silent-refresh (Microsoft browser session
     // waiting on tenant consent) or a dead Graph endpoint surfaces as an
@@ -609,7 +648,7 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
       cancelled = true;
       clearTimeout(timeoutId);
     };
-  }, [googleAccessToken, microsoftAccessToken, user, rangeStartMs, rangeEndMs]);
+  }, [googleAccessToken, microsoftAccessToken, user, rangeStartMs, rangeEndMs, icloudConnected, userId]);
 
   return state;
 }
@@ -620,6 +659,8 @@ function useMailItems(): {
   error: Error | null;
 } {
   const { googleAccessToken, microsoftAccessToken, user } = useAuth();
+  const userId = user?.id ?? '';
+  const icloudConnected = useIcloudConnected(userId);
   const [state, setState] = useState<{
     items: NormalizedMail[];
     loading: boolean;
@@ -627,7 +668,7 @@ function useMailItems(): {
   }>({ items: [], loading: false, error: null });
 
   useEffect(() => {
-    if (!user || (!googleAccessToken && !microsoftAccessToken)) {
+    if (!user || (!googleAccessToken && !microsoftAccessToken && !icloudConnected)) {
       setState({ items: [], loading: false, error: null });
       return;
     }
@@ -665,6 +706,25 @@ function useMailItems(): {
         ),
       );
     }
+    if (icloudConnected && userId) {
+      tasks.push(
+        listIcloudMessages(userId, 12).then((r) => {
+          if (!r.ok) {
+            // markInvalid was already called inside icloud-mail.ts on auth-failed.
+            throw new Error(`icloud:${r.error}`);
+          }
+          return r.data.map((m) => ({
+            id: `icloud:${m.uid}`,
+            provider: 'icloud' as const,
+            from: m.from,
+            subject: m.subject,
+            receivedAt: m.date,
+            isRead: !m.unread,
+            preview: m.preview,
+          }));
+        }),
+      );
+    }
 
     Promise.all(tasks)
       .then((results) => {
@@ -683,15 +743,16 @@ function useMailItems(): {
     return () => {
       cancelled = true;
     };
-  }, [googleAccessToken, microsoftAccessToken, user]);
+  }, [googleAccessToken, microsoftAccessToken, user, icloudConnected, userId]);
 
   return state;
 }
 
 export function useHasProvider(): boolean {
   const { googleAccessToken, microsoftAccessToken, user } = useAuth();
+  const icloudConnected = useIcloudConnected(user?.id ?? '');
   if (isDemoUser(user)) return true;
-  return !!(googleAccessToken || microsoftAccessToken);
+  return !!(googleAccessToken || microsoftAccessToken || icloudConnected);
 }
 
 function shortTime(then: Date, now: Date): string {

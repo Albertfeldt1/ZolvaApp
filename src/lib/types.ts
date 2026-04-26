@@ -45,10 +45,10 @@ export type UpcomingEvent = {
   description?: string;
   attendees?: EventAttendee[];
   color?: string;
-  source: 'google' | 'microsoft' | 'demo';
+  source: 'google' | 'microsoft' | 'demo' | 'icloud';
 };
 
-export type MailProvider = 'google' | 'microsoft';
+export type MailProvider = 'google' | 'microsoft' | 'icloud';
 
 export type InboxMail = {
   id: string;
@@ -111,9 +111,12 @@ export type IntegrationKey =
   | 'gmail'
   | 'google-drive'
   | 'outlook-calendar'
-  | 'outlook-mail';
+  | 'outlook-mail'
+  | 'icloud';
 
-export type IntegrationStatus = 'connected' | 'pending' | 'disconnected';
+export type IntegrationStatus = 'connected' | 'pending' | 'expired' | 'disconnected';
+// 'pending' = transient user-initiated (OAuth in flight) — currently unused, reserved.
+// 'expired' = persistent, credential rejected by provider, user must re-enter.
 
 export type Connection = {
   id: IntegrationKey;

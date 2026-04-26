@@ -951,6 +951,15 @@ Read `src/lib/supabase.ts` to find how `SUPABASE_URL` is exposed. Likely `proces
 
 - [ ] **Step 2: Write the mail client module**
 
+> **Note (2026-04-25, post-implementation):** the original spec landed verbatim (commit `8c2cbbd`) and was then refined across two follow-up commits (`fa6c828`, `5d44120`) based on code review. The version below reflects the as-built code. Three contract decisions worth flagging because they propagate to Phase 5 (calendar) and Phase 7 (hooks):
+>
+> 1. **Action-oriented error codes.** `'no-credential'` was split into `'not-connected'` (cred is `'absent'` — caller suppresses UI silently) and `'credential-rejected'` (cred is `'invalid'` — caller surfaces the re-entry banner). Hook layer gates on `kind === 'valid'`, so `'not-connected'` is unreachable from the hot path; `'credential-rejected'` fires on stale-state re-fetches after Apple rejects mid-session.
+> 2. **`validate` is `IcloudResult<null>` with `data: null`** — drops the `IcloudResult<void>` + `data: undefined as T` coercion that lied to generic-typed callers.
+> 3. **200-response payload strips the wire `ok` field.** `IcloudResult.ok` already discriminates; leaking the wire envelope into `data` surfaced confusingly under `JSON.stringify` / `Object.keys`.
+> 4. **Client-side timeout** (30s validate, 25s list-inbox) via `AbortController`, mapped to the existing `'timeout'` code.
+> 5. **Wire error codes are narrowed** against `KNOWN_WIRE_CODES` so unexpected values fall back to `'protocol'` instead of slipping into the union as runtime liars.
+> 6. **`EXPO_PUBLIC_SUPABASE_URL` is asserted at module load**, matching `src/lib/supabase.ts`.
+
 ```ts
 // src/lib/icloud-mail.ts
 //
@@ -961,8 +970,26 @@ Read `src/lib/supabase.ts` to find how `SUPABASE_URL` is exposed. Likely `proces
 import { supabase } from './supabase';
 import { loadCredential, markInvalid } from './icloud-credentials';
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
+if (!SUPABASE_URL) {
+  throw new Error('icloud-mail: missing EXPO_PUBLIC_SUPABASE_URL');
+}
 const PROXY_URL = `${SUPABASE_URL}/functions/v1/imap-proxy`;
+
+const VALIDATE_TIMEOUT_MS = 30_000;
+const LIST_INBOX_TIMEOUT_MS = 25_000;
+
+// Codes the edge function may return on the wire. 'network', 'not-connected'
+// and 'credential-rejected' are client-synthesized and must not be accepted
+// from the server side.
+const KNOWN_WIRE_CODES: ReadonlySet<IcloudErrorCode> = new Set([
+  'auth-failed',
+  'rate-limited',
+  'protocol',
+  'temporarily-unavailable',
+  'unauthorized',
+  'timeout',
+]);
 
 export type IcloudMessage = {
   uid: number;
@@ -973,6 +1000,8 @@ export type IcloudMessage = {
   preview: string;
 };
 
+// Action-oriented error codes — names describe what the caller should do, not
+// the underlying storage state.
 export type IcloudErrorCode =
   | 'auth-failed'
   | 'rate-limited'
@@ -980,7 +1009,8 @@ export type IcloudErrorCode =
   | 'temporarily-unavailable'
   | 'network'
   | 'timeout'
-  | 'no-credential'
+  | 'not-connected'        // credential is 'absent' — caller should suppress UI silently
+  | 'credential-rejected'  // credential is 'invalid' — caller should surface re-entry banner
   | 'unauthorized';
 
 export type IcloudResult<T> =
@@ -990,8 +1020,8 @@ export type IcloudResult<T> =
 export async function validate(
   email: string,
   password: string,
-): Promise<IcloudResult<void>> {
-  return await call<void>('validate', { email, password });
+): Promise<IcloudResult<null>> {
+  return await call<null>('validate', { email, password });
 }
 
 export async function listInbox(
@@ -999,8 +1029,11 @@ export async function listInbox(
   limit = 12,
 ): Promise<IcloudResult<IcloudMessage[]>> {
   const cred = await loadCredential(userId);
-  if (cred.kind !== 'valid') {
-    return { ok: false, error: 'no-credential' };
+  if (cred.kind === 'absent') {
+    return { ok: false, error: 'not-connected' };
+  }
+  if (cred.kind === 'invalid') {
+    return { ok: false, error: 'credential-rejected' };
   }
   const res = await call<{ messages: RawMessage[] }>('list-inbox', {
     email: cred.credential.email,
@@ -1044,28 +1077,42 @@ async function call<T>(
   if (!accessToken) {
     return { ok: false, error: 'unauthorized' };
   }
+  const timeoutMs = op === 'validate' ? VALIDATE_TIMEOUT_MS : LIST_INBOX_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
     res = await fetch(PROXY_URL, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ op, ...body }),
     });
-  } catch {
+  } catch (err) {
+    clearTimeout(timer);
+    if (err instanceof Error && err.name === 'AbortError') {
+      return { ok: false, error: 'timeout' };
+    }
     return { ok: false, error: 'network' };
   }
+  clearTimeout(timer);
   if (res.status === 200) {
-    const j = (await res.json()) as { ok: true } & T;
-    if (op === 'validate') return { ok: true, data: undefined as T };
-    return { ok: true, data: j as T };
+    if (op === 'validate') return { ok: true, data: null as T };
+    const j = (await res.json()) as Record<string, unknown>;
+    // Strip the wire envelope's `ok` so it doesn't leak into IcloudResult.data.
+    const { ok: _wire, ...payload } = j;
+    return { ok: true, data: payload as T };
   }
   let errCode: IcloudErrorCode;
   try {
     const j = (await res.json()) as { error?: string };
-    errCode = (j.error as IcloudErrorCode) ?? 'protocol';
+    const raw = j.error;
+    errCode = typeof raw === 'string' && KNOWN_WIRE_CODES.has(raw as IcloudErrorCode)
+      ? (raw as IcloudErrorCode)
+      : 'protocol';
   } catch {
     errCode = 'protocol';
   }
@@ -1194,8 +1241,18 @@ function basicAuth(email: string, password: string): string {
   return 'Basic ' + btoa(`${email}:${password}`);
 }
 
+// Action-oriented error codes — mirror the action codes in icloud-mail.ts so
+// hook/banner logic stays uniform across providers. 'not-connected' is a
+// defense-in-depth fallback (the hook layer gates on kind === 'valid' before
+// calling listEvents); 'credential-rejected' is the hot path after Apple
+// rejects mid-session and the next call finds the credential flagged invalid.
 export type CalDavErrorCode =
-  | 'auth-failed' | 'network' | 'timeout' | 'protocol' | 'no-credential';
+  | 'auth-failed'
+  | 'network'
+  | 'timeout'
+  | 'protocol'
+  | 'not-connected'         // credential is 'absent' — caller suppresses UI silently
+  | 'credential-rejected';  // credential is 'invalid' — caller surfaces re-entry banner
 
 export type CalDavResult<T> =
   | { ok: true; data: T }
@@ -1215,7 +1272,8 @@ export async function listEvents(
   rangeEnd: Date,
 ): Promise<CalDavResult<IcloudCalEvent[]>> {
   const cred = await loadCredential(userId);
-  if (cred.kind !== 'valid') return { ok: false, error: 'no-credential' };
+  if (cred.kind === 'absent') return { ok: false, error: 'not-connected' };
+  if (cred.kind === 'invalid') return { ok: false, error: 'credential-rejected' };
   const auth = basicAuth(cred.credential.email, cred.credential.password);
 
   let cache = await loadDiscoveryCache(userId);

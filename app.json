@@ -24,6 +24,7 @@
     "android": {
       "package": "com.zolva.app",
       "versionCode": 1,
+      "allowBackup": false,
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/android/adaptive-icon-foreground.png",
