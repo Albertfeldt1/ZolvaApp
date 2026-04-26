@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import {
   AppState,
+  Image,
   Linking,
   Pressable,
   ScrollView,
@@ -125,16 +126,32 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
               <Text style={styles.primaryBtnText}>Åbn appleid.apple.com</Text>
             </Pressable>
           </Step>
-          <Step n="2" title='Tryk på "Sign-In and Security" → "App-Specific Passwords"'>
-            {/* TODO Task 10.3: replace placeholder with actual screenshot asset */}
-            <View style={styles.screenshotPlaceholder}>
-              <Text style={styles.screenshotPlaceholderText}>[Skærmbillede tilføjes]</Text>
-            </View>
+          <Step n="2" title='Find "App-specifikke adgangskoder" under "Login og sikkerhed"'>
+            <Image
+              source={require('../../assets/icloud-step-1-find.png')}
+              style={styles.screenshot}
+              resizeMode="contain"
+              accessibilityLabel="Apple-konto siden hvor App-specifikke adgangskoder er fremhævet"
+            />
           </Step>
           <Step n="3" title='Generér en ny adgangskode og navngiv den "Zolva"'>
-            <Text style={styles.warn}>Apple viser kun adgangskoden én gang. Kopiér den med det samme.</Text>
+            <Image
+              source={require('../../assets/icloud-step-2-name.png')}
+              style={styles.screenshot}
+              resizeMode="contain"
+              accessibilityLabel="Apples dialog hvor app-navnet skrives — vi har skrevet Zolva"
+            />
           </Step>
-          <Step n="4" title="Skift tilbage til Zolva og udfyld nedenfor" />
+          <Step n="4" title="Kopiér adgangskoden Apple viser dig">
+            <Image
+              source={require('../../assets/icloud-step-3-reveal.png')}
+              style={styles.screenshot}
+              resizeMode="contain"
+              accessibilityLabel="Apples dialog der viser den nye app-specifikke adgangskode"
+            />
+            <Text style={styles.warn}>Apple viser kun adgangskoden én gang. Kopiér den nu — du kan ikke se den igen senere.</Text>
+          </Step>
+          <Step n="5" title="Skift tilbage til Zolva og udfyld nedenfor" />
         </View>
 
         <View style={styles.field}>
@@ -266,12 +283,13 @@ const styles = StyleSheet.create({
   primaryBtnText: {
     fontFamily: fonts.uiSemi, fontSize: 14, color: colors.paper,
   },
-  screenshotPlaceholder: {
-    height: 120, backgroundColor: colors.mist, borderRadius: 8,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  screenshotPlaceholderText: {
-    fontFamily: fonts.mono, fontSize: 11, color: colors.fg3,
+  // Apple-ID flow screenshots — capped aspect ratio so all three render at the
+  // same height regardless of crop. resizeMode="contain" letterboxes if needed.
+  screenshot: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    borderRadius: 8,
+    backgroundColor: colors.mist,
   },
   field: { marginTop: 24, gap: 6 },
   label: {
