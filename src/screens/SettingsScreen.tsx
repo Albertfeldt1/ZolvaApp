@@ -74,6 +74,7 @@ import {
   unregisterPushToken,
 } from '../lib/push';
 import { DeleteAccountScreen } from './DeleteAccountScreen';
+import { IcloudBriefSheet } from '../components/IcloudBriefSheet';
 import { colors, fonts } from '../theme';
 
 // Reads the hosted privacy-policy URL from app.json extra.privacyPolicyUrl
@@ -138,10 +139,11 @@ export function SettingsScreen({ onOpenIcloudSetup, icloudRefreshVersion = 0 }: 
   const { data: connections, connect, disconnect } = useConnections();
   const { data: workRows, setValue: setWorkValue } = useWorkPreferences();
   const { data: toggles, flip } = usePrivacyToggles();
-  const { signOut, user: authUser } = useAuth();
+  const { signOut, user: authUser, googleAccessToken, microsoftAccessToken } = useAuth();
   const userId = authUser?.id ?? '';
   const [icloudCredState, setIcloudCredState] = useState<'absent' | 'valid' | 'invalid'>('absent');
   const [icloudEmail, setIcloudEmail] = useState<string | null>(null);
+  const [briefSheetOpen, setBriefSheetOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -172,6 +174,14 @@ export function SettingsScreen({ onOpenIcloudSetup, icloudRefreshVersion = 0 }: 
     logo: 'icloud.png', // never read — row renderer special-cases iCloud to use the lucide Cloud icon (Apple trademark constraint).
   };
   const allConnections: Connection[] = [icloudConnection, ...connections];
+
+  const hasGoogleOrMicrosoft = !!(googleAccessToken || microsoftAccessToken);
+  const hasIcloud = icloudCredState === 'valid';
+  const briefVariant: 'normal' | 'icloud-only' =
+    !hasGoogleOrMicrosoft && hasIcloud ? 'icloud-only' : 'normal';
+  const briefProviderSub = hasGoogleOrMicrosoft
+    ? `Bruger din ${googleAccessToken ? 'Gmail' : 'Outlook'} konto`
+    : undefined;
 
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -346,21 +356,34 @@ export function SettingsScreen({ onOpenIcloudSetup, icloudRefreshVersion = 0 }: 
             <Animated.View layout={ROW_TRANSITION} style={styles.section}>
               <Text style={styles.sectionTitle}>Sådan arbejder jeg</Text>
               <View style={styles.inkRule} />
-              {workRows.map((r) => (
-                <WorkPreferenceRow
-                  key={r.id}
-                  pref={r}
-                  onChange={async (v) => {
-                    const result = await setWorkValue(r.id, v);
-                    if (result.ok) return;
-                    const message =
-                      result.reason === 'unauthenticated' || result.reason === 'rls'
-                        ? 'Kunne ikke gemme — log ind igen.'
-                        : 'Kunne ikke gemme. Prøv igen om lidt.';
-                    Alert.alert('Indstillinger', message);
-                  }}
-                />
-              ))}
+              {workRows.map((r) =>
+                r.id === 'morning-brief' && briefVariant === 'icloud-only' ? (
+                  <View key={r.id} style={styles.disabledPrefRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.workTitle}>{r.title}</Text>
+                      <Text style={styles.workMeta}>Kræver Gmail eller Outlook for nu</Text>
+                    </View>
+                    <Pressable onPress={() => setBriefSheetOpen(true)} hitSlop={8} accessibilityRole="button">
+                      <Text style={styles.linkText}>Læs mere</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <WorkPreferenceRow
+                    key={r.id}
+                    pref={r}
+                    sub={r.id === 'morning-brief' ? briefProviderSub : undefined}
+                    onChange={async (v) => {
+                      const result = await setWorkValue(r.id, v);
+                      if (result.ok) return;
+                      const message =
+                        result.reason === 'unauthenticated' || result.reason === 'rls'
+                          ? 'Kunne ikke gemme — log ind igen.'
+                          : 'Kunne ikke gemme. Prøv igen om lidt.';
+                      Alert.alert('Indstillinger', message);
+                    }}
+                  />
+                ),
+              )}
             </Animated.View>
 
             <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
@@ -624,6 +647,12 @@ export function SettingsScreen({ onOpenIcloudSetup, icloudRefreshVersion = 0 }: 
           onDeleted={() => setDeleteOpen(false)}
         />
       </Modal>
+
+      <IcloudBriefSheet
+        visible={briefSheetOpen}
+        onClose={() => setBriefSheetOpen(false)}
+        onConnectGmail={() => handleConnect('gmail')}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -833,9 +862,11 @@ function AppleGlyph() {
 
 function WorkPreferenceRow({
   pref,
+  sub,
   onChange,
 }: {
   pref: WorkPreference;
+  sub?: string;
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -856,7 +887,7 @@ function WorkPreferenceRow({
       >
         <View style={{ flex: 1 }}>
           <Text style={styles.workTitle}>{pref.title}</Text>
-          <Text style={styles.workMeta}>{pref.meta}</Text>
+          <Text style={styles.workMeta}>{sub ?? pref.meta}</Text>
         </View>
         <Text style={styles.workVal}>
           {shown} {open ? '↑' : '↓'}
@@ -1184,6 +1215,19 @@ const styles = StyleSheet.create({
   workOptionPressed: { opacity: 0.6 },
   workOptionText: { fontFamily: fonts.ui, fontSize: 13, color: colors.fg2 },
   workOptionTextOn: { color: colors.sageDeep, fontFamily: fonts.uiSemi },
+
+  // morning-brief row when only iCloud is connected — disabled visual + 'Læs mere' link to the explainer sheet.
+  disabledPrefRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 14,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line,
+    opacity: 0.65,
+  },
+  linkText: {
+    fontFamily: fonts.uiSemi, fontSize: 13,
+    color: colors.sageDeep,
+    textDecorationLine: 'underline',
+  },
 
   connRow: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
