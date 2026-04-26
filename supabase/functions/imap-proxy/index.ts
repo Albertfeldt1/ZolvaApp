@@ -1,9 +1,12 @@
 // supabase/functions/imap-proxy/index.ts
 //
-// Authenticated proxy for iCloud IMAP. Two ops:
+// Authenticated proxy for iCloud IMAP. Three ops:
 //   - validate:   LOGIN + LOGOUT only. No DB writes.
-//   - list-inbox: hash-bind check + LOGIN + SELECT INBOX + FETCH + LOGOUT.
+//   - list-inbox: hash-bind check + LOGIN + SELECT INBOX + FETCH list + LOGOUT.
 //                 First successful call upserts the binding row.
+//   - get-body:   hash-bind check + LOGIN + EXAMINE INBOX + FETCH bodyStructure
+//                 + FETCH text part + LOGOUT. Read-only (EXAMINE) so opening
+//                 mail in Zolva does NOT mark it \Seen on iCloud.
 //
 // Hardcoded target imap.mail.me.com:993. No host param accepted.
 // JWT required for all calls. Per-user rate limits enforced server-side.
@@ -17,6 +20,7 @@ const CONNECT_TIMEOUT_MS = 5_000;
 const COMMAND_TIMEOUT_MS = 10_000;
 const RATE_LIMIT_VALIDATE = 10;     // per hour per user
 const RATE_LIMIT_LIST_INBOX = 60;   // per hour per user
+const RATE_LIMIT_GET_BODY = 120;    // per hour per user (one fetch per opened mail)
 
 type ValidateReq = { op: 'validate'; email: string; password: string };
 type ListInboxReq = {
@@ -25,7 +29,13 @@ type ListInboxReq = {
   password: string;
   limit?: number;
 };
-type Req = ValidateReq | ListInboxReq;
+type GetBodyReq = {
+  op: 'get-body';
+  email: string;
+  password: string;
+  uid: number;
+};
+type Req = ValidateReq | ListInboxReq | GetBodyReq;
 
 type ErrCode =
   | 'unauthorized'
@@ -85,12 +95,15 @@ serve(async (req) => {
   }
   if (
     !body ||
-    (body.op !== 'validate' && body.op !== 'list-inbox') ||
+    (body.op !== 'validate' && body.op !== 'list-inbox' && body.op !== 'get-body') ||
     typeof body.email !== 'string' ||
     typeof body.password !== 'string' ||
     body.email.length === 0 ||
     body.password.length === 0
   ) {
+    return err('bad-request', 400);
+  }
+  if (body.op === 'get-body' && (typeof body.uid !== 'number' || !Number.isFinite(body.uid))) {
     return err('bad-request', 400);
   }
 
@@ -104,6 +117,9 @@ serve(async (req) => {
   if (body.op === 'list-inbox') {
     return await handleListInbox(body, userId, pepper, supabaseUrl, serviceKey);
   }
+  if (body.op === 'get-body') {
+    return await handleGetBody(body, userId, pepper, supabaseUrl, serviceKey);
+  }
   return err('bad-request', 400);
 });
 
@@ -111,9 +127,14 @@ async function checkRateLimit(
   serviceKey: string,
   supabaseUrl: string,
   userId: string,
-  op: 'validate' | 'list-inbox',
+  op: 'validate' | 'list-inbox' | 'get-body',
 ): Promise<boolean> {
-  const limit = op === 'validate' ? RATE_LIMIT_VALIDATE : RATE_LIMIT_LIST_INBOX;
+  const limit =
+    op === 'validate'
+      ? RATE_LIMIT_VALIDATE
+      : op === 'list-inbox'
+      ? RATE_LIMIT_LIST_INBOX
+      : RATE_LIMIT_GET_BODY;
   const svc = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false },
   });
@@ -205,7 +226,28 @@ function mapImapError(caughtErr: unknown): Response {
     return err('network', 503);
   }
 
-  console.warn('[imap-proxy] unmapped imap error:', msg);
+  // Capture as much context as ImapFlow exposes so the next 'protocol' error
+  // is diagnosable from the function logs without repro on the client.
+  const errObj = caughtErr as {
+    name?: string;
+    code?: string;
+    response?: string;
+    serverResponseCode?: string;
+    responseStatus?: string;
+    authenticationFailed?: boolean;
+  } | null;
+  console.warn(
+    '[imap-proxy] unmapped imap error:',
+    JSON.stringify({
+      msg,
+      name: errObj?.name,
+      code: errObj?.code,
+      serverResponseCode: errObj?.serverResponseCode,
+      responseStatus: errObj?.responseStatus,
+      response: typeof errObj?.response === 'string' ? errObj.response.slice(0, 300) : undefined,
+      authenticationFailed: errObj?.authenticationFailed,
+    }),
+  );
   return err('protocol', 502);
 }
 
@@ -362,6 +404,195 @@ async function handleListInbox(
     }
 
     return Response.json({ ok: true, messages });
+  } catch (caughtErr) {
+    return mapImapError(caughtErr);
+  } finally {
+    if (client && client.usable) {
+      try { await client.close(); } catch { /* ignore */ }
+    }
+  }
+}
+
+// --- get-body ---------------------------------------------------------------
+//
+// Walks the BODYSTRUCTURE to find the best text part (text/plain preferred;
+// text/html stripped to plain as fallback), fetches just that part with
+// readOnly INBOX so iCloud doesn't flip the \Seen flag, decodes the transfer
+// encoding (base64 / quoted-printable / 7bit / 8bit), then converts charset
+// via TextDecoder. HTML stripping is the same lossy approach used for inbox
+// previews — full BODYSTRUCTURE traversal w/ inline image handling is later.
+
+type BodyNode = {
+  type?: string;            // e.g. 'text/plain', 'multipart/alternative'
+  part?: string;            // IMAP part designator: '1', '1.1', etc.
+  encoding?: string;        // '7bit' | '8bit' | 'base64' | 'quoted-printable' | 'binary'
+  parameters?: { charset?: string };
+  childNodes?: BodyNode[];
+};
+
+function pickTextPart(node: BodyNode | undefined): {
+  part: string;
+  isHtml: boolean;
+  encoding: string;
+  charset: string;
+} | null {
+  if (!node) return null;
+  // Single-part message — node IS the text part (its `part` is implicitly '1' but iCloud expects no path).
+  if (node.type && /^text\//i.test(node.type) && !node.childNodes) {
+    return {
+      part: node.part ?? '1',
+      isHtml: /text\/html/i.test(node.type),
+      encoding: (node.encoding ?? '7bit').toLowerCase(),
+      charset: node.parameters?.charset ?? 'utf-8',
+    };
+  }
+  // Multipart — prefer text/plain, fall back to text/html. Walk depth-first.
+  const flat: BodyNode[] = [];
+  const stack: BodyNode[] = [node];
+  while (stack.length) {
+    const n = stack.pop()!;
+    if (n.childNodes) stack.push(...n.childNodes);
+    else flat.push(n);
+  }
+  const plain = flat.find((n) => n.type && /text\/plain/i.test(n.type));
+  const html = flat.find((n) => n.type && /text\/html/i.test(n.type));
+  const pick = plain ?? html;
+  if (!pick || !pick.part) return null;
+  return {
+    part: pick.part,
+    isHtml: !!plain ? false : true,
+    encoding: (pick.encoding ?? '7bit').toLowerCase(),
+    charset: pick.parameters?.charset ?? 'utf-8',
+  };
+}
+
+function decodeContent(buf: Uint8Array, encoding: string, charset: string): string {
+  let bytes = buf;
+  if (encoding === 'base64') {
+    const ascii = new TextDecoder('ascii').decode(buf).replace(/\s+/g, '');
+    try {
+      const bin = atob(ascii);
+      bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    } catch { /* fall through with raw bytes — better than throwing */ }
+  } else if (encoding === 'quoted-printable') {
+    const ascii = new TextDecoder('ascii').decode(buf);
+    const decoded = ascii
+      .replace(/=\r?\n/g, '')
+      .replace(/=([A-Fa-f0-9]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+    bytes = new Uint8Array(decoded.length);
+    for (let i = 0; i < decoded.length; i++) bytes[i] = decoded.charCodeAt(i);
+  }
+  // 7bit / 8bit / binary: raw bytes are already what we want.
+  try {
+    return new TextDecoder(charset).decode(bytes);
+  } catch {
+    // Unknown charset — fall back to UTF-8 (most common).
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+}
+
+function stripHtmlToText(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(parseInt(n, 10)))
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+async function handleGetBody(
+  body: GetBodyReq,
+  userId: string,
+  pepper: string,
+  supabaseUrl: string,
+  serviceKey: string,
+): Promise<Response> {
+  const password = normalizePassword(body.password);
+  const email = body.email.trim().toLowerCase();
+  const uid = body.uid;
+
+  const hash = await hashCredential(pepper, email, password);
+  const svc = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false },
+  });
+
+  // Same binding-check posture as list-inbox.
+  const { data: existing, error: bindReadErr } = await svc
+    .from('icloud_credential_bindings')
+    .select('credential_hash')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (bindReadErr) {
+    console.warn('[imap-proxy] get-body binding read failed:', bindReadErr.message);
+    return err('internal', 500);
+  }
+  if (existing && existing.credential_hash !== hash) {
+    return err('auth-failed', 422);
+  }
+  // No binding row yet means the user hasn't validated/list-inboxed this
+  // credential. Don't bind here — get-body shouldn't be the first call.
+  if (!existing) {
+    return err('auth-failed', 422);
+  }
+
+  let client: ImapFlow | null = null;
+  try {
+    client = newImapClient(email, password);
+    await client.connect();
+    const lock = await client.getMailboxLock('INBOX', { readOnly: true });
+    let envelope: { from?: Array<{ name?: string; address?: string }>; subject?: string; messageId?: string } | undefined;
+    let textPart: ReturnType<typeof pickTextPart> | null = null;
+    try {
+      const meta = await client.fetchOne(
+        String(uid),
+        { envelope: true, bodyStructure: true },
+        { uid: true },
+      );
+      if (!meta) {
+        return err('protocol', 502);
+      }
+      envelope = meta.envelope as typeof envelope;
+      textPart = pickTextPart(meta.bodyStructure as BodyNode | undefined);
+
+      let bodyText = '';
+      if (textPart) {
+        const partFetch = await client.fetchOne(
+          String(uid),
+          { bodyParts: [textPart.part] },
+          { uid: true },
+        );
+        const buf = partFetch?.bodyParts?.get(textPart.part);
+        if (buf) {
+          const raw = decodeContent(buf, textPart.encoding, textPart.charset);
+          bodyText = textPart.isHtml ? stripHtmlToText(raw) : raw.trim();
+        }
+      }
+
+      await client.logout();
+      return Response.json({
+        ok: true,
+        message: {
+          uid,
+          from: formatFrom(envelope?.from),
+          fromEmail: envelope?.from?.[0]?.address ?? '',
+          subject: envelope?.subject ?? '(uden emne)',
+          body: bodyText,
+          messageIdHeader: envelope?.messageId ?? '',
+        },
+      });
+    } finally {
+      try { lock.release(); } catch { /* secondary error */ }
+    }
   } catch (caughtErr) {
     return mapImapError(caughtErr);
   } finally {
