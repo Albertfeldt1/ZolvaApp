@@ -438,6 +438,11 @@ async function caldavFetch(
       headers: {
         Authorization: auth,
         'Content-Type': 'application/xml; charset=utf-8',
+        // Apple's CalDAV edge servers throttle / silently drop requests
+        // without a recognizable User-Agent — naked `fetch()` from RN
+        // sends none, which iCloud treats as a bot. Identifying as an
+        // iOS-flavored CalDAV client keeps the connection up.
+        'User-Agent': 'Zolva/1.0 (iOS; CalDAV)',
         ...headers,
       },
       body,
