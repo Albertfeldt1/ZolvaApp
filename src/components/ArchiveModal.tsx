@@ -18,7 +18,7 @@ import { colors, fonts } from '../theme';
 const PROVIDER_LOGOS: Record<MailProvider, ReturnType<typeof require>> = {
   google: require('../../assets/logos/gmail.png'),
   microsoft: require('../../assets/logos/outlook-mail.png'),
-  icloud: null, // TODO(icloud): replace with iCloud logo asset when added
+  icloud: require('../../assets/logos/apple.png'),
 };
 
 type Props = {
