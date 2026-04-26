@@ -73,6 +73,14 @@ export type ReplyContext =
   | {
       provider: 'microsoft';
       messageId: string;
+    }
+  // iCloud reads only in v1 — replies require SMTP send + thread-aware
+  // headers. The detail screen uses this context to identify the mail;
+  // useSendReply rejects iCloud with a "not supported" message.
+  | {
+      provider: 'icloud';
+      uid: number;
+      subject: string;
     };
 
 export type MailDetail = {

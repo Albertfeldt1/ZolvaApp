@@ -205,19 +205,121 @@ async function fullDiscover(
   if (!homeRes.ok) return homeRes;
   const calendarHomeUrl = homeRes.data.calendarHomeUrl;
 
-  const calsRes = await listCalendarsAt(calendarHomeUrl, auth);
-  if (!calsRes.ok) return calsRes;
+  // Own calendars at the user's calendar-home.
+  const ownCalsRes = await listCalendarsAt(calendarHomeUrl, auth);
+  if (!ownCalsRes.ok) return ownCalsRes;
+
+  // Shared/subscribed calendars: iCloud exposes them via
+  // calendar-proxy-read-for / calendar-proxy-write-for collections on the
+  // user's principal. Each href there points at ANOTHER user's calendar
+  // collection (not their full calendar-home). We PROPFIND each as Depth:0
+  // to read its display-name + color, then add it to the list.
+  // Best-effort: if proxy enumeration fails we still return the user's own
+  // calendars rather than blanking the calendar tab.
+  const sharedCalsRes = await listSharedCalendars(principalUrl, auth);
+  const allCalendars = sharedCalsRes.ok
+    ? mergeCalendarsByUrl(ownCalsRes.data, sharedCalsRes.data)
+    : ownCalsRes.data;
+  if (!sharedCalsRes.ok && __DEV__) {
+    console.warn('[icloud-cal] shared-calendar discovery failed:', sharedCalsRes.error);
+  }
 
   const cache: CalDiscoveryCache = {
     email,
     principalUrl,
     calendarHomeUrl,
     principalDiscoveredAt: Date.now(),
-    calendars: calsRes.data,
+    calendars: allCalendars,
     calendarsListedAt: Date.now(),
   };
   await saveDiscoveryCache(userId, cache);
   return { ok: true, data: cache };
+}
+
+function mergeCalendarsByUrl(
+  primary: IcloudCalendarMeta[],
+  extras: IcloudCalendarMeta[],
+): IcloudCalendarMeta[] {
+  const seen = new Set(primary.map((c) => c.url));
+  const merged = [...primary];
+  for (const c of extras) {
+    if (seen.has(c.url)) continue;
+    seen.add(c.url);
+    merged.push(c);
+  }
+  return merged;
+}
+
+// PROPFIND principal Depth:0 for the proxy-for properties. Each property
+// returns a list of hrefs to OTHER users' calendar collections shared with
+// us. We then PROPFIND each Depth:0 to grab its displayname + color.
+async function listSharedCalendars(
+  principalUrl: string,
+  auth: string,
+): Promise<CalDavResult<IcloudCalendarMeta[]>> {
+  const body =
+    `<?xml version="1.0" encoding="utf-8"?>
+<d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/">
+  <d:prop>
+    <cs:calendar-proxy-read-for/>
+    <cs:calendar-proxy-write-for/>
+  </d:prop>
+</d:propfind>`;
+  const res = await caldavFetch(principalUrl, 'PROPFIND', auth, { Depth: '0' }, body);
+  if (!res.ok) return res;
+  const sharedHrefs = new Set<string>();
+  for (const propLocal of ['calendar-proxy-read-for', 'calendar-proxy-write-for']) {
+    const propBlock = res.data.match(
+      new RegExp(`<[^>]*${propLocal}[^>]*>([\\s\\S]*?)<\\/[^>]*${propLocal}[^>]*>`, 'i'),
+    )?.[1] ?? '';
+    for (const m of propBlock.matchAll(/<[^>]*href[^>]*>([^<]+)<\/[^>]*href[^>]*>/gi)) {
+      sharedHrefs.add(absolutize(m[1].trim()));
+    }
+  }
+  if (sharedHrefs.size === 0) return { ok: true, data: [] };
+
+  // Each href is another user's calendar collection. Probe each Depth:0 for
+  // metadata. Concurrency cap reuses the existing CONCURRENCY constant.
+  const hrefs = Array.from(sharedHrefs);
+  const results: IcloudCalendarMeta[] = [];
+  let nextIndex = 0;
+  async function worker() {
+    while (true) {
+      const i = nextIndex++;
+      if (i >= hrefs.length) return;
+      const meta = await propfindSharedCalendar(hrefs[i], auth);
+      if (meta) results.push(meta);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, hrefs.length) }, () => worker()),
+  );
+  return { ok: true, data: results };
+}
+
+async function propfindSharedCalendar(
+  url: string,
+  auth: string,
+): Promise<IcloudCalendarMeta | null> {
+  const body =
+    `<?xml version="1.0" encoding="utf-8"?>
+<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:x="http://apple.com/ns/ical/">
+  <d:prop>
+    <d:displayname/>
+    <c:supported-calendar-component-set/>
+    <x:calendar-color/>
+  </d:prop>
+</d:propfind>`;
+  const res = await caldavFetch(url, 'PROPFIND', auth, { Depth: '0' }, body);
+  if (!res.ok) return null;
+  // The Depth:0 response wraps a single calendar in <response>. Reuse the
+  // existing parser by feeding it the same XML — it'll return [meta] if the
+  // calendar supports VEVENT, [] otherwise.
+  const cals = parseCalendarList(res.data);
+  if (cals.length === 0) return null;
+  // parseCalendarList builds the URL from <href> in the response — for shared
+  // calendars that href IS the calendar collection, so url = cals[0].url.
+  return cals[0];
 }
 
 async function propfindPrincipal(

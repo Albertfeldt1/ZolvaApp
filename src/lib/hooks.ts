@@ -58,7 +58,7 @@ import {
   replyToMessage as graphReplyToMessage,
 } from './microsoft-graph';
 import { loadCredential } from './icloud-credentials';
-import { listInbox as listIcloudMessages } from './icloud-mail';
+import { getMessageBody as getIcloudMessageBody, listInbox as listIcloudMessages } from './icloud-mail';
 import { listEvents as listIcloudEvents } from './icloud-calendar';
 import type {
   CalendarSlot,
@@ -627,21 +627,34 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
       cancelled = true;
     }, CALENDAR_FETCH_TIMEOUT_MS);
 
-    Promise.all(tasks)
+    // Promise.allSettled: one provider's failure doesn't blank the others.
+    // We surface an error only if EVERY provider failed; otherwise we render
+    // the partial results and log the failures so the user still sees what
+    // worked.
+    Promise.allSettled(tasks)
       .then((results) => {
         clearTimeout(timeoutId);
         if (cancelled) return;
-        const merged = results
-          .flat()
+        const fulfilled = results.flatMap((r) =>
+          r.status === 'fulfilled' ? r.value : [],
+        );
+        const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+        if (__DEV__) {
+          for (const r of rejected) {
+            console.warn('[hooks] calendar provider failed:', (r.reason as Error)?.message ?? r.reason);
+          }
+        }
+        const allFailed = rejected.length === results.length && results.length > 0;
+        const merged = fulfilled
           .sort((a, b) => a.start.getTime() - b.start.getTime())
           .map((e, i) => ({ ...e, color: RIBBON_PALETTE[i % RIBBON_PALETTE.length] }));
-        setState({ items: merged, loading: false, error: null });
-      })
-      .catch((err: Error) => {
-        clearTimeout(timeoutId);
-        if (cancelled) return;
-        if (__DEV__) console.warn('[hooks] calendar fetch failed:', err.message);
-        setState({ items: [], loading: false, error: err });
+        setState({
+          items: merged,
+          loading: false,
+          error: allFailed
+            ? new Error('Kalender-forespørgslen fejlede. Prøv igen.')
+            : null,
+        });
       });
 
     return () => {
@@ -726,18 +739,30 @@ function useMailItems(): {
       );
     }
 
-    Promise.all(tasks)
+    // Promise.allSettled: one provider's failure shouldn't blank Gmail/Outlook
+    // mails when iCloud is flaky. Error state surfaces only when all providers
+    // failed; otherwise show partial results and log per-provider failures.
+    Promise.allSettled(tasks)
       .then((results) => {
         if (cancelled) return;
-        const merged = results
-          .flat()
-          .sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime());
-        setState({ items: merged, loading: false, error: null });
-      })
-      .catch((err: Error) => {
-        if (cancelled) return;
-        if (__DEV__) console.warn('[hooks] mail fetch failed:', err.message);
-        setState({ items: [], loading: false, error: err });
+        const fulfilled = results.flatMap((r) =>
+          r.status === 'fulfilled' ? r.value : [],
+        );
+        const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+        if (__DEV__) {
+          for (const r of rejected) {
+            console.warn('[hooks] mail provider failed:', (r.reason as Error)?.message ?? r.reason);
+          }
+        }
+        const allFailed = rejected.length === results.length && results.length > 0;
+        const merged = fulfilled.sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime());
+        setState({
+          items: merged,
+          loading: false,
+          error: allFailed
+            ? new Error('Kunne ikke hente indbakke. Noget gik galt. Prøv igen.')
+            : null,
+        });
       });
 
     return () => {
@@ -1274,7 +1299,7 @@ export function useMailDetail(
     let cancelled = false;
     setState({ data: null, loading: true, error: null });
 
-    const task =
+    const task: Promise<MailDetail> =
       provider === 'google'
         ? gmailGetMessageBody(id).then((b): MailDetail => ({
             id: b.id,
@@ -1291,14 +1316,32 @@ export function useMailDetail(
               subject: b.subject,
             },
           }))
-        : graphGetMessageBody(id).then((b): MailDetail => ({
+        : provider === 'microsoft'
+        ? graphGetMessageBody(id).then((b): MailDetail => ({
             id: b.id,
             provider: 'microsoft',
             from: b.from,
             subject: b.subject,
             body: b.text,
             replyContext: { provider: 'microsoft', messageId: b.id },
-          }));
+          }))
+        : (async (): Promise<MailDetail> => {
+            // 'icloud' branch — id format is `icloud:<uid>` from useMailItems.
+            const uidStr = id.startsWith('icloud:') ? id.slice('icloud:'.length) : id;
+            const uid = Number(uidStr);
+            if (!Number.isFinite(uid)) throw new Error('invalid icloud uid');
+            const userId = user?.id ?? '';
+            const r = await getIcloudMessageBody(userId, uid);
+            if (!r.ok) throw new Error(`icloud:${r.error}`);
+            return {
+              id,
+              provider: 'icloud',
+              from: r.data.from,
+              subject: r.data.subject,
+              body: r.data.body,
+              replyContext: { provider: 'icloud', uid, subject: r.data.subject },
+            };
+          })();
 
     task
       .then((detail) => {
@@ -1345,8 +1388,13 @@ export function useSendReply() {
             references: ctx.references,
             body,
           });
-        } else {
+        } else if (ctx.provider === 'microsoft') {
           await graphReplyToMessage(ctx.messageId, body);
+        } else {
+          // iCloud reply requires SMTP — not implemented in v1. Surface a
+          // recoverable error so the UI can show a Danish message rather
+          // than crashing. User can copy text + send from Apple Mail.
+          throw new Error('Svar på iCloud-mail er ikke understøttet endnu. Brug Apple Mail.');
         }
       } catch (err) {
         const e = err instanceof Error ? err : new Error(String(err));
@@ -1357,11 +1405,12 @@ export function useSendReply() {
       }
 
       // Send succeeded. Archive is best-effort — a failure here still counts
-      // as success because the reply went out.
+      // as success because the reply went out. iCloud is excluded above so
+      // this branch only runs for google/microsoft.
       try {
         if (ctx.provider === 'google') {
           await gmailArchiveMessage(mailId);
-        } else {
+        } else if (ctx.provider === 'microsoft') {
           await graphArchiveMessage(mailId);
         }
       } catch (err) {
@@ -1388,8 +1437,12 @@ export function useSendReply() {
       try {
         if (provider === 'google') {
           await gmailArchiveMessage(mailId);
-        } else {
+        } else if (provider === 'microsoft') {
           await graphArchiveMessage(mailId);
+        } else {
+          // iCloud archive isn't a server-side op (no markAsArchived equivalent
+          // in our IMAP proxy yet). Treat as local-only dismissal so the UI
+          // updates, but don't move the message in iCloud.
         }
         markMailDismissed(mailId);
         setSending(false);

@@ -15,6 +15,7 @@ const PROXY_URL = `${SUPABASE_URL}/functions/v1/imap-proxy`;
 
 const VALIDATE_TIMEOUT_MS = 30_000;
 const LIST_INBOX_TIMEOUT_MS = 25_000;
+const GET_BODY_TIMEOUT_MS = 25_000;
 
 // Codes the edge function may return on the wire. 'network', 'not-connected'
 // and 'credential-rejected' are client-synthesized and must not be accepted
@@ -35,6 +36,15 @@ export type IcloudMessage = {
   date: Date;
   unread: boolean;
   preview: string;
+};
+
+export type IcloudMessageBody = {
+  uid: number;
+  from: string;
+  fromEmail: string;
+  subject: string;
+  body: string;
+  messageIdHeader: string;
 };
 
 // Action-oriented error codes — names describe what the caller should do, not
@@ -100,6 +110,31 @@ export async function listInbox(
   };
 }
 
+export async function getMessageBody(
+  userId: string,
+  uid: number,
+): Promise<IcloudResult<IcloudMessageBody>> {
+  const cred = await loadCredential(userId);
+  if (cred.kind === 'absent') {
+    return { ok: false, error: 'not-connected' };
+  }
+  if (cred.kind === 'invalid') {
+    return { ok: false, error: 'credential-rejected' };
+  }
+  const res = await call<{ message: IcloudMessageBody }>('get-body', {
+    email: cred.credential.email,
+    password: cred.credential.password,
+    uid,
+  });
+  if (!res.ok) {
+    if (res.error === 'auth-failed') {
+      await markInvalid(userId, 'imap-rejected');
+    }
+    return res;
+  }
+  return { ok: true, data: res.data.message };
+}
+
 type RawMessage = {
   uid: number;
   from: string;
@@ -110,7 +145,7 @@ type RawMessage = {
 };
 
 async function call<T>(
-  op: 'validate' | 'list-inbox',
+  op: 'validate' | 'list-inbox' | 'get-body',
   body: Record<string, unknown>,
 ): Promise<IcloudResult<T>> {
   const session = await supabase.auth.getSession();
@@ -118,7 +153,10 @@ async function call<T>(
   if (!accessToken) {
     return { ok: false, error: 'unauthorized' };
   }
-  const timeoutMs = op === 'validate' ? VALIDATE_TIMEOUT_MS : LIST_INBOX_TIMEOUT_MS;
+  const timeoutMs =
+    op === 'validate' ? VALIDATE_TIMEOUT_MS
+    : op === 'list-inbox' ? LIST_INBOX_TIMEOUT_MS
+    : GET_BODY_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;

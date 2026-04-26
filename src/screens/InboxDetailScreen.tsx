@@ -42,7 +42,9 @@ export function InboxDetailScreen({ mail, onClose }: Props) {
   const hasAiDraft = !!mail.aiDraft;
 
   function replyContextThreadId(ctx: import('../lib/types').ReplyContext): string {
-    return ctx.provider === 'google' ? ctx.threadId : ctx.messageId;
+    if (ctx.provider === 'google') return ctx.threadId;
+    if (ctx.provider === 'microsoft') return ctx.messageId;
+    return `icloud:${ctx.uid}`;
   }
 
   const handleSend = async () => {
