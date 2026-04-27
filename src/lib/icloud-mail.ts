@@ -179,6 +179,32 @@ async function call<T>(
   op: 'validate' | 'list-inbox' | 'get-body' | 'clear-binding',
   body: Record<string, unknown>,
 ): Promise<IcloudResult<T>> {
+  // One-shot retry on Supabase gateway 5xx — cold-start contention on the
+  // edge runtime occasionally returns 502/503 with an HTML body before our
+  // function ever boots. All four ops are idempotent server-side, so the
+  // retry is safe; second attempt almost always lands on a warm worker.
+  const first = await callOnce<T>(op, body);
+  if (first.ok) return first;
+  if (first.error === 'protocol' && first.gatewayFlake) {
+    await new Promise((r) => setTimeout(r, 800));
+    if (__DEV__) console.warn(`[icloud-mail] ${op} retrying after gateway flake`);
+    const second = await callOnce<T>(op, body);
+    if (second.ok || second.error !== 'protocol') return second;
+  }
+  return first;
+}
+
+// Internal envelope: gatewayFlake distinguishes "Supabase gateway returned
+// 5xx with HTML body" from a real protocol error reported by our function.
+// Only the former is worth retrying.
+type CallOnceResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: IcloudErrorCode; gatewayFlake?: boolean };
+
+async function callOnce<T>(
+  op: 'validate' | 'list-inbox' | 'get-body' | 'clear-binding',
+  body: Record<string, unknown>,
+): Promise<CallOnceResult<T>> {
   const session = await supabase.auth.getSession();
   const accessToken = session.data.session?.access_token;
   if (!accessToken) {
@@ -230,6 +256,11 @@ async function call<T>(
   if (__DEV__) {
     console.warn(`[icloud-mail] ${op} non-200: status=${res.status} body=${bodyText.slice(0, 400)}`);
   }
+  // Gateway 5xx with non-JSON body = upstream contention, worth retrying.
+  // Function-emitted 5xx (502 protocol) carries JSON, so JSON.parse below
+  // will succeed and gatewayFlake stays false.
+  const isHtml = bodyText.trimStart().startsWith('<');
+  const gatewayFlake = (res.status === 502 || res.status === 503) && isHtml;
   try {
     const j = JSON.parse(bodyText) as { error?: string; detail?: string };
     const raw = j.error;
@@ -242,5 +273,5 @@ async function call<T>(
   } catch {
     errCode = 'protocol';
   }
-  return { ok: false, error: errCode };
+  return { ok: false, error: errCode, gatewayFlake };
 }
