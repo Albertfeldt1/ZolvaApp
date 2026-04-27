@@ -45,6 +45,7 @@ import {
   hydrateNotificationSettingsForUser,
 } from './notification-settings';
 import { registerPushToken, unregisterPushToken, setMailWatchersEnabled } from './push';
+import { recordUserEmailDomain } from './admin-consent';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -350,6 +351,10 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
     if (uid) {
       await persistProviderRefreshToken(uid, providerKey, refreshToken);
       await bootstrapMailWatcher(uid, providerKey);
+      // Capture the user's email domain so we can size the admin-consent
+      // feature's actual reach (enterprise vs consumer). Best-effort, never
+      // blocks; PK conflict on second sign-in is silently ignored.
+      void recordUserEmailDomain(uid, exchange.data.session?.user?.email ?? null);
     }
     return { data: exchange.data, error: null };
   } catch (e) {

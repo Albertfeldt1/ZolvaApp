@@ -58,6 +58,7 @@ import {
   replyToMessage as graphReplyToMessage,
 } from './microsoft-graph';
 import { loadCredential } from './icloud-credentials';
+import { detectAdminConsentRequired } from './admin-consent';
 import { getMessageBody as getIcloudMessageBody, listInbox as listIcloudMessages } from './icloud-mail';
 import { listEvents as listIcloudEvents } from './icloud-calendar';
 import type {
@@ -1606,10 +1607,34 @@ export function useConnections() {
         return c;
       });
 
-  const connect = async (id: Connection['id']) => {
+  const connect = async (
+    id: Connection['id'],
+  ): Promise<{
+    data: unknown;
+    error: Error | null;
+    adminConsent?: { tenantHint?: string };
+    cancelled?: boolean;
+  }> => {
     if (demo) return { data: null, error: null };
     if (GOOGLE_INTEGRATIONS.has(id)) return signInWithGoogle();
-    if (MICROSOFT_INTEGRATIONS.has(id)) return signInWithMicrosoft();
+    if (MICROSOFT_INTEGRATIONS.has(id)) {
+      const result = await signInWithMicrosoft();
+      // Redirect-with-error path: AAD bounced with an admin-consent code.
+      if (result.error) {
+        const detection = detectAdminConsentRequired(result.error.message);
+        if (detection.detected) {
+          return { ...result, adminConsent: { tenantHint: detection.tenantHint } };
+        }
+      }
+      // Cancel path: WebBrowser closed without error and we have no
+      // microsoftAccessToken yet (the OAuth never completed). Surface a
+      // `cancelled` flag so the caller can ask the user whether the cancel
+      // was an admin-consent dead-end.
+      if (!result.error && !result.data) {
+        return { ...result, cancelled: true };
+      }
+      return result;
+    }
     return { data: null, error: new Error('Ukendt integration.') };
   };
 

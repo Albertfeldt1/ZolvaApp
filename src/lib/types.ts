@@ -191,7 +191,10 @@ export type NotificationPayload =
   // Heads-up that an action-y fact ("Oscar to vet Friday") is about to drop
   // out of morning briefs. Tap routes the user to the Memory tab so they can
   // confirm/extend or let it go.
-  | { type: 'factDecay'; factId: string };
+  | { type: 'factDecay'; factId: string }
+  // Sent when a tenant admin grants Zolva consent. Tap routes the user back
+  // to Settings so they can finally connect their work account.
+  | { type: 'microsoftConsentGranted'; tenantDomain: string };
 
 export type FeedEntryType = NotificationPayload['type'];
 

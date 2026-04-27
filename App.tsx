@@ -32,6 +32,7 @@ import { StatusBarScrim } from './src/components/StatusBarScrim';
 import { CalendarScreen } from './src/screens/CalendarScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
 import { IcloudSetupScreen } from './src/screens/IcloudSetupScreen';
+import { MicrosoftAdminConsentScreen } from './src/screens/MicrosoftAdminConsentScreen';
 import { InboxDetailScreen } from './src/screens/InboxDetailScreen';
 import { InboxScreen } from './src/screens/InboxScreen';
 import { MemoryScreen } from './src/screens/MemoryScreen';
@@ -88,6 +89,8 @@ export default function App() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [icloudSetupOpen, setIcloudSetupOpen] = useState(false);
   const [icloudPrefilledEmail, setIcloudPrefilledEmail] = useState<string | undefined>(undefined);
+  const [adminConsentOpen, setAdminConsentOpen] = useState(false);
+  const [adminConsentPrefilledEmail, setAdminConsentPrefilledEmail] = useState<string | undefined>(undefined);
   // Bumped on overlay close so SettingsScreen's iCloud loadCredential effect re-runs.
   const [icloudRefreshVersion, setIcloudRefreshVersion] = useState(0);
   const [chromeOverDark, setChromeOverDark] = useState(false);
@@ -154,6 +157,7 @@ export default function App() {
       setOpenMail(null);
       setNotificationsOpen(false);
       setIcloudSetupOpen(false);
+      setAdminConsentOpen(false);
       void markFeedByPayload(payload);
       switch (payload.type) {
         case 'reminder':
@@ -175,6 +179,11 @@ export default function App() {
           // Decaying-fact heads-up routes to Memory so the user can confirm,
           // edit, or let the fact go.
           setTab('memory');
+          break;
+        case 'microsoftConsentGranted':
+          // Admin granted the request — bring the user back to Settings so
+          // they can finally tap "Connect Outlook" and proceed.
+          setTab('settings');
           break;
       }
     });
@@ -219,6 +228,7 @@ export default function App() {
     setOpenMail(null);
     setNotificationsOpen(false);
     setIcloudSetupOpen(false);
+    setAdminConsentOpen(false);
     if (t !== 'today' && t !== 'inbox') setChromeOverDark(false);
   };
 
@@ -245,11 +255,24 @@ export default function App() {
     setIcloudRefreshVersion((v) => v + 1);
   };
 
+  const openAdminConsent = (prefilledEmail?: string) => {
+    Haptics.selectionAsync();
+    setAdminConsentPrefilledEmail(prefilledEmail);
+    setAdminConsentOpen(true);
+  };
+
+  const closeAdminConsent = () => {
+    Haptics.selectionAsync();
+    setAdminConsentOpen(false);
+    setAdminConsentPrefilledEmail(undefined);
+  };
+
   const handleNotificationNavigate = (payload: NotificationPayload) => {
     setNotificationsOpen(false);
     setChatOpen(false);
     setOpenMail(null);
     setIcloudSetupOpen(false);
+    setAdminConsentOpen(false);
     switch (payload.type) {
       case 'reminder':
       case 'digest':
@@ -268,6 +291,9 @@ export default function App() {
         break;
       case 'factDecay':
         setTab('memory');
+        break;
+      case 'microsoftConsentGranted':
+        setTab('settings');
         break;
     }
   };
@@ -331,6 +357,7 @@ export default function App() {
             {tab === 'settings' && (
               <SettingsScreen
                 onOpenIcloudSetup={openIcloudSetup}
+                onOpenMicrosoftAdminConsent={openAdminConsent}
                 icloudRefreshVersion={icloudRefreshVersion}
               />
             )}
@@ -373,6 +400,19 @@ export default function App() {
             />
           </Animated.View>
         )}
+        {adminConsentOpen && !chatOpen && !openMail && !notificationsOpen && !icloudSetupOpen && (
+          <Animated.View
+            key="admin-consent"
+            style={StyleSheet.absoluteFill}
+            entering={SlideInDown.duration(320)}
+            exiting={SlideOutDown.duration(260)}
+          >
+            <MicrosoftAdminConsentScreen
+              prefilledEmail={adminConsentPrefilledEmail}
+              onCancel={closeAdminConsent}
+            />
+          </Animated.View>
+        )}
       </View>
       {user?.id && (
         <MemoryConsentModal
@@ -385,7 +425,7 @@ export default function App() {
           }}
         />
       )}
-      {!chatOpen && !openMail && !notificationsOpen && !icloudSetupOpen && (
+      {!chatOpen && !openMail && !notificationsOpen && !icloudSetupOpen && !adminConsentOpen && (
         <View
           style={styles.chrome}
           pointerEvents="box-none"

@@ -130,12 +130,13 @@ function useNotificationPermission(): PermissionStatus {
 
 type SettingsScreenProps = {
   onOpenIcloudSetup?: (prefilledEmail?: string) => void;
+  onOpenMicrosoftAdminConsent?: (prefilledEmail?: string) => void;
   // Bumped by App.tsx whenever the iCloud setup overlay closes, so this
   // screen reloads the credential state without remounting.
   icloudRefreshVersion?: number;
 };
 
-export function SettingsScreen({ onOpenIcloudSetup, icloudRefreshVersion = 0 }: SettingsScreenProps) {
+export function SettingsScreen({ onOpenIcloudSetup, onOpenMicrosoftAdminConsent, icloudRefreshVersion = 0 }: SettingsScreenProps) {
   const { data: user, loading: userLoading } = useUser();
   const { data: subscription } = useSubscription();
   const { data: connections, connect, disconnect } = useConnections();
@@ -252,11 +253,39 @@ export function SettingsScreen({ onOpenIcloudSetup, icloudRefreshVersion = 0 }: 
   const handleConnect = async (id: typeof connections[number]['id']) => {
     if (connectingId) return;
     setConnectingId(id);
-    const { error } = await connect(id);
+    const result = await connect(id);
     setConnectingId(null);
-    if (error) {
-      if (__DEV__) console.warn('[auth] connect provider failed:', id, error);
-      Alert.alert('Kunne ikke forbinde', translateProviderError(error).message);
+
+    // Detected admin-consent: open the screen with whatever tenant hint we have.
+    if (result.adminConsent && onOpenMicrosoftAdminConsent) {
+      const hint = result.adminConsent.tenantHint
+        ?? (authUser?.email ? authUser.email : undefined);
+      onOpenMicrosoftAdminConsent(hint);
+      return;
+    }
+
+    if (result.error) {
+      if (__DEV__) console.warn('[auth] connect provider failed:', id, result.error);
+      Alert.alert('Kunne ikke forbinde', translateProviderError(result.error).message);
+      return;
+    }
+
+    // Cancel-path heuristic for Microsoft: most enterprise tenants render the
+    // admin-consent block on Microsoft's own page, and users close the browser
+    // rather than letting it redirect. Ask once whether that's what they saw.
+    const isMicrosoft = id === 'outlook-mail' || id === 'outlook-calendar';
+    if (result.cancelled && isMicrosoft && onOpenMicrosoftAdminConsent) {
+      Alert.alert(
+        'Krævede din administrator godkendelse?',
+        'Hvis Microsoft viste en besked om at en administrator skal godkende Zolva, kan vi hjælpe dig med at sende en anmodning.',
+        [
+          { text: 'Nej, prøv igen', style: 'cancel' },
+          {
+            text: 'Ja, send anmodning',
+            onPress: () => onOpenMicrosoftAdminConsent(authUser?.email ?? undefined),
+          },
+        ],
+      );
     }
   };
 

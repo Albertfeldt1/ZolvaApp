@@ -102,6 +102,14 @@ export function registerResponseHandler(
       typeof (payload as { factId?: unknown }).factId === 'string'
     ) {
       onTap({ type: 'factDecay', factId: (payload as { factId: string }).factId });
+    } else if (
+      payload.type === 'microsoftConsentGranted' &&
+      typeof (payload as { tenantDomain?: unknown }).tenantDomain === 'string'
+    ) {
+      onTap({
+        type: 'microsoftConsentGranted',
+        tenantDomain: (payload as { tenantDomain: string }).tenantDomain,
+      });
     }
   });
   return () => sub.remove();
