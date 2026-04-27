@@ -175,23 +175,30 @@ type RawMessage = {
   preview: string;
 };
 
+// Backoff schedule (ms) for gateway 5xx retries. The edge runtime can take
+// up to ~12s to cold-start a fresh imap-proxy worker after a deploy or idle
+// period; one retry at 800ms wasn't enough to outlast that. The first retry
+// at 1.5s catches normal blips, the second at 4s catches deploy-fresh cold
+// starts. Total worst-case added latency: ~5.5s + two extra round-trips.
+const GATEWAY_RETRY_BACKOFF_MS = [1_500, 4_000];
+
 async function call<T>(
   op: 'validate' | 'list-inbox' | 'get-body' | 'clear-binding',
   body: Record<string, unknown>,
 ): Promise<IcloudResult<T>> {
-  // One-shot retry on Supabase gateway 5xx — cold-start contention on the
-  // edge runtime occasionally returns 502/503 with an HTML body before our
+  // Retry on Supabase gateway 5xx — cold-start contention on the edge
+  // runtime occasionally returns 502/503 with an HTML body before our
   // function ever boots. All four ops are idempotent server-side, so the
-  // retry is safe; second attempt almost always lands on a warm worker.
-  const first = await callOnce<T>(op, body);
-  if (first.ok) return first;
-  if (first.error === 'protocol' && first.gatewayFlake) {
-    await new Promise((r) => setTimeout(r, 800));
-    if (__DEV__) console.warn(`[icloud-mail] ${op} retrying after gateway flake`);
-    const second = await callOnce<T>(op, body);
-    if (second.ok || second.error !== 'protocol') return second;
+  // retry is safe.
+  let last = await callOnce<T>(op, body);
+  if (last.ok) return last;
+  for (const delay of GATEWAY_RETRY_BACKOFF_MS) {
+    if (last.ok || last.error !== 'protocol' || !last.gatewayFlake) break;
+    await new Promise((r) => setTimeout(r, delay));
+    if (__DEV__) console.warn(`[icloud-mail] ${op} retrying after gateway flake (waited ${delay}ms)`);
+    last = await callOnce<T>(op, body);
   }
-  return first;
+  return last;
 }
 
 // Internal envelope: gatewayFlake distinguishes "Supabase gateway returned
