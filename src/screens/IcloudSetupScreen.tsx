@@ -37,6 +37,8 @@ type SubmitError =
   | 'network'
   | 'timeout'
   | 'rate-limited'
+  | 'temporarily-unavailable'
+  | 'gateway-unavailable'
   | 'protocol';
 
 export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
@@ -295,7 +297,15 @@ function Step({ n, title, children }: { n: string; title: string; children?: Rea
 }
 
 function mapToSubmitError(code: string): SubmitError {
-  if (code === 'auth-failed' || code === 'network' || code === 'timeout' || code === 'rate-limited' || code === 'protocol') {
+  if (
+    code === 'auth-failed' ||
+    code === 'network' ||
+    code === 'timeout' ||
+    code === 'rate-limited' ||
+    code === 'temporarily-unavailable' ||
+    code === 'gateway-unavailable' ||
+    code === 'protocol'
+  ) {
     return code;
   }
   return 'protocol';
@@ -303,11 +313,13 @@ function mapToSubmitError(code: string): SubmitError {
 
 function messageFor(e: SubmitError): string {
   switch (e) {
-    case 'auth-failed':  return 'Forkert email eller adgangskode. Tjek at du har lavet en app-specifik adgangskode (ikke din normale Apple-adgangskode).';
-    case 'network':      return 'Ingen forbindelse til Apple. Tjek dit internet og prøv igen.';
-    case 'timeout':      return 'Apple svarer ikke. Prøv igen om lidt.';
-    case 'rate-limited': return 'For mange forsøg. Prøv igen om en time.';
-    case 'protocol':     return 'Noget gik galt på Apples side. Prøv igen om lidt.';
+    case 'auth-failed':             return 'Forkert email eller adgangskode. Tjek at du har lavet en app-specifik adgangskode (ikke din normale Apple-adgangskode).';
+    case 'network':                 return 'Ingen forbindelse. Tjek dit internet og prøv igen.';
+    case 'timeout':                 return 'Det tog for lang tid. Prøv igen om lidt.';
+    case 'rate-limited':            return 'For mange forsøg. Prøv igen om en time.';
+    case 'temporarily-unavailable': return 'Apple er travl lige nu. Prøv igen om lidt.';
+    case 'gateway-unavailable':     return 'Vores server kunne ikke nås. Prøv igen om lidt.';
+    case 'protocol':                return 'Noget gik galt på Apples side. Prøv igen om lidt.';
   }
 }
 

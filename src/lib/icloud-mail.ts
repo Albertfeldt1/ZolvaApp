@@ -58,6 +58,7 @@ export type IcloudErrorCode =
   | 'rate-limited'
   | 'protocol'
   | 'temporarily-unavailable'
+  | 'gateway-unavailable'  // client-synthesized: Supabase gateway 5xx after retries exhausted
   | 'network'
   | 'timeout'
   | 'not-connected'        // credential is 'absent' — caller should suppress UI silently
@@ -197,6 +198,11 @@ async function call<T>(
     await new Promise((r) => setTimeout(r, delay));
     if (__DEV__) console.warn(`[icloud-mail] ${op} retrying after gateway flake (waited ${delay}ms)`);
     last = await callOnce<T>(op, body);
+  }
+  // Retries exhausted on a gateway flake — promote to a distinct code so the
+  // UI can blame the right party (us, not Apple).
+  if (!last.ok && last.error === 'protocol' && last.gatewayFlake) {
+    return { ok: false, error: 'gateway-unavailable' };
   }
   return last;
 }
