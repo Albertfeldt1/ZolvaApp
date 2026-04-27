@@ -115,6 +115,20 @@ export function ChatScreen({ onBack, initialDraft }: Props) {
   );
 }
 
+// Tiny inline-markdown renderer for chat bubbles. Splits on `**bold**`
+// segments — Claude often emits these in replies and rendering them as
+// literal asterisks looks broken. Other markdown (lists, headings, links)
+// is left as-is for now; bold is the highest-frequency case.
+function renderInlineMd(text: string): React.ReactNode[] {
+  // Even indices: plain text. Odd indices: bold contents.
+  const parts = text.split(/\*\*([\s\S]+?)\*\*/g);
+  return parts.map((part, i) =>
+    i % 2 === 1
+      ? <Text key={i} style={styles.bubbleBold}>{part}</Text>
+      : part,
+  );
+}
+
 function Bubble({ msg }: { msg: ChatMessage }) {
   const isZ = msg.from === 'zolva';
   return (
@@ -131,7 +145,9 @@ function Bubble({ msg }: { msg: ChatMessage }) {
           isZ ? styles.bubbleZ : styles.bubbleU,
         ]}
       >
-        <Text style={[styles.bubbleText, { color: isZ ? colors.ink : colors.paper }]}>{msg.text}</Text>
+        <Text style={[styles.bubbleText, { color: isZ ? colors.ink : colors.paper }]}>
+          {renderInlineMd(msg.text)}
+        </Text>
       </View>
     </View>
   );
@@ -235,6 +251,7 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 14,
   },
   bubbleText: { fontFamily: fonts.ui, fontSize: 14, lineHeight: 21 },
+  bubbleBold: { fontFamily: fonts.uiSemi },
 
   typingDot: { width: 6, height: 6, borderRadius: 999, backgroundColor: colors.stone },
 

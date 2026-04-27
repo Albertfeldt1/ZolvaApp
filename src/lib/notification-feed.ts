@@ -40,6 +40,7 @@ function reviveEntry(raw: unknown): FeedEntry | null {
     'newMail',
     'brief',
     'factDecay',
+    'microsoftConsentGranted',
   ];
   if (!types.includes(e.type as FeedEntryType)) return null;
   const firesAt = e.firesAt instanceof Date ? e.firesAt : new Date(e.firesAt ?? Date.now());
