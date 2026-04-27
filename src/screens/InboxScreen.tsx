@@ -215,10 +215,10 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
                 </View>
                 <View style={styles.rowBody}>
                   <View style={styles.rowTopLine}>
-                    <Text style={styles.sender}>{m.from}</Text>
-                    <Text style={styles.time}>{m.time}</Text>
+                    <Text style={styles.sender} numberOfLines={1} ellipsizeMode="tail">{m.from}</Text>
+                    <Text style={styles.time} numberOfLines={1}>{m.time}</Text>
                   </View>
-                  <Text style={styles.subject}>{m.subject}</Text>
+                  <Text style={styles.subject} numberOfLines={2}>{m.subject}</Text>
                   {m.aiDraft && (
                     <View style={styles.draft}>
                       <Stone size={22} mood="thinking" />
@@ -347,9 +347,11 @@ const styles = StyleSheet.create({
   rowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   rowPressed: { opacity: 0.6 },
   rowBody: { flex: 1, minWidth: 0 },
-  rowTopLine: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
-  sender: { fontFamily: fonts.uiSemi, fontSize: 14, color: colors.ink },
-  time: { fontFamily: fonts.mono, fontSize: 11, color: colors.fg3 },
+  rowTopLine: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 },
+  // flexShrink lets a long sender ellipsize instead of pushing the time
+  // element off the right edge into the chevron.
+  sender: { flexShrink: 1, fontFamily: fonts.uiSemi, fontSize: 14, color: colors.ink },
+  time: { flexShrink: 0, fontFamily: fonts.mono, fontSize: 11, color: colors.fg3 },
   subject: { marginTop: 2, fontFamily: fonts.ui, fontSize: 13.5, color: colors.ink },
   draft: { marginTop: 8, flexDirection: 'row', gap: 8, alignItems: 'center' },
   draftText: { flex: 1, fontFamily: 'Inter_500Medium_Italic', fontSize: 12.5, color: colors.fg2 },

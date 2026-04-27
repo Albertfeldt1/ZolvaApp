@@ -786,7 +786,11 @@ function shortTime(then: Date, now: Date): string {
     then.getMonth() === now.getMonth() &&
     then.getDate() === now.getDate();
   if (sameDay) return clockOf(then);
-  const diffDays = Math.floor((now.getTime() - then.getTime()) / 86400000);
+  // Compare CALENDAR days, not 24-hour chunks. Yesterday at 14:00 is ~22h
+  // ago and would otherwise floor to 0d, even though it's a different day.
+  const thenMidnight = new Date(then.getFullYear(), then.getMonth(), then.getDate()).getTime();
+  const nowMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const diffDays = Math.round((nowMidnight - thenMidnight) / 86400000);
   if (diffDays < 7) return `${diffDays}d`;
   return `${pad(then.getDate())}/${pad(then.getMonth() + 1)}`;
 }
