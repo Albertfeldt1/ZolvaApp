@@ -524,41 +524,52 @@ type BodyNode = {
   childNodes?: BodyNode[];
 };
 
-function pickTextPart(node: BodyNode | undefined): {
+type TextPartSpec = {
   part: string;
   isHtml: boolean;
   encoding: string;
   charset: string;
-} | null {
-  if (!node) return null;
-  // Single-part message — node IS the text part (its `part` is implicitly '1' but iCloud expects no path).
-  if (node.type && /^text\//i.test(node.type) && !node.childNodes) {
-    return {
-      part: node.part ?? '1',
-      isHtml: /text\/html/i.test(node.type),
-      encoding: (node.encoding ?? '7bit').toLowerCase(),
-      charset: node.parameters?.charset ?? 'utf-8',
-    };
-  }
-  // Multipart — prefer text/plain, fall back to text/html. Walk depth-first.
+};
+
+// Returns every text/* part in the message in preference order: text/plain
+// first, text/html next, any other text/* last. The caller fetches each in
+// turn until one yields meaningful content — Apple often ships a stub
+// text/plain ("View this email in HTML") with the real content in text/html,
+// and the previous "first plain wins" picker rendered those as blank bodies.
+function pickTextParts(node: BodyNode | undefined): TextPartSpec[] {
+  if (!node) return [];
   const flat: BodyNode[] = [];
-  const stack: BodyNode[] = [node];
-  while (stack.length) {
-    const n = stack.pop()!;
-    if (n.childNodes) stack.push(...n.childNodes);
-    else flat.push(n);
+  if (node.childNodes && node.childNodes.length > 0) {
+    const stack: BodyNode[] = [node];
+    while (stack.length) {
+      const n = stack.pop()!;
+      if (n.childNodes && n.childNodes.length > 0) stack.push(...n.childNodes);
+      else flat.push(n);
+    }
+  } else {
+    // Single-part message — the root IS the leaf. iCloud expects part '1'.
+    flat.push({ ...node, part: node.part ?? '1' });
   }
-  const plain = flat.find((n) => n.type && /text\/plain/i.test(n.type));
-  const html = flat.find((n) => n.type && /text\/html/i.test(n.type));
-  const pick = plain ?? html;
-  if (!pick || !pick.part) return null;
-  return {
-    part: pick.part,
-    isHtml: !!plain ? false : true,
-    encoding: (pick.encoding ?? '7bit').toLowerCase(),
-    charset: pick.parameters?.charset ?? 'utf-8',
+  const textNodes = flat.filter((n) => n.type && /^text\//i.test(n.type) && n.part);
+  const score = (n: BodyNode): number => {
+    if (/text\/plain/i.test(n.type ?? '')) return 0;
+    if (/text\/html/i.test(n.type ?? '')) return 1;
+    return 2;
   };
+  textNodes.sort((a, b) => score(a) - score(b));
+  return textNodes.map((n) => ({
+    part: n.part!,
+    isHtml: /text\/html/i.test(n.type ?? ''),
+    encoding: (n.encoding ?? '7bit').toLowerCase(),
+    charset: n.parameters?.charset ?? 'utf-8',
+  }));
 }
+
+// Heuristic: a plain part shorter than this is almost certainly a stub
+// ("Please view in an HTML-capable mail client"), and the real content
+// lives in text/html. Tuned to keep short legitimate replies (like
+// "OK, talk later") while skipping single-line stubs.
+const PLAIN_STUB_THRESHOLD = 40;
 
 function decodeContent(buf: Uint8Array, encoding: string, charset: string): string {
   let bytes = buf;
@@ -645,7 +656,6 @@ async function handleGetBody(
     await client.connect();
     const lock = await client.getMailboxLock('INBOX', { readOnly: true });
     let envelope: { from?: Array<{ name?: string; address?: string }>; subject?: string; messageId?: string } | undefined;
-    let textPart: ReturnType<typeof pickTextPart> | null = null;
     try {
       const meta = await client.fetchOne(
         String(uid),
@@ -656,20 +666,44 @@ async function handleGetBody(
         return err('protocol', 502);
       }
       envelope = meta.envelope as typeof envelope;
-      textPart = pickTextPart(meta.bodyStructure as BodyNode | undefined);
+      const textParts = pickTextParts(meta.bodyStructure as BodyNode | undefined);
 
+      // Try each text part in preference order, stopping on the first one
+      // that yields meaningful content. Stub plain parts (Apple, Outlook
+      // bouncebacks, transactional senders) are kept only as a last-resort
+      // fallback if every richer alternative also failed.
       let bodyText = '';
-      if (textPart) {
+      let stubFallback = '';
+      for (const tp of textParts) {
         const partFetch = await client.fetchOne(
           String(uid),
-          { bodyParts: [textPart.part] },
+          { bodyParts: [tp.part] },
           { uid: true },
         );
-        const buf = partFetch?.bodyParts?.get(textPart.part);
-        if (buf) {
-          const raw = decodeContent(buf, textPart.encoding, textPart.charset);
-          bodyText = textPart.isHtml ? stripHtmlToText(raw) : raw.trim();
+        const buf = partFetch?.bodyParts?.get(tp.part);
+        if (!buf) continue;
+        const raw = decodeContent(buf, tp.encoding, tp.charset);
+        const decoded = tp.isHtml ? stripHtmlToText(raw) : raw.trim();
+        if (decoded.length === 0) continue;
+        if (!tp.isHtml && decoded.length < PLAIN_STUB_THRESHOLD && textParts.some((p) => p !== tp && p.isHtml)) {
+          // Hold the short plain part as fallback in case the html also fails.
+          if (!stubFallback) stubFallback = decoded;
+          continue;
         }
+        bodyText = decoded;
+        break;
+      }
+      if (!bodyText) bodyText = stubFallback;
+      if (!bodyText) {
+        // Surface the structure so we can diagnose which Apple/MIME shape
+        // confused the picker. Don't bail — return the empty body so the
+        // detail screen still shows headers + "no readable body".
+        console.warn(
+          '[imap-proxy] get-body returned empty for uid',
+          uid,
+          'bodyStructure:',
+          JSON.stringify(meta.bodyStructure),
+        );
       }
 
       await client.logout();
