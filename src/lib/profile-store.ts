@@ -30,6 +30,7 @@ function rowToFact(r: Record<string, unknown>): Fact {
     confirmedAt: r.confirmed_at ? new Date(r.confirmed_at as string) : null,
     rejectedAt: r.rejected_at ? new Date(r.rejected_at as string) : null,
     rejectionTtl: r.rejection_ttl ? new Date(r.rejection_ttl as string) : null,
+    expiresAt: r.expires_at ? new Date(r.expires_at as string) : null,
   };
 }
 
@@ -82,7 +83,14 @@ export async function findDuplicateFact(
 
 export async function insertPendingFact(
   userId: string,
-  input: { text: string; category: FactCategory; source: string | null },
+  input: {
+    text: string;
+    category: FactCategory;
+    source: string | null;
+    // Optional decay timestamp. NULL means "permanent" — set this only for
+    // action-y categories (commitment / other). The extractor decides.
+    expiresAt?: Date | null;
+  },
 ): Promise<Fact> {
   const normalized = normalizeFactText(input.text);
   const { data, error } = await supabase
@@ -94,6 +102,7 @@ export async function insertPendingFact(
       category: input.category,
       status: 'pending',
       source: input.source,
+      expires_at: input.expiresAt ? input.expiresAt.toISOString() : null,
     })
     .select('*')
     .single();

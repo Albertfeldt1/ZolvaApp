@@ -164,6 +164,7 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
       contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom + 32 }]}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets
       bounces={false}
       overScrollMode="never"
       scrollEventThrottle={16}

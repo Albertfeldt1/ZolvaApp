@@ -1,4 +1,4 @@
-import { Bell, BookmarkPlus, Calendar, ChevronLeft, Mail, Sun, Sunrise } from 'lucide-react-native';
+import { Bell, BookmarkPlus, Calendar, ChevronLeft, Hourglass, Mail, Sun, Sunrise } from 'lucide-react-native';
 import React, { useMemo } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { EmptyState } from '../components/EmptyState';
@@ -118,6 +118,8 @@ function iconFor(type: FeedEntry['type']) {
       return Mail;
     case 'brief':
       return Sunrise;
+    case 'factDecay':
+      return Hourglass;
   }
 }
 

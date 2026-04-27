@@ -97,6 +97,11 @@ export function registerResponseHandler(
       typeof (payload as { briefId?: unknown }).briefId === 'string'
     ) {
       onTap({ type: 'brief', briefId: (payload as { briefId: string }).briefId });
+    } else if (
+      payload.type === 'factDecay' &&
+      typeof (payload as { factId?: unknown }).factId === 'string'
+    ) {
+      onTap({ type: 'factDecay', factId: (payload as { factId: string }).factId });
     }
   });
   return () => sub.remove();

@@ -171,6 +171,11 @@ export default function App() {
         case 'newMail':
           setTab('inbox');
           break;
+        case 'factDecay':
+          // Decaying-fact heads-up routes to Memory so the user can confirm,
+          // edit, or let the fact go.
+          setTab('memory');
+          break;
       }
     });
     return unsub;
@@ -260,6 +265,9 @@ export default function App() {
         break;
       case 'newMail':
         setTab('inbox');
+        break;
+      case 'factDecay':
+        setTab('memory');
         break;
     }
   };

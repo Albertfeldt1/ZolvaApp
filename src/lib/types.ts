@@ -187,7 +187,11 @@ export type NotificationPayload =
   | { type: 'calendarPreAlert'; eventId: string }
   | { type: 'reminderAdded'; reminderId: string }
   | { type: 'newMail'; provider: MailProvider; messageId: string; threadId?: string }
-  | { type: 'brief'; briefId: string };
+  | { type: 'brief'; briefId: string }
+  // Heads-up that an action-y fact ("Oscar to vet Friday") is about to drop
+  // out of morning briefs. Tap routes the user to the Memory tab so they can
+  // confirm/extend or let it go.
+  | { type: 'factDecay'; factId: string };
 
 export type FeedEntryType = NotificationPayload['type'];
 
@@ -224,6 +228,10 @@ export type Fact = {
   confirmedAt: Date | null;
   rejectedAt: Date | null;
   rejectionTtl: Date | null;
+  // Action-y facts (commitments, "Oscar has to be at the vet Friday") get an
+  // expiry so they stop appearing in briefs after the referent moment passes.
+  // NULL means the fact is treated as permanent (relations/role/preference).
+  expiresAt: Date | null;
 };
 
 export type MailEventType =

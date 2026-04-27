@@ -100,7 +100,18 @@ export async function buildProfilePreambleFromData(data: {
   mail: MailEvent[];
 }): Promise<string> {
   const sections: string[] = [];
-  const grouped = groupFactsBySection(data.facts.filter((f) => f.status === 'confirmed'));
+  // Action-y facts (commitments with a referent date) carry expiresAt; once
+  // past, they're hidden from the preamble so the morning brief stops
+  // surfacing yesterday's reminders. Permanent facts (expiresAt === null)
+  // always pass.
+  const now = Date.now();
+  const grouped = groupFactsBySection(
+    data.facts.filter(
+      (f) =>
+        f.status === 'confirmed' &&
+        (f.expiresAt === null || f.expiresAt.getTime() > now),
+    ),
+  );
 
   for (const heading of ['Om brugeren', 'Relationer', 'Igangværende', 'Løfter og aftaler']) {
     const bullets = grouped.get(heading);

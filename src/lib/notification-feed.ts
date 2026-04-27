@@ -38,6 +38,8 @@ function reviveEntry(raw: unknown): FeedEntry | null {
     'calendarPreAlert',
     'reminderAdded',
     'newMail',
+    'brief',
+    'factDecay',
   ];
   if (!types.includes(e.type as FeedEntryType)) return null;
   const firesAt = e.firesAt instanceof Date ? e.firesAt : new Date(e.firesAt ?? Date.now());

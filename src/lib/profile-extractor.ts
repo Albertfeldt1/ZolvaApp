@@ -18,19 +18,45 @@ type Candidate = {
   text: string;
   category: FactCategory;
   confidence: number;
+  // Optional ISO date (YYYY-MM-DD) when the fact references a specific moment
+  // ("Oscar to vet Friday"). The decay logic uses this to set expires_at;
+  // permanent facts (relations / role / preference / project) leave it null.
+  referentDate?: string | null;
 };
 
 const EXTRACTOR_SYSTEM =
   'Du læser et kort uddrag af samtale eller mailbeslutning og vurderer om der er én ny, ' +
-  'varig oplysning om brugeren værd at huske (relation, rolle, præference, igangværende projekt, eller løfte). ' +
-  'Svar altid på dansk. Tag kun fakta frem der vil være relevante om en uge eller mere. ' +
-  'Ignorér flygtige ting (humør, hvad brugeren spiser til frokost). Returnér højst ét kandidat-faktum.';
+  'oplysning om brugeren værd at huske (relation, rolle, præference, igangværende projekt, eller løfte/aftale). ' +
+  'Svar altid på dansk. Ignorér helt flygtige ting (humør, hvad brugeren spiser til frokost). ' +
+  'Hvis fakta refererer til en konkret dato eller dag (fx "fredag", "i morgen", "27. april"), ' +
+  'så udfyld referentDate som en ISO-dato (YYYY-MM-DD). Ellers lad det være null. ' +
+  'Returnér højst ét kandidat-faktum.';
 
 const EXTRACTOR_SCHEMA =
-  '{"candidate": {"text": string, "category": "relationship" | "role" | "preference" | "project" | "commitment" | "other", "confidence": number (0 til 1)} | null}\n' +
+  '{"candidate": {"text": string, "category": "relationship" | "role" | "preference" | "project" | "commitment" | "other", "confidence": number (0 til 1), "referentDate": string | null} | null}\n' +
   '- text: en kort sætning på dansk, fx "Maria er din leder".\n' +
   '- category: den bedst passende kategori.\n' +
-  '- confidence: 0.6 eller mere hvis du er rimelig sikker; lavere hvis du gætter.';
+  '- confidence: 0.6 eller mere hvis du er rimelig sikker; lavere hvis du gætter.\n' +
+  '- referentDate: ISO-dato (YYYY-MM-DD) hvis fakta er knyttet til en bestemt dag; ellers null.';
+
+// Action-y categories decay; relations/role/preference/project are permanent.
+const DECAY_CATEGORIES: ReadonlySet<FactCategory> = new Set(['commitment', 'other']);
+// Fallback decay window when the model can't infer a referent date.
+const DEFAULT_DECAY_MS = 3 * 24 * 60 * 60 * 1000;
+// Buffer kept after the referent date so a "fredag" fact is still in the
+// brief on Friday morning and only drops out the day after.
+const REFERENT_GRACE_MS = 24 * 60 * 60 * 1000;
+
+function computeExpiresAt(category: FactCategory, referentDate: string | null | undefined): Date | null {
+  if (!DECAY_CATEGORIES.has(category)) return null;
+  if (referentDate && /^\d{4}-\d{2}-\d{2}$/.test(referentDate)) {
+    const base = Date.parse(`${referentDate}T00:00:00Z`);
+    if (Number.isFinite(base)) {
+      return new Date(base + REFERENT_GRACE_MS);
+    }
+  }
+  return new Date(Date.now() + DEFAULT_DECAY_MS);
+}
 
 const CONFIDENCE_THRESHOLD = 0.6;
 const DEBOUNCE_MS = 2000;
@@ -75,6 +101,7 @@ async function runNow(payload: ExtractionPayload): Promise<void> {
       text: c.text.trim(),
       category: c.category,
       source: payload.source,
+      expiresAt: computeExpiresAt(c.category, c.referentDate ?? null),
     });
     invalidatePreamble(payload.userId);
   } catch (err) {
