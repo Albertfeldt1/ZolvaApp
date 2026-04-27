@@ -1,7 +1,8 @@
 // supabase/functions/imap-proxy/index.ts
 //
 // Authenticated proxy for iCloud IMAP. Four ops:
-//   - validate:      LOGIN + LOGOUT only. No DB writes.
+//   - validate:      LOGIN + LOGOUT, then upsert the binding hash so a
+//                    Setup-screen reconnect refreshes the bound credential.
 //   - list-inbox:    hash-bind check + LOGIN + SELECT INBOX + FETCH list + LOGOUT.
 //                    First successful call upserts the binding row.
 //   - get-body:      hash-bind check + LOGIN + EXAMINE INBOX + FETCH bodyStructure
