@@ -28,7 +28,13 @@ export type IcloudCalendarMeta = {
   calendarColor?: string;
 };
 
+// Bump when the cached calendar shape changes meaning (e.g. when the parser
+// starts excluding non-calendar collections that older versions stored).
+// Pre-versioned caches are treated as a miss.
+const DISCOVERY_SCHEMA = 2;
+
 type CalDiscoveryCache = {
+  schema: number;
   // Stamped so account rotation (saveCredential with a different Apple ID)
   // can't reuse a stale principalUrl belonging to the previous account.
   email: string;
@@ -44,6 +50,7 @@ const discoveryCacheKey = (uid: string) =>
 
 function isValidCache(c: Partial<CalDiscoveryCache>): c is CalDiscoveryCache {
   return (
+    c.schema === DISCOVERY_SCHEMA &&
     typeof c.email === 'string' &&
     typeof c.principalUrl === 'string' &&
     typeof c.calendarHomeUrl === 'string' &&
@@ -125,6 +132,10 @@ export async function listEvents(
   rangeEnd: Date,
 ): Promise<CalDavResult<IcloudCalEvent[]>> {
   const cred = await loadCredential(userId);
+  if (__DEV__) console.log('[icloud-cal] listEvents start', {
+    userId: userId.slice(0, 8), credKind: cred.kind,
+    range: `${rangeStart.toISOString()} → ${rangeEnd.toISOString()}`,
+  });
   if (cred.kind === 'absent') return { ok: false, error: 'not-connected' };
   if (cred.kind === 'invalid') return { ok: false, error: 'credential-rejected' };
   const auth = basicAuth(cred.credential.email, cred.credential.password);
@@ -132,33 +143,47 @@ export async function listEvents(
 
   let cache = await loadDiscoveryCache(userId, cred.credential.email);
   const now = Date.now();
+  // Treat an empty calendar list as cache invalid — the only way to get here
+  // is a previous discovery that silently parsed 0 calendars. Forcing a fresh
+  // discovery is the right move (and prevents an indefinitely-stuck zero state).
+  if (cache && cache.calendars.length === 0) {
+    if (__DEV__) console.log('[icloud-cal] cache had 0 calendars — forcing re-discovery');
+    cache = null;
+  }
   if (!cache || now - cache.principalDiscoveredAt > PRINCIPAL_TTL_MS) {
+    if (__DEV__) console.log('[icloud-cal] cache miss → fullDiscover');
     const fresh = await fullDiscover(cred.credential.email, cred.credential.password, userId);
     if (!fresh.ok) {
+      if (__DEV__) console.warn('[icloud-cal] fullDiscover failed:', fresh.error);
       if (fresh.error === 'auth-failed') await markInvalid(userId, 'caldav-rejected');
       return fresh;
     }
     cache = fresh.data;
   } else if (now - cache.calendarsListedAt > CALENDAR_LIST_TTL_MS) {
+    if (__DEV__) console.log('[icloud-cal] cache stale → re-listing calendars');
     const calsRes = await listCalendarsAt(cache.calendarHomeUrl, auth);
     if (!calsRes.ok) {
+      if (__DEV__) console.warn('[icloud-cal] re-list failed:', calsRes.error);
       if (calsRes.error === 'auth-failed') await markInvalid(userId, 'caldav-rejected');
       return calsRes;
     }
     cache = { ...cache, calendars: calsRes.data, calendarsListedAt: now };
     await saveDiscoveryCache(userId, cache);
+  } else if (__DEV__) {
+    console.log('[icloud-cal] cache hit', { calendars: cache.calendars.length });
   }
 
   // Fetch events from each calendar in parallel, capped at CONCURRENCY.
   const range = caldavTimeRange(rangeStart, rangeEnd);
   const cals = cache.calendars;
+  if (__DEV__) console.log('[icloud-cal] fetching events from', cals.length, 'calendars',
+    cals.map((c) => `${c.displayName ?? '?'} <${c.url}>`));
   // Re-bind with explicit type so the async worker closure below keeps the
   // string narrowing — TS un-narrows captured locals inside async functions.
   const authStr: string = auth;
 
   const results: IcloudCalEvent[] = [];
   let nextIndex = 0;
-  let firstFatalError: CalDavErrorCode | null = null;
 
   async function worker() {
     while (true) {
@@ -167,13 +192,23 @@ export async function listEvents(
       const cal = cals[i];
       const r = await reportEvents(cal.url, authStr, range);
       if (!r.ok) {
-        if (r.error === 'auth-failed' && firstFatalError == null) firstFatalError = 'auth-failed';
-        // Other errors: skip this calendar (best-effort) — partial result preferred.
+        // Per-calendar errors (including 401 on a non-event collection like
+        // the schedule-inbox) are skipped, not fatal. Discovery-time auth
+        // failures are the right signal for markInvalid; a single calendar
+        // refusing the REPORT does not mean the credential rotated.
+        if (__DEV__) console.warn('[icloud-cal] reportEvents failed', cal.displayName, r.error);
         continue;
       }
+      let parsed = 0;
       for (const raw of r.data) {
         const events = parseVcalendarEvents(raw, rangeStart, rangeEnd, cal);
+        parsed += events.length;
         results.push(...events);
+      }
+      if (__DEV__) console.log('[icloud-cal]', cal.displayName, 'returned', r.data.length, 'objects →', parsed, 'events');
+      if (__DEV__ && r.data.length > 0 && parsed === 0) {
+        console.warn('[icloud-cal] parser dropped all events for', cal.displayName,
+          '— first 1500 chars of object[0]:', r.data[0].slice(0, 1500));
       }
     }
   }
@@ -181,11 +216,7 @@ export async function listEvents(
   const workers = Array.from({ length: Math.min(CONCURRENCY, cals.length) }, () => worker());
   await Promise.all(workers);
 
-  if (firstFatalError === 'auth-failed') {
-    await markInvalid(userId, 'caldav-rejected');
-    return { ok: false, error: 'auth-failed' };
-  }
-
+  if (__DEV__) console.log('[icloud-cal] listEvents done — total events:', results.length);
   return { ok: true, data: results };
 }
 
@@ -208,6 +239,8 @@ async function fullDiscover(
   // Own calendars at the user's calendar-home.
   const ownCalsRes = await listCalendarsAt(calendarHomeUrl, auth);
   if (!ownCalsRes.ok) return ownCalsRes;
+  if (__DEV__) console.log('[icloud-cal] discovered', ownCalsRes.data.length, 'own calendars',
+    ownCalsRes.data.map((c) => c.displayName));
 
   // Shared/subscribed calendars: iCloud exposes them via
   // calendar-proxy-read-for / calendar-proxy-write-for collections on the
@@ -220,11 +253,17 @@ async function fullDiscover(
   const allCalendars = sharedCalsRes.ok
     ? mergeCalendarsByUrl(ownCalsRes.data, sharedCalsRes.data)
     : ownCalsRes.data;
-  if (!sharedCalsRes.ok && __DEV__) {
-    console.warn('[icloud-cal] shared-calendar discovery failed:', sharedCalsRes.error);
+  if (__DEV__) {
+    if (sharedCalsRes.ok) {
+      console.log('[icloud-cal] discovered', sharedCalsRes.data.length, 'shared calendars',
+        sharedCalsRes.data.map((c) => c.displayName));
+    } else {
+      console.warn('[icloud-cal] shared-calendar discovery failed:', sharedCalsRes.error);
+    }
   }
 
   const cache: CalDiscoveryCache = {
+    schema: DISCOVERY_SCHEMA,
     email,
     principalUrl,
     calendarHomeUrl,
@@ -366,18 +405,26 @@ async function listCalendarsAt(
   calendarHomeUrl: string,
   auth: string,
 ): Promise<CalDavResult<IcloudCalendarMeta[]>> {
+  // resourcetype is the strongest filter: iCloud's calendar-home returns the
+  // home itself plus schedule-inbox/outbox under the same Depth:1 listing.
+  // Only entries whose resourcetype contains <C:calendar/> are real calendars.
   const body =
     `<?xml version="1.0" encoding="utf-8"?>
 <d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:x="http://apple.com/ns/ical/">
   <d:prop>
     <d:displayname/>
+    <d:resourcetype/>
     <c:supported-calendar-component-set/>
     <x:calendar-color/>
   </d:prop>
 </d:propfind>`;
   const res = await caldavFetch(calendarHomeUrl, 'PROPFIND', auth, { Depth: '1' }, body);
   if (!res.ok) return res;
-  const cals = parseCalendarList(res.data);
+  const cals = parseCalendarList(res.data, calendarHomeUrl);
+  if (__DEV__ && cals.length === 0) {
+    console.warn('[icloud-cal] listCalendarsAt parsed 0 calendars; raw response (first 4000 chars):',
+      res.data.slice(0, 4000));
+  }
   return { ok: true, data: cals };
 }
 
@@ -393,24 +440,40 @@ function extractFirstHref(xml: string, propLocal: string): string | null {
   return m ? m[1].trim() : null;
 }
 
-function parseCalendarList(xml: string): IcloudCalendarMeta[] {
+// iCloud responds with default-namespace XML (<response xmlns="DAV:">) rather
+// than prefixed (<d:response>). Match either: optional `prefix:` ahead of the
+// element name. The prior `:response` regex required a colon and silently
+// returned 0 blocks against iCloud's payload.
+const RESPONSE_OPEN_RE = /<(?:[a-z][\w-]*:)?response[^>]*>/i;
+const RESPONSE_CLOSE_RE = /<\/(?:[a-z][\w-]*:)?response\s*>/i;
+
+function parseCalendarList(xml: string, homeUrl?: string): IcloudCalendarMeta[] {
   const result: IcloudCalendarMeta[] = [];
-  const blocks = xml.split(/<[^>]*:response[^>]*>/i).slice(1);
+  // Normalize the home URL once so per-block comparison is cheap.
+  const homeAbs = homeUrl ? absolutize(homeUrl).replace(/\/?$/, '/') : null;
+  const blocks = xml.split(RESPONSE_OPEN_RE).slice(1);
   for (const blockRaw of blocks) {
-    const block = blockRaw.split(/<\/[^>]*:response[^>]*>/i)[0];
+    const block = blockRaw.split(RESPONSE_CLOSE_RE)[0];
     const href = block.match(/<[^>]*href[^>]*>([^<]+)<\/[^>]*href[^>]*>/i)?.[1]?.trim();
     if (!href) continue;
+    const url = absolutize(href);
+    // Belt-and-braces: skip the calendar-home itself if Apple includes it in
+    // the Depth:1 listing without a calendar resourcetype.
+    if (homeAbs && url.replace(/\/?$/, '/') === homeAbs) continue;
+    // Only true calendar collections — filters out the home, schedule-inbox/
+    // outbox, and any other non-calendar resources iCloud lumps into the
+    // Depth:1 listing.
+    const resourcetype = block.match(
+      /<[^>]*resourcetype[^>]*>([\s\S]*?)<\/[^>]*resourcetype[^>]*>/i,
+    )?.[1] ?? '';
+    if (!/<[^>]*calendar[^>]*\/?>/i.test(resourcetype)) continue;
     const supports = block.match(
       /<[^>]*supported-calendar-component-set[^>]*>([\s\S]*?)<\/[^>]*supported-calendar-component-set[^>]*>/i,
     )?.[1] ?? '';
-    if (!/<[^>]*comp[^>]*name=["']VEVENT["'][^>]*\/?>/.test(supports)) continue;
+    if (!/<[^>]*comp[^>]*name=["']VEVENT["'][^>]*\/?>/i.test(supports)) continue;
     const displayName = block.match(/<[^>]*displayname[^>]*>([^<]*)<\/[^>]*displayname[^>]*>/i)?.[1]?.trim() ?? '(uden navn)';
     const calendarColor = block.match(/<[^>]*calendar-color[^>]*>([^<]+)<\/[^>]*calendar-color[^>]*>/i)?.[1]?.trim();
-    result.push({
-      url: absolutize(href),
-      displayName,
-      calendarColor,
-    });
+    result.push({ url, displayName, calendarColor });
   }
   return result;
 }
@@ -513,11 +576,20 @@ async function reportEvents(
   if (!res.ok) return res;
   const blocks: string[] = [];
   for (const m of res.data.matchAll(/<[^>]*calendar-data[^>]*>([\s\S]*?)<\/[^>]*calendar-data[^>]*>/gi)) {
-    blocks.push(m[1]
+    let raw = m[1].trim();
+    // iCloud wraps the iCalendar payload in <![CDATA[...]]>. Strip it before
+    // handing to ICAL.parse — otherwise the leading "<![CDATA[" line fails
+    // BEGIN:VCALENDAR validation and every event silently disappears.
+    const cdata = raw.match(/^<!\[CDATA\[([\s\S]*?)\]\]>$/);
+    if (cdata) raw = cdata[1].trim();
+    raw = raw
       .replace(/&amp;/g, '&')
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
-      .trim());
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&#39;/g, "'");
+    blocks.push(raw);
   }
   return { ok: true, data: blocks };
 }
