@@ -1,9 +1,12 @@
 // src/screens/IcloudSetupScreen.tsx
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   AppState,
+  Dimensions,
   Image,
   Linking,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -56,6 +59,54 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
     return () => sub.remove();
   }, []);
 
+  // Pull-to-dismiss: rubber-band cap on downward drag from scroll-top, commit
+  // past a distance/velocity threshold by sliding off-screen and calling
+  // onCancel. ScrollView's own bounce is disabled so this is the only pull
+  // affordance.
+  const translateY = useRef(new Animated.Value(0)).current;
+  const atTopRef = useRef(true);
+  const screenH = Dimensions.get('window').height;
+  const PULL_CAP = 96;     // rubber-band asymptote in px
+  const DISMISS_DY = 80;   // raw drag distance to commit dismiss
+  const DISMISS_VY = 0.6;  // vertical velocity to commit dismiss
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, g) =>
+        atTopRef.current && g.dy > 6 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderMove: (_, g) => {
+        if (g.dy <= 0) { translateY.setValue(0); return; }
+        const damped = (1 - 1 / (g.dy * 0.55 / PULL_CAP + 1)) * PULL_CAP;
+        translateY.setValue(damped);
+      },
+      onPanResponderRelease: (_, g) => {
+        const commit = g.dy > DISMISS_DY || g.vy > DISMISS_VY;
+        if (commit) {
+          Animated.timing(translateY, {
+            toValue: screenH,
+            duration: 220,
+            useNativeDriver: true,
+          }).start(() => onCancel());
+        } else {
+          Animated.spring(translateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 4,
+            speed: 16,
+          }).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(translateY, {
+          toValue: 0,
+          useNativeDriver: true,
+        }).start();
+      },
+    }),
+  ).current;
+
   const onEmailBlur = () => {
     if (!email) { setEmailWarning(null); return; }
     const lower = email.trim().toLowerCase();
@@ -105,10 +156,20 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
   const submitDisabled = !email || !password || busy;
 
   return (
+    <Animated.View
+      style={[styles.flex, { transform: [{ translateY }] }]}
+      {...panResponder.panHandlers}
+    >
     <ScrollView
       contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom + 32 }]}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
+      bounces={false}
+      overScrollMode="never"
+      scrollEventThrottle={16}
+      onScroll={(e) => {
+        atTopRef.current = e.nativeEvent.contentOffset.y <= 0;
+      }}
     >
       <View style={styles.hero}>
         <Text style={styles.eyebrow}>FORBIND ICLOUD</Text>
@@ -216,6 +277,7 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
         </Pressable>
       </View>
     </ScrollView>
+    </Animated.View>
   );
 }
 
@@ -249,6 +311,7 @@ function messageFor(e: SubmitError): string {
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1, backgroundColor: colors.paper },
   scroll: { flexGrow: 1, backgroundColor: colors.paper },
   hero: {
     backgroundColor: colors.sageSoft,
