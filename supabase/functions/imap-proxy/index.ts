@@ -342,6 +342,24 @@ async function hashCredential(pepper: string, email: string, password: string): 
     .join('');
 }
 
+function pickMessageDate(internalDate: unknown, envelopeDate: unknown): string {
+  // ImapFlow returns these as Date objects when populated. Coerce defensively
+  // because some servers occasionally hand back strings.
+  const isoOf = (v: unknown): string | null => {
+    if (!v) return null;
+    if (v instanceof Date) {
+      const t = v.getTime();
+      return Number.isFinite(t) ? new Date(t).toISOString() : null;
+    }
+    if (typeof v === 'string' || typeof v === 'number') {
+      const t = new Date(v).getTime();
+      return Number.isFinite(t) ? new Date(t).toISOString() : null;
+    }
+    return null;
+  };
+  return isoOf(internalDate) ?? isoOf(envelopeDate) ?? new Date().toISOString();
+}
+
 function formatFrom(from: Array<{ name?: string; address?: string }> | undefined | null): string {
   if (!from || from.length === 0) return '';
   const f = from[0];
@@ -432,16 +450,25 @@ async function handleListInbox(
         for await (const m of client.fetch(range, {
           uid: true,
           envelope: true,
+          internalDate: true,
           flags: true,
           bodyParts: ['1'],
         })) {
           const env = m.envelope;
           if (!env) continue;
+          // Prefer internalDate (when the IMAP server received the message)
+          // over envelope.date (the Date: header from the sender). The header
+          // can be missing, malformed, or in the sender's local timezone —
+          // we've seen Apple-noreply messages where the parsed envelope date
+          // fell on the wrong hour. internalDate is always a server-stamped
+          // UTC moment, so the "received at" the user sees in the inbox
+          // matches when iCloud actually delivered the message.
+          const dateIso = pickMessageDate(m.internalDate, env.date);
           messages.push({
             uid: m.uid,
             from: formatFrom(env.from),
             subject: env.subject ?? '(uden emne)',
-            date: env.date ? new Date(env.date).toISOString() : new Date().toISOString(),
+            date: dateIso,
             unread: !(m.flags && m.flags.has('\\Seen')),
             preview: extractPreview(m.bodyParts?.get('1')),
           });
