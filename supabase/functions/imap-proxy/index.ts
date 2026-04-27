@@ -134,7 +134,7 @@ serve(async (req) => {
   if (!rateOk) return err('rate-limited', 429);
 
   if (body.op === 'validate') {
-    return await handleValidate(body);
+    return await handleValidate(body, userId, pepper, supabaseUrl, serviceKey);
   }
   if (body.op === 'list-inbox') {
     return await handleListInbox(body, userId, pepper, supabaseUrl, serviceKey);
@@ -192,7 +192,13 @@ async function checkRateLimit(
   return true;
 }
 
-async function handleValidate(body: ValidateReq): Promise<Response> {
+async function handleValidate(
+  body: ValidateReq,
+  userId: string,
+  pepper: string,
+  supabaseUrl: string,
+  serviceKey: string,
+): Promise<Response> {
   const password = normalizePassword(body.password);
   const email = body.email.trim().toLowerCase();
 
@@ -201,7 +207,6 @@ async function handleValidate(body: ValidateReq): Promise<Response> {
     client = newImapClient(email, password);
     await client.connect();
     await client.logout();
-    return Response.json({ ok: true });
   } catch (caughtErr) {
     return mapImapError(caughtErr);
   } finally {
@@ -209,6 +214,30 @@ async function handleValidate(body: ValidateReq): Promise<Response> {
       try { await client.close(); } catch { /* ignore */ }
     }
   }
+
+  // Validate is the explicit "use these credentials going forward" call from
+  // the Setup screen — upsert the binding hash so subsequent list-inbox /
+  // get-body calls don't get rejected by a stale hash from the previous
+  // password. Without this, reconnecting via Setup (without a full disconnect
+  // first) leaves the old binding in place and every fetch 422s.
+  const hash = await hashCredential(pepper, email, password);
+  const svc = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false },
+  });
+  const { error: bindWriteErr } = await svc
+    .from('icloud_credential_bindings')
+    .upsert(
+      {
+        user_id: userId,
+        credential_hash: hash,
+        last_validated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' },
+    );
+  if (bindWriteErr) {
+    console.warn('[imap-proxy] validate binding write failed:', bindWriteErr.message);
+  }
+  return Response.json({ ok: true });
 }
 
 function newImapClient(email: string, password: string): ImapFlow {
