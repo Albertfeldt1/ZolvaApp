@@ -233,7 +233,10 @@ async function assembleInputs(
       .select('text')
       .eq('user_id', userId)
       .eq('status', 'confirmed')
-      .eq('category', 'commitment'),
+      .eq('category', 'commitment')
+      // Action-y facts decay; skip rows past their referent date so
+      // yesterday's reminders don't keep showing up in tomorrow's brief.
+      .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`),
     client
       .from('mail_events')
       .select('provider_from, provider_subject')

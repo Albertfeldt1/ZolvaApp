@@ -1,0 +1,32 @@
+-- Paste this whole file into the Supabase Dashboard SQL editor AFTER the
+-- fact-decay-warning edge function is deployed.
+-- Replace PASTE_SERVICE_ROLE_KEY with the raw service_role key from
+--   Project Settings -> API, and PASTE_CRON_SHARED_SECRET with the value
+--   you also set as `CRON_SHARED_SECRET` in Edge Function secrets.
+-- Do NOT keep the angle brackets.
+--
+-- Schedule: 07:00 UTC daily (~09:00 CEST), before most morning briefs fire.
+-- The function pushes one heads-up notification per fact decaying within
+-- the next 24h, then hard-purges rows that decayed more than 30 days ago.
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'fact-decay-warning') THEN
+    PERFORM cron.unschedule('fact-decay-warning');
+  END IF;
+END
+$$;
+
+select cron.schedule(
+  'fact-decay-warning',
+  '0 7 * * *',
+  $cmd$select net.http_post(
+    url:='https://sjkhfkatmeqtsrysixop.functions.supabase.co/fact-decay-warning',
+    headers:=jsonb_build_object(
+      'Authorization','Bearer PASTE_SERVICE_ROLE_KEY',
+      'Content-Type','application/json',
+      'x-cron-secret','PASTE_CRON_SHARED_SECRET'
+    ),
+    body:='{"source":"cron"}'::jsonb
+  ) as request_id;$cmd$
+);
