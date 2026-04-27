@@ -1,0 +1,31 @@
+-- Paste this whole file into the Supabase Dashboard SQL editor AFTER the
+-- imap-proxy edge function is redeployed with the `op:'ping'` fast path.
+-- Replace PASTE_SERVICE_ROLE_KEY with the raw service_role key from
+--   Project Settings -> API.
+-- Do NOT keep the angle brackets.
+--
+-- Schedule: every minute. Hits the ping fast path which returns {ok:true}
+-- without env lookup, supabase-js getUser, or any IMAP/DB touch. Goal is
+-- to keep at least one imap-proxy worker hot so user-triggered validate /
+-- list-inbox calls don't 502 at the gateway during cold-start.
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'imap-proxy-keepwarm') THEN
+    PERFORM cron.unschedule('imap-proxy-keepwarm');
+  END IF;
+END
+$$;
+
+select cron.schedule(
+  'imap-proxy-keepwarm',
+  '* * * * *',
+  $cmd$select net.http_post(
+    url:='https://sjkhfkatmeqtsrysixop.functions.supabase.co/imap-proxy',
+    headers:=jsonb_build_object(
+      'Authorization','Bearer PASTE_SERVICE_ROLE_KEY',
+      'Content-Type','application/json'
+    ),
+    body:='{"op":"ping"}'::jsonb
+  ) as request_id;$cmd$
+);

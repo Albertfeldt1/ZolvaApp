@@ -1,0 +1,12 @@
+-- The cron.schedule() call for keeping the imap-proxy edge function warm
+-- lives in schedule-imap-proxy-keepwarm.sql.template so its service-role
+-- bearer token isn't committed to the repo. Apply it via the Supabase
+-- Dashboard SQL editor after the imap-proxy function has been redeployed
+-- with the `op:'ping'` fast path.
+--
+-- Same pattern used by:
+--   schedule-daily-brief.sql.template
+--   schedule-poll-mail.sql.template
+--   schedule-fact-decay-warning.sql.template
+
+-- (intentionally empty — schedule lives in the .sql.template)

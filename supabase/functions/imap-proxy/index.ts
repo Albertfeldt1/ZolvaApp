@@ -15,7 +15,20 @@
 // JWT required for all calls. Per-user rate limits enforced server-side.
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { ImapFlow } from 'imapflow';
+// Lazy-loaded inside IMAP code paths so cold-start of the worker doesn't pay
+// the npm:imapflow eval cost (~5-10s on a fresh worker, was triggering
+// gateway 502s on validate). Non-IMAP ops (ping, clear-binding) never load
+// it. First IMAP call after cold-start pays the load; subsequent calls reuse
+// the cached module on the same worker.
+import type { ImapFlow } from 'imapflow';
+
+let _ImapFlowCtor: typeof ImapFlow | null = null;
+async function getImapFlow(): Promise<typeof ImapFlow> {
+  if (_ImapFlowCtor) return _ImapFlowCtor;
+  const mod = await import('imapflow');
+  _ImapFlowCtor = mod.ImapFlow;
+  return _ImapFlowCtor;
+}
 
 const IMAP_HOST = 'imap.mail.me.com';
 const IMAP_PORT = 993;
@@ -46,7 +59,11 @@ type ClearBindingReq = {
   email?: string;
   password?: string;
 };
-type Req = ValidateReq | ListInboxReq | GetBodyReq | ClearBindingReq;
+// Keep-warm op for pg_cron. Returns immediately with no env, DB, or IMAP
+// touch — the only goal is to keep a worker from idling out, so the gateway
+// doesn't 502 on the next real cold-start.
+type PingReq = { op: 'ping' };
+type Req = ValidateReq | ListInboxReq | GetBodyReq | ClearBindingReq | PingReq;
 
 type ErrCode =
   | 'unauthorized'
@@ -78,6 +95,22 @@ serve(async (req) => {
     return err('unauthorized', 401);
   }
 
+  // --- Body parse (early so ping can skip env/createClient/getUser) ---
+  let body: Req;
+  try {
+    body = (await req.json()) as Req;
+  } catch {
+    return err('bad-request', 400);
+  }
+
+  // Keep-warm fast path: bearer presence is gate enough (Supabase gateway
+  // already requires an apikey to reach the function). Ping returns before
+  // env lookup, supabase-js getUser(), and rate-limit DB write — so a
+  // per-minute pg_cron tick keeps the worker hot for ~tens of ms each.
+  if (body && body.op === 'ping') {
+    return Response.json({ ok: true });
+  }
+
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -102,13 +135,6 @@ serve(async (req) => {
   }
   const userId = userData.user.id;
 
-  // --- Body parse ---
-  let body: Req;
-  try {
-    body = (await req.json()) as Req;
-  } catch {
-    return err('bad-request', 400);
-  }
   if (
     !body ||
     (body.op !== 'validate' && body.op !== 'list-inbox' && body.op !== 'get-body' && body.op !== 'clear-binding')
@@ -205,7 +231,7 @@ async function handleValidate(
 
   let client: ImapFlow | null = null;
   try {
-    client = newImapClient(email, password);
+    client = await newImapClient(email, password);
     await client.connect();
     await client.logout();
   } catch (caughtErr) {
@@ -241,8 +267,9 @@ async function handleValidate(
   return Response.json({ ok: true });
 }
 
-function newImapClient(email: string, password: string): ImapFlow {
-  return new ImapFlow({
+async function newImapClient(email: string, password: string): Promise<ImapFlow> {
+  const Ctor = await getImapFlow();
+  return new Ctor({
     host: IMAP_HOST,
     port: IMAP_PORT,
     secure: true,
@@ -425,7 +452,7 @@ async function handleListInbox(
 
   let client: ImapFlow | null = null;
   try {
-    client = newImapClient(email, password);
+    client = await newImapClient(email, password);
     await client.connect();
     // readOnly: true makes the server open INBOX with EXAMINE rather than
     // SELECT, so the BODY[1] fetch below does not implicitly set \Seen on
@@ -652,7 +679,7 @@ async function handleGetBody(
 
   let client: ImapFlow | null = null;
   try {
-    client = newImapClient(email, password);
+    client = await newImapClient(email, password);
     await client.connect();
     const lock = await client.getMailboxLock('INBOX', { readOnly: true });
     let envelope: { from?: Array<{ name?: string; address?: string }>; subject?: string; messageId?: string } | undefined;
