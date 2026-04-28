@@ -21,6 +21,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -44,12 +45,15 @@ import { useChromeInsets } from '../components/PhoneChrome';
 import { Stone } from '../components/Stone';
 import { useAuth } from '../lib/auth';
 import {
+  useCalendarLabels,
   useConnections,
   usePrivacyToggles,
   useSubscription,
   useUser,
   useWorkPreferences,
 } from '../lib/hooks';
+import { listWritableCalendars, type ProviderCalendar } from '../lib/calendar-providers';
+import type { CalendarLabelKey } from '../lib/calendar-labels';
 import { supabase } from '../lib/supabase';
 import type { Connection, IntegrationStatus, WorkPreference } from '../lib/types';
 import { clearCredential, loadCredential } from '../lib/icloud-credentials';
@@ -491,6 +495,8 @@ export function SettingsScreen({ onOpenIcloudSetup, onOpenMicrosoftAdminConsent,
               })}
             </Animated.View>
 
+            <StemmestyringSection />
+
             <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
               <Text style={styles.sectionTitle}>Abonnement</Text>
               <View style={styles.inkRule} />
@@ -688,6 +694,140 @@ export function SettingsScreen({ onOpenIcloudSetup, onOpenMicrosoftAdminConsent,
       />
     </KeyboardAvoidingView>
   );
+}
+
+function StemmestyringSection() {
+  const { googleAccessToken, microsoftAccessToken } = useAuth();
+  const { labels, setLabel } = useCalendarLabels();
+  const [picker, setPicker] = useState<CalendarLabelKey | null>(null);
+  const [calendars, setCalendars] = useState<ProviderCalendar[]>([]);
+  const [loadingCalendars, setLoadingCalendars] = useState(false);
+
+  const hasAnyProvider = !!googleAccessToken || !!microsoftAccessToken;
+
+  const openPicker = async (key: CalendarLabelKey) => {
+    setPicker(key);
+    setLoadingCalendars(true);
+    try {
+      const list = await listWritableCalendars({
+        hasGoogle: !!googleAccessToken,
+        hasMicrosoft: !!microsoftAccessToken,
+      });
+      setCalendars(list);
+    } finally {
+      setLoadingCalendars(false);
+    }
+  };
+
+  const labelRow = (key: CalendarLabelKey, label: string) => {
+    const target = labels[key];
+    const display = target
+      ? calendars.find((c) => c.provider === target.provider && c.id === target.id)?.name
+        ?? `${target.provider === 'google' ? 'Google' : 'Microsoft'} kalender`
+      : 'Ikke valgt';
+    return (
+      <Pressable onPress={() => openPicker(key)} style={styles.row}>
+        <Text style={styles.rowLabel}>{label}</Text>
+        <Text style={styles.rowValue}>{display} ›</Text>
+      </Pressable>
+    );
+  };
+
+  if (!hasAnyProvider) {
+    return (
+      <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
+        <Text style={styles.sectionTitle}>Stemmestyring</Text>
+        <View style={styles.inkRule} />
+        <Text style={styles.sectionBody}>
+          Forbind Google eller Outlook for at sætte møder med Siri.
+        </Text>
+      </Animated.View>
+    );
+  }
+
+  return (
+    <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
+      <Text style={styles.sectionTitle}>Stemmestyring (Voice)</Text>
+      <View style={styles.inkRule} />
+      <Text style={styles.sectionBody}>
+        Når du beder Siri "bed Zolva om at sætte et møde", lander mødet i den
+        kalender du vælger her. Sig "i min arbejdskalender" for at tilsidesætte.
+      </Text>
+      {labelRow('work', 'Arbejdskalender (Work)')}
+      {labelRow('personal', 'Privatkalender (Personal)')}
+
+      <Modal
+        visible={picker !== null}
+        animationType="slide"
+        onRequestClose={() => setPicker(null)}
+      >
+        <SafeAreaView style={styles.modal}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>
+              {picker === 'work' ? 'Vælg arbejdskalender' : 'Vælg privatkalender'}
+            </Text>
+            <Pressable onPress={() => setPicker(null)}>
+              <Text style={styles.modalCancel}>Annullér</Text>
+            </Pressable>
+          </View>
+          {loadingCalendars ? (
+            <ActivityIndicator style={{ marginTop: 24 }} color={colors.sageDeep} />
+          ) : (
+            <ScrollView contentContainerStyle={{ padding: 16 }}>
+              <Pressable
+                style={styles.pickerRow}
+                onPress={async () => {
+                  if (picker) await setLabel(picker, null);
+                  setPicker(null);
+                }}
+              >
+                <Text style={styles.pickerRowText}>○ Brug ikke</Text>
+              </Pressable>
+              {groupByAccount(calendars).map((section) => (
+                <View key={section.heading} style={{ marginTop: 16 }}>
+                  <Text style={styles.pickerHeading}>{section.heading}</Text>
+                  {section.items.map((c) => {
+                    const selected =
+                      picker !== null &&
+                      labels[picker]?.provider === c.provider &&
+                      labels[picker]?.id === c.id;
+                    return (
+                      <Pressable
+                        key={`${c.provider}:${c.id}`}
+                        style={styles.pickerRow}
+                        onPress={async () => {
+                          if (picker) {
+                            await setLabel(picker, { provider: c.provider, id: c.id });
+                          }
+                          setPicker(null);
+                        }}
+                      >
+                        <Text style={styles.pickerRowText}>
+                          {selected ? '● ' : '○ '}
+                          {c.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ))}
+            </ScrollView>
+          )}
+        </SafeAreaView>
+      </Modal>
+    </Animated.View>
+  );
+}
+
+function groupByAccount(calendars: ProviderCalendar[]) {
+  const groups = new Map<string, ProviderCalendar[]>();
+  for (const c of calendars) {
+    const headingProvider = c.provider === 'google' ? 'GOOGLE' : 'MICROSOFT';
+    const heading = `${headingProvider} — ${c.accountEmail ?? 'Ukendt konto'}`;
+    if (!groups.has(heading)) groups.set(heading, []);
+    groups.get(heading)!.push(c);
+  }
+  return Array.from(groups.entries()).map(([heading, items]) => ({ heading, items }));
 }
 
 function LoginCard() {
@@ -1402,4 +1542,82 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   permissionBannerText: { fontSize: 13, color: colors.paper, fontFamily: fonts.ui },
+
+  // Stemmestyring section: explanatory body copy under the section title.
+  // Matches the body-text treatment used elsewhere in the screen
+  // (connSub / workMeta) — small UI-font, muted fg3.
+  sectionBody: {
+    marginTop: 10,
+    fontFamily: fonts.ui,
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.fg3,
+  },
+
+  // Stemmestyring label rows ("Arbejdskalender" / "Privatkalender").
+  // Visual model follows accountRow / accountRowLabel / accountRowChevron
+  // so the tap target reads as a navigation row consistent with "Konto".
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.line,
+  },
+  rowLabel: {
+    fontFamily: fonts.uiSemi,
+    fontSize: 14.5,
+    color: colors.ink,
+  },
+  rowValue: {
+    fontFamily: fonts.ui,
+    fontSize: 13,
+    color: colors.sageDeep,
+  },
+
+  // Picker modal — full-screen sheet on the screen's paper background so it
+  // visually belongs to the same world as the underlying Settings page.
+  modal: {
+    flex: 1,
+    backgroundColor: colors.paper,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.line,
+  },
+  modalTitle: {
+    fontFamily: fonts.display,
+    fontSize: 20,
+    letterSpacing: -0.4,
+    color: colors.ink,
+  },
+  modalCancel: {
+    fontFamily: fonts.uiSemi,
+    fontSize: 14,
+    color: colors.sageDeep,
+  },
+  pickerRow: {
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+  },
+  pickerRowText: {
+    fontFamily: fonts.ui,
+    fontSize: 15,
+    color: colors.ink,
+  },
+  pickerHeading: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    letterSpacing: 0.88,
+    textTransform: 'uppercase',
+    color: colors.fg3,
+    marginBottom: 6,
+  },
 });
