@@ -1,5 +1,4 @@
 const CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
-const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!;
 
 export type ClaudeExtraction = {
   title: string;
@@ -49,7 +48,7 @@ export async function extractEvent(
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
-      'x-api-key': ANTHROPIC_API_KEY,
+      'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!,
       'anthropic-version': '2023-06-01',
       'content-type': 'application/json',
     },

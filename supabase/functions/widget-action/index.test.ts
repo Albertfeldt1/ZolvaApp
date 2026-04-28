@@ -28,8 +28,8 @@ function withFetch(stubs: FetchStub, fn: () => Promise<void>) {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const req = input instanceof Request ? input : new Request(url, init);
     if (url.startsWith('https://api.anthropic.com')) return stubs.anthropic?.(req) ?? new Response('no anthropic stub', { status: 500 });
-    if (url.startsWith('https://www.googleapis.com')) return stubs.google?.(req) ?? new Response('no google stub', { status: 500 });
-    if (url.startsWith('https://graph.microsoft.com')) return stubs.microsoft?.(req) ?? new Response('no microsoft stub', { status: 500 });
+    if (url.startsWith('https://www.googleapis.com') || url.startsWith('https://oauth2.googleapis.com')) return stubs.google?.(req) ?? new Response('no google stub', { status: 500 });
+    if (url.startsWith('https://graph.microsoft.com') || url.startsWith('https://login.microsoftonline.com')) return stubs.microsoft?.(req) ?? new Response('no microsoft stub', { status: 500 });
     if (url.includes('.supabase.co/auth/v1/.well-known/jwks.json')) {
       // JWKS stub: see Task 11 — unit tests bypass real JWT verification by
       // constructing handler-level fixtures. For these end-to-end tests we

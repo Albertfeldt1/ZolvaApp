@@ -31,11 +31,11 @@ const json = (status: number, body: WidgetActionResponse): Response =>
     headers: { 'content-type': 'application/json' },
   });
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
-const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-
 function admin(): SupabaseClient {
-  return createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+  // Read env lazily so tests can set Deno.env after import.
+  const url = Deno.env.get('SUPABASE_URL')!;
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  return createClient(url, serviceRoleKey, {
     auth: { persistSession: false },
   });
 }
