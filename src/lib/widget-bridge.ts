@@ -48,3 +48,21 @@ async function reloadWidget(): Promise<void> {
     await bridge.reloadAllTimelines();
   }
 }
+
+// Sources of truth at write time. The wiring layer (App.tsx, hooks.ts)
+// passes whatever it has in scope; missing pieces become null/[] and the
+// widget falls through to a sensible state.
+export type WriteSnapshotSources = {
+  morningBriefHeadline?: string | null;
+  eveningBriefHeadline?: string | null;
+  events?: Array<{ id: string; start: Date; end: Date; title: string }>;
+};
+
+export async function writeSnapshotFromSources(s: WriteSnapshotSources): Promise<void> {
+  await writeSnapshot({
+    now: new Date(),
+    morningBrief: s.morningBriefHeadline ? { headline: s.morningBriefHeadline } : null,
+    eveningBrief: s.eveningBriefHeadline ? { headline: s.eveningBriefHeadline } : null,
+    events: s.events ?? [],
+  });
+}

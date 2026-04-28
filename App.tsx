@@ -50,6 +50,7 @@ import { shouldShowMemoryConsent, markMemoryConsentShown } from './src/lib/hooks
 import { MemoryConsentModal } from './src/components/MemoryConsentModal';
 import { isDemoUser } from './src/lib/demo';
 import { syncUserProfile } from './src/lib/user-profile';
+import { writeSnapshotFromSources } from './src/lib/widget-bridge';
 
 // Module-level flag — persists across component re-renders and across
 // background/foreground transitions (JS VM stays warm), but resets on cold
@@ -142,7 +143,11 @@ export default function App() {
     };
     runSync();
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') runSync();
+      if (state === 'active') {
+        runSync();
+        // Refresh widget on foreground (debounced inside writeSnapshot)
+        void writeSnapshotFromSources({});
+      }
     });
     return () => sub.remove();
   }, [migrationsDone]);
