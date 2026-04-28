@@ -107,6 +107,7 @@ import {
   type MailForSuggestion,
 } from './chat-suggestions';
 import { supabase } from './supabase';
+import { writeSnapshotFromSources } from './widget-bridge';
 
 // All hooks return placeholder/empty state. When the backend is wired,
 // swap the internals for real data sources (Supabase auth, API fetches,
@@ -662,6 +663,16 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
             ? new Error('Kalender-forespørgslen fejlede. Prøv igen.')
             : null,
         });
+        // Push today's events into the widget snapshot. We narrow to today
+        // (local) here so the bridge layer doesn't have to.
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date(todayStart);
+        todayEnd.setDate(todayEnd.getDate() + 1);
+        const todayEvents = fulfilled
+          .filter((e) => e.start >= todayStart && e.start < todayEnd)
+          .map((e) => ({ id: e.id, start: e.start, end: e.end, title: e.title }));
+        void writeSnapshotFromSources({ events: todayEvents });
       });
 
     return () => {
