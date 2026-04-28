@@ -39,6 +39,7 @@ import { useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import { supabase } from './supabase';
 import * as secureStorage from './secure-storage';
+import { writeSharedSession, clearSharedSession } from './keychain';
 import { buildDemoSession, isDemoCredentials, isDemoUser } from './demo';
 import {
   getNotificationSettings,
@@ -189,6 +190,11 @@ const init = () => {
     // signed in as demo while getSession was in flight.
     if (isDemoUser(cachedSession?.user)) return;
     broadcastSession(data.session);
+    if (data.session?.access_token && data.session?.refresh_token) {
+      void writeSharedSession(data.session.access_token, data.session.refresh_token).catch((err) => {
+        if (__DEV__) console.warn('[auth] writeSharedSession (init) failed:', err);
+      });
+    }
     const uid = data.session?.user?.id ?? null;
     await hydrateNotificationSettingsForUser(uid);
     if (uid) {
@@ -205,6 +211,19 @@ const init = () => {
     const prevUserId = cachedSession?.user?.id ?? null;
     const nextUserId = session?.user?.id ?? null;
     broadcastSession(session);
+    // Mirror Supabase access + refresh token into the shared keychain so the
+    // Siri-dispatched AppIntent can read them. Best-effort — keychain failures
+    // are not fatal; voice will surface "logget ud" gracefully.
+    if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.access_token && session?.refresh_token) {
+      void writeSharedSession(session.access_token, session.refresh_token).catch((err) => {
+        if (__DEV__) console.warn('[auth] writeSharedSession failed:', err);
+      });
+    }
+    if (event === 'SIGNED_OUT') {
+      void clearSharedSession().catch((err) => {
+        if (__DEV__) console.warn('[auth] clearSharedSession failed:', err);
+      });
+    }
     if (prevUserId !== nextUserId) {
       broadcastGoogle(null);
       broadcastMicrosoft(null);
