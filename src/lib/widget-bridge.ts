@@ -4,7 +4,7 @@
 // WidgetKit to refresh. Android: no-op (Android widget arrives in a follow-up).
 
 import { NativeModules, Platform } from 'react-native';
-import { File, Paths } from 'expo-file-system';
+import { Directory, File, Paths } from 'expo-file-system';
 import {
   type BuildSnapshotInput,
   buildSnapshotFromState,
@@ -34,7 +34,7 @@ export async function writeSnapshot(input: BuildSnapshotInput): Promise<void> {
   }
 }
 
-function getAppGroupDir() {
+function getAppGroupDir(): Directory | null {
   try {
     return Paths.appleSharedContainers[APP_GROUP_ID] ?? null;
   } catch {
