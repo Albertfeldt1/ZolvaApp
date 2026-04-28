@@ -942,6 +942,42 @@ function needsReply(from: string): boolean {
   return !NO_REPLY_PATTERN.test(from);
 }
 
+// Body-level second-pass filter. Catches mails whose primary call-to-action
+// is "click a link to do X on a website" — verification, activation, password
+// reset, marketing, view-in-browser. These slip through the From regex when
+// the sender domain looks human (e.g. Zoom invites from a person's email).
+// Keeping this list short and high-signal — anything ambiguous falls through
+// to the LLM classifier.
+const NON_REPLY_BODY_PATTERNS: ReadonlyArray<RegExp> = [
+  // English
+  /view (this|the|your) (email|message) (in (your )?browser|online)/i,
+  /click (here )?to (verify|activate|confirm|reset|view|unsubscribe|manage|review)/i,
+  /unsubscribe|manage (your )?(subscription|preferences|notifications?)/i,
+  /this (email|message) was sent (to you )?because/i,
+  /you('re| are) receiving this (email|message|notification)/i,
+  /please do not reply (to this )?(email|message)/i,
+  /this is an automated (email|message|notification)/i,
+  /verify your (email|account|address)/i,
+  /(activate|confirm|complete) your (account|registration|signup)/i,
+  /reset your password|password reset request/i,
+  // Danish
+  /se (mailen|denne mail|beskeden) (i (din )?browser|online)/i,
+  /klik her for at (bekræfte|aktivere|nulstille|se|afmelde|administrere)/i,
+  /afmeld (dig )?(nyhedsbrev|notifikationer)/i,
+  /du modtager denne (mail|besked|notifikation) fordi/i,
+  /svar ikke på (denne|denne) (mail|besked)/i,
+  /dette er en automatisk (mail|besked|notifikation)/i,
+  /bekræft (din )?(email|konto|adresse)/i,
+  /(aktivér|bekræft|fuldfør) din (konto|registrering|tilmelding)/i,
+  /nulstil (din )?adgangskode/i,
+];
+
+function looksLikeNonReplyContent(preview: string | null | undefined): boolean {
+  if (!preview) return false;
+  const window = preview.slice(0, 800);
+  return NON_REPLY_BODY_PATTERNS.some((re) => re.test(window));
+}
+
 // Reply-verdict cache. Classifier output is deterministic for a given mail,
 // so we keep a persisted 24h cache to avoid re-paying on refresh / cold start.
 // Separate from draftCache because verdicts are tone-agnostic (one entry per
@@ -1019,7 +1055,13 @@ const CLASSIFIER_SYSTEM_PROMPT =
   'continue. Answer NO for: receipts, shipping or booking confirmations, login alerts, ' +
   'OTP and verification codes, marketing and newsletters, automated status notifications, ' +
   'calendar invites, subscription renewals, delivery updates, and anything that says ' +
-  '"do not reply" in the body. When genuinely uncertain, answer YES — missing a real ' +
+  '"do not reply" in the body. ' +
+  // Strengthened guidance — drafts on these were leaking past the From-regex.
+  'Also answer NO for any email whose primary action is to click a link or visit a ' +
+  'website (verify your account, activate, reset password, view receipt, view in ' +
+  'browser, manage subscription, complete signup, review activity) — replying to such ' +
+  'mails accomplishes nothing because the sender does not read replies. ' +
+  'When genuinely uncertain, answer YES — missing a real ' +
   'reply is worse than declining one.';
 
 // Classifies one mail. Fails open: any error (network, rate limit, parse)
@@ -1029,7 +1071,9 @@ async function classifyNeedsReply(
   mail: NormalizedMail,
   signal: AbortSignal,
 ): Promise<boolean> {
-  const preview = (mail.preview ?? '').slice(0, 400);
+  // 800 chars: many marketing mails put boilerplate above the call-to-action,
+  // so 400 was sometimes leaving the "click here to verify" line out of scope.
+  const preview = (mail.preview ?? '').slice(0, 800);
   try {
     const verdict = await completeJson<{ needsReply: boolean; reason?: string }>({
       system: CLASSIFIER_SYSTEM_PROMPT,
@@ -1064,10 +1108,21 @@ const TONE_INSTRUCTIONS: Record<string, string> = {
   Formel: 'Skriv kort (1-2 sætninger), formelt og professionelt. Undgå slang.',
 };
 
-function draftSystemPrompt(tone: string): string {
+function draftSystemPrompt(tone: string, userName: string | null): string {
   const toneLine = TONE_INSTRUCTIONS[tone] ?? TONE_INSTRUCTIONS.Venlig;
+  const whoLine = userName
+    ? `Du skriver et svar på vegne af ${userName} (én person, ikke et team eller en virksomhed).`
+    : 'Du skriver et svar på vegne af brugeren (én person, ikke et team eller en virksomhed).';
   return (
-    `Du skriver et svar på en mail på vegne af brugeren. ${toneLine} Skriv altid på dansk. ` +
+    `${whoLine} ${toneLine} Skriv altid på dansk. ` +
+    // The pronoun rule: default hard to "jeg". Drafts kept slipping into "vi"
+    // when the incoming mail was business-styled (e.g. an invoice question),
+    // which reads wrong from a personal assistant. Override only when the
+    // user is unambiguously representing a company in the conversation.
+    "Skriv ALTID i 'jeg' form — brug 'jeg', 'mig', 'min'. Brug ALDRIG 'vi', 'os' " +
+    "eller 'vores' medmindre det er soleklart at brugeren repræsenterer en " +
+    'virksomhed/team i denne specifikke samtale (fx en kunde der spørger ind ' +
+    "til virksomhedens politik). Ved tvivl: brug 'jeg'. " +
     'Lov aldrig konkrete datoer, tidspunkter, priser eller oplysninger du ikke kender. ' +
     'Undgå hilsen og underskrift — skriv kun selve svaret. Returnér kun udkastet, uden anførselstegn eller kommentarer.'
   );
@@ -1087,17 +1142,22 @@ const DRAFT_MODEL = 'claude-sonnet-4-6';
 async function generateDraft(
   mail: NormalizedMail,
   tone: string,
+  userName: string | null,
   signal: AbortSignal,
 ): Promise<string> {
+  // Include the preview body so Claude can actually read what's being asked,
+  // not just the subject line. 800 chars matches the classifier window — the
+  // body context is what lets the pronoun heuristic land correctly (a mail
+  // that reads "jeg har et spørgsmål til dig" calls for a "jeg" reply, while
+  // "vi vil gerne høre jeres pris" obviously calls for "vi").
+  const preview = (mail.preview ?? '').slice(0, 800);
+  const userBlock = preview
+    ? `Fra: ${mail.from}\nEmne: ${mail.subject}\n\nMailens indhold:\n${preview}\n\nSkriv et kort svar på dansk.`
+    : `Fra: ${mail.from}\nEmne: ${mail.subject}\n\nSkriv et kort svar på dansk.`;
   return complete({
     model: DRAFT_MODEL,
-    system: draftSystemPrompt(tone),
-    messages: [
-      {
-        role: 'user',
-        content: `Fra: ${mail.from}\nEmne: ${mail.subject}\n\nSkriv et kort svar på dansk.`,
-      },
-    ],
+    system: draftSystemPrompt(tone, userName),
+    messages: [{ role: 'user', content: userBlock }],
     maxTokens: 160,
     temperature: 0.6,
     signal,
@@ -1110,9 +1170,11 @@ export function useInboxWaiting(): Result<InboxMail[]> {
   const { items, loading, error } = useMailItems();
   const dismissed = useDismissedMailIds();
   const { data: workRows } = useWorkPreferences();
+  const { data: profile } = useUser();
   const autonomy = prefValue(workRows, 'autonomy');
   const tone = prefValue(workRows, 'tone');
   const quietHours = prefValue(workRows, 'quiet-hours');
+  const userName = profile?.name?.trim() ? profile.name.trim() : null;
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const abortRef = useRef<AbortController | null>(null);
 
@@ -1125,7 +1187,13 @@ export function useInboxWaiting(): Result<InboxMail[]> {
     if (maxDrafts === 0) return;
 
     const targets = items
-      .filter((m) => !m.isRead && !dismissed.has(m.id) && needsReply(m.from))
+      .filter(
+        (m) =>
+          !m.isRead &&
+          !dismissed.has(m.id) &&
+          needsReply(m.from) &&
+          !looksLikeNonReplyContent(m.preview),
+      )
       .slice(0, maxDrafts);
     if (targets.length === 0) return;
 
@@ -1133,7 +1201,9 @@ export function useInboxWaiting(): Result<InboxMail[]> {
     abortRef.current?.abort();
     abortRef.current = controller;
 
-    const draftKey = (id: string) => `${id}::${tone || 'default'}`;
+    // Cache key includes the user name so a name change (or sign-in switch)
+    // doesn't serve a stale draft baked under a different identity.
+    const draftKey = (id: string) => `${id}::${tone || 'default'}::${userName ?? '_'}`;
 
     // Wait for both persisted caches to hydrate — otherwise every cold launch
     // re-pays for classifications and drafts AsyncStorage already has.
@@ -1190,7 +1260,7 @@ export function useInboxWaiting(): Result<InboxMail[]> {
 
       const results = await Promise.all(
         pending.map((m) =>
-          generateDraft(m, tone, controller.signal)
+          generateDraft(m, tone, userName, controller.signal)
             .then((text) => {
               if (!text) return null;
               setDraftInCache(draftKey(m.id), text);
@@ -1213,7 +1283,7 @@ export function useInboxWaiting(): Result<InboxMail[]> {
     });
 
     return () => controller.abort();
-  }, [demo, items, autonomy, tone, quietHours]);
+  }, [demo, items, autonomy, tone, quietHours, userName]);
 
   if (demo) {
     return {
