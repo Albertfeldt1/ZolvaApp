@@ -28,7 +28,7 @@ describe('buildSnapshotFromState', () => {
     expect(out.eveningBrief).toEqual({ headline: 'Du klarede det.' });
   });
 
-  it('keeps only events that overlap today (local) sorted by start', () => {
+  it('keeps only events whose start is today (local), sorted by start', () => {
     const out = buildSnapshotFromState({
       now: REF_NOW,
       morningBrief: null,
