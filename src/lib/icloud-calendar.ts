@@ -200,15 +200,15 @@ export async function listEvents(
         continue;
       }
       let parsed = 0;
-      for (const raw of r.data) {
-        const events = parseVcalendarEvents(raw, rangeStart, rangeEnd, cal);
+      for (const item of r.data) {
+        const events = parseVcalendarEvents(item.data, rangeStart, rangeEnd, cal, item.href);
         parsed += events.length;
         results.push(...events);
       }
       if (__DEV__) console.log('[icloud-cal]', cal.displayName, 'returned', r.data.length, 'objects →', parsed, 'events');
       if (__DEV__ && r.data.length > 0 && parsed === 0) {
         console.warn('[icloud-cal] parser dropped all events for', cal.displayName,
-          '— first 1500 chars of object[0]:', r.data[0].slice(0, 1500));
+          '— first 1500 chars of object[0]:', r.data[0].data.slice(0, 1500));
       }
     }
   }
@@ -536,6 +536,10 @@ async function caldavFetch(
 
 export type IcloudCalEvent = {
   uid: string;
+  // Absolute URL of the .ics resource on the CalDAV server. Required for
+  // PUT (update) and DELETE — events created elsewhere may not follow the
+  // {calendarUrl}/{uid}.ics convention, so we don't try to reconstruct it.
+  eventUrl: string;
   start: Date;
   end: Date;
   allDay: boolean;
@@ -544,6 +548,10 @@ export type IcloudCalEvent = {
   description?: string;
   calendarColor?: string;
   calendarName: string;
+  // URL of the calendar collection this event lives in — handy for the
+  // chat tool layer when it needs to default new events to "the same
+  // calendar this one is on".
+  calendarUrl: string;
 };
 
 function caldavTimeRange(start: Date, end: Date): { start: string; end: string } {
@@ -556,7 +564,7 @@ async function reportEvents(
   calendarUrl: string,
   auth: string,
   range: { start: string; end: string },
-): Promise<CalDavResult<string[]>> {
+): Promise<CalDavResult<{ href: string; data: string }[]>> {
   const body =
     `<?xml version="1.0" encoding="utf-8"?>
 <c:calendar-query xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:d="DAV:">
@@ -574,9 +582,17 @@ async function reportEvents(
 </c:calendar-query>`;
   const res = await caldavFetch(calendarUrl, 'REPORT', auth, { Depth: '1' }, body);
   if (!res.ok) return res;
-  const blocks: string[] = [];
-  for (const m of res.data.matchAll(/<[^>]*calendar-data[^>]*>([\s\S]*?)<\/[^>]*calendar-data[^>]*>/gi)) {
-    let raw = m[1].trim();
+  const items: { href: string; data: string }[] = [];
+  // Walk per-<response> blocks so each calendar-data is paired with its
+  // href — the href is what update/delete need to PUT/DELETE against.
+  const responseBlocks = res.data.split(RESPONSE_OPEN_RE).slice(1);
+  for (const blockRaw of responseBlocks) {
+    const block = blockRaw.split(RESPONSE_CLOSE_RE)[0];
+    const href = block.match(/<[^>]*href[^>]*>([^<]+)<\/[^>]*href[^>]*>/i)?.[1]?.trim();
+    if (!href) continue;
+    const dataMatch = block.match(/<[^>]*calendar-data[^>]*>([\s\S]*?)<\/[^>]*calendar-data[^>]*>/i);
+    if (!dataMatch) continue;
+    let raw = dataMatch[1].trim();
     // iCloud wraps the iCalendar payload in <![CDATA[...]]>. Strip it before
     // handing to ICAL.parse — otherwise the leading "<![CDATA[" line fails
     // BEGIN:VCALENDAR validation and every event silently disappears.
@@ -589,9 +605,9 @@ async function reportEvents(
       .replace(/&quot;/g, '"')
       .replace(/&apos;/g, "'")
       .replace(/&#39;/g, "'");
-    blocks.push(raw);
+    items.push({ href: absolutize(href), data: raw });
   }
-  return { ok: true, data: blocks };
+  return { ok: true, data: items };
 }
 
 function parseVcalendarEvents(
@@ -599,6 +615,7 @@ function parseVcalendarEvents(
   rangeStart: Date,
   rangeEnd: Date,
   cal: IcloudCalendarMeta,
+  eventUrl: string,
 ): IcloudCalEvent[] {
   let jcal: unknown;
   try { jcal = ICAL.parse(vcalText); }
@@ -615,10 +632,10 @@ function parseVcalendarEvents(
       while ((next = iter.next()) && next.toJSDate().getTime() < rangeEnd.getTime()) {
         if (next.toJSDate().getTime() < rangeStart.getTime()) continue;
         const details = event.getOccurrenceDetails(next);
-        out.push(toIcloudEvent(details.item, details.startDate.toJSDate(), details.endDate.toJSDate(), cal));
+        out.push(toIcloudEvent(details.item, details.startDate.toJSDate(), details.endDate.toJSDate(), cal, eventUrl));
       }
     } else {
-      out.push(toIcloudEvent(event, event.startDate.toJSDate(), event.endDate.toJSDate(), cal));
+      out.push(toIcloudEvent(event, event.startDate.toJSDate(), event.endDate.toJSDate(), cal, eventUrl));
     }
   }
   return out;
@@ -629,9 +646,11 @@ function toIcloudEvent(
   start: Date,
   end: Date,
   cal: IcloudCalendarMeta,
+  eventUrl: string,
 ): IcloudCalEvent {
   return {
     uid: source.uid,
+    eventUrl,
     start,
     end,
     allDay: !!source.startDate?.isDate,
@@ -640,6 +659,7 @@ function toIcloudEvent(
     description: source.description || undefined,
     calendarColor: cal.calendarColor,
     calendarName: cal.displayName,
+    calendarUrl: cal.url,
   };
 }
 
@@ -716,4 +736,227 @@ function getIntlOffsetMinutes(tzid: string, atDate: Date): number {
   const hours = parseInt(m[1], 10);
   const minutes = m[2] ? parseInt(m[2], 10) : 0;
   return hours * 60 + (hours < 0 ? -minutes : minutes);
+}
+
+// ─── Write surface (create / update / delete) ────────────────────────────
+//
+// All writes are HTTP PUT/DELETE against the event resource URL on
+// caldav.icloud.com. iCloud's CalDAV is forgiving about minor formatting
+// (CRLF/LF, line folding) but strict about: BEGIN/END pairing, UID, DTSTAMP,
+// DTSTART, and a valid PRODID. We use ical.js to build the body so escaping
+// of commas/semicolons/newlines in summary/description is handled correctly.
+
+export type IcloudEventInput = {
+  title: string;
+  start: Date;
+  end: Date;
+  allDay?: boolean;
+  location?: string;
+  description?: string;
+};
+
+async function caldavWrite(
+  url: string,
+  method: 'PUT' | 'DELETE',
+  auth: string,
+  body: string | null,
+  extraHeaders: Record<string, string> = {},
+): Promise<CalDavResult<null>> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CALDAV_TIMEOUT_MS);
+  let res: Response;
+  try {
+    const headers: Record<string, string> = {
+      Authorization: auth,
+      'User-Agent': 'Zolva/1.0 (iOS; CalDAV)',
+      ...extraHeaders,
+    };
+    if (body !== null) headers['Content-Type'] = 'text/calendar; charset=utf-8';
+    res = await fetch(url, {
+      method,
+      signal: controller.signal,
+      headers,
+      body: body ?? undefined,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if (err instanceof Error && err.name === 'AbortError') {
+      return { ok: false, error: 'timeout' };
+    }
+    if (__DEV__) console.warn(`[icloud-cal] ${method} ${url} threw:`, (err as Error)?.message);
+    return { ok: false, error: 'network' };
+  }
+  clearTimeout(timer);
+  if (res.status === 401 || res.status === 403) return { ok: false, error: 'auth-failed' };
+  if (res.status === 404) return { ok: false, error: 'protocol' };
+  // 412 Precondition Failed: If-None-Match: * caught a UID collision. Surface
+  // as protocol — caller can retry with a freshly-generated UID.
+  if (res.status === 412) return { ok: false, error: 'protocol' };
+  if (res.status >= 200 && res.status < 300) return { ok: true, data: null };
+  if (__DEV__) console.warn(`[icloud-cal] ${method} ${url} status ${res.status}`);
+  return { ok: false, error: 'protocol' };
+}
+
+// iCalendar text values escape backslash, comma, semicolon, and newline. Per
+// RFC 5545 §3.3.11 — control chars except TAB are not allowed; we drop them
+// rather than fail. Lines should fold at 75 octets, but Apple's CalDAV is
+// forgiving about long lines so we skip folding for simplicity.
+function escapeIcsText(s: string): string {
+  return s
+    .replace(/[ --]/g, '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\r\n|\r|\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;');
+}
+
+function fmtUtcDateTime(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}` +
+    `T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`
+  );
+}
+
+function fmtDate(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}`;
+}
+
+function buildVeventIcs(input: { uid: string } & IcloudEventInput): string {
+  const lines: string[] = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Zolva//Zolva 1.0//EN',
+    'CALSCALE:GREGORIAN',
+    'BEGIN:VEVENT',
+    `UID:${escapeIcsText(input.uid)}`,
+    `DTSTAMP:${fmtUtcDateTime(new Date())}`,
+  ];
+  if (input.allDay) {
+    lines.push(`DTSTART;VALUE=DATE:${fmtDate(input.start)}`);
+    lines.push(`DTEND;VALUE=DATE:${fmtDate(input.end)}`);
+  } else {
+    lines.push(`DTSTART:${fmtUtcDateTime(input.start)}`);
+    lines.push(`DTEND:${fmtUtcDateTime(input.end)}`);
+  }
+  lines.push(`SUMMARY:${escapeIcsText(input.title)}`);
+  if (input.location) lines.push(`LOCATION:${escapeIcsText(input.location)}`);
+  if (input.description) lines.push(`DESCRIPTION:${escapeIcsText(input.description)}`);
+  lines.push('END:VEVENT');
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n') + '\r\n';
+}
+
+function generateUid(): string {
+  // Hermes ≥ RN 0.74 / Apple's JSC both have crypto.randomUUID; fall back to
+  // a coarse timestamp+random so a tooling drift doesn't take the feature
+  // down. UID uniqueness is per-calendar; collisions are caught by the
+  // If-None-Match precondition on PUT.
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (c?.randomUUID) return `${c.randomUUID()}@zolva.io`;
+  const rand = Math.random().toString(36).slice(2);
+  return `${Date.now()}-${rand}@zolva.io`;
+}
+
+async function resolveCalendarUrl(
+  userId: string,
+  email: string,
+  password: string,
+  hint?: string,
+): Promise<{ ok: true; url: string } | { ok: false; error: CalDavErrorCode }> {
+  let cache = await loadDiscoveryCache(userId, email);
+  if (!cache || Date.now() - cache.principalDiscoveredAt > PRINCIPAL_TTL_MS) {
+    const fresh = await fullDiscover(email, password, userId);
+    if (!fresh.ok) return { ok: false, error: fresh.error };
+    cache = fresh.data;
+  }
+  if (cache.calendars.length === 0) return { ok: false, error: 'protocol' };
+  if (hint) {
+    const matched = cache.calendars.find((c) => c.url === hint || c.displayName === hint);
+    if (matched) return { ok: true, url: matched.url };
+  }
+  // Heuristic for "primary": iCloud's default calendar is usually called
+  // "Hjem" (Danish locale) or the first own (non-shared) calendar in the
+  // home collection. We don't have the own/shared flag here, so fall back
+  // to the first calendar — matches the listEvents render order.
+  return { ok: true, url: cache.calendars[0].url };
+}
+
+export async function createEvent(
+  userId: string,
+  input: IcloudEventInput & { calendarUrl?: string },
+): Promise<CalDavResult<{ eventUrl: string; uid: string }>> {
+  const cred = await loadCredential(userId);
+  if (cred.kind === 'absent') return { ok: false, error: 'not-connected' };
+  if (cred.kind === 'invalid') return { ok: false, error: 'credential-rejected' };
+  const auth = basicAuth(cred.credential.email, cred.credential.password);
+  if (!auth) return { ok: false, error: 'auth-failed' };
+
+  const calRes = await resolveCalendarUrl(
+    userId, cred.credential.email, cred.credential.password, input.calendarUrl,
+  );
+  if (!calRes.ok) return calRes;
+
+  const uid = generateUid();
+  const ics = buildVeventIcs({ uid, ...input });
+  const eventUrl = `${calRes.url.replace(/\/?$/, '/')}${encodeURIComponent(uid)}.ics`;
+
+  // If-None-Match: * → server refuses if a resource already exists at this
+  // URL (UID collision). Caller can regenerate UID and retry.
+  const putRes = await caldavWrite(eventUrl, 'PUT', auth, ics, { 'If-None-Match': '*' });
+  if (!putRes.ok) {
+    if (putRes.error === 'auth-failed') await markInvalid(userId, 'caldav-rejected');
+    return { ok: false, error: putRes.error };
+  }
+  return { ok: true, data: { eventUrl, uid } };
+}
+
+export async function updateEvent(
+  userId: string,
+  eventUrl: string,
+  input: IcloudEventInput & { uid: string },
+): Promise<CalDavResult<null>> {
+  const cred = await loadCredential(userId);
+  if (cred.kind === 'absent') return { ok: false, error: 'not-connected' };
+  if (cred.kind === 'invalid') return { ok: false, error: 'credential-rejected' };
+  const auth = basicAuth(cred.credential.email, cred.credential.password);
+  if (!auth) return { ok: false, error: 'auth-failed' };
+
+  const ics = buildVeventIcs(input);
+  const r = await caldavWrite(eventUrl, 'PUT', auth, ics);
+  if (!r.ok && r.error === 'auth-failed') await markInvalid(userId, 'caldav-rejected');
+  return r;
+}
+
+export async function deleteEvent(
+  userId: string,
+  eventUrl: string,
+): Promise<CalDavResult<null>> {
+  const cred = await loadCredential(userId);
+  if (cred.kind === 'absent') return { ok: false, error: 'not-connected' };
+  if (cred.kind === 'invalid') return { ok: false, error: 'credential-rejected' };
+  const auth = basicAuth(cred.credential.email, cred.credential.password);
+  if (!auth) return { ok: false, error: 'auth-failed' };
+
+  const r = await caldavWrite(eventUrl, 'DELETE', auth, null);
+  if (!r.ok && r.error === 'auth-failed') await markInvalid(userId, 'caldav-rejected');
+  return r;
+}
+
+// Used by the chat tool layer to translate "icloud:<uid>" identifiers (which
+// are all the model has after list_calendar_events) into the eventUrl needed
+// by update/delete. Wide default range covers the typical "things I might
+// edit" envelope: last 30 days through 6 months ahead.
+export async function findEventByUid(
+  userId: string,
+  uid: string,
+  rangeStart?: Date,
+  rangeEnd?: Date,
+): Promise<CalDavResult<IcloudCalEvent | null>> {
+  const start = rangeStart ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const end = rangeEnd ?? new Date(Date.now() + 180 * 24 * 60 * 60 * 1000);
+  const r = await listEvents(userId, start, end);
+  if (!r.ok) return r;
+  return { ok: true, data: r.data.find((e) => e.uid === uid) ?? null };
 }

@@ -319,3 +319,104 @@ function stripHtml(html: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
+
+// ─── Calendar writes ──────────────────────────────────────────────────────
+//
+// Microsoft Graph accepts UTC datetime strings without offsets when paired
+// with timeZone="UTC". We always serialize Date → UTC and tell Graph that's
+// what we mean — display-side rendering uses the device's local TZ which
+// matches how listCalendarEvents reads them back.
+
+export type GraphEventInput = {
+  title: string;
+  start: Date;
+  end: Date;
+  isAllDay?: boolean;
+  location?: string;
+  description?: string;
+  attendees?: Array<{ email: string; name?: string }>;
+};
+
+function toGraphDateTime(d: Date, isAllDay: boolean): { dateTime: string; timeZone: string } {
+  if (isAllDay) {
+    // All-day events use date-only and Graph requires the timeZone field
+    // even though the value is irrelevant in that case.
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    return { dateTime: `${yyyy}-${mm}-${dd}T00:00:00`, timeZone: 'UTC' };
+  }
+  return { dateTime: d.toISOString().replace(/\.\d{3}Z$/, ''), timeZone: 'UTC' };
+}
+
+function buildGraphEventBody(input: GraphEventInput): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    subject: input.title,
+    start: toGraphDateTime(input.start, !!input.isAllDay),
+    end: toGraphDateTime(input.end, !!input.isAllDay),
+    isAllDay: !!input.isAllDay,
+  };
+  if (input.location) body.location = { displayName: input.location };
+  if (input.description) {
+    body.body = { contentType: 'text', content: input.description };
+  }
+  if (input.attendees && input.attendees.length > 0) {
+    body.attendees = input.attendees.map((a) => ({
+      emailAddress: { address: a.email, name: a.name ?? a.email },
+      type: 'required',
+    }));
+  }
+  return body;
+}
+
+export async function createCalendarEvent(input: GraphEventInput): Promise<{ id: string }> {
+  return tryWithRefresh('microsoft', async (token) => {
+    const data = await graphFetch<{ id: string }>(token, `/me/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildGraphEventBody(input)),
+    });
+    return { id: data.id };
+  });
+}
+
+export async function updateCalendarEvent(
+  id: string,
+  input: Partial<GraphEventInput>,
+): Promise<void> {
+  return tryWithRefresh('microsoft', async (token) => {
+    // PATCH accepts a partial body — only fields you supply are changed. The
+    // builder always emits start/end/isAllDay together because Graph rejects
+    // a partial start/end pair, so we forward only what the caller sent.
+    const body: Record<string, unknown> = {};
+    if (input.title !== undefined) body.subject = input.title;
+    if (input.location !== undefined) body.location = { displayName: input.location };
+    if (input.description !== undefined) {
+      body.body = { contentType: 'text', content: input.description };
+    }
+    if (input.start && input.end) {
+      body.start = toGraphDateTime(input.start, !!input.isAllDay);
+      body.end = toGraphDateTime(input.end, !!input.isAllDay);
+      body.isAllDay = !!input.isAllDay;
+    }
+    if (input.attendees !== undefined) {
+      body.attendees = input.attendees.map((a) => ({
+        emailAddress: { address: a.email, name: a.name ?? a.email },
+        type: 'required',
+      }));
+    }
+    await graphFetch<void>(token, `/me/events/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  });
+}
+
+export async function deleteCalendarEvent(id: string): Promise<void> {
+  return tryWithRefresh('microsoft', async (token) => {
+    await graphFetch<void>(token, `/me/events/${id}`, {
+      method: 'DELETE',
+    });
+  });
+}

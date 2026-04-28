@@ -63,7 +63,11 @@ import {
   listCalendarEventsAcrossProviders,
   listRecentMailAcrossProviders,
   readMailBody,
+  createCalendarEvent,
+  updateCalendarEvent,
+  deleteCalendarEvent,
   type ChatCtx,
+  type WriteEventInput,
 } from './chat-tools';
 import { getMessageBody as getIcloudMessageBody, listInbox as listIcloudMessages } from './icloud-mail';
 import { listEvents as listIcloudEvents } from './icloud-calendar';
@@ -2194,6 +2198,18 @@ function buildChatSystemPrompt(name: string): string {
       'eller hvis du har brug for fuld tekst for at svare præcist.',
     'Brug aldrig kalender- eller mail-værktøjer til at gætte fremtidige eller fortidige ' +
       'data — kun konkret det brugeren spørger om i dette øjeblik.',
+    'Du kan oprette, redigere og slette begivenheder via create_calendar_event, ' +
+      'update_calendar_event og delete_calendar_event. BEKRÆFT ALTID detaljerne med ' +
+      'brugeren før du kalder skrive-værktøjerne — gentag titel, dato, tid, sted, ' +
+      'deltagere og spørg "Vil du have at jeg opretter/ændrer/sletter den?". Kald først ' +
+      'efter brugeren har bekræftet.',
+    'Skrive-værktøjer understøtter Outlook (microsoft) og iCloud — IKKE Google. ' +
+      'Hvis brugeren beder dig oprette/ændre/slette i Google Kalender, forklar at ' +
+      'Google er forbundet read-only, og at de skal genforbinde Google med ' +
+      'skriverettigheder for at det kan lade sig gøre.',
+    'iCloud understøtter ikke deltagere/invitationer endnu — hvis brugeren beder om ' +
+      'at invitere folk til en iCloud-begivenhed, foreslå Outlook i stedet eller ' +
+      'opret begivenheden uden deltagere.',
   ]
     .filter(Boolean)
     .join(' ');
@@ -2292,7 +2308,124 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
       required: ['id'],
     },
   },
+  {
+    name: 'create_calendar_event',
+    description:
+      'Opret en ny kalenderbegivenhed. BEKRÆFT ALTID med brugeren først (titel, dato, tid, varighed, sted, deltagere) før du kalder værktøjet. Understøtter Outlook (microsoft) og iCloud — IKKE Google (kun read-only adgang). Tider skal være ISO 8601 med tidszone-offset, og slut skal ligge efter start.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        provider: { type: 'string', enum: ['microsoft', 'icloud'], description: 'Hvilken kalender begivenheden lægges i.' },
+        title: { type: 'string', description: 'Begivenhedens titel.' },
+        start: { type: 'string', description: 'ISO 8601 startdato/tid med tidszone-offset.' },
+        end: { type: 'string', description: 'ISO 8601 slutdato/tid med tidszone-offset.' },
+        all_day: { type: 'boolean', description: 'true for hele-dagen-begivenhed.' },
+        location: { type: 'string' },
+        description: { type: 'string' },
+        attendees: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Email-adresser på deltagere (kun Outlook — iCloud-invitationer understøttes ikke endnu).',
+        },
+      },
+      required: ['provider', 'title', 'start', 'end'],
+    },
+  },
+  {
+    name: 'update_calendar_event',
+    description:
+      'Opdater en eksisterende kalenderbegivenhed. BEKRÆFT ÆNDRINGER med brugeren først. Brug det fulde unified-ID fra list_calendar_events ("microsoft:..." eller "icloud:..."). Kun de felter der specifies bliver ændret. Hvis start ændres skal end også sendes (og omvendt).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Unified-ID, fx "microsoft:abc" eller "icloud:UID-string".' },
+        title: { type: 'string' },
+        start: { type: 'string', description: 'ISO 8601 — kun hvis du også sender end.' },
+        end: { type: 'string', description: 'ISO 8601 — kun hvis du også sender start.' },
+        all_day: { type: 'boolean' },
+        location: { type: 'string' },
+        description: { type: 'string' },
+        attendees: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'delete_calendar_event',
+    description:
+      'Slet en kalenderbegivenhed. BEKRÆFT MED BRUGEREN FØRST — sletning kan ikke fortrydes via Zolva. Brug unified-ID.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+      },
+      required: ['id'],
+    },
+  },
 ];
+
+function parseDate(s: unknown): Date | null {
+  if (typeof s !== 'string') return null;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function parseStringArray(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v.filter((x): x is string => typeof x === 'string');
+  return out.length > 0 ? out : undefined;
+}
+
+type ParseResult<T> = { ok: true; data: T } | { ok: false; reason: string };
+
+function parseWriteInput(input: Record<string, unknown>): ParseResult<WriteEventInput> {
+  const title = typeof input.title === 'string' ? input.title.trim() : '';
+  if (!title) return { ok: false, reason: 'Mangler `title`.' };
+  const start = parseDate(input.start);
+  const end = parseDate(input.end);
+  if (!start) return { ok: false, reason: 'Ugyldig `start` — brug ISO 8601 med tidszone-offset.' };
+  if (!end) return { ok: false, reason: 'Ugyldig `end` — brug ISO 8601 med tidszone-offset.' };
+  if (end.getTime() <= start.getTime()) return { ok: false, reason: '`end` skal ligge efter `start`.' };
+  const data: WriteEventInput = {
+    title,
+    start,
+    end,
+    allDay: typeof input.all_day === 'boolean' ? input.all_day : undefined,
+    location: typeof input.location === 'string' ? input.location : undefined,
+    description: typeof input.description === 'string' ? input.description : undefined,
+    attendees: parseStringArray(input.attendees),
+  };
+  return { ok: true, data };
+}
+
+function parseWritePatch(input: Record<string, unknown>): ParseResult<Partial<WriteEventInput>> {
+  const patch: Partial<WriteEventInput> = {};
+  if (typeof input.title === 'string') patch.title = input.title;
+  if (typeof input.location === 'string') patch.location = input.location;
+  if (typeof input.description === 'string') patch.description = input.description;
+  if (typeof input.all_day === 'boolean') patch.allDay = input.all_day;
+  const startProvided = input.start !== undefined;
+  const endProvided = input.end !== undefined;
+  if (startProvided !== endProvided) {
+    return {
+      ok: false,
+      reason: 'Hvis du ændrer tid, skal du sende både `start` OG `end`.',
+    };
+  }
+  if (startProvided && endProvided) {
+    const start = parseDate(input.start);
+    const end = parseDate(input.end);
+    if (!start || !end) return { ok: false, reason: 'Ugyldig dato/tid.' };
+    if (end.getTime() <= start.getTime()) return { ok: false, reason: '`end` skal ligge efter `start`.' };
+    patch.start = start;
+    patch.end = end;
+  }
+  if (input.attendees !== undefined) {
+    const arr = parseStringArray(input.attendees);
+    if (arr) patch.attendees = arr;
+  }
+  return { ok: true, data: patch };
+}
 
 async function runChatTool(
   name: string,
@@ -2324,6 +2457,28 @@ async function runChatTool(
       const id = typeof input.id === 'string' ? input.id : '';
       if (!id) return { content: 'Mangler `id`.', isError: true };
       const r = await readMailBody(ctx, id);
+      return { content: r.text, isError: r.isError };
+    }
+    if (name === 'create_calendar_event') {
+      const parsed = parseWriteInput(input);
+      if (!parsed.ok) return { content: parsed.reason, isError: true };
+      const provider = typeof input.provider === 'string' ? input.provider : '';
+      if (!provider) return { content: '`provider` mangler. Brug "microsoft" eller "icloud".', isError: true };
+      const r = await createCalendarEvent(ctx, provider, parsed.data);
+      return { content: r.text, isError: r.isError };
+    }
+    if (name === 'update_calendar_event') {
+      const id = typeof input.id === 'string' ? input.id : '';
+      if (!id) return { content: 'Mangler `id`.', isError: true };
+      const patch = parseWritePatch(input);
+      if (!patch.ok) return { content: patch.reason, isError: true };
+      const r = await updateCalendarEvent(ctx, id, patch.data);
+      return { content: r.text, isError: r.isError };
+    }
+    if (name === 'delete_calendar_event') {
+      const id = typeof input.id === 'string' ? input.id : '';
+      if (!id) return { content: 'Mangler `id`.', isError: true };
+      const r = await deleteCalendarEvent(ctx, id);
       return { content: r.text, isError: r.isError };
     }
     if (name === 'add_reminder') {

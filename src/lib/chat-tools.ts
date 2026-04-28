@@ -13,8 +13,12 @@ import {
   listCalendarEvents as listGraphEvents,
   listInboxMessages as listGraphMessages,
   getMessageBody as getGraphMessageBody,
+  createCalendarEvent as createGraphEvent,
+  updateCalendarEvent as updateGraphEvent,
+  deleteCalendarEvent as deleteGraphEvent,
   type GraphCalendarEvent,
   type GraphMessage,
+  type GraphEventInput,
 } from './microsoft-graph';
 import {
   listInboxMessages as listGmailMessages,
@@ -23,7 +27,12 @@ import {
 } from './gmail';
 import {
   listEvents as listIcloudEvents,
+  createEvent as createIcloudEvent,
+  updateEvent as updateIcloudEvent,
+  deleteEvent as deleteIcloudEvent,
+  findEventByUid as findIcloudEventByUid,
   type IcloudCalEvent,
+  type IcloudEventInput,
 } from './icloud-calendar';
 import {
   listInbox as listIcloudInbox,
@@ -286,4 +295,189 @@ function formatOutcomesFooter(outcomes: SourceOutcome[]): string {
   if (ok.length > 0) parts.push(`Kilder OK: ${ok.join(', ')}`);
   if (failed.length > 0) parts.push(`Mislykkedes: ${failed.join(', ')}`);
   return `\n— ${parts.join('. ')}.`;
+}
+
+// ─── Calendar writes ──────────────────────────────────────────────────────
+//
+// Each write tool:
+//   - Routes by provider prefix on the unified ID, OR by an explicit
+//     `provider` field for create.
+//   - Returns a Danish status string the model paraphrases for the user.
+//   - Disambiguates "no provider connected" vs "provider rejected" so the
+//     model can suggest reconnecting if relevant.
+//
+// Google calendar writes are intentionally unsupported here — the current
+// OAuth scope is calendar.readonly. Returning a clear error message lets
+// the model say "tilkobl Google Kalender med skriverettigheder først"
+// rather than silently failing.
+
+export type WriteEventInput = {
+  title: string;
+  start: Date;
+  end: Date;
+  allDay?: boolean;
+  location?: string;
+  description?: string;
+  attendees?: string[]; // emails (Microsoft only — iCloud invitation flow is separate)
+};
+
+export async function createCalendarEvent(
+  ctx: ChatCtx,
+  provider: string,
+  input: WriteEventInput,
+): Promise<{ text: string; isError: boolean }> {
+  if (provider === 'google') {
+    return {
+      text:
+        'Google Kalender er forbundet read-only. Brugeren skal genforbinde Google med skriverettigheder før jeg kan oprette begivenheder der.',
+      isError: true,
+    };
+  }
+  if (provider === 'microsoft') {
+    if (!ctx.hasMicrosoft) return { text: 'Outlook ikke forbundet.', isError: true };
+    try {
+      const r = await createGraphEvent(toGraphInput(input));
+      return { text: `Oprettet [microsoft:${r.id}] "${input.title}" ${rangeText(input)}.`, isError: false };
+    } catch (err) {
+      return { text: `Outlook afviste oprettelsen: ${short(err)}`, isError: true };
+    }
+  }
+  if (provider === 'icloud') {
+    if (!ctx.userId) return { text: 'Ingen bruger-session.', isError: true };
+    const r = await createIcloudEvent(ctx.userId, toIcloudInput(input));
+    if (!r.ok) return { text: `iCloud afviste oprettelsen: ${r.error}`, isError: true };
+    return { text: `Oprettet [icloud:${r.data.uid}] "${input.title}" ${rangeText(input)}.`, isError: false };
+  }
+  return { text: `Ukendt provider "${provider}". Brug microsoft eller icloud.`, isError: true };
+}
+
+export async function updateCalendarEvent(
+  ctx: ChatCtx,
+  unifiedId: string,
+  patch: Partial<WriteEventInput>,
+): Promise<{ text: string; isError: boolean }> {
+  const idx = unifiedId.indexOf(':');
+  if (idx < 1) return { text: 'Ugyldigt ID.', isError: true };
+  const source = unifiedId.slice(0, idx);
+  const id = unifiedId.slice(idx + 1);
+  if (!id) return { text: 'Mangler event-ID.', isError: true };
+
+  if (source === 'google') {
+    return {
+      text:
+        'Google Kalender er forbundet read-only. Genforbind Google med skriverettigheder for at redigere.',
+      isError: true,
+    };
+  }
+  if (source === 'microsoft') {
+    if (!ctx.hasMicrosoft) return { text: 'Outlook ikke forbundet.', isError: true };
+    try {
+      await updateGraphEvent(id, toGraphPartial(patch));
+      return { text: `Opdateret [microsoft:${id}].`, isError: false };
+    } catch (err) {
+      return { text: `Outlook afviste opdateringen: ${short(err)}`, isError: true };
+    }
+  }
+  if (source === 'icloud') {
+    if (!ctx.userId) return { text: 'Ingen bruger-session.', isError: true };
+    const found = await findIcloudEventByUid(ctx.userId, id);
+    if (!found.ok) return { text: `iCloud opslag fejlede: ${found.error}`, isError: true };
+    if (!found.data) return { text: `Fandt ikke iCloud-begivenhed med UID ${id}.`, isError: true };
+    // Merge: existing fields stay, patched fields override.
+    const merged: IcloudEventInput & { uid: string } = {
+      uid: found.data.uid,
+      title: patch.title ?? found.data.title,
+      start: patch.start ?? found.data.start,
+      end: patch.end ?? found.data.end,
+      allDay: patch.allDay ?? found.data.allDay,
+      location: patch.location ?? found.data.location,
+      description: patch.description ?? found.data.description,
+    };
+    const r = await updateIcloudEvent(ctx.userId, found.data.eventUrl, merged);
+    if (!r.ok) return { text: `iCloud afviste opdateringen: ${r.error}`, isError: true };
+    return { text: `Opdateret [icloud:${id}].`, isError: false };
+  }
+  return { text: `Ukendt provider "${source}".`, isError: true };
+}
+
+export async function deleteCalendarEvent(
+  ctx: ChatCtx,
+  unifiedId: string,
+): Promise<{ text: string; isError: boolean }> {
+  const idx = unifiedId.indexOf(':');
+  if (idx < 1) return { text: 'Ugyldigt ID.', isError: true };
+  const source = unifiedId.slice(0, idx);
+  const id = unifiedId.slice(idx + 1);
+  if (!id) return { text: 'Mangler event-ID.', isError: true };
+
+  if (source === 'google') {
+    return {
+      text: 'Google Kalender er forbundet read-only. Kan ikke slette.',
+      isError: true,
+    };
+  }
+  if (source === 'microsoft') {
+    if (!ctx.hasMicrosoft) return { text: 'Outlook ikke forbundet.', isError: true };
+    try {
+      await deleteGraphEvent(id);
+      return { text: `Slettet [microsoft:${id}].`, isError: false };
+    } catch (err) {
+      return { text: `Outlook afviste sletningen: ${short(err)}`, isError: true };
+    }
+  }
+  if (source === 'icloud') {
+    if (!ctx.userId) return { text: 'Ingen bruger-session.', isError: true };
+    const found = await findIcloudEventByUid(ctx.userId, id);
+    if (!found.ok) return { text: `iCloud opslag fejlede: ${found.error}`, isError: true };
+    if (!found.data) return { text: `Fandt ikke iCloud-begivenhed med UID ${id}.`, isError: true };
+    const r = await deleteIcloudEvent(ctx.userId, found.data.eventUrl);
+    if (!r.ok) return { text: `iCloud afviste sletningen: ${r.error}`, isError: true };
+    return { text: `Slettet [icloud:${id}].`, isError: false };
+  }
+  return { text: `Ukendt provider "${source}".`, isError: true };
+}
+
+function toGraphInput(input: WriteEventInput): GraphEventInput {
+  return {
+    title: input.title,
+    start: input.start,
+    end: input.end,
+    isAllDay: input.allDay,
+    location: input.location,
+    description: input.description,
+    attendees: input.attendees?.map((email) => ({ email })),
+  };
+}
+
+function toGraphPartial(patch: Partial<WriteEventInput>): Partial<GraphEventInput> {
+  const out: Partial<GraphEventInput> = {};
+  if (patch.title !== undefined) out.title = patch.title;
+  if (patch.start !== undefined) out.start = patch.start;
+  if (patch.end !== undefined) out.end = patch.end;
+  if (patch.allDay !== undefined) out.isAllDay = patch.allDay;
+  if (patch.location !== undefined) out.location = patch.location;
+  if (patch.description !== undefined) out.description = patch.description;
+  if (patch.attendees !== undefined) {
+    out.attendees = patch.attendees.map((email) => ({ email }));
+  }
+  return out;
+}
+
+function toIcloudInput(input: WriteEventInput): IcloudEventInput {
+  return {
+    title: input.title,
+    start: input.start,
+    end: input.end,
+    allDay: input.allDay,
+    location: input.location,
+    description: input.description,
+    // attendees intentionally dropped — iCloud's CalDAV invitation flow needs
+    // ATTENDEE/ORGANIZER properties + iTIP/REQUEST handling that we don't
+    // support. The model is told to mention this when relevant.
+  };
+}
+
+function rangeText(input: WriteEventInput): string {
+  if (input.allDay) return `${input.start.toISOString().slice(0, 10)} (hele dagen)`;
+  return `${input.start.toISOString()} → ${input.end.toISOString()}`;
 }
