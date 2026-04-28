@@ -22,7 +22,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useState } from 'react';
-import { AppState, StyleSheet, View } from 'react-native';
+import { AppState, Linking, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { ChromeInsetsContext, PhoneChrome, TabId } from './src/components/PhoneChrome';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
@@ -193,6 +193,33 @@ export default function App() {
       }
     });
     return unsub;
+  }, []);
+
+  useEffect(() => {
+    const handle = (url: string | null) => {
+      if (!url) return;
+      if (url.startsWith('zolva://chat')) {
+        setChatOpen(true);
+        return;
+      }
+      if (url.startsWith('zolva://today')) {
+        setTab('today');
+        // open the brief modal if the URL includes #brief
+        if (url.includes('#brief')) setBriefOpenTrigger((v) => v + 1);
+        return;
+      }
+      if (url.startsWith('zolva://calendar/event/')) {
+        setTab('calendar');
+        // event-detail open is handled by CalendarScreen via the URL — left as a
+        // follow-up. v1: tapping a meeting nudge lands the user on the calendar
+        // tab focused on the right day.
+        return;
+      }
+    };
+
+    void Linking.getInitialURL().then(handle);
+    const sub = Linking.addEventListener('url', ({ url }) => handle(url));
+    return () => sub.remove();
   }, []);
 
   // Shadow from the tab bar bleeds a few pixels above its measured box;
