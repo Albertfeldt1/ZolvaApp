@@ -47,7 +47,7 @@
     "react-native-worklets": "0.5.1"
   },
   "devDependencies": {
-    "@types/jest": "^30.0.0",
+    "@types/jest": "^29.0.0",
     "@types/react": "~19.1.0",
     "babel-preset-expo": "~54.0.10",
     "jest-expo": "^55.0.16",
@@ -59,7 +59,8 @@
     "roots": ["<rootDir>/src"],
     "setupFiles": ["./jest.setup.js"],
     "transformIgnorePatterns": [
-      "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg))"
+      "/node_modules/(?!(.pnpm|react-native|@react-native|@react-native-community|expo|@expo|@expo-google-fonts|react-navigation|@react-navigation|@sentry/react-native|native-base))",
+      "/node_modules/react-native-reanimated/plugin/"
     ]
   }
 }
