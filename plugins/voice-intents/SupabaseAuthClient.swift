@@ -26,7 +26,7 @@ struct SupabaseAuthClient {
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.setValue(key, forHTTPHeaderField: "apikey")
-    req.httpBody = try JSONEncoder().encode(["refresh_token": refreshToken])
+    req.httpBody = try JSONEncoder().encode(RefreshRequest(refresh_token: refreshToken))
 
     let (data, response) = try await URLSession.shared.data(for: req)
     guard let http = response as? HTTPURLResponse else {
@@ -53,6 +53,10 @@ struct SupabaseAuthClient {
       try SupabaseSession.writeRefreshToken(newRefresh)
     }
     return body.access_token
+  }
+
+  private struct RefreshRequest: Encodable {
+    let refresh_token: String
   }
 
   private struct RefreshResponse: Decodable {
