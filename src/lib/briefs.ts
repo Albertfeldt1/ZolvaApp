@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from './supabase';
 import { useAuth } from './auth';
 import { isDemoUser } from './demo';
+import { writeSnapshotFromSources } from './widget-bridge';
 
 export type Brief = {
   id: string;
@@ -56,7 +57,16 @@ export function useTodayBrief(): {
         .limit(1);
       if (error) throw error;
       const row = (data ?? [])[0];
-      setBrief(row ? rowToBrief(row as Record<string, unknown>) : null);
+      const fresh = row ? rowToBrief(row as Record<string, unknown>) : null;
+      setBrief(fresh);
+      // Push the brief headline into the widget snapshot. We split by kind so the
+      // widget's time-of-day display logic (morning slot 06–10, evening slot 17+)
+      // has the right field set; the inactive slot stays null until that brief
+      // kind lands separately.
+      void writeSnapshotFromSources({
+        morningBriefHeadline: fresh?.kind === 'morning' ? fresh.headline : null,
+        eveningBriefHeadline: fresh?.kind === 'evening' ? fresh.headline : null,
+      });
     } catch (err) {
       if (__DEV__) console.warn('[briefs] refresh failed:', err);
       setBrief(null);
