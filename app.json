@@ -62,7 +62,8 @@
           "icon": "./assets/android/notification-icon.png",
           "color": "#5C7355"
         }
-      ]
+      ],
+      ["@bacons/apple-targets", { "appleTeamId": "N6WPH3FPFA" }]
     ],
     "extra": {
       "eas": {
