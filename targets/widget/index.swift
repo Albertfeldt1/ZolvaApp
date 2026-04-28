@@ -138,8 +138,7 @@ struct MediumWidgetView: View {
           Text(nudge.event.title).font(.headline).lineLimit(2)
         } else {
           Text("Du har et møde om \(nudge.event.title)").font(.headline).lineLimit(2)
-          Text("om ").font(.caption) +
-            Text(nudge.event.start, style: .relative).font(.caption)
+          Text(nudge.event.start, style: .relative).font(.caption)
         }
       }
     }
@@ -232,8 +231,6 @@ private struct MeetingNudge {
 }
 
 #if DEBUG
-import SwiftUI
-
 #Preview("Placeholder", as: .systemMedium) {
   ZolvaMediumWidget()
 } timeline: {
