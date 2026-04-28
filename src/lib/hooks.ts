@@ -1099,6 +1099,53 @@ function setVerdictInCache(id: string, needsReply: boolean): void {
   persistVerdictCacheSoon();
 }
 
+// Sign-out cleanup. clearUserScopedAsyncStorage in auth.ts already removes
+// these keys via its `endsWith('.<uid>')` heuristic on sign-out, but we
+// listen here too so we can:
+//   1. Cancel pending persist timers — without this, a setTimeout from a
+//      setDraftInCache call moments before sign-out can fire after the
+//      disk wipe and re-create the deleted file.
+//   2. Wipe the in-memory Map so old drafts don't sit in the JS heap while
+//      signed out.
+//   3. Remove the two specific keys explicitly rather than depending on
+//      the heuristic — defends against future renames of the AsyncStorage
+//      key shape.
+let mailCacheLastSeenUid: string | null | undefined;
+subscribeUserId((uid) => {
+  // First fire is the initial subscribe — skip; we hydrate lazily inside
+  // useInboxWaiting and the in-memory caches start empty anyway.
+  if (mailCacheLastSeenUid === undefined) {
+    mailCacheLastSeenUid = uid;
+    return;
+  }
+  if (mailCacheLastSeenUid === uid) return;
+
+  const prevUid = mailCacheLastSeenUid;
+  mailCacheLastSeenUid = uid;
+
+  if (draftCacheWriteTimer) {
+    clearTimeout(draftCacheWriteTimer);
+    draftCacheWriteTimer = null;
+  }
+  if (verdictCacheWriteTimer) {
+    clearTimeout(verdictCacheWriteTimer);
+    verdictCacheWriteTimer = null;
+  }
+  draftCache.clear();
+  verdictCache.clear();
+  draftCacheHydrated = false;
+  verdictCacheHydrated = false;
+  draftCacheHydrationPromise = null;
+  verdictCacheHydrationPromise = null;
+  draftCacheUid = null;
+  verdictCacheUid = null;
+
+  if (prevUid) {
+    AsyncStorage.removeItem(draftStorageKey(prevUid)).catch(() => {});
+    AsyncStorage.removeItem(verdictStorageKey(prevUid)).catch(() => {});
+  }
+});
+
 const CLASSIFIER_SYSTEM_PROMPT =
   'You decide whether an incoming email warrants a human reply from the recipient. ' +
   'Answer YES only for messages from a real person that ask a question, make a request, ' +
