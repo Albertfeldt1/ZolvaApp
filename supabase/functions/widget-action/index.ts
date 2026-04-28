@@ -1,10 +1,12 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { extractEvent } from './claude.ts';
 import { verifyJwt } from './jwt.ts';
 import {
   emptyPrompt,
   loggedOut,
   noCalendarLabels,
+  unparseable,
   type WidgetActionResponse,
 } from './responses.ts';
 
@@ -106,10 +108,31 @@ export async function workerHandler(req: Request): Promise<Response> {
     return json(200, noCalendarLabels());
   }
 
-  // Subsequent tasks plug Claude + selection + provider write here.
+  let extraction;
+  try {
+    const claude = await extractEvent(prompt, timezone);
+    extraction = claude.extraction;
+    // usage + model captured for logging in Task 18.
+  } catch (err) {
+    console.warn('[widget-action] claude error:', err instanceof Error ? err.message : err);
+    return json(200, unparseable());
+  }
+
+  if (extraction.title === 'UNPARSEABLE') {
+    console.log(JSON.stringify({
+      action: 'create_event',
+      user_id: userId,
+      success: false,
+      error_class: 'unparseable',
+      calendar_resolution: 'no_calendar',
+      prompt_language: extraction.prompt_language,
+    }));
+    return json(200, unparseable());
+  }
+
   return json(200, {
-    dialog: `OK · prompt=${prompt} · tz=${timezone} · labels=${JSON.stringify(labels)}`,
-    snippet: { mood: 'happy', summary: 'TODO pipeline', deepLink: 'zolva://chat' },
+    dialog: `extraction=${JSON.stringify(extraction)}`,
+    snippet: { mood: 'happy', summary: 'TODO selection', deepLink: 'zolva://chat' },
   });
 }
 
