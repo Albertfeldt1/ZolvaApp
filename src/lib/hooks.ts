@@ -71,6 +71,13 @@ import {
 } from './chat-tools';
 import { getMessageBody as getIcloudMessageBody, listInbox as listIcloudMessages } from './icloud-mail';
 import { listEvents as listIcloudEvents } from './icloud-calendar';
+import {
+  readCalendarLabels,
+  setCalendarLabel,
+  type CalendarLabels,
+  type CalendarLabelKey,
+  type CalendarLabelTarget,
+} from './calendar-labels';
 import type {
   CalendarSlot,
   ChatMessage,
@@ -3052,4 +3059,45 @@ export async function setPrivacyFlag(id: PrivacyFlagId, value: boolean): Promise
     } catch {}
   }
   notifyPrivacyChange();
+}
+
+// TODO(v3): Replace local refresh with Supabase realtime subscription on
+// user_profiles when we add multi-device support (Mac / Watch / Web).
+// For v2 the user is the only writer from one device, so refresh-on-mount
+// + refresh-after-write is sufficient.
+export function useCalendarLabels() {
+  const { user } = useAuth();
+  const [labels, setLabels] = useState<CalendarLabels>({});
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    if (!user?.id) {
+      setLabels({});
+      setLoading(false);
+      return;
+    }
+    try {
+      const fresh = await readCalendarLabels(user.id);
+      setLabels(fresh);
+    } catch (err) {
+      if (__DEV__) console.warn('[useCalendarLabels] refresh failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const setLabel = useCallback(
+    async (key: CalendarLabelKey, target: CalendarLabelTarget | null) => {
+      if (!user?.id) return;
+      await setCalendarLabel(user.id, key, target);
+      await refresh();
+    },
+    [refresh, user?.id],
+  );
+
+  return { labels, loading, refresh, setLabel };
 }
