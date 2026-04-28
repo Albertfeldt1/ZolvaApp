@@ -77,7 +77,8 @@
           }
         }
       ],
-      "./plugins/widget-bridge/withWidgetBridge"
+      "./plugins/widget-bridge/withWidgetBridge",
+      "./plugins/voice-intents/withVoiceIntents"
     ],
     "extra": {
       "eas": {
