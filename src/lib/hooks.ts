@@ -59,6 +59,12 @@ import {
 } from './microsoft-graph';
 import { loadCredential } from './icloud-credentials';
 import { detectAdminConsentRequired } from './admin-consent';
+import {
+  listCalendarEventsAcrossProviders,
+  listRecentMailAcrossProviders,
+  readMailBody,
+  type ChatCtx,
+} from './chat-tools';
 import { getMessageBody as getIcloudMessageBody, listInbox as listIcloudMessages } from './icloud-mail';
 import { listEvents as listIcloudEvents } from './icloud-calendar';
 import type {
@@ -2165,6 +2171,18 @@ function buildChatSystemPrompt(name: string): string {
     'Når brugeren beder dig notere en idé, en tanke eller noget uden tid, brug add_note.',
     'Brug list_reminders og list_notes hvis brugeren spørger hvad du har gemt.',
     'Kald værktøjer FØR du bekræfter — bekræft først når værktøjet faktisk er kørt.',
+    'Når brugeren spørger om sin kalender, sit overblik for dagen/ugen, fri tid, ' +
+      'travle perioder eller "hvor har jeg flaskehalse?", brug list_calendar_events. ' +
+      'Vælg `from`/`to` ud fra spørgsmålet (i dag, denne uge, næste 7 dage, osv.) — ' +
+      'hold intervallet under 30 dage. Hvis brugeren ikke specificerer, brug i dag.',
+    'Kalenderværktøjet henter fra Google, Outlook og iCloud automatisk afhængigt af ' +
+      'hvilke der er forbundet. Hvis en kilde mislykkedes, står det i fodlinjen — nævn ' +
+      'det kun for brugeren hvis det er relevant for svaret.',
+    'Når brugeren spørger om mail, brug list_recent_mail for et hurtigt overblik. ' +
+      'Brug read_mail_thread KUN hvis brugeren beder om indholdet af en specifik mail, ' +
+      'eller hvis du har brug for fuld tekst for at svare præcist.',
+    'Brug aldrig kalender- eller mail-værktøjer til at gætte fremtidige eller fortidige ' +
+      'data — kun konkret det brugeren spørger om i dette øjeblik.',
   ]
     .filter(Boolean)
     .join(' ');
@@ -2216,13 +2234,87 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
     description: 'Hent brugerens aktuelle noter.',
     input_schema: { type: 'object', properties: {} },
   },
+  {
+    name: 'list_calendar_events',
+    description:
+      'Hent brugerens kalenderbegivenheder fra alle forbundne kalendere (Google Kalender, Outlook, iCloud) i et tidsinterval. Brug til at give overblik, finde fri tid, eller analysere hvor brugeren har travlt. Returnerer kompakt liste med ID, tid, titel, sted og deltagerantal — ikke fuld beskrivelse.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        from: {
+          type: 'string',
+          description:
+            'ISO 8601 startdato/tid med tidszone-offset (fx "2026-04-28T00:00:00+02:00"). Inklusivt.',
+        },
+        to: {
+          type: 'string',
+          description:
+            'ISO 8601 slutdato/tid med tidszone-offset. Eksklusivt. Hold intervallet under 30 dage.',
+        },
+      },
+      required: ['from', 'to'],
+    },
+  },
+  {
+    name: 'list_recent_mail',
+    description:
+      'Hent de nyeste mails fra alle forbundne postkasser (Gmail, Outlook, iCloud). Returnerer afsender, emne og kort uddrag — IKKE hele beskeden. Brug read_mail_thread til fuld tekst.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        limit: {
+          type: 'integer',
+          description: 'Antal mails samlet, default 10, max 30.',
+        },
+      },
+    },
+  },
+  {
+    name: 'read_mail_thread',
+    description:
+      'Hent fuld tekst af én specifik mail. Brug ID returneret af list_recent_mail (fx "google:abc123" eller "icloud:42").',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Det fulde unified-ID, fx "google:1234abc".' },
+      },
+      required: ['id'],
+    },
+  },
 ];
 
 async function runChatTool(
   name: string,
   input: Record<string, unknown>,
+  ctx: ChatCtx,
 ): Promise<{ content: string; isError: boolean }> {
   try {
+    if (name === 'list_calendar_events') {
+      const fromRaw = typeof input.from === 'string' ? input.from : '';
+      const toRaw = typeof input.to === 'string' ? input.to : '';
+      const from = new Date(fromRaw);
+      const to = new Date(toRaw);
+      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+        return { content: 'Ugyldige datoer. Brug ISO 8601 med tidszone-offset.', isError: true };
+      }
+      if (to.getTime() <= from.getTime()) {
+        return { content: '`to` skal ligge efter `from`.', isError: true };
+      }
+      const r = await listCalendarEventsAcrossProviders(ctx, from, to);
+      return { content: r.text, isError: r.isError };
+    }
+    if (name === 'list_recent_mail') {
+      const raw = typeof input.limit === 'number' ? input.limit : 10;
+      const limit = Math.max(1, Math.min(Math.floor(raw), 30));
+      const r = await listRecentMailAcrossProviders(ctx, limit);
+      return { content: r.text, isError: r.isError };
+    }
+    if (name === 'read_mail_thread') {
+      const id = typeof input.id === 'string' ? input.id : '';
+      if (!id) return { content: 'Mangler `id`.', isError: true };
+      const r = await readMailBody(ctx, id);
+      return { content: r.text, isError: r.isError };
+    }
     if (name === 'add_reminder') {
       const text = typeof input.text === 'string' ? input.text : '';
       if (!text.trim()) return { content: 'Manglede tekst.', isError: true };
@@ -2262,7 +2354,11 @@ async function runChatTool(
   }
 }
 
-const CHAT_TOOL_ROUND_CAP = 2;
+// Bumped from 2 to 5 so the model can chain calendar/mail tools (e.g. list
+// events → read a specific mail thread referenced in an event description →
+// answer). Each round is one Anthropic call; 5 is comfortably under any
+// real-world need without giving the model room to runaway-loop.
+const CHAT_TOOL_ROUND_CAP = 5;
 
 // ─── Chat suggestion chips ─────────────────────────────────────────────────
 
@@ -2366,7 +2462,7 @@ export function useChat() {
   const [typing, setTyping] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const { data: profile } = useUser();
-  const { user } = useAuth();
+  const { user, googleAccessToken, microsoftAccessToken } = useAuth();
   const demo = isDemoUser(user);
   const demoIndexRef = useRef(0);
   const name = profile?.name ?? '';
@@ -2463,9 +2559,14 @@ export function useChat() {
             return result.text.trim();
           }
           working.push({ role: 'assistant', content: result.rawContent });
+          const toolCtx: ChatCtx = {
+            userId: userId ?? null,
+            hasGoogle: !!googleAccessToken,
+            hasMicrosoft: !!microsoftAccessToken,
+          };
           const toolResults = await Promise.all(
             result.toolUses.map(async (t) => {
-              const r = await runChatTool(t.name, t.input);
+              const r = await runChatTool(t.name, t.input, toolCtx);
               return {
                 type: 'tool_result' as const,
                 tool_use_id: t.id,
@@ -2508,7 +2609,7 @@ export function useChat() {
         })
         .finally(() => setTyping(false));
     },
-    [messages, name, userId, demo],
+    [messages, name, userId, demo, googleAccessToken, microsoftAccessToken],
   );
 
   return { data: messages, typing, loading: false, error: null as Error | null, send };
