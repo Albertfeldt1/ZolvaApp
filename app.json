@@ -66,7 +66,8 @@
           "color": "#5C7355"
         }
       ],
-      ["@bacons/apple-targets", { "appleTeamId": "N6WPH3FPFA" }]
+      ["@bacons/apple-targets", { "appleTeamId": "N6WPH3FPFA" }],
+      "./plugins/widget-bridge/withWidgetBridge"
     ],
     "extra": {
       "eas": {
