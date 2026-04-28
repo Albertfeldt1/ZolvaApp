@@ -7,6 +7,20 @@
 
 ---
 
+## Prerequisites (must land before any v2 code compiles)
+
+1. **`SupabaseAnonKey` Info.plist entry.** Add to `app.json` under `expo.ios.infoPlist`:
+   ```json
+   "SupabaseAnonKey": "<the project's public-safe anon / publishable key>"
+   ```
+   (Supabase has been migrating naming from "anon key" to "publishable key" — the underlying value is the same JWT-format public key. Use whichever the current dashboard exposes for project ref `sjkhfkatmeqtsrysixop`. Verify the value is the **anon/publishable** key, NOT the service-role key, before committing — service-role would be a credential leak.)
+
+2. **Spike-verified Keychain access** — see `Test Plan → SPIKE FIRST`. The "AppIntent runs in the same process and inherits the main app's Keychain access group" assertion below is **expected behavior, not yet verified**. The spike proves it on a real device before the rest of v2 builds on top.
+
+3. **Privacy policy verification** — see `Privacy / DPA` section. Owner: Albert. Resolves before TestFlight.
+
+---
+
 ## Goal
 
 Let the user dispatch a calendar-create one-liner to Zolva by voice without launching the app. Driving use case: user is reading a friend's text on the home screen ("lets meet tomorrow at five") and wants to add the meeting to their calendar in a single Siri turn.
@@ -63,7 +77,9 @@ One voice action, one Siri trigger surface, one server endpoint, one Stone snipp
 
 ## iOS Components
 
-All Swift sources live under `plugins/voice-intents/` (committed source-of-truth, mirroring the `plugins/widget-bridge/` pattern from v1) and are copied into `ios/Zolva/` on every `expo prebuild` via the new `withVoiceIntents.js` config plugin. They compile into the main app target — AppIntents need to live where Siri/Shortcuts can find them, and `perform()` runs in the app's own background process. Same target = same default Keychain access group context, plus the explicit shared access group declared below.
+All Swift sources live under `plugins/voice-intents/` (committed source-of-truth, mirroring the `plugins/widget-bridge/` pattern from v1) and are copied into `ios/Zolva/` on every `expo prebuild` via the new `withVoiceIntents.js` config plugin. They compile into the main app target — AppIntents need to live where Siri/Shortcuts can find them, and `perform()` runs in the app's own background process.
+
+**Keychain access group inheritance — expected, verified by spike.** Same Xcode target normally inherits the access-group entitlement on the main bundle, so Siri-dispatched `perform()` should be able to read items written by the JS-side via `expo-secure-store` with the matching `keychainAccessGroup` option. This is the documented Apple behavior but isn't guaranteed across all entitlement / signing / Siri-dispatch combinations until verified on a real device under "Hey Siri" invocation — which is the SPIKE FIRST item in the test plan.
 
 ### `AskZolvaIntent.swift`
 
@@ -86,7 +102,9 @@ struct AskZolvaIntent: AppIntent {
 }
 ```
 
-The `@Parameter String prompt` is a value parameter, not a structured one. Apple's framework prompts the user via voice for the value when the user invokes a bare phrase ("Hey Siri, spørg Zolva") without supplying it. The whole transcript ships server-side as one string; semantic extraction (date, calendar name, etc.) happens in the Edge Function via Claude tool-use, not in the AppIntent.
+The `@Parameter String prompt` is a value parameter, not a structured one. The whole transcript ships server-side as one string; semantic extraction (date, calendar name, etc.) happens in the Edge Function via Claude tool-use, not in the AppIntent.
+
+**Bare invocation behavior — expected, verify in QA spike.** Apple's documented behavior is to prompt the user via voice for any unfilled `@Parameter` value when the user invokes a bare phrase ("Hey Siri, spørg Zolva") without supplying it. This is the assumed UX for the bare phrases registered in `AskZolvaShortcuts` below. **This isn't tested-on-our-config until the QA spike runs in DA + EN locales.** If Apple silently drops to `perform()` with an empty prompt instead of prompting, the Edge Function's `empty_prompt` guard catches it gracefully (worried snippet, "Hvad skulle jeg sætte op?" + example phrase). If Apple prompts in only one locale but not the other, document the regression and ship with localized hint copy.
 
 ### `AskZolvaShortcuts.swift`
 
@@ -192,14 +210,18 @@ Module-scope JWKS cache, fetched once on cold start from `https://sjkhfkatmeqtsr
 
 1. **Auth.** Verify Bearer JWT against JWKS. Extract `sub` as user id. On failure → 401 + worried snippet "Logget ud — åbn Zolva for at logge ind igen." (deep-link `zolva://settings`).
 
-2. **Empty-prompt guard.** If `prompt.trim() === ''` → worried-but-friendly: dialog "Hvad skulle jeg sætte op?" snippet "Sig fx 'sæt et møde i morgen kl. 17'." Edge case — Apple usually prompts for the parameter before invoking us.
+2. **Empty-prompt guard.** If `prompt.trim() === ''` → worried-but-friendly: dialog "Hvad skulle jeg sætte op?" snippet "Sig fx 'sæt et møde i morgen kl. 17'." Logged with `error_class: 'empty_prompt'`, `calendar_resolution: 'no_calendar'` (resolution didn't run). Edge case — Apple usually prompts for the parameter before invoking us; this branch handles the case where Apple's prompt-for-parameter flow doesn't behave as expected (see "Bare invocation behavior" hedge in `iOS Components`).
 
 3. **Resolve calendar mapping.** Read the user's profile columns (`work_calendar_provider`, `work_calendar_id`, `personal_calendar_provider`, `personal_calendar_id`). If both label pairs are null → worried snippet "Du har ikke valgt en arbejds- eller privatkalender. Åbn Zolva for at vælge." (deep-link `zolva://settings`). Otherwise carry the mapping forward — actual selection happens after Claude returns.
 
 4. **Claude tool-use call.** One Anthropic Messages API call with `tool_choice: { type: 'tool', name: 'create_calendar_event' }` to force a structured response.
 
    System prompt structure (in both DA + EN):
-   > "You parse a single calendar-create request. The user's timezone is `{tz}`. Return a tool call with title, start, optionally end, optionally calendar_label. If unparseable, return title='UNPARSEABLE'."
+   > "You parse a single calendar-create request. The user's timezone is `{tz}`. Return a tool call with title, start, optionally end, optionally calendar_label. If unparseable, return title='UNPARSEABLE'.
+   >
+   > **Ambiguous-time handling:** for inputs without AM/PM context (e.g. "kl. 5", "5 o'clock", "fem"), default to the next reasonable occurrence in the user-local 07:00–22:00 window. If 'now' is before 07:00, pick today 07:00–22:00; if after 22:00, pick tomorrow's window. Specifically prefer afternoon hours (13:00–18:00) when the input is plausibly social/work-related ("møde", "meeting", "lunch", "drinks") — Danish "klokken fem" overwhelmingly means 17:00 in those contexts.
+   >
+   > Also report the language you detected (`da` / `en` / `unknown`) in a `prompt_language` field so the server can log it for debugging."
 
    Tool schema:
    ```json
@@ -207,18 +229,24 @@ Module-scope JWKS cache, fetched once on cold start from `https://sjkhfkatmeqtsr
      "title": "string — short title for the event",
      "start": "string — ISO 8601 with offset in user's timezone",
      "end": "string — ISO 8601 with offset, OPTIONAL — server defaults if omitted",
-     "calendar_label": "'work' | 'personal' | null — only set if user mentioned a specific calendar"
+     "calendar_label": "'work' | 'personal' | null — only set if user mentioned a specific calendar",
+     "prompt_language": "'da' | 'en' | 'unknown' — detected language of the input"
    }
    ```
 
    Server-side `end` default: if Claude omits, apply `end = start + 60 minutes`. Documented as v2 known-imperfect — most events aren't exactly 60 min, but acceptable for the driving use case. Future v2.x: heuristic ("lunch" → 45, "1:1" → 30) or explicit duration extraction.
 
-5. **Calendar selection (enum→id lookup).**
-    - Claude returned `calendar_label = 'work'` AND `work_calendar_*` columns are set → use them. Log `calendar_resolution: 'hint_matched'`.
-    - Claude returned no label AND `personal_calendar_*` columns are set → use them (personal is the implicit default). Log `calendar_resolution: 'label_default'`.
-    - Claude returned `calendar_label = 'work'` but `work_calendar_*` columns are null → return error class `label_unset` with deep-link to settings.
-    - Exactly one label is configured (the other is null) AND the configured one isn't the resolution result of branches 1–3 above → fall back to the configured label. Log `calendar_resolution: 'fallback_first_connected'`. Covers two concrete cases: (a) no hint, only Work configured (Personal-default branch can't fire) → write to Work; (b) Claude requested Work but only Personal configured → write to Personal. This is the "only-one-option-exists" fallback, NOT silent multi-choice — when both labels are configured, branches 1–3 always resolve definitively.
-    - Both labels null → unreachable here because step 3 already exited.
+5. **Calendar selection (enum→id lookup).** Branches evaluated in this exact order so single-label fallback wins before any "unset" error:
+
+    1. **Hint matched.** Claude returned `calendar_label = 'X'` AND both `X_calendar_provider` and `X_calendar_id` are non-null. Log `calendar_resolution: 'hint_matched'`.
+    2. **Single-label fallback (hint requested but other-label configured).** Claude returned `calendar_label = 'X'`, `X` is unconfigured, but the other label `Y` IS fully configured → write to `Y`. Log `calendar_resolution: 'fallback_only_configured'`. The Edge Function then includes a hint in the success dialog: "Tilføjet i din {Y} kalender — du har ikke valgt en {X}-kalender endnu."
+    3. **Label default.** Claude returned no label AND `personal_calendar_*` columns are non-null → use Personal as the implicit default. Log `calendar_resolution: 'label_default'`.
+    4. **Single-label fallback (no hint, only one configured).** Claude returned no label, Personal is unconfigured, but Work IS fully configured → write to Work. Log `calendar_resolution: 'fallback_only_configured'`.
+    5. **No labels at all** → unreachable here because step 3 already exited with `no_calendar_labels`.
+
+    **Defensive null check**: even though the DB constraints guarantee `*_provider` and `*_id` are both null or both set, the Edge Function explicitly checks both before using a label — defense-in-depth against constraint drift or partial reads.
+
+    With these branches in this order, the original `label_unset` error class becomes unreachable in v2 (any single-label-configured state has a fallback path, and "no labels" exits earlier). Removed from the failure-class table below; reserved name in the codebase for a future v2.x case where we detect "label points to a deleted calendar" without making a provider call.
 
 6. **Provider write.**
     - **Google:** `POST https://www.googleapis.com/calendar/v3/calendars/{id}/events`. Token via Supabase OAuth broker; on `401` from Google, refresh once, retry. On second `401` → error class `oauth_invalid`. On `403` → `permission_denied` (look up calendar's display name from the user's calendar list for the dialog — one extra GET, ~150ms).
@@ -237,13 +265,20 @@ Module-scope JWKS cache, fetched once on cold start from `https://sjkhfkatmeqtsr
 
    Title leads. Snippet `summary`: `"{title} · {kort tid}"`.
 
+   **Truncation (server-side, word-boundary-aware).** Both `dialog` (≤120 chars) and `snippet.summary` (≤80 chars) are truncated by the Edge Function before returning, never by Claude or the natural-time formatter:
+   - Find the last word boundary (whitespace) at-or-before the limit.
+   - Truncate there, append `…` (single character, not three dots).
+   - If the limit lands mid-word with no whitespace before it (rare; very long compound title), hard-cut at limit-1 and append `…`.
+
+   Don't trust Claude to count chars — instruction-following on length limits is unreliable. The formatter operates on Date objects so its output length is bounded by locale rules, but title strings are user-controlled and can be arbitrarily long.
+
    Failure class → deep-link table:
 
    | Class                  | Deep-link                       | Dialog                                              |
    |------------------------|---------------------------------|-----------------------------------------------------|
+   | `empty_prompt`         | `zolva://chat`                  | "Hvad skulle jeg sætte op?"                         |
    | `unparseable`          | `zolva://chat`                  | "Forstod ikke. Prøv igen i appen."                  |
    | `no_calendar_labels`   | `zolva://settings`              | "Vælg en arbejds- eller privatkalender."            |
-   | `label_unset`          | `zolva://settings`              | "Din {label}-kalender er ikke valgt."               |
    | `oauth_invalid`        | `zolva://settings#calendars`    | "Forbind {provider} igen."                          |
    | `permission_denied`    | `zolva://settings`              | "Du har ikke skriverettigheder til {calendar name}." |
    | `provider_5xx`         | `zolva://chat`                  | "{Provider} svarede ikke. Prøv igen."               |
@@ -257,9 +292,10 @@ Per-call entry in new `widget_action_calls` table (subject to privacy-policy ver
   user_id: uuid,
   action: 'create_event',
   success: bool,
-  error_class?: 'unparseable' | 'no_calendar_labels' | 'label_unset' | 'oauth_invalid' | 'permission_denied' | 'provider_5xx',
-  calendar_resolution: 'hint_matched' | 'label_default' | 'fallback_first_connected' | 'no_calendar',
+  error_class?: 'empty_prompt' | 'unparseable' | 'no_calendar_labels' | 'oauth_invalid' | 'permission_denied' | 'provider_5xx',
+  calendar_resolution: 'hint_matched' | 'fallback_only_configured' | 'label_default' | 'no_calendar',
   calendar_provider?: 'google' | 'microsoft',
+  prompt_language?: 'da' | 'en' | 'unknown',  // copied from Claude's tool response
   latency_ms: int,
   claude_tokens: { input: int, output: int },
   claude_model: string,  // e.g. "claude-haiku-4-5-20251001" — track for cost + version diffs
@@ -334,47 +370,32 @@ In the existing `disconnect(provider)` handler accessed via `useConnections`:
 
 ```ts
 async function disconnect(provider: 'google' | 'microsoft') {
-  // 1. Snapshot active labels for this provider into previous_calendar_labels
+  // 1. Clear the active label columns for this provider — auto-clear is
+  //    the v2 must-have so a stale label can never silently mis-route a
+  //    voice call to a calendar the user no longer has access to.
   const labels = await readCalendarLabels(userId);
-  const affected = Object.fromEntries(
-    Object.entries(labels).filter(([_, v]) => v?.provider === provider),
-  );
-  if (Object.keys(affected).length > 0) {
-    await supabase.from('user_profiles')
-      .update({ previous_calendar_labels: affected })
-      .eq('user_id', userId);
-  }
-  // 2. Clear the active label columns for this provider
   for (const [key, target] of Object.entries(labels)) {
     if (target?.provider === provider) {
       await setCalendarLabel(userId, key as CalendarLabelKey, null);
     }
   }
-  // 3. Existing OAuth disconnect / token revoke
+  // 2. Existing OAuth disconnect / token revoke
   // ...
+  // NOTE (v2.x): when restore-prompt ships, also snapshot `affected` labels
+  // into `previous_calendar_labels` BEFORE the clear loop above. Spec
+  // currently leaves `previous_calendar_labels` unwritten in v2.
 }
 ```
 
 Lazy invalidation (treating labels as unset only when the provider is gone) was the alternative; rejected because it adds latency to every Siri call (extra token check) and creates ambiguous fallback behavior. Auto-clear-on-disconnect is decisive and the snapshot column preserves user setup for the restore-on-reconnect flow.
 
-### Restore-prompt on same-provider reconnect
+### Restore-prompt on same-provider reconnect — DEFERRED to v2.x
 
-After `connect(provider)` succeeds for a provider that has a non-null `previous_calendar_labels` snapshot whose keys point to that provider:
+The auto-clear-on-disconnect behavior IS in v2 (must-have so a stale label can never silently mis-route). The restore-prompt UX (asking "Genskab tidligere kalender-valg?" on reconnect) is deferred to v2.x — the spec's auto-clear path is the safe default and the snapshot column adds enough surface area (TTL semantics, multi-disconnect overwrite policy, expiry, dismissal behavior) to be its own scoped piece of polish work.
 
-```
-┌────────────────────────────────────────────┐
-│ Genskab tidligere kalender-valg?           │
-│                                            │
-│ Vil du bruge "Acme Work" som arbejds-      │
-│ kalender til Siri igen?                    │
-│                                            │
-│         [Nej, vælg ny]      [Genskab]      │
-└────────────────────────────────────────────┘
-```
+**Implication for v2 schema:** the `previous_calendar_labels` JSONB column is still added in the v2 migration (cheap; reserves the field name) but the disconnect handler does NOT populate it in v2 — `previous_calendar_labels` stays at default `null`. The restore-prompt feature in v2.x will start populating + reading it. v2 disconnect handler just clears active labels without snapshotting.
 
-On "Genskab": validate the calendar id still exists in the freshly-fetched calendar list (account may have lost access to that calendar), then write to active label columns. Either way, clear `previous_calendar_labels` after the prompt resolves.
-
-If validation fails ("Acme Work" no longer exists in this Google account), show "Den kalender findes ikke længere" and route to the picker.
+If reordering the migration ergonomically is preferred, the column can also be dropped from the v2 migration entirely and added as part of the v2.x restore-prompt work — implementer's choice during planning.
 
 ### Calendar-list helpers — `src/lib/calendar-providers.ts`
 
@@ -585,31 +606,53 @@ Strategy: **retry-on-401**. The `IntentActionClient` posts with the cached acces
 ```swift
 struct SupabaseAuthClient {
   static let projectRef = "sjkhfkatmeqtsrysixop"
-  // Public-safe anon (publishable) key. Read at runtime from
-  // Bundle.main.object(forInfoDictionaryKey: "SupabaseAnonKey") so the
-  // value lives in app.json's expo.ios.infoPlist (already the v1 pattern
-  // for non-secret runtime config). Plan task: add the infoPlist key
-  // before SupabaseAuthClient.swift compiles.
-  static let anonKey: String = {
+  // Public-safe anon (publishable) key — see Prerequisites section.
+  // Read lazily at call time, NOT in a static initializer with fatalError.
+  // A missing key throws SupabaseSessionError.refreshFailed, which the
+  // AppIntent surfaces as the standard "Du er logget ud, åbn Zolva"
+  // worried snippet — never crashes the Siri-dispatched process.
+  private static func anonKey() throws -> String {
     guard let key = Bundle.main.object(forInfoDictionaryKey: "SupabaseAnonKey") as? String,
           !key.isEmpty else {
-      fatalError("SupabaseAnonKey missing from Info.plist — see app.json expo.ios.infoPlist")
+      throw SupabaseSessionError.refreshFailed(reason: "SupabaseAnonKey missing from Info.plist")
     }
     return key
-  }()
+  }
 
-  static func refresh(refreshToken: String) async throws -> String {
+  /// Refresh the access token. Always re-reads the refresh token from
+  /// keychain immediately before the POST — never caches across awaits.
+  /// This narrows (but does not eliminate) the window where the main app
+  /// and the AppIntent both try to refresh concurrently with the same
+  /// rotated-out refresh token.
+  static func refresh() async throws -> String {
+    let key = try anonKey()
+    let refreshToken = try SupabaseSession.readRefreshToken()  // re-read at call site, not cached
+    
     var req = URLRequest(url: URL(string:
       "https://\(projectRef).supabase.co/auth/v1/token?grant_type=refresh_token")!)
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    req.setValue(anonKey, forHTTPHeaderField: "apikey")
+    req.setValue(key, forHTTPHeaderField: "apikey")
     req.httpBody = try JSONEncoder().encode(["refresh_token": refreshToken])
 
     let (data, response) = try await URLSession.shared.data(for: req)
-    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-      throw SupabaseSessionError.refreshFailed(
-        reason: "HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+    guard let http = response as? HTTPURLResponse else {
+      throw SupabaseSessionError.refreshFailed(reason: "no response")
+    }
+    if http.statusCode == 400 || http.statusCode == 401 {
+      // Race-loss case: the main app refreshed first and rotated the token
+      // we just used. Re-read the keychain — if the access token there is
+      // newer than what we originally tried with, return it directly.
+      // Otherwise this really is a "logged out" state.
+      if let nowAccessToken = try? SupabaseSession.readAccessToken(),
+         (try? SupabaseSession.readRefreshToken()) != refreshToken {
+        // Refresh token in keychain has rotated since we read it → main app refreshed.
+        return nowAccessToken
+      }
+      throw SupabaseSessionError.refreshFailed(reason: "HTTP \(http.statusCode) — refresh token rejected")
+    }
+    guard http.statusCode == 200 else {
+      throw SupabaseSessionError.refreshFailed(reason: "HTTP \(http.statusCode)")
     }
     let body = try JSONDecoder().decode(RefreshResponse.self, from: data)
     try SupabaseSession.writeAccessToken(body.access_token)
@@ -635,8 +678,10 @@ struct IntentActionClient {
     do {
       return try await postOnce(prompt: prompt, timezone: timezone, jwt: accessToken)
     } catch IntentActionError.unauthorized {
-      let refreshToken = try SupabaseSession.readRefreshToken()
-      let newAccessToken = try await SupabaseAuthClient.refresh(refreshToken: refreshToken)
+      // Refresh re-reads the refresh token from keychain itself; we don't
+      // cache it across the await. See SupabaseAuthClient.refresh() for
+      // the concurrent-refresh race handling.
+      let newAccessToken = try await SupabaseAuthClient.refresh()
       return try await postOnce(prompt: prompt, timezone: timezone, jwt: newAccessToken)
     }
   }
@@ -644,11 +689,14 @@ struct IntentActionClient {
 }
 ```
 
-### Failure cases — three distinct code paths
+### Failure cases — four distinct code paths
 
 1. **Both tokens missing** (`SupabaseSession.readAccessToken()` throws `.notLoggedIn`) → AppIntent surfaces "Du er logget ud — åbn Zolva" with `zolva://settings` deep-link. No network call.
 2. **Access token present but expired, refresh token present** → first post fails with 401, refresh succeeds, second post succeeds. User sees a successful response (with ~500-1500ms extra latency for the refresh round-trip).
 3. **Access token rejected, refresh token also rejected** (revoked from another device, or refresh token also expired) → refresh call throws `.refreshFailed`, AppIntent surfaces same "logget ud" dialog. Distinct test path from case 1.
+4. **Concurrent-refresh race-loss** (main app refreshed first, our cached refresh token already rotated out before our POST): refresh call gets 400/401 from Supabase, re-reads keychain, finds the refresh token has changed since we read it → returns the now-current access token from keychain (written by the main app's refresh). Recovers transparently. Test must cover this with two near-simultaneous refresh calls.
+
+**Known concern (documented, not fully solved in v2):** the race-loss recovery in case 4 narrows the failure window but doesn't eliminate it. If both processes interleave such that they read the same refresh token, both POST, and the keychain hasn't yet been written when the loser checks, the loser returns `.refreshFailed`. v2 ships with this rare-case lossage. A proper mutex (file-lock in App Group container) is post-v2 work. Realistic exposure: voice invocation within ~50ms of an app-foreground refresh, on initial app start, after a long sleep.
 
 ---
 
@@ -688,19 +736,22 @@ Each state previewed in light + dark mode. No assertion, eyeballed in canvas —
 - `IntentActionClient.send()` returns 401 with valid refresh token → refresh succeeds → retry succeeds → success state. Verify `SupabaseAuthClient.refresh()` called exactly once.
 - `IntentActionClient.send()` returns 401 with refresh token also rejected → auth-error dialog, settings deep-link.
 - `IntentActionClient.send()` returns 401, refresh token MISSING from keychain (distinct from rejected) → auth-error dialog. Different code path than tokens-rejected.
+- **Concurrent-refresh race:** two `IntentActionClient.send()` calls fired in parallel, both with expired access tokens. Mock the keychain so the second `readRefreshToken()` returns a different value than the first did (simulating the main app having refreshed in between). Verify the loser detects the rotation, returns the now-current access token from keychain, and retry succeeds. Assert no double-refresh against Supabase.
 - `IntentActionClient.send()` times out after 6s → recoverable error.
 - Malformed response → recoverable error, no crash.
+- **Missing `SupabaseAnonKey` Info.plist value** → refresh throws, AppIntent surfaces auth-error dialog (does NOT crash via fatalError).
 
 ### Edge Function — Deno tests (`supabase/functions/widget-action/index.test.ts`)
 
 - JWT verification: valid token, invalid signature, expired (`exp` past), missing `kid`, `kid` not in JWKS, missing Authorization header → expected status codes for each.
 - Empty prompt guard → correct worried response.
-- Calendar resolution algorithm — every branch:
-   - hint matched + label exists → uses labeled id, logs `hint_matched`
-   - no hint, default label exists → uses default, logs `label_default`
-   - hint requested but label unset → returns `label_unset`
-   - both labels null → returns `no_calendar_labels`
-   - single label configured, Claude requests the unconfigured one → falls back, logs `fallback_first_connected`
+- Calendar resolution algorithm — every branch (in evaluation order):
+   - hint matched + both columns set → uses labeled id, logs `hint_matched`
+   - hint requested but unconfigured + other label fully configured → falls back, logs `fallback_only_configured`
+   - no hint + Personal columns set → uses Personal, logs `label_default`
+   - no hint + only Work fully configured → falls back to Work, logs `fallback_only_configured`
+   - both labels null (step 3 exits) → returns `no_calendar_labels`
+   - **Defensive null-check:** force a row state where `*_provider` is set but `*_id` is null (corrupt row, shouldn't happen given the DB constraint) → resolution treats label as unconfigured, never crashes.
 - Claude tool-use parsing: stubbed model output → expected calendar resolution + provider write call.
 - Provider write outcomes — Google and Microsoft each:
    - 200 → success response
@@ -709,6 +760,10 @@ Each state previewed in light + dark mode. No assertion, eyeballed in canvas —
    - 5xx → `provider_5xx`
 - Server-side `end` default applied when Claude omits.
 - Timezone passed through to Claude system prompt verbatim.
+- **Truncation correctness:** dialog with very long title (e.g. 200-char Claude-generated title) → truncated at last word boundary ≤120 chars, ends with `…`. Same for snippet `summary` ≤80.
+- **Ambiguous-time defaults:** stub Claude response for `"sæt et møde kl. 5"` with `now=10:00` → start should be `17:00` (afternoon-leaning rule for "møde" context). With `now=10:00` and prompt `"morgenmad kl. 7"` → start should be `07:00` (morning-leaning, breakfast context). Edge cases for the 07:00–22:00 window logic.
+- **`prompt_language` propagation:** Claude returns `prompt_language: 'da'` → log entry contains it. Claude returns `prompt_language: 'unknown'` → log entry contains `'unknown'` (not null, not omitted).
+- **`empty_prompt` logging:** empty-prompt guard branch records a log entry with `error_class: 'empty_prompt'` and `calendar_resolution: 'no_calendar'`.
 
 Stubbed Anthropic calls in unit tests; real Anthropic only in integration suite.
 
@@ -728,9 +783,15 @@ Stubbed Anthropic calls in unit tests; real Anthropic only in integration suite.
 - [ ] "Hey Siri, bed Zolva om at sætte et møde i morgen kl. 17"
 - [ ] "Hey Siri, ask Zolva to set a meeting tomorrow at 5 PM"
 - [ ] Action Button bound to "Spørg Zolva" — press, then speak
-- [ ] Bare "Hey Siri, spørg Zolva" — Apple's voice prompt asks 
-       "Hvad skulle jeg spørge om?", user speaks, full transcript ships
-- [ ] Same in English: "Hey Siri, ask Zolva" → "What should I ask?" → speak → success
+- [ ] **DA bare invocation:** "Hey Siri, spørg Zolva" — does Apple's 
+       voice prompt fire? If yes, user speaks, full transcript ships. 
+       If no (Apple silently lands on `perform()` with empty `prompt`), 
+       widget surfaces `empty_prompt` worried snippet with example 
+       phrase. Document observed behavior — this is the bare-invocation 
+       spike.
+- [ ] **EN bare invocation:** same test in English: "Hey Siri, ask Zolva". 
+       Compare DA + EN behavior; if Apple prompts in only one locale, 
+       file as a known limitation in the v2 ship notes.
 
 ## Routing
 - [ ] No calendar hint → lands in Personal (default label)
@@ -766,13 +827,14 @@ Stubbed Anthropic calls in unit tests; real Anthropic only in integration suite.
 - [ ] Fresh login → wait 65 minutes → voice call → AppIntent silently 
        refreshes; user sees success, dialog spoken without delay >2s extra
 
-## Disconnect / reconnect flow
-- [ ] Disconnect Google → snapshot taken; Work label cleared in Settings UI
-- [ ] Reconnect same Google account → "Genskab tidligere kalender-valg?" 
-       prompt → tap "Genskab" → Work label restored
-- [ ] Disconnect Google, then reconnect a DIFFERENT Google account → 
-       restore prompt either auto-skips (calendar id not found) or shows 
-       "Den kalender findes ikke længere"; never silently mis-routes
+## Disconnect flow (auto-clear)
+- [ ] Disconnect Google → Work label cleared in Settings UI; voice 
+       calls now route to Personal (Microsoft) or surface 
+       `no_calendar_labels` if Personal also unset.
+- [ ] Reconnect Google → no restore-prompt fires in v2 (deferred to 
+       v2.x). User picks Work label fresh in Settings.
+- [ ] After reconnect, voice call routes to the freshly-picked Work 
+       label correctly.
 
 ## Latency
 - [ ] Hey Siri → spoken response: target ≤6s on cold Edge Function, p95 ≤4s warm
@@ -812,6 +874,8 @@ Run before TestFlight ship:
 
 ## Future Work (post v2)
 
+- **Restore-prompt on same-provider reconnect** — was scoped in early drafts; deferred from v2 to keep auto-clear-on-disconnect as the must-have. Requires populating `previous_calendar_labels`, defining TTL/expiry, multi-disconnect overwrite policy, dismissal behavior, and validating that the calendar id still exists in the freshly-fetched calendar list. Spec for this lives in v2.x.
+- **`thinking` Stone mood** — during the ~1.5s round-trip while the Edge Function calls Claude + provider, Siri's spinner is the only feedback. Adding a `thinking` Stone mood + a placeholder snippet view ("Sætter op...") rendered before `perform()` returns would smooth the silence. Apple's `IntentDialog` doesn't have a native "in-progress" hook, but `ShowsSnippetView` snippets *can* be shown immediately if we restructure the AppIntent to return a snippet pre-await — needs research; documented here so it's not forgotten when QA lands.
 - **Reminder voice path** — requires moving Zolva reminders from client AsyncStorage to a server-side Supabase table first. Separate scoped piece of work that benefits future Mac/Web/Watch surfaces too.
 - **Update / delete event via voice** — the awkward case (need to find the right event first); naturally an in-app gesture.
 - **Multi-account-per-provider account picker** — if the user connects two Gmail accounts, Settings could group calendars by account. v2 shows them flat under per-account section headers.
@@ -821,6 +885,7 @@ Run before TestFlight ship:
 - **Local exp-based JWT expiry pre-check in the AppIntent** — small latency optimization (skip the failed first request) for ~15 lines of Swift; not worth the complexity in v2 with retry-on-401 already in place.
 - **Custom Siri snippet for `permission_denied` failures showing the conflicting calendar name as a chip** — small visual polish.
 - **End-time heuristics** ("lunch" → 45min, "1:1" → 30min) instead of the fixed 60-minute server default.
+- **Concurrent-refresh mutex** — replace the current "narrow the window" race-loss handling with a real file-lock in the App Group container. Eliminates the rare `.refreshFailed` case when AppIntent fires within ~50ms of an app-foreground refresh.
 
 ---
 
