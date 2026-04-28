@@ -1,0 +1,10 @@
+{
+  "type": "widget",
+  "name": "ZolvaWidget",
+  "bundleIdentifier": "io.zolva.app.ZolvaWidget",
+  "deploymentTarget": "16.0",
+  "entitlements": {
+    "com.apple.security.application-groups": ["group.io.zolva.app"]
+  },
+  "frameworks": ["SwiftUI", "WidgetKit"]
+}
