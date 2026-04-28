@@ -19,6 +19,9 @@
         "NSUserNotificationsUsageDescription": "Zolva sender notifikationer om påmindelser, dagens overblik og kommende møder.",
         "ITSAppUsesNonExemptEncryption": false
       },
+      "entitlements": {
+        "com.apple.security.application-groups": ["group.io.zolva.app"]
+      },
       "buildNumber": "15"
     },
     "android": {
