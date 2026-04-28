@@ -47,6 +47,7 @@ import {
 } from './notification-settings';
 import { registerPushToken, unregisterPushToken, setMailWatchersEnabled } from './push';
 import { recordUserEmailDomain } from './admin-consent';
+import { readCalendarLabels, setCalendarLabel } from './calendar-labels';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -559,6 +560,28 @@ export async function disconnectProvider(
   init();
   const uid = currentUserId();
   if (!uid) return;
+
+  // Auto-clear any voice-routing labels that point at this provider — a
+  // stale label can never silently mis-route a voice call to a calendar
+  // the user no longer has access to.
+  try {
+    const labels = await readCalendarLabels(uid);
+    await Promise.all(
+      (Object.entries(labels) as Array<[
+        'work' | 'personal',
+        { provider: 'google' | 'microsoft'; id: string } | undefined,
+      ]>).map(async ([key, target]) => {
+        if (target?.provider === provider) {
+          await setCalendarLabel(uid, key, null);
+        }
+      }),
+    );
+  } catch (err) {
+    // Demo user (no real DB row) or transient DB error — fall through. The
+    // label is at worst stale; the Edge Function's defensive null-check on
+    // resolution catches a row state where columns are inconsistent.
+    if (__DEV__) console.warn('[auth] auto-clear calendar labels failed:', err);
+  }
 
   // Demo user — no real tokens exist server-side. Just drop the local cache.
   if (isDemoUser(cachedSession?.user)) {
