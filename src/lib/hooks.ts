@@ -866,18 +866,44 @@ export function useUpcoming(): Result<UpcomingEvent[]> & {
 // etc.) age out instead of lingering indefinitely.
 type DraftCacheEntry = { text: string; expiresAt: number };
 const DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
-const DRAFT_STORAGE_KEY = 'zolva.mail.drafts';
+// Per-user storage keys. The legacy non-scoped key is wiped on first hydrate
+// after this commit so account A's drafts don't sit in plaintext on disk
+// after sign-out — even though the in-memory cache key (mail-id::tone::name)
+// already prevents cross-account *serving*, the on-disk persistence was a
+// privacy hole. Pattern matches the per-user chatHistoryKey() below.
+const LEGACY_DRAFT_STORAGE_KEY = 'zolva.mail.drafts';
+const draftStorageKey = (uid: string) => `zolva.mail.drafts.${uid}`;
 const draftCache = new Map<string, DraftCacheEntry>();
+let draftCacheUid: string | null = null;
 let draftCacheHydrated = false;
 let draftCacheHydrationPromise: Promise<void> | null = null;
 let draftCacheWriteTimer: ReturnType<typeof setTimeout> | null = null;
+let legacyDraftKeyWiped = false;
 
-async function hydrateDraftCache(): Promise<void> {
-  if (draftCacheHydrated) return;
+async function hydrateDraftCache(uid: string): Promise<void> {
+  if (draftCacheHydrated && draftCacheUid === uid) return;
+  // User changed (sign-out → sign-in as someone else). Throw away the prior
+  // user's in-memory entries, cancel any inflight persist, and re-hydrate
+  // from this user's per-user key.
+  if (draftCacheUid !== uid) {
+    draftCache.clear();
+    if (draftCacheWriteTimer) {
+      clearTimeout(draftCacheWriteTimer);
+      draftCacheWriteTimer = null;
+    }
+    draftCacheHydrated = false;
+    draftCacheHydrationPromise = null;
+    draftCacheUid = uid;
+  }
   if (draftCacheHydrationPromise) return draftCacheHydrationPromise;
   draftCacheHydrationPromise = (async () => {
     try {
-      const raw = await AsyncStorage.getItem(DRAFT_STORAGE_KEY);
+      // One-time legacy wipe — no-op after the first run on each device.
+      if (!legacyDraftKeyWiped) {
+        legacyDraftKeyWiped = true;
+        AsyncStorage.removeItem(LEGACY_DRAFT_STORAGE_KEY).catch(() => {});
+      }
+      const raw = await AsyncStorage.getItem(draftStorageKey(uid));
       if (raw) {
         const parsed = JSON.parse(raw) as Record<string, DraftCacheEntry>;
         const now = Date.now();
@@ -904,11 +930,16 @@ function persistDraftCacheSoon(): void {
   if (draftCacheWriteTimer) clearTimeout(draftCacheWriteTimer);
   draftCacheWriteTimer = setTimeout(() => {
     draftCacheWriteTimer = null;
+    const uid = draftCacheUid;
+    // No active user → no key to write to. Drop the snapshot rather than
+    // recreating the legacy global key. Re-hydrate on next sign-in will
+    // pull whatever the user already had on disk.
+    if (!uid) return;
     const snapshot: Record<string, DraftCacheEntry> = {};
     draftCache.forEach((v, k) => {
       snapshot[k] = v;
     });
-    AsyncStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(snapshot)).catch((err) => {
+    AsyncStorage.setItem(draftStorageKey(uid), JSON.stringify(snapshot)).catch((err) => {
       if (__DEV__) console.warn('[draft-cache] persist failed:', err);
     });
   }, 300);
@@ -984,18 +1015,36 @@ function looksLikeNonReplyContent(preview: string | null | undefined): boolean {
 // mail id) while drafts depend on the user's configured tone.
 type VerdictCacheEntry = { needsReply: boolean; expiresAt: number };
 const VERDICT_TTL_MS = 24 * 60 * 60 * 1000;
-const VERDICT_STORAGE_KEY = 'zolva.mail.reply-verdicts';
+// Per-user storage. See draft cache above for rationale — same shape.
+const LEGACY_VERDICT_STORAGE_KEY = 'zolva.mail.reply-verdicts';
+const verdictStorageKey = (uid: string) => `zolva.mail.reply-verdicts.${uid}`;
 const verdictCache = new Map<string, VerdictCacheEntry>();
+let verdictCacheUid: string | null = null;
 let verdictCacheHydrated = false;
 let verdictCacheHydrationPromise: Promise<void> | null = null;
 let verdictCacheWriteTimer: ReturnType<typeof setTimeout> | null = null;
+let legacyVerdictKeyWiped = false;
 
-async function hydrateVerdictCache(): Promise<void> {
-  if (verdictCacheHydrated) return;
+async function hydrateVerdictCache(uid: string): Promise<void> {
+  if (verdictCacheHydrated && verdictCacheUid === uid) return;
+  if (verdictCacheUid !== uid) {
+    verdictCache.clear();
+    if (verdictCacheWriteTimer) {
+      clearTimeout(verdictCacheWriteTimer);
+      verdictCacheWriteTimer = null;
+    }
+    verdictCacheHydrated = false;
+    verdictCacheHydrationPromise = null;
+    verdictCacheUid = uid;
+  }
   if (verdictCacheHydrationPromise) return verdictCacheHydrationPromise;
   verdictCacheHydrationPromise = (async () => {
     try {
-      const raw = await AsyncStorage.getItem(VERDICT_STORAGE_KEY);
+      if (!legacyVerdictKeyWiped) {
+        legacyVerdictKeyWiped = true;
+        AsyncStorage.removeItem(LEGACY_VERDICT_STORAGE_KEY).catch(() => {});
+      }
+      const raw = await AsyncStorage.getItem(verdictStorageKey(uid));
       if (raw) {
         const parsed = JSON.parse(raw) as Record<string, VerdictCacheEntry>;
         const now = Date.now();
@@ -1022,11 +1071,13 @@ function persistVerdictCacheSoon(): void {
   if (verdictCacheWriteTimer) clearTimeout(verdictCacheWriteTimer);
   verdictCacheWriteTimer = setTimeout(() => {
     verdictCacheWriteTimer = null;
+    const uid = verdictCacheUid;
+    if (!uid) return;
     const snapshot: Record<string, VerdictCacheEntry> = {};
     verdictCache.forEach((v, k) => {
       snapshot[k] = v;
     });
-    AsyncStorage.setItem(VERDICT_STORAGE_KEY, JSON.stringify(snapshot)).catch((err) => {
+    AsyncStorage.setItem(verdictStorageKey(uid), JSON.stringify(snapshot)).catch((err) => {
       if (__DEV__) console.warn('[verdict-cache] persist failed:', err);
     });
   }, 300);
@@ -1182,6 +1233,10 @@ export function useInboxWaiting(): Result<InboxMail[]> {
     if (demo) return;
     if (!hasClaudeKey() || items.length === 0) return;
     if (isInQuietHours(quietHours, new Date())) return;
+    // Per-user caches require a uid. Without one we'd have nowhere to read
+    // from or write to — bail rather than fall back to a global key.
+    const uid = user?.id;
+    if (!uid) return;
 
     const maxDrafts = AUTONOMY_TARGETS[autonomy] ?? AUTONOMY_TARGETS['Lav udkast'];
     if (maxDrafts === 0) return;
@@ -1201,13 +1256,17 @@ export function useInboxWaiting(): Result<InboxMail[]> {
     abortRef.current?.abort();
     abortRef.current = controller;
 
-    // Cache key includes the user name so a name change (or sign-in switch)
-    // doesn't serve a stale draft baked under a different identity.
+    // Cache key includes the user name so a name change doesn't serve a
+    // stale draft baked under a different identity. (Cross-account leakage
+    // is already prevented at the storage layer — caches are keyed by
+    // user_id in AsyncStorage.)
     const draftKey = (id: string) => `${id}::${tone || 'default'}::${userName ?? '_'}`;
 
     // Wait for both persisted caches to hydrate — otherwise every cold launch
-    // re-pays for classifications and drafts AsyncStorage already has.
-    void Promise.all([hydrateDraftCache(), hydrateVerdictCache()]).then(async () => {
+    // re-pays for classifications and drafts AsyncStorage already has. Each
+    // hydrate is per-user; switching accounts triggers a re-hydrate from the
+    // new user's storage key (and clears the in-memory cache from the prior).
+    void Promise.all([hydrateDraftCache(uid), hydrateVerdictCache(uid)]).then(async () => {
       if (controller.signal.aborted) return;
 
       // Classification pass: short-circuit cached verdicts, classify the rest
@@ -1283,7 +1342,7 @@ export function useInboxWaiting(): Result<InboxMail[]> {
     });
 
     return () => controller.abort();
-  }, [demo, items, autonomy, tone, quietHours, userName]);
+  }, [demo, items, autonomy, tone, quietHours, userName, user?.id]);
 
   if (demo) {
     return {
