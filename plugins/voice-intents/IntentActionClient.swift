@@ -20,7 +20,14 @@ enum IntentActionClient {
   static let projectRef = "sjkhfkatmeqtsrysixop"
   static let path = "/functions/v1/widget-action"
 
+  // Test seam — XCTest assigns this before each case to bypass the network
+  // path entirely. Production code never sets it.
+  static var sendOverride: ((String, String) async throws -> WidgetActionResponse)?
+
   static func send(prompt: String, timezone: String) async throws -> WidgetActionResponse {
+    if let override = sendOverride {
+      return try await override(prompt, timezone)
+    }
     let accessToken = try SupabaseSession.readAccessToken()
     do {
       return try await postOnce(prompt: prompt, timezone: timezone, jwt: accessToken)

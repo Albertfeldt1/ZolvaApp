@@ -3568,6 +3568,8 @@ Expected: Siri shows the snippet with Stone + summary + spoken confirmation. Tap
 
 ### Task 29: AppIntent unit tests
 
+**Status (2026-04-29):** Test seam in `IntentActionClient.swift` and the test file at `plugins/voice-intents/AskZolvaIntentTests.swift` are committed. Wiring into an Xcode `ZolvaTests` bundle is **deferred** — solo project, no `ZolvaTests` target yet, and the spec marks these as "should have, not blocking." On-device QA (Task 30) is the active gate for the same auth-state matrix. When a test bundle is added, copy the test file into the new target and update `withVoiceIntents.js` if needed.
+
 **Files:**
 - Create: `plugins/voice-intents/AskZolvaIntentTests.swift`
 - Modify: `plugins/voice-intents/IntentActionClient.swift` (add a test seam)
