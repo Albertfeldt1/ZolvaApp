@@ -24,7 +24,8 @@ type WidgetActionRequest = {
   locale?: string;
 };
 
-type CalendarLabelTarget = { provider: 'google' | 'microsoft'; id: string };
+type CalendarProvider = 'google' | 'microsoft' | 'icloud';
+type CalendarLabelTarget = { provider: CalendarProvider; id: string };
 type LabelMap = { work?: CalendarLabelTarget; personal?: CalendarLabelTarget };
 
 const json = (status: number, body: WidgetActionResponse): Response =>
@@ -54,9 +55,9 @@ async function readLabels(
     .eq('user_id', userId)
     .maybeSingle();
   const row = (data ?? null) as null | {
-    work_calendar_provider: 'google' | 'microsoft' | null;
+    work_calendar_provider: CalendarProvider | null;
     work_calendar_id: string | null;
-    personal_calendar_provider: 'google' | 'microsoft' | null;
+    personal_calendar_provider: CalendarProvider | null;
     personal_calendar_id: string | null;
   };
   const out: LabelMap = {};

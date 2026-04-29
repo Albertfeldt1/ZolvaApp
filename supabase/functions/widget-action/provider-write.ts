@@ -2,8 +2,13 @@ import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
   loadRefreshToken,
   refreshAccessToken,
-  type Provider,
+  type Provider as OAuthProvider,
 } from '../_shared/oauth.ts';
+import { loadIcloudCreds, writeIcloudEvent } from './icloud-write.ts';
+
+// Voice-path provider tag — superset of OAuthProvider that includes iCloud.
+// iCloud doesn't go through OAuth; creds come from user_icloud_calendar_creds.
+export type Provider = OAuthProvider | 'icloud';
 
 export type WriteOutcome =
   | { ok: true; eventId: string; eventUrl: string | null }
@@ -23,6 +28,8 @@ export async function writeEvent(args: {
   endIso: string;
   timezone: string;
 }): Promise<WriteOutcome> {
+  if (args.provider === 'icloud') return writeIcloud(args);
+
   const refreshToken = await loadRefreshToken(args.client, args.userId, args.provider);
   if (!refreshToken) return { ok: false, errorClass: 'oauth_invalid' };
 
@@ -69,7 +76,38 @@ async function postEvent(
   args: { provider: Provider; calendarId: string; title: string; startIso: string; endIso: string; timezone: string },
 ): Promise<AttemptResult> {
   if (args.provider === 'google') return postGoogle(token, args);
-  return postMicrosoft(token, args);
+  if (args.provider === 'microsoft') return postMicrosoft(token, args);
+  // iCloud goes through writeIcloud (separate auth model) — caller branches
+  // before reaching here. Defensive fallthrough surfaces a server bug
+  // rather than silently mis-dispatching.
+  return { kind: 'error', outcome: { ok: false, errorClass: 'provider_5xx' } };
+}
+
+async function writeIcloud(args: {
+  client: SupabaseClient;
+  userId: string;
+  calendarId: string;        // For iCloud, this is the full CalDAV calendar URL.
+  title: string;
+  startIso: string;
+  endIso: string;
+}): Promise<WriteOutcome> {
+  const encryptionKey = Deno.env.get('ICLOUD_CREDS_ENCRYPTION_KEY');
+  if (!encryptionKey) {
+    console.error('[provider-write/icloud] ICLOUD_CREDS_ENCRYPTION_KEY missing');
+    return { ok: false, errorClass: 'oauth_invalid' };
+  }
+  const creds = await loadIcloudCreds(args.client, args.userId, encryptionKey);
+  if (!creds) return { ok: false, errorClass: 'oauth_invalid' };
+
+  const out = await writeIcloudEvent({
+    creds,
+    calendarUrl: args.calendarId,
+    title: args.title,
+    startIso: args.startIso,
+    endIso: args.endIso,
+  });
+  if (out.ok) return { ok: true, eventId: out.uid, eventUrl: out.eventUrl };
+  return out;
 }
 
 async function postGoogle(

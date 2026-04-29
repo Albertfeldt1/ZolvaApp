@@ -42,8 +42,8 @@ export function noCalendarLabels(): WidgetActionResponse {
   };
 }
 
-export function oauthInvalid(provider: 'google' | 'microsoft'): WidgetActionResponse {
-  const providerName = provider === 'google' ? 'Google' : 'Outlook';
+export function oauthInvalid(provider: 'google' | 'microsoft' | 'icloud'): WidgetActionResponse {
+  const providerName = providerDisplayName(provider);
   return {
     dialog: `Forbind ${providerName} igen.`,
     snippet: {
@@ -65,8 +65,8 @@ export function permissionDenied(calendarName: string): WidgetActionResponse {
   };
 }
 
-export function provider5xx(provider: 'google' | 'microsoft'): WidgetActionResponse {
-  const providerName = provider === 'google' ? 'Google' : 'Microsoft';
+export function provider5xx(provider: 'google' | 'microsoft' | 'icloud'): WidgetActionResponse {
+  const providerName = providerDisplayName(provider);
   return {
     dialog: `${providerName} svarede ikke. Prøv igen.`,
     snippet: {
@@ -75,6 +75,12 @@ export function provider5xx(provider: 'google' | 'microsoft'): WidgetActionRespo
       deepLink: 'zolva://chat',
     },
   };
+}
+
+function providerDisplayName(p: 'google' | 'microsoft' | 'icloud'): string {
+  if (p === 'google')    return 'Google';
+  if (p === 'microsoft') return 'Outlook';
+  return 'iCloud';
 }
 
 export function loggedOut(): WidgetActionResponse {

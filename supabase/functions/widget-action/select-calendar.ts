@@ -1,4 +1,9 @@
-export type CalendarLabelTarget = { provider: 'google' | 'microsoft'; id: string };
+export type CalendarLabelTarget = {
+  provider: 'google' | 'microsoft' | 'icloud';
+  // For google/microsoft: provider calendar id.
+  // For icloud: full CalDAV calendar URL the voice path PUTs against.
+  id: string;
+};
 
 export type LabelMap = {
   work?: CalendarLabelTarget;
