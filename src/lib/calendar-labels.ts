@@ -1,9 +1,11 @@
 import { supabase } from './supabase';
 
 export type CalendarLabelKey = 'work' | 'personal';
-export type CalendarProvider = 'google' | 'microsoft';
+export type CalendarProvider = 'google' | 'microsoft' | 'icloud';
 export type CalendarLabelTarget = {
   provider: CalendarProvider;
+  // For google/microsoft: the provider calendar id.
+  // For icloud: the full CalDAV calendar URL the voice path PUTs against.
   id: string;
 };
 export type CalendarLabels = Partial<Record<CalendarLabelKey, CalendarLabelTarget>>;

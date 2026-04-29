@@ -104,6 +104,28 @@ export async function discoverCalendarHome(
   return { ok: true, data: { calendarHomeUrl: res.data.calendarHomeUrl } };
 }
 
+// Reads the cached calendar list for the Settings "Stemmestyring" picker.
+// Falls through to fullDiscover on cache miss so the picker doesn't
+// silently render an empty list right after iCloud setup.
+export async function getIcloudCalendars(
+  userId: string,
+): Promise<CalDavResult<IcloudCalendarMeta[]>> {
+  const cred = await loadCredential(userId);
+  if (cred.kind === 'absent') return { ok: false, error: 'not-connected' };
+  if (cred.kind === 'invalid') return { ok: false, error: 'credential-rejected' };
+
+  let cache = await loadDiscoveryCache(userId, cred.credential.email);
+  if (!cache || cache.calendars.length === 0) {
+    const fresh = await fullDiscover(cred.credential.email, cred.credential.password, userId);
+    if (!fresh.ok) {
+      if (fresh.error === 'auth-failed') await markInvalid(userId, 'caldav-rejected');
+      return fresh;
+    }
+    cache = fresh.data;
+  }
+  return { ok: true, data: cache.calendars };
+}
+
 function basicAuth(email: string, password: string): string | null {
   // btoa throws on non-Latin-1 input. App-specific passwords are 16 lowercase
   // letters so this never bites in practice; setup-screen validation is the

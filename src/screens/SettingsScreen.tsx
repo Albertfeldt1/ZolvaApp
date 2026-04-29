@@ -697,21 +697,35 @@ export function SettingsScreen({ onOpenIcloudSetup, onOpenMicrosoftAdminConsent,
 }
 
 function StemmestyringSection() {
-  const { googleAccessToken, microsoftAccessToken } = useAuth();
+  const { user, googleAccessToken, microsoftAccessToken } = useAuth();
   const { labels, setLabel } = useCalendarLabels();
   const [picker, setPicker] = useState<CalendarLabelKey | null>(null);
   const [calendars, setCalendars] = useState<ProviderCalendar[]>([]);
   const [loadingCalendars, setLoadingCalendars] = useState(false);
+  const [hasIcloud, setHasIcloud] = useState(false);
 
-  const hasAnyProvider = !!googleAccessToken || !!microsoftAccessToken;
+  useEffect(() => {
+    if (!user?.id) { setHasIcloud(false); return; }
+    let cancelled = false;
+    void (async () => {
+      const cred = await loadCredential(user.id);
+      if (!cancelled) setHasIcloud(cred.kind === 'valid');
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
+  const hasAnyProvider = !!googleAccessToken || !!microsoftAccessToken || hasIcloud;
 
   const openPicker = async (key: CalendarLabelKey) => {
+    if (!user?.id) return;
     setPicker(key);
     setLoadingCalendars(true);
     try {
       const list = await listWritableCalendars({
         hasGoogle: !!googleAccessToken,
         hasMicrosoft: !!microsoftAccessToken,
+        hasIcloud,
+        userId: user.id,
       });
       setCalendars(list);
     } finally {
@@ -719,11 +733,17 @@ function StemmestyringSection() {
     }
   };
 
+  const providerFallbackName = (provider: 'google' | 'microsoft' | 'icloud'): string => {
+    if (provider === 'google')    return 'Google kalender';
+    if (provider === 'microsoft') return 'Microsoft kalender';
+    return 'iCloud kalender';
+  };
+
   const labelRow = (key: CalendarLabelKey, label: string) => {
     const target = labels[key];
     const display = target
       ? calendars.find((c) => c.provider === target.provider && c.id === target.id)?.name
-        ?? `${target.provider === 'google' ? 'Google' : 'Microsoft'} kalender`
+        ?? providerFallbackName(target.provider)
       : 'Ikke valgt';
     return (
       <Pressable onPress={() => openPicker(key)} style={styles.row}>

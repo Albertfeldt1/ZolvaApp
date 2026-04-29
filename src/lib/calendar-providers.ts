@@ -4,9 +4,12 @@
 // this. Real write failures surface at Edge-Function write time.
 
 import { tryWithRefresh } from './auth';
+import { getIcloudCalendars } from './icloud-calendar';
 
 export type ProviderCalendar = {
-  provider: 'google' | 'microsoft';
+  provider: 'google' | 'microsoft' | 'icloud';
+  // For google/microsoft: provider calendar id.
+  // For icloud: the full CalDAV calendar URL (PUT target for the voice path).
   id: string;
   name: string;
   color: string | null;
@@ -81,13 +84,29 @@ export async function listMicrosoftCalendars(): Promise<ProviderCalendar[]> {
   });
 }
 
+export async function listIcloudCalendars(userId: string): Promise<ProviderCalendar[]> {
+  const res = await getIcloudCalendars(userId);
+  if (!res.ok) return [];
+  return res.data.map<ProviderCalendar>((c) => ({
+    provider: 'icloud',
+    id: c.url, // CalDAV URL is the write target — see ProviderCalendar.id comment
+    name: c.displayName,
+    color: c.calendarColor ?? null,
+    accountEmail: null,
+    isMainAccount: false,
+  }));
+}
+
 export async function listWritableCalendars(opts: {
   hasGoogle: boolean;
   hasMicrosoft: boolean;
+  hasIcloud: boolean;
+  userId: string;
 }): Promise<ProviderCalendar[]> {
   const calls: Array<Promise<ProviderCalendar[]>> = [];
   if (opts.hasGoogle) calls.push(listGoogleCalendars());
   if (opts.hasMicrosoft) calls.push(listMicrosoftCalendars());
+  if (opts.hasIcloud) calls.push(listIcloudCalendars(opts.userId));
   const settled = await Promise.allSettled(calls);
   // Promise.allSettled so one provider's failure doesn't blank the picker.
   return settled.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));

@@ -192,8 +192,30 @@ export async function markInvalid(userId: string, reason?: string): Promise<void
 
 export async function clearCredential(userId: string): Promise<void> {
   if (!userId) throw new Error('clearCredential: missing userId');
-  // Server revoke first (best-effort). Even if it fails, we proceed with
-  // the local clear — the user explicitly asked to disconnect.
+
+  // Auto-clear any voice-routing labels pointing at iCloud — a stale
+  // label can never silently mis-route a voice call to a calendar the
+  // user has just disconnected. Mirrors the disconnectProvider auto-clear
+  // for google/microsoft in auth.ts.
+  try {
+    const { readCalendarLabels, setCalendarLabel } = await import('./calendar-labels');
+    const labels = await readCalendarLabels(userId);
+    await Promise.all(
+      (Object.entries(labels) as Array<[
+        'work' | 'personal',
+        { provider: 'google' | 'microsoft' | 'icloud'; id: string } | undefined,
+      ]>).map(async ([key, target]) => {
+        if (target?.provider === 'icloud') {
+          await setCalendarLabel(userId, key, null);
+        }
+      }),
+    );
+  } catch (err) {
+    if (__DEV__) console.warn('[icloud-creds] auto-clear voice labels failed:', err);
+  }
+
+  // Server revoke (best-effort). Even if it fails, we proceed with the
+  // local clear — the user explicitly asked to disconnect.
   await callRevokeEndpoint();
   await secureStorage.deleteItem(credKey(userId));
 }
