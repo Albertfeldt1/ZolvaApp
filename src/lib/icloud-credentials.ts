@@ -21,6 +21,23 @@ import { supabase } from './supabase';
 import * as secureStorage from './secure-storage';
 import { discoverCalendarHome } from './icloud-calendar';
 
+// Tiny pub/sub so React components reading iCloud cred state can re-poll
+// when saveCredential / clearCredential succeed. The setup screen lives in
+// App.tsx and the cred-reading sections live in SettingsScreen — neither
+// has a direct ref to the other, so a module-level event bus is the
+// minimal-coupling fix.
+type CredsListener = () => void;
+const credsListeners = new Set<CredsListener>();
+export function subscribeToIcloudCreds(fn: CredsListener): () => void {
+  credsListeners.add(fn);
+  return () => { credsListeners.delete(fn); };
+}
+function notifyCredsChanged(): void {
+  for (const fn of credsListeners) {
+    try { fn(); } catch (err) { if (__DEV__) console.warn('[icloud-creds] listener threw:', err); }
+  }
+}
+
 export type SyncCursor = { uidValidity: number; lastUid: number };
 // v1 ignores SyncCursor — included so the storage shape doesn't have to
 // change when/if server-side polling is added later.
@@ -212,6 +229,7 @@ export async function saveCredential(
     await clearDiscoveryCacheFor(userId);
     throw e;
   }
+  notifyCredsChanged();
 }
 
 export async function markInvalid(userId: string, reason?: string): Promise<void> {
@@ -256,4 +274,5 @@ export async function clearCredential(userId: string): Promise<void> {
   // local clear — the user explicitly asked to disconnect.
   await callRevokeEndpoint();
   await secureStorage.deleteItem(credKey(userId));
+  notifyCredsChanged();
 }

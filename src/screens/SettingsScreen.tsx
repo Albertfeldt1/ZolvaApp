@@ -495,7 +495,7 @@ export function SettingsScreen({ onOpenIcloudSetup, onOpenMicrosoftAdminConsent,
               })}
             </Animated.View>
 
-            <StemmestyringSection />
+            <StemmestyringSection hasIcloud={hasIcloud} />
 
             <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
               <Text style={styles.sectionTitle}>Abonnement</Text>
@@ -696,23 +696,12 @@ export function SettingsScreen({ onOpenIcloudSetup, onOpenMicrosoftAdminConsent,
   );
 }
 
-function StemmestyringSection() {
+function StemmestyringSection({ hasIcloud }: { hasIcloud: boolean }) {
   const { user, googleAccessToken, microsoftAccessToken } = useAuth();
   const { labels, setLabel } = useCalendarLabels();
   const [picker, setPicker] = useState<CalendarLabelKey | null>(null);
   const [calendars, setCalendars] = useState<ProviderCalendar[]>([]);
   const [loadingCalendars, setLoadingCalendars] = useState(false);
-  const [hasIcloud, setHasIcloud] = useState(false);
-
-  useEffect(() => {
-    if (!user?.id) { setHasIcloud(false); return; }
-    let cancelled = false;
-    void (async () => {
-      const cred = await loadCredential(user.id);
-      if (!cancelled) setHasIcloud(cred.kind === 'valid');
-    })();
-    return () => { cancelled = true; };
-  }, [user?.id]);
 
   const hasAnyProvider = !!googleAccessToken || !!microsoftAccessToken || hasIcloud;
 
@@ -759,7 +748,7 @@ function StemmestyringSection() {
         <Text style={styles.sectionTitle}>Stemmestyring</Text>
         <View style={styles.inkRule} />
         <Text style={styles.sectionBody}>
-          Forbind Google eller Outlook for at sætte møder med Siri.
+          Forbind Google, Outlook eller iCloud for at sætte møder med Siri.
         </Text>
       </Animated.View>
     );
