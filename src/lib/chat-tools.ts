@@ -8,7 +8,14 @@
 // always includes a footer line listing which sources contributed and
 // which were skipped, so the model can disclose gaps to the user.
 
-import { listEvents as listGoogleEvents, type GoogleCalendarEvent } from './google-calendar';
+import {
+  listEvents as listGoogleEvents,
+  createEvent as createGoogleEvent,
+  updateEvent as updateGoogleEvent,
+  deleteEvent as deleteGoogleEvent,
+  type GoogleCalendarEvent,
+  type GoogleEventInput,
+} from './google-calendar';
 import {
   listCalendarEvents as listGraphEvents,
   listInboxMessages as listGraphMessages,
@@ -25,6 +32,11 @@ import {
   getMessageBody as getGmailMessageBody,
   type GmailMessage,
 } from './gmail';
+import {
+  searchFiles as searchDriveFiles,
+  getFileContent as getDriveFileContent,
+  type DriveFile,
+} from './google-drive';
 import {
   listEvents as listIcloudEvents,
   createEvent as createIcloudEvent,
@@ -273,6 +285,69 @@ export async function readMailBody(
   }
 }
 
+// ─── Drive ────────────────────────────────────────────────────────────────
+//
+// Google Drive search + read. Read-only: scope is drive.readonly. Search
+// matches both file content (fullText) and filenames; read returns the
+// extracted text body for Google Docs/Sheets/Slides and plain-text files.
+// Other MIME types are refused at read time so the model gets a clear
+// "can't extract" rather than a binary blob.
+
+export async function searchDriveFilesTool(
+  ctx: ChatCtx,
+  query: string,
+  limit: number,
+): Promise<{ text: string; isError: boolean }> {
+  if (!ctx.hasGoogle) return { text: 'Google Drive ikke forbundet.', isError: true };
+  const trimmed = query.trim();
+  if (!trimmed) return { text: 'Tom søgning. Angiv mindst ét søgeord.', isError: true };
+  try {
+    const hits = await searchDriveFiles(trimmed, limit);
+    if (hits.length === 0) {
+      return { text: `Ingen filer matcher "${trimmed}" i Drive.`, isError: false };
+    }
+    const lines = hits.map((f) => formatDriveHit(f));
+    const header = `${hits.length} fil(er) matcher "${trimmed}":`;
+    return { text: [header, '', ...lines].join('\n'), isError: false };
+  } catch (err) {
+    return { text: `Google Drive afviste søgningen: ${short(err)}`, isError: true };
+  }
+}
+
+export async function readDriveFile(
+  ctx: ChatCtx,
+  id: string,
+): Promise<{ text: string; isError: boolean }> {
+  if (!ctx.hasGoogle) return { text: 'Google Drive ikke forbundet.', isError: true };
+  // Be permissive: model sometimes echoes the full "drive:abc" unified ID.
+  const cleanId = id.startsWith('drive:') ? id.slice(6) : id;
+  if (!cleanId) return { text: 'Mangler fil-ID.', isError: true };
+  try {
+    const f = await getDriveFileContent(cleanId);
+    const header = `Filnavn: ${f.name}\nLink: ${f.webViewLink}\n`;
+    return { text: `${header}\n${f.text}`, isError: false };
+  } catch (err) {
+    return { text: `Kunne ikke læse filen: ${short(err)}`, isError: true };
+  }
+}
+
+function formatDriveHit(f: DriveFile): string {
+  const kind = mimeLabel(f.mimeType);
+  const modified = shortDate(f.modifiedTime);
+  const owner = f.ownerEmail ? ` — ejer: ${f.ownerEmail}` : '';
+  return `[drive:${f.id}] ${kind} — "${f.name}" — ændret ${modified}${owner} — ${f.webViewLink}`;
+}
+
+function mimeLabel(mime: string): string {
+  if (mime === 'application/vnd.google-apps.document') return 'Doc';
+  if (mime === 'application/vnd.google-apps.spreadsheet') return 'Sheet';
+  if (mime === 'application/vnd.google-apps.presentation') return 'Slides';
+  if (mime === 'application/pdf') return 'PDF';
+  if (mime.startsWith('text/')) return mime.slice(5);
+  if (mime === 'application/json') return 'JSON';
+  return mime;
+}
+
 // ─── helpers ──────────────────────────────────────────────────────────────
 
 function short(err: unknown): string {
@@ -306,10 +381,10 @@ function formatOutcomesFooter(outcomes: SourceOutcome[]): string {
 //   - Disambiguates "no provider connected" vs "provider rejected" so the
 //     model can suggest reconnecting if relevant.
 //
-// Google calendar writes are intentionally unsupported here — the current
-// OAuth scope is calendar.readonly. Returning a clear error message lets
-// the model say "tilkobl Google Kalender med skriverettigheder først"
-// rather than silently failing.
+// Calendar writes route by provider prefix on the unified ID (update/delete)
+// or by an explicit `provider` field (create). All three providers — Google,
+// Microsoft, iCloud — support full create/update/delete. Attendees are sent
+// for Google and Microsoft; iCloud drops them (no iTIP support yet).
 
 export type WriteEventInput = {
   title: string;
@@ -327,11 +402,13 @@ export async function createCalendarEvent(
   input: WriteEventInput,
 ): Promise<{ text: string; isError: boolean }> {
   if (provider === 'google') {
-    return {
-      text:
-        'Google Kalender er forbundet read-only. Brugeren skal genforbinde Google med skriverettigheder før jeg kan oprette begivenheder der.',
-      isError: true,
-    };
+    if (!ctx.hasGoogle) return { text: 'Google Kalender ikke forbundet.', isError: true };
+    try {
+      const r = await createGoogleEvent(toGoogleInput(input));
+      return { text: `Oprettet [google:${r.id}] "${input.title}" ${rangeText(input)}.`, isError: false };
+    } catch (err) {
+      return { text: `Google Kalender afviste oprettelsen: ${short(err)}`, isError: true };
+    }
   }
   if (provider === 'microsoft') {
     if (!ctx.hasMicrosoft) return { text: 'Outlook ikke forbundet.', isError: true };
@@ -348,7 +425,7 @@ export async function createCalendarEvent(
     if (!r.ok) return { text: `iCloud afviste oprettelsen: ${r.error}`, isError: true };
     return { text: `Oprettet [icloud:${r.data.uid}] "${input.title}" ${rangeText(input)}.`, isError: false };
   }
-  return { text: `Ukendt provider "${provider}". Brug microsoft eller icloud.`, isError: true };
+  return { text: `Ukendt provider "${provider}". Brug google, microsoft eller icloud.`, isError: true };
 }
 
 export async function updateCalendarEvent(
@@ -363,11 +440,13 @@ export async function updateCalendarEvent(
   if (!id) return { text: 'Mangler event-ID.', isError: true };
 
   if (source === 'google') {
-    return {
-      text:
-        'Google Kalender er forbundet read-only. Genforbind Google med skriverettigheder for at redigere.',
-      isError: true,
-    };
+    if (!ctx.hasGoogle) return { text: 'Google Kalender ikke forbundet.', isError: true };
+    try {
+      await updateGoogleEvent(id, toGooglePartial(patch));
+      return { text: `Opdateret [google:${id}].`, isError: false };
+    } catch (err) {
+      return { text: `Google Kalender afviste opdateringen: ${short(err)}`, isError: true };
+    }
   }
   if (source === 'microsoft') {
     if (!ctx.hasMicrosoft) return { text: 'Outlook ikke forbundet.', isError: true };
@@ -411,10 +490,13 @@ export async function deleteCalendarEvent(
   if (!id) return { text: 'Mangler event-ID.', isError: true };
 
   if (source === 'google') {
-    return {
-      text: 'Google Kalender er forbundet read-only. Kan ikke slette.',
-      isError: true,
-    };
+    if (!ctx.hasGoogle) return { text: 'Google Kalender ikke forbundet.', isError: true };
+    try {
+      await deleteGoogleEvent(id);
+      return { text: `Slettet [google:${id}].`, isError: false };
+    } catch (err) {
+      return { text: `Google Kalender afviste sletningen: ${short(err)}`, isError: true };
+    }
   }
   if (source === 'microsoft') {
     if (!ctx.hasMicrosoft) return { text: 'Outlook ikke forbundet.', isError: true };
@@ -435,6 +517,32 @@ export async function deleteCalendarEvent(
     return { text: `Slettet [icloud:${id}].`, isError: false };
   }
   return { text: `Ukendt provider "${source}".`, isError: true };
+}
+
+function toGoogleInput(input: WriteEventInput): GoogleEventInput {
+  return {
+    title: input.title,
+    start: input.start,
+    end: input.end,
+    isAllDay: input.allDay,
+    location: input.location,
+    description: input.description,
+    attendees: input.attendees?.map((email) => ({ email })),
+  };
+}
+
+function toGooglePartial(patch: Partial<WriteEventInput>): Partial<GoogleEventInput> {
+  const out: Partial<GoogleEventInput> = {};
+  if (patch.title !== undefined) out.title = patch.title;
+  if (patch.start !== undefined) out.start = patch.start;
+  if (patch.end !== undefined) out.end = patch.end;
+  if (patch.allDay !== undefined) out.isAllDay = patch.allDay;
+  if (patch.location !== undefined) out.location = patch.location;
+  if (patch.description !== undefined) out.description = patch.description;
+  if (patch.attendees !== undefined) {
+    out.attendees = patch.attendees.map((email) => ({ email }));
+  }
+  return out;
 }
 
 function toGraphInput(input: WriteEventInput): GraphEventInput {
