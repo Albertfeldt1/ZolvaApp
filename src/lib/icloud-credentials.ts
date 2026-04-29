@@ -92,21 +92,46 @@ export class IcloudLinkFailure extends Error {
   }
 }
 
+type LinkResponseBody =
+  | { ok: true }
+  | { ok: false; code: 'reauth_required' | 'rate_limited' | 'invalid_request' | 'unauthorized' | 'server_error' };
+
 async function callLinkEndpoint(
   email: string,
   password: string,
   calendarHomeUrl: string,
 ): Promise<void> {
-  const { data, error } = await supabase.functions.invoke<
-    | { ok: true }
-    | { ok: false; code: 'reauth_required' | 'rate_limited' | 'invalid_request' | 'unauthorized' | 'server_error' }
-  >('icloud-creds-link', {
+  const { data, error } = await supabase.functions.invoke<LinkResponseBody>('icloud-creds-link', {
     method: 'POST',
     body: { email, password, calendar_home_url: calendarHomeUrl },
   });
+
+  // supabase-js wraps non-2xx as a FunctionsHttpError where error.context is
+  // a Response. Reading its body gives us the actual { ok:false, code:'...' }
+  // payload so we can route to the right IcloudLinkFailure code instead of
+  // a generic 'network'. Without this, every 401/429/etc. shows up as
+  // "Edge Function returned a non-2xx status code" with no actionable info.
   if (error) {
-    throw new IcloudLinkFailure('network', error.message);
+    let parsed: LinkResponseBody | null = null;
+    let status = 0;
+    const ctx = (error as { context?: Response }).context;
+    if (ctx && typeof ctx.json === 'function') {
+      status = ctx.status;
+      try { parsed = (await ctx.json()) as LinkResponseBody; } catch { parsed = null; }
+    }
+    if (parsed && parsed.ok === false) {
+      switch (parsed.code) {
+        case 'reauth_required': throw new IcloudLinkFailure('reauth-required', `${status} reauth_required`);
+        case 'rate_limited':    throw new IcloudLinkFailure('rate-limited', `${status} rate_limited`);
+        case 'unauthorized':    throw new IcloudLinkFailure('server', `${status} unauthorized — check JWT auth`);
+        case 'invalid_request': throw new IcloudLinkFailure('server', `${status} invalid_request — body validation`);
+        case 'server_error':    throw new IcloudLinkFailure('server', `${status} server_error`);
+        default:                throw new IcloudLinkFailure('server', `${status} ${parsed.code}`);
+      }
+    }
+    throw new IcloudLinkFailure('network', `${error.message}${status ? ` (HTTP ${status})` : ''}`);
   }
+
   if (!data || !('ok' in data)) {
     throw new IcloudLinkFailure('server', 'malformed link response');
   }
