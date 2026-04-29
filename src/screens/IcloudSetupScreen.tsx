@@ -52,6 +52,9 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
   const [emailWarning, setEmailWarning] = useState<string | null>(null);
   const [pwdWarning, setPwdWarning] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<SubmitError | null>(null);
+  // DEV-ONLY: surface the underlying exception message for the 'protocol'
+  // fallback so we don't need Metro to debug. Cleared on every submit.
+  const [devDebugError, setDevDebugError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   // Clear errors when app comes back from background — user may have gone
@@ -141,6 +144,7 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
     if (!user?.id) { setSubmitError('auth-failed'); return; }
     setBusy(true);
     setSubmitError(null);
+    setDevDebugError(null);
     try {
       const [imapRes, calRes] = await Promise.all([
         validateImap(email, password),
@@ -155,15 +159,25 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
           if (linkErr.code === 'reauth-required') { setSubmitError('reauth-required'); return; }
           if (linkErr.code === 'rate-limited')    { setSubmitError('rate-limited'); return; }
           if (linkErr.code === 'discovery-failed' || linkErr.code === 'network') {
-            setSubmitError('network'); return;
+            setSubmitError('network');
+            if (__DEV__) setDevDebugError(`saveCredential ${linkErr.code}: ${linkErr.message}`);
+            return;
           }
-          setSubmitError('voice-link-failed'); return;
+          setSubmitError('voice-link-failed');
+          if (__DEV__) setDevDebugError(`saveCredential ${linkErr.code}: ${linkErr.message}`);
+          return;
         }
         throw linkErr;
       }
       onDone();
-    } catch {
+    } catch (err) {
       setSubmitError('protocol');
+      if (__DEV__) {
+        const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+        const stack = err instanceof Error ? err.stack ?? '' : '';
+        setDevDebugError(`${msg}\n\n${stack.split('\n').slice(0, 5).join('\n')}`);
+        console.warn('[icloud-setup] submit threw:', err);
+      }
     } finally {
       setBusy(false);
     }
@@ -276,6 +290,9 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
 
         {submitError && (
           <Text style={styles.errorBox}>{messageFor(submitError)}</Text>
+        )}
+        {__DEV__ && devDebugError && (
+          <Text selectable style={styles.devDebugBox}>{devDebugError}</Text>
         )}
 
         <Pressable
@@ -411,6 +428,11 @@ const styles = StyleSheet.create({
     marginTop: 16, padding: 12, borderRadius: 8,
     backgroundColor: colors.warningSoft,
     fontFamily: fonts.ui, fontSize: 13, lineHeight: 19, color: colors.warningInk,
+  },
+  devDebugBox: {
+    marginTop: 8, padding: 12, borderRadius: 8,
+    backgroundColor: '#1a1a1a',
+    fontFamily: 'Menlo', fontSize: 11, lineHeight: 15, color: '#7fffaf',
   },
   submitBtn: {
     marginTop: 24, backgroundColor: colors.ink,
