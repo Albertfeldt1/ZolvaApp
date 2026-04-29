@@ -215,6 +215,14 @@ export default function App() {
         // tab focused on the right day.
         return;
       }
+      if (url.startsWith('zolva://settings')) {
+        setTab('settings');
+        // Anchor (e.g. #calendars from voice oauthInvalid response) is read
+        // by SettingsScreen via the URL — left as a follow-up. v2: landing
+        // the user on the Settings tab is enough to unblock label setup or
+        // provider reconnect after a voice-action snippet tap.
+        return;
+      }
     };
 
     void Linking.getInitialURL().then(handle);

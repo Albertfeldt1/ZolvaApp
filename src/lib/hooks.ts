@@ -44,7 +44,6 @@ import {
   resolveGoogleEventColor,
 } from './google-calendar';
 import {
-  archiveMessage as gmailArchiveMessage,
   getMessageBody as gmailGetMessageBody,
   initialsOf,
   listInboxMessages as listGmailMessages,
@@ -66,11 +65,20 @@ import {
   createCalendarEvent,
   updateCalendarEvent,
   deleteCalendarEvent,
+  searchDriveFilesTool,
+  readDriveFile,
   type ChatCtx,
   type WriteEventInput,
 } from './chat-tools';
 import { getMessageBody as getIcloudMessageBody, listInbox as listIcloudMessages } from './icloud-mail';
 import { listEvents as listIcloudEvents } from './icloud-calendar';
+import {
+  readCalendarLabels,
+  setCalendarLabel,
+  type CalendarLabels,
+  type CalendarLabelKey,
+  type CalendarLabelTarget,
+} from './calendar-labels';
 import type {
   CalendarSlot,
   ChatMessage,
@@ -1607,12 +1615,11 @@ export function useSendReply() {
       }
 
       // Send succeeded. Archive is best-effort — a failure here still counts
-      // as success because the reply went out. iCloud is excluded above so
-      // this branch only runs for google/microsoft.
+      // as success because the reply went out. Only Microsoft archives
+      // server-side; Google archive needs gmail.modify which we don't request,
+      // so the original message stays in the Gmail inbox after reply.
       try {
-        if (ctx.provider === 'google') {
-          await gmailArchiveMessage(mailId);
-        } else if (ctx.provider === 'microsoft') {
+        if (ctx.provider === 'microsoft') {
           await graphArchiveMessage(mailId);
         }
       } catch (err) {
@@ -1637,14 +1644,14 @@ export function useSendReply() {
         return true;
       }
       try {
-        if (provider === 'google') {
-          await gmailArchiveMessage(mailId);
-        } else if (provider === 'microsoft') {
+        if (provider === 'microsoft') {
           await graphArchiveMessage(mailId);
         } else {
-          // iCloud archive isn't a server-side op (no markAsArchived equivalent
-          // in our IMAP proxy yet). Treat as local-only dismissal so the UI
-          // updates, but don't move the message in iCloud.
+          // Google and iCloud archive are local-only dismissal:
+          // Google requires gmail.modify scope which we don't request
+          // (we use gmail.readonly + gmail.compose). iCloud has no
+          // markAsArchived equivalent in our IMAP proxy. UI updates,
+          // server state unchanged.
         }
         markMailDismissed(mailId);
         setSending(false);
@@ -1893,6 +1900,13 @@ const DEFAULT_WORK_PREFERENCES: WorkPreference[] = [
     meta: 'Daglig opsummering',
     value: '08.00',
     options: ['Fra', '07.00', '08.00', '09.00'],
+  },
+  {
+    id: 'midday-brief',
+    title: 'Middagsoverblik',
+    meta: 'Hvad ligger der efter frokost?',
+    value: 'Fra',
+    options: ['Fra', '11.30', '12.00', '12.30', '13.00'],
   },
   {
     id: 'quiet-hours',
@@ -2379,13 +2393,20 @@ function buildChatSystemPrompt(name: string): string {
       'brugeren før du kalder skrive-værktøjerne — gentag titel, dato, tid, sted, ' +
       'deltagere og spørg "Vil du have at jeg opretter/ændrer/sletter den?". Kald først ' +
       'efter brugeren har bekræftet.',
-    'Skrive-værktøjer understøtter Outlook (microsoft) og iCloud — IKKE Google. ' +
-      'Hvis brugeren beder dig oprette/ændre/slette i Google Kalender, forklar at ' +
-      'Google er forbundet read-only, og at de skal genforbinde Google med ' +
-      'skriverettigheder for at det kan lade sig gøre.',
+    'Skrive-værktøjer understøtter Google Kalender, Outlook (microsoft) og iCloud. ' +
+      'Vælg `provider` ved oprettelse ud fra hvor brugeren har konteksten — eller spørg ' +
+      'hvis det er uklart. Ved opdatering/sletning bestemmes provideren af unified-ID-præfikset.',
     'iCloud understøtter ikke deltagere/invitationer endnu — hvis brugeren beder om ' +
-      'at invitere folk til en iCloud-begivenhed, foreslå Outlook i stedet eller ' +
-      'opret begivenheden uden deltagere.',
+      'at invitere folk til en iCloud-begivenhed, foreslå Outlook eller Google i stedet, ' +
+      'eller opret begivenheden uden deltagere.',
+    'Når brugeren spørger om indhold i deres Drive-filer — fx "hvad stod der i Q2-' +
+      'budgettet?", "find notatet om Lars", "hvad aftalte vi om projektet?" — brug ' +
+      'først search_drive_files med korte præcise søgeord. Læs derefter den mest ' +
+      'relevante fil med read_drive_file. Citér ALTID kilden ved navn og link når ' +
+      'du svarer på baggrund af en Drive-fil — fx "(kilde: Filnavn — link)". Læs ' +
+      'højst 2-3 filer per spørgsmål for at holde svaret fokuseret.',
+    'Drive-værktøjer er read-only — du kan ikke oprette, redigere eller slette ' +
+      'filer. Forklar det hvis brugeren beder om det.',
   ]
     .filter(Boolean)
     .join(' ');
@@ -2487,11 +2508,11 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'create_calendar_event',
     description:
-      'Opret en ny kalenderbegivenhed. BEKRÆFT ALTID med brugeren først (titel, dato, tid, varighed, sted, deltagere) før du kalder værktøjet. Understøtter Outlook (microsoft) og iCloud — IKKE Google (kun read-only adgang). Tider skal være ISO 8601 med tidszone-offset, og slut skal ligge efter start.',
+      'Opret en ny kalenderbegivenhed. BEKRÆFT ALTID med brugeren først (titel, dato, tid, varighed, sted, deltagere) før du kalder værktøjet. Understøtter Google Kalender (google), Outlook (microsoft) og iCloud. Tider skal være ISO 8601 med tidszone-offset, og slut skal ligge efter start. Bemærk: iCloud understøtter ikke deltager-invitationer endnu.',
     input_schema: {
       type: 'object',
       properties: {
-        provider: { type: 'string', enum: ['microsoft', 'icloud'], description: 'Hvilken kalender begivenheden lægges i.' },
+        provider: { type: 'string', enum: ['google', 'microsoft', 'icloud'], description: 'Hvilken kalender begivenheden lægges i.' },
         title: { type: 'string', description: 'Begivenhedens titel.' },
         start: { type: 'string', description: 'ISO 8601 startdato/tid med tidszone-offset.' },
         end: { type: 'string', description: 'ISO 8601 slutdato/tid med tidszone-offset.' },
@@ -2510,11 +2531,11 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'update_calendar_event',
     description:
-      'Opdater en eksisterende kalenderbegivenhed. BEKRÆFT ÆNDRINGER med brugeren først. Brug det fulde unified-ID fra list_calendar_events ("microsoft:..." eller "icloud:..."). Kun de felter der specifies bliver ændret. Hvis start ændres skal end også sendes (og omvendt).',
+      'Opdater en eksisterende kalenderbegivenhed. BEKRÆFT ÆNDRINGER med brugeren først. Brug det fulde unified-ID fra list_calendar_events ("google:...", "microsoft:..." eller "icloud:..."). Kun de felter der specifies bliver ændret. Hvis start ændres skal end også sendes (og omvendt).',
     input_schema: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'Unified-ID, fx "microsoft:abc" eller "icloud:UID-string".' },
+        id: { type: 'string', description: 'Unified-ID, fx "google:abc", "microsoft:abc" eller "icloud:UID-string".' },
         title: { type: 'string' },
         start: { type: 'string', description: 'ISO 8601 — kun hvis du også sender end.' },
         end: { type: 'string', description: 'ISO 8601 — kun hvis du også sender start.' },
@@ -2534,6 +2555,31 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
       type: 'object',
       properties: {
         id: { type: 'string' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'search_drive_files',
+    description:
+      'Søg i brugerens Google Drive efter filer der matcher et søgeord — både i filindhold (Docs, Sheets, Slides, tekst) og filnavne. Returnerer en kompakt liste med ID, type, navn, ændringsdato, ejer og link. Brug read_drive_file for at hente selve indholdet af én specifik fil. Brug korte præcise søgeord (1-3 ord) — Drive matcher hele ord, ikke fragmenter.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Søgeord (fx "Q2 budget", "Lars projektplan").' },
+        limit: { type: 'number', description: 'Max antal hits (1-25, default 10).' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'read_drive_file',
+    description:
+      'Hent tekstindholdet af én specifik Drive-fil. Brug ID returneret af search_drive_files (fx "drive:abc123" — send kun delen efter "drive:"). Understøtter Google Docs, Sheets (som CSV), Slides, og rene tekstfiler. PDF og binære formater afvises. Lange filer afkortes til ca. 12.000 tegn.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Drive fil-ID (delen efter "drive:" i unified-ID).' },
       },
       required: ['id'],
     },
@@ -2657,6 +2703,19 @@ async function runChatTool(
       const r = await deleteCalendarEvent(ctx, id);
       return { content: r.text, isError: r.isError };
     }
+    if (name === 'search_drive_files') {
+      const query = typeof input.query === 'string' ? input.query : '';
+      const rawLimit = typeof input.limit === 'number' ? input.limit : 10;
+      const limit = Math.max(1, Math.min(Math.floor(rawLimit), 25));
+      const r = await searchDriveFilesTool(ctx, query, limit);
+      return { content: r.text, isError: r.isError };
+    }
+    if (name === 'read_drive_file') {
+      const id = typeof input.id === 'string' ? input.id : '';
+      if (!id) return { content: 'Mangler `id`.', isError: true };
+      const r = await readDriveFile(ctx, id);
+      return { content: r.text, isError: r.isError };
+    }
     if (name === 'add_reminder') {
       const text = typeof input.text === 'string' ? input.text : '';
       if (!text.trim()) return { content: 'Manglede tekst.', isError: true };
@@ -2673,7 +2732,18 @@ async function runChatTool(
       return { content: `Oprettet note ${n.id}: "${n.text}".`, isError: false };
     }
     if (name === 'list_reminders') {
-      const rs = listReminders();
+      // Drop completed reminders and past-due ones — the user asks "mine
+      // påmindelser" expecting things still to come, not a backlog of
+      // already-handled stuff. 5-minute grace covers the gap between a
+      // reminder firing and the user opening chat to ask about it.
+      const all = listReminders();
+      const now = Date.now();
+      const PAST_DUE_GRACE_MS = 5 * 60 * 1000;
+      const rs = all.filter((r) => {
+        if (r.status === 'done') return false;
+        if (r.dueAt && r.dueAt.getTime() < now - PAST_DUE_GRACE_MS) return false;
+        return true;
+      });
       if (rs.length === 0) return { content: 'Ingen påmindelser gemt.', isError: false };
       return {
         content: rs
@@ -3052,4 +3122,45 @@ export async function setPrivacyFlag(id: PrivacyFlagId, value: boolean): Promise
     } catch {}
   }
   notifyPrivacyChange();
+}
+
+// TODO(v3): Replace local refresh with Supabase realtime subscription on
+// user_profiles when we add multi-device support (Mac / Watch / Web).
+// For v2 the user is the only writer from one device, so refresh-on-mount
+// + refresh-after-write is sufficient.
+export function useCalendarLabels() {
+  const { user } = useAuth();
+  const [labels, setLabels] = useState<CalendarLabels>({});
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    if (!user?.id) {
+      setLabels({});
+      setLoading(false);
+      return;
+    }
+    try {
+      const fresh = await readCalendarLabels(user.id);
+      setLabels(fresh);
+    } catch (err) {
+      if (__DEV__) console.warn('[useCalendarLabels] refresh failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const setLabel = useCallback(
+    async (key: CalendarLabelKey, target: CalendarLabelTarget | null) => {
+      if (!user?.id) return;
+      await setCalendarLabel(user.id, key, target);
+      await refresh();
+    },
+    [refresh, user?.id],
+  );
+
+  return { labels, loading, refresh, setLabel };
 }

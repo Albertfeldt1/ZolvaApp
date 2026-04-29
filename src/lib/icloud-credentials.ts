@@ -17,7 +17,26 @@
 //   - Android: Keystore wiped on uninstall. android.allowBackup=false in the
 //     manifest prevents Auto Backup from syncing credentials to Google Drive.
 
+import { supabase } from './supabase';
 import * as secureStorage from './secure-storage';
+import { discoverCalendarHome } from './icloud-calendar';
+
+// Tiny pub/sub so React components reading iCloud cred state can re-poll
+// when saveCredential / clearCredential succeed. The setup screen lives in
+// App.tsx and the cred-reading sections live in SettingsScreen — neither
+// has a direct ref to the other, so a module-level event bus is the
+// minimal-coupling fix.
+type CredsListener = () => void;
+const credsListeners = new Set<CredsListener>();
+export function subscribeToIcloudCreds(fn: CredsListener): () => void {
+  credsListeners.add(fn);
+  return () => { credsListeners.delete(fn); };
+}
+function notifyCredsChanged(): void {
+  for (const fn of credsListeners) {
+    try { fn(); } catch (err) { if (__DEV__) console.warn('[icloud-creds] listener threw:', err); }
+  }
+}
 
 export type SyncCursor = { uidValidity: number; lastUid: number };
 // v1 ignores SyncCursor — included so the storage shape doesn't have to
@@ -73,6 +92,104 @@ export async function loadCredential(userId: string): Promise<IcloudCredentialSt
   return { kind: 'absent' };
 }
 
+// Error codes surfaced by saveCredential / clearCredential when the
+// server-link round trip fails. Local persistence is rolled back so the
+// user retries the connect flow rather than ending up half-set-up.
+export type IcloudLinkError =
+  | 'discovery-failed'   // CalDAV PROPFIND chain failed (auth/network/protocol)
+  | 'reauth-required'    // server iat-recency gate; client should refresh + retry
+  | 'rate-limited'       // server rate limit hit
+  | 'network'            // local fetch failed before reaching the function
+  | 'server';            // any other server-side failure
+
+export class IcloudLinkFailure extends Error {
+  constructor(public code: IcloudLinkError, message?: string) {
+    super(message ?? code);
+    this.name = 'IcloudLinkFailure';
+  }
+}
+
+type LinkResponseBody =
+  | { ok: true }
+  | { ok: false; code: 'reauth_required' | 'rate_limited' | 'invalid_request' | 'unauthorized' | 'server_error' };
+
+async function callLinkEndpoint(
+  email: string,
+  password: string,
+  calendarHomeUrl: string,
+): Promise<void> {
+  // Refresh the session right before the call so the JWT iat is < a few
+  // seconds old. The icloud-creds-link endpoint enforces a 5-min iat window
+  // as a sanity check; without this refresh, a session that auto-refreshed
+  // more than 5 min ago would fail with reauth-required even though the
+  // user is actively in the app. Real step-up auth (OTP) would replace
+  // both this refresh and the freshness gate; documented in the migration
+  // header for 20260429140000_icloud_calendar_creds.sql.
+  try {
+    await supabase.auth.refreshSession();
+  } catch (err) {
+    if (__DEV__) console.warn('[icloud-creds] refreshSession failed (continuing):', err);
+  }
+
+  const { data, error } = await supabase.functions.invoke<LinkResponseBody>('icloud-creds-link', {
+    method: 'POST',
+    body: { email, password, calendar_home_url: calendarHomeUrl },
+  });
+
+  // supabase-js wraps non-2xx as a FunctionsHttpError where error.context is
+  // a Response. Reading its body gives us the actual { ok:false, code:'...' }
+  // payload so we can route to the right IcloudLinkFailure code instead of
+  // a generic 'network'. Without this, every 401/429/etc. shows up as
+  // "Edge Function returned a non-2xx status code" with no actionable info.
+  if (error) {
+    let parsed: LinkResponseBody | null = null;
+    let status = 0;
+    const ctx = (error as { context?: Response }).context;
+    if (ctx && typeof ctx.json === 'function') {
+      status = ctx.status;
+      try { parsed = (await ctx.json()) as LinkResponseBody; } catch { parsed = null; }
+    }
+    if (parsed && parsed.ok === false) {
+      switch (parsed.code) {
+        case 'reauth_required': throw new IcloudLinkFailure('reauth-required', `${status} reauth_required`);
+        case 'rate_limited':    throw new IcloudLinkFailure('rate-limited', `${status} rate_limited`);
+        case 'unauthorized':    throw new IcloudLinkFailure('server', `${status} unauthorized — check JWT auth`);
+        case 'invalid_request': throw new IcloudLinkFailure('server', `${status} invalid_request — body validation`);
+        case 'server_error':    throw new IcloudLinkFailure('server', `${status} server_error`);
+        default:                throw new IcloudLinkFailure('server', `${status} ${parsed.code}`);
+      }
+    }
+    throw new IcloudLinkFailure('network', `${error.message}${status ? ` (HTTP ${status})` : ''}`);
+  }
+
+  if (!data || !('ok' in data)) {
+    throw new IcloudLinkFailure('server', 'malformed link response');
+  }
+  if (data.ok === true) return;
+  switch (data.code) {
+    case 'reauth_required': throw new IcloudLinkFailure('reauth-required');
+    case 'rate_limited':    throw new IcloudLinkFailure('rate-limited');
+    default:                throw new IcloudLinkFailure('server', data.code);
+  }
+}
+
+async function callRevokeEndpoint(): Promise<void> {
+  // Revoke is best-effort. Local clear must still happen; if the server
+  // call fails, we log and proceed — the user has explicitly chosen to
+  // disconnect. Stale server rows get cleared on next link or on
+  // ON DELETE CASCADE if the auth.users row is deleted.
+  try {
+    const { error } = await supabase.functions.invoke('icloud-creds-revoke', {
+      method: 'POST',
+    });
+    if (error && __DEV__) {
+      console.warn('[icloud-creds] revoke failed (continuing local clear):', error.message);
+    }
+  } catch (e) {
+    if (__DEV__) console.warn('[icloud-creds] revoke threw (continuing local clear):', e);
+  }
+}
+
 export async function saveCredential(
   userId: string,
   email: string,
@@ -84,6 +201,11 @@ export async function saveCredential(
   if (!trimmedEmail || !cleanPwd) {
     throw new Error('saveCredential: email and password required');
   }
+
+  // Local-first: persist creds before discovery so loadCredential calls
+  // from within discoverCalendarHome (transitive via fullDiscover →
+  // markInvalid path on auth-failed) see the new credential, not the
+  // previous one. We roll back on any failure below.
   const stored: StoredShape = {
     email: trimmedEmail,
     password: cleanPwd,
@@ -91,6 +213,23 @@ export async function saveCredential(
     state: 'valid',
   };
   await secureStorage.setItem(credKey(userId), JSON.stringify(stored));
+
+  try {
+    const discovery = await discoverCalendarHome(trimmedEmail, cleanPwd, userId);
+    if (!discovery.ok) {
+      throw new IcloudLinkFailure('discovery-failed', discovery.error);
+    }
+    await callLinkEndpoint(trimmedEmail, cleanPwd, discovery.data.calendarHomeUrl);
+  } catch (e) {
+    // Roll back local persistence so the UI doesn't show "iCloud connected"
+    // in a half-linked state. discoverCalendarHome may have written a
+    // discovery cache entry; clear it too.
+    await secureStorage.deleteItem(credKey(userId));
+    const { clearDiscoveryCacheFor } = await import('./icloud-calendar');
+    await clearDiscoveryCacheFor(userId);
+    throw e;
+  }
+  notifyCredsChanged();
 }
 
 export async function markInvalid(userId: string, reason?: string): Promise<void> {
@@ -109,5 +248,31 @@ export async function markInvalid(userId: string, reason?: string): Promise<void
 
 export async function clearCredential(userId: string): Promise<void> {
   if (!userId) throw new Error('clearCredential: missing userId');
+
+  // Auto-clear any voice-routing labels pointing at iCloud — a stale
+  // label can never silently mis-route a voice call to a calendar the
+  // user has just disconnected. Mirrors the disconnectProvider auto-clear
+  // for google/microsoft in auth.ts.
+  try {
+    const { readCalendarLabels, setCalendarLabel } = await import('./calendar-labels');
+    const labels = await readCalendarLabels(userId);
+    await Promise.all(
+      (Object.entries(labels) as Array<[
+        'work' | 'personal',
+        { provider: 'google' | 'microsoft' | 'icloud'; id: string } | undefined,
+      ]>).map(async ([key, target]) => {
+        if (target?.provider === 'icloud') {
+          await setCalendarLabel(userId, key, null);
+        }
+      }),
+    );
+  } catch (err) {
+    if (__DEV__) console.warn('[icloud-creds] auto-clear voice labels failed:', err);
+  }
+
+  // Server revoke (best-effort). Even if it fails, we proceed with the
+  // local clear — the user explicitly asked to disconnect.
+  await callRevokeEndpoint();
   await secureStorage.deleteItem(credKey(userId));
+  notifyCredsChanged();
 }

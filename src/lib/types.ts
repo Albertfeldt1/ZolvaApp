@@ -138,6 +138,7 @@ export type WorkPreferenceId =
   | 'autonomy'
   | 'tone'
   | 'morning-brief'
+  | 'midday-brief'
   | 'quiet-hours'
   | 'evening-brief';
 

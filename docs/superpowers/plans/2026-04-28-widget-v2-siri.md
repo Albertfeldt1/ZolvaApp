@@ -2708,6 +2708,8 @@ git commit -m "test(edge): widget-action end-to-end happy + failure paths"
 
 ### Task 19: Logging — pick branch based on Task 2 outcome
 
+**Decision (2026-04-29, recorded per Task 2):** ephemeral branch (19b). Privacy policy currently states "Error logs without content: up to 30 days" — adding a per-call telemetry table extends scope beyond what's disclosed. Skip 19a. Note: policy still needs a Siri/voice paragraph before TestFlight ship; tracked separately.
+
 **Files (DB-table branch):**
 - Create: `supabase/migrations/<timestamp>_widget_action_calls.sql`
 
@@ -3565,6 +3567,8 @@ Expected: Siri shows the snippet with Stone + summary + spoken confirmation. Tap
 ## Phase 8 — Tests + manual QA
 
 ### Task 29: AppIntent unit tests
+
+**Status (2026-04-29):** Test seam in `IntentActionClient.swift` and the test file at `plugins/voice-intents/AskZolvaIntentTests.swift` are committed. Wiring into an Xcode `ZolvaTests` bundle is **deferred** — solo project, no `ZolvaTests` target yet, and the spec marks these as "should have, not blocking." On-device QA (Task 30) is the active gate for the same auth-state matrix. When a test bundle is added, copy the test file into the new target and update `withVoiceIntents.js` if needed.
 
 **Files:**
 - Create: `plugins/voice-intents/AskZolvaIntentTests.swift`

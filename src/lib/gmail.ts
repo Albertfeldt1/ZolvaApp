@@ -181,25 +181,6 @@ export async function sendReply(ctx: {
   });
 }
 
-export async function archiveMessage(id: string): Promise<void> {
-  return tryWithRefresh('google', async (accessToken) => {
-    const res = await fetchWithTimeout('google', `${BASE}/messages/${id}/modify`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ removeLabelIds: ['INBOX', 'UNREAD'] }),
-    });
-    if (res.status === 401 || res.status === 403) {
-      throw new ProviderAuthError('google', `Gmail afvist (${res.status}).`);
-    }
-    if (!res.ok) {
-      throw new Error(`Gmail archive failed: ${res.status} ${await res.text()}`);
-    }
-  });
-}
-
 function extractBody(part: RawMessagePart | undefined): string {
   if (!part) return '';
   const plain = findPart(part, 'text/plain');

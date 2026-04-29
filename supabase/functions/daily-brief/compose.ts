@@ -1,7 +1,7 @@
 import { Weather } from './weather.ts';
 
 export type BriefInputs = {
-  kind: 'morning' | 'evening';
+  kind: 'morning' | 'midday' | 'evening';
   name: string | null;
   timezone: string;
   events: Array<{
