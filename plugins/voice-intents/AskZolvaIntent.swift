@@ -6,7 +6,10 @@ struct AskZolvaIntent: AppIntent {
   static var title: LocalizedStringResource = "Ask Zolva"
   static var description = IntentDescription("Bed Zolva om at sætte et møde i din kalender via stemmen.")
 
-  @Parameter(title: "What do you want to ask Zolva?")
+  @Parameter(
+    title: "What do you want to ask Zolva?",
+    requestValueDialog: IntentDialog("Hvad vil du bede Zolva om?")
+  )
   var prompt: String
 
   func perform() async throws -> some IntentResult & ProvidesDialog & ShowsSnippetView {
