@@ -10,13 +10,12 @@ struct AskZolvaIntent: AppIntent {
     title: "What do you want to ask Zolva?",
     requestValueDialog: IntentDialog("Hvad vil du bede Zolva om?")
   )
-  var prompt: PromptEntity
+  var prompt: String
 
   func perform() async throws -> some IntentResult & ProvidesDialog & ShowsSnippetView {
-    let promptText = prompt.id
     do {
       let response = try await IntentActionClient.send(
-        prompt: promptText,
+        prompt: prompt,
         timezone: TimeZone.current.identifier
       )
       let snippetState: AskZolvaSnippetState

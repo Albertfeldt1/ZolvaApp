@@ -8,7 +8,6 @@ const SOURCES = [
   'SupabaseAuthClient.swift',
   'IntentActionClient.swift',
   'AskZolvaSnippetView.swift',
-  'PromptEntity.swift',
   'AskZolvaIntent.swift',
   'AskZolvaShortcuts.swift',
 ];
