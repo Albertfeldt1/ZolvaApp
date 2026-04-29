@@ -2708,6 +2708,8 @@ git commit -m "test(edge): widget-action end-to-end happy + failure paths"
 
 ### Task 19: Logging — pick branch based on Task 2 outcome
 
+**Decision (2026-04-29, recorded per Task 2):** ephemeral branch (19b). Privacy policy currently states "Error logs without content: up to 30 days" — adding a per-call telemetry table extends scope beyond what's disclosed. Skip 19a. Note: policy still needs a Siri/voice paragraph before TestFlight ship; tracked separately.
+
 **Files (DB-table branch):**
 - Create: `supabase/migrations/<timestamp>_widget_action_calls.sql`
 

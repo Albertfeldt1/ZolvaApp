@@ -1,3 +1,5 @@
+// Logging: ephemeral only (privacy policy specifies "Error logs without content: up to 30 days").
+// No widget_action_calls table. Supabase platform log retention applies (~7 days).
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { extractEvent } from './claude.ts';
