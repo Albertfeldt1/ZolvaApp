@@ -1902,6 +1902,13 @@ const DEFAULT_WORK_PREFERENCES: WorkPreference[] = [
     options: ['Fra', '07.00', '08.00', '09.00'],
   },
   {
+    id: 'midday-brief',
+    title: 'Middagsoverblik',
+    meta: 'Hvad ligger der efter frokost?',
+    value: 'Fra',
+    options: ['Fra', '11.30', '12.00', '12.30', '13.00'],
+  },
+  {
     id: 'quiet-hours',
     title: 'Stille timer',
     meta: 'Ingen notifikationer',
