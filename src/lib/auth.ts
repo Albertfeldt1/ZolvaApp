@@ -69,7 +69,7 @@ const MICROSOFT_SCOPES = [
   'offline_access',
   'Mail.ReadWrite',
   'Mail.Send',
-  'Calendars.Read',
+  'Calendars.ReadWrite',
 ].join(' ');
 
 const SECURE_STORE_MIGRATION_FLAG = 'zolva.migration.secure-store.v1';
