@@ -2725,7 +2725,18 @@ async function runChatTool(
       return { content: `Oprettet note ${n.id}: "${n.text}".`, isError: false };
     }
     if (name === 'list_reminders') {
-      const rs = listReminders();
+      // Drop completed reminders and past-due ones — the user asks "mine
+      // påmindelser" expecting things still to come, not a backlog of
+      // already-handled stuff. 5-minute grace covers the gap between a
+      // reminder firing and the user opening chat to ask about it.
+      const all = listReminders();
+      const now = Date.now();
+      const PAST_DUE_GRACE_MS = 5 * 60 * 1000;
+      const rs = all.filter((r) => {
+        if (r.status === 'done') return false;
+        if (r.dueAt && r.dueAt.getTime() < now - PAST_DUE_GRACE_MS) return false;
+        return true;
+      });
       if (rs.length === 0) return { content: 'Ingen påmindelser gemt.', isError: false };
       return {
         content: rs
