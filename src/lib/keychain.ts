@@ -5,7 +5,14 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
-export const KEYCHAIN_ACCESS_GROUP = 'io.zolva.shared';
+// Must match SupabaseSession.swift's `accessGroup` constant. iOS keychain
+// APIs accept either the bare suffix OR the team-prefixed form, BUT
+// expo-secure-store passes the value straight to kSecAttrAccessGroup
+// without the team prefix, and iOS checks against the entitlements list
+// strictly: the bare form returns errSecMissingEntitlement on this device
+// even though the binary IS entitled to N6WPH3FPFA.io.zolva.shared.
+// Use the team-prefixed form to satisfy iOS's literal-string match.
+export const KEYCHAIN_ACCESS_GROUP = 'N6WPH3FPFA.io.zolva.shared';
 export const KEYCHAIN_SERVICE = 'io.zolva.shared';
 export const JWT_KEY = 'supabase.access_token';
 export const REFRESH_KEY = 'supabase.refresh_token';
