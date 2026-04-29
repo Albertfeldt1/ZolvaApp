@@ -12,10 +12,11 @@ Both Danish and English iOS locale required.
 
 ## Setup
 - [ ] Fresh login as albertfeldt1@gmail.com on device
-- [ ] Connect Google calendar
-- [ ] Connect Microsoft calendar
-- [ ] Settings → Stemmestyring → pick a Google calendar as Work
-- [ ] Settings → Stemmestyring → pick a Microsoft calendar as Personal
+- [ ] Connect Google calendar (currently `calendar.readonly` scope — voice writes will fail with `permission_denied`)
+- [ ] Connect Microsoft calendar (currently `Calendars.Read` — same as Google)
+- [ ] Connect iCloud (Settings → iCloud → app-specific password) — voice WRITES go through this path
+- [ ] Settings → Stemmestyring → pick an iCloud calendar as Work
+- [ ] Settings → Stemmestyring → pick an iCloud calendar as Personal
 
 ## Voice trigger paths
 - [ ] "Hey Siri, bed Zolva om at sætte et møde i morgen kl. 17" *(now two-turn: phrase fires, Siri prompts for dictation)*
@@ -36,6 +37,10 @@ Both Danish and English iOS locale required.
 - [ ] "in my work calendar" → lands in Work
 - [ ] Misspelled hint ("im my workkalender") → Claude either matches or
        falls back to default; verify dialog says which calendar was used
+- [ ] iCloud calendar appears in `events.icloud.com` after voice create
+       (web client; native iOS Calendar app should also show it after a
+       refresh)
+- [ ] Verify the event title, start, and end match what was spoken
 
 ## Response surface
 - [ ] Success: Stone happy + summary line + spoken confirmation
@@ -65,13 +70,27 @@ Both Danish and English iOS locale required.
        refreshes; user sees success, dialog spoken without delay >2s extra
 
 ## Disconnect flow (auto-clear)
-- [ ] Disconnect Google → Work label cleared in Settings UI; voice
-       calls now route to Personal (Microsoft) or surface
-       `no_calendar_labels` if Personal also unset.
+- [ ] Disconnect Google → Work/Personal labels pointing at Google
+       cleared in Settings UI; voice calls re-route or surface
+       `no_calendar_labels`.
+- [ ] Disconnect iCloud → Work/Personal labels pointing at iCloud
+       cleared (mirrors auth.ts disconnectProvider for google/microsoft).
+       Verify in DB:
+       `SELECT work_calendar_provider, personal_calendar_provider FROM
+       user_profiles WHERE user_id = '<albert>'` should show `icloud`
+       gone from both columns.
+- [ ] Disconnect iCloud → server-side row gone:
+       `SELECT count(*) FROM user_icloud_calendar_creds WHERE user_id =
+       '<albert>'` returns 0.
+- [ ] Disconnect iCloud → audit row written:
+       `SELECT event, called_at FROM icloud_calendar_creds_audit WHERE
+       user_id = '<albert>' ORDER BY called_at DESC LIMIT 1` returns
+       `revoke`.
 - [ ] Reconnect Google → no restore-prompt fires in v2 (deferred to
        v2.x). User picks Work label fresh in Settings.
-- [ ] After reconnect, voice call routes to the freshly-picked Work
-       label correctly.
+- [ ] Reconnect iCloud → server-side row recreated; audit row written
+       with event=link.
+- [ ] After reconnect, voice call routes to the freshly-picked label correctly.
 
 ## Latency
 - [ ] Hey Siri → spoken response: target ≤6s on cold Edge Function, p95 ≤4s warm
@@ -88,6 +107,13 @@ Both Danish and English iOS locale required.
        free-form prompt text. (No `widget_action_calls` table — v2
        ships with ephemeral logging only, per privacy-policy verdict
        recorded in plan Task 2.)
+- [ ] Check icloud-creds-link logs after iCloud connect — log lines
+       contain `kind`, `user_id`, and `success` only. NEVER the
+       payload (email/password/calendar_home_url).
+- [ ] Verify `user_icloud_calendar_creds.encrypted_blob` is gibberish
+       in raw form (not the JSON cleartext):
+       `SELECT length(encrypted_blob), encode(encrypted_blob, 'hex')
+       FROM user_icloud_calendar_creds WHERE user_id = '<albert>'`
 
 ## Latency profiling (TestFlight gate)
 
