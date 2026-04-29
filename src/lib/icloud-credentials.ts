@@ -17,7 +17,9 @@
 //   - Android: Keystore wiped on uninstall. android.allowBackup=false in the
 //     manifest prevents Auto Backup from syncing credentials to Google Drive.
 
+import { supabase } from './supabase';
 import * as secureStorage from './secure-storage';
+import { discoverCalendarHome } from './icloud-calendar';
 
 export type SyncCursor = { uidValidity: number; lastUid: number };
 // v1 ignores SyncCursor — included so the storage shape doesn't have to
@@ -73,6 +75,66 @@ export async function loadCredential(userId: string): Promise<IcloudCredentialSt
   return { kind: 'absent' };
 }
 
+// Error codes surfaced by saveCredential / clearCredential when the
+// server-link round trip fails. Local persistence is rolled back so the
+// user retries the connect flow rather than ending up half-set-up.
+export type IcloudLinkError =
+  | 'discovery-failed'   // CalDAV PROPFIND chain failed (auth/network/protocol)
+  | 'reauth-required'    // server iat-recency gate; client should refresh + retry
+  | 'rate-limited'       // server rate limit hit
+  | 'network'            // local fetch failed before reaching the function
+  | 'server';            // any other server-side failure
+
+export class IcloudLinkFailure extends Error {
+  constructor(public code: IcloudLinkError, message?: string) {
+    super(message ?? code);
+    this.name = 'IcloudLinkFailure';
+  }
+}
+
+async function callLinkEndpoint(
+  email: string,
+  password: string,
+  calendarHomeUrl: string,
+): Promise<void> {
+  const { data, error } = await supabase.functions.invoke<
+    | { ok: true }
+    | { ok: false; code: 'reauth_required' | 'rate_limited' | 'invalid_request' | 'unauthorized' | 'server_error' }
+  >('icloud-creds-link', {
+    method: 'POST',
+    body: { email, password, calendar_home_url: calendarHomeUrl },
+  });
+  if (error) {
+    throw new IcloudLinkFailure('network', error.message);
+  }
+  if (!data || !('ok' in data)) {
+    throw new IcloudLinkFailure('server', 'malformed link response');
+  }
+  if (data.ok === true) return;
+  switch (data.code) {
+    case 'reauth_required': throw new IcloudLinkFailure('reauth-required');
+    case 'rate_limited':    throw new IcloudLinkFailure('rate-limited');
+    default:                throw new IcloudLinkFailure('server', data.code);
+  }
+}
+
+async function callRevokeEndpoint(): Promise<void> {
+  // Revoke is best-effort. Local clear must still happen; if the server
+  // call fails, we log and proceed — the user has explicitly chosen to
+  // disconnect. Stale server rows get cleared on next link or on
+  // ON DELETE CASCADE if the auth.users row is deleted.
+  try {
+    const { error } = await supabase.functions.invoke('icloud-creds-revoke', {
+      method: 'POST',
+    });
+    if (error && __DEV__) {
+      console.warn('[icloud-creds] revoke failed (continuing local clear):', error.message);
+    }
+  } catch (e) {
+    if (__DEV__) console.warn('[icloud-creds] revoke threw (continuing local clear):', e);
+  }
+}
+
 export async function saveCredential(
   userId: string,
   email: string,
@@ -84,6 +146,11 @@ export async function saveCredential(
   if (!trimmedEmail || !cleanPwd) {
     throw new Error('saveCredential: email and password required');
   }
+
+  // Local-first: persist creds before discovery so loadCredential calls
+  // from within discoverCalendarHome (transitive via fullDiscover →
+  // markInvalid path on auth-failed) see the new credential, not the
+  // previous one. We roll back on any failure below.
   const stored: StoredShape = {
     email: trimmedEmail,
     password: cleanPwd,
@@ -91,6 +158,22 @@ export async function saveCredential(
     state: 'valid',
   };
   await secureStorage.setItem(credKey(userId), JSON.stringify(stored));
+
+  try {
+    const discovery = await discoverCalendarHome(trimmedEmail, cleanPwd, userId);
+    if (!discovery.ok) {
+      throw new IcloudLinkFailure('discovery-failed', discovery.error);
+    }
+    await callLinkEndpoint(trimmedEmail, cleanPwd, discovery.data.calendarHomeUrl);
+  } catch (e) {
+    // Roll back local persistence so the UI doesn't show "iCloud connected"
+    // in a half-linked state. discoverCalendarHome may have written a
+    // discovery cache entry; clear it too.
+    await secureStorage.deleteItem(credKey(userId));
+    const { clearDiscoveryCacheFor } = await import('./icloud-calendar');
+    await clearDiscoveryCacheFor(userId);
+    throw e;
+  }
 }
 
 export async function markInvalid(userId: string, reason?: string): Promise<void> {
@@ -109,5 +192,8 @@ export async function markInvalid(userId: string, reason?: string): Promise<void
 
 export async function clearCredential(userId: string): Promise<void> {
   if (!userId) throw new Error('clearCredential: missing userId');
+  // Server revoke first (best-effort). Even if it fails, we proceed with
+  // the local clear — the user explicitly asked to disconnect.
+  await callRevokeEndpoint();
   await secureStorage.deleteItem(credKey(userId));
 }

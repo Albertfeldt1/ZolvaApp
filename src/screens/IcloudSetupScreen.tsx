@@ -18,7 +18,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { Eye, EyeOff } from 'lucide-react-native';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { useAuth } from '../lib/auth';
-import { saveCredential } from '../lib/icloud-credentials';
+import { saveCredential, IcloudLinkFailure } from '../lib/icloud-credentials';
 import { validate as validateImap } from '../lib/icloud-mail';
 import { probeCredential as probeCalDav } from '../lib/icloud-calendar';
 import { colors, fonts } from '../theme';
@@ -39,7 +39,9 @@ type SubmitError =
   | 'rate-limited'
   | 'temporarily-unavailable'
   | 'gateway-unavailable'
-  | 'protocol';
+  | 'protocol'
+  | 'reauth-required'
+  | 'voice-link-failed';
 
 export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
   const { bottom: chromeBottom } = useChromeInsets();
@@ -146,7 +148,19 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
       ]);
       if (!imapRes.ok) { setSubmitError(mapToSubmitError(imapRes.error)); return; }
       if (!calRes.ok)  { setSubmitError(mapToSubmitError(calRes.error)); return; }
-      await saveCredential(user.id, email, password);
+      try {
+        await saveCredential(user.id, email, password);
+      } catch (linkErr) {
+        if (linkErr instanceof IcloudLinkFailure) {
+          if (linkErr.code === 'reauth-required') { setSubmitError('reauth-required'); return; }
+          if (linkErr.code === 'rate-limited')    { setSubmitError('rate-limited'); return; }
+          if (linkErr.code === 'discovery-failed' || linkErr.code === 'network') {
+            setSubmitError('network'); return;
+          }
+          setSubmitError('voice-link-failed'); return;
+        }
+        throw linkErr;
+      }
       onDone();
     } catch {
       setSubmitError('protocol');
@@ -320,6 +334,8 @@ function messageFor(e: SubmitError): string {
     case 'temporarily-unavailable': return 'Apple er travl lige nu. Prøv igen om lidt.';
     case 'gateway-unavailable':     return 'Vores server kunne ikke nås. Prøv igen om lidt.';
     case 'protocol':                return 'Noget gik galt på Apples side. Prøv igen om lidt.';
+    case 'reauth-required':         return 'Log ud og ind igen for at forbinde stemmestyring.';
+    case 'voice-link-failed':       return 'iCloud forbindelse oprettet, men stemmestyring kunne ikke registreres. Prøv at forbinde igen.';
   }
 }
 

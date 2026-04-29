@@ -90,6 +90,20 @@ export async function clearDiscoveryCacheFor(userId: string): Promise<void> {
   await clearDiscoveryCache(userId);
 }
 
+// Public wrapper around fullDiscover for the iCloud setup flow. Runs the
+// PROPFIND chain (principal → home-set → calendar list), persists the
+// discovery cache, and returns the calendarHomeUrl that the voice path
+// will need to write events server-side via icloud-creds-link.
+export async function discoverCalendarHome(
+  email: string,
+  password: string,
+  userId: string,
+): Promise<CalDavResult<{ calendarHomeUrl: string }>> {
+  const res = await fullDiscover(email, password, userId);
+  if (!res.ok) return res;
+  return { ok: true, data: { calendarHomeUrl: res.data.calendarHomeUrl } };
+}
+
 function basicAuth(email: string, password: string): string | null {
   // btoa throws on non-Latin-1 input. App-specific passwords are 16 lowercase
   // letters so this never bites in practice; setup-screen validation is the
