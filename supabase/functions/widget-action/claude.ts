@@ -10,7 +10,11 @@ export type ClaudeExtraction = {
 
 export type ClaudeUsage = { input: number; output: number };
 
-const SYSTEM_PROMPT = (tz: string) => `You parse a single calendar-create request. The user's timezone is ${tz}. Return a tool call with title, start, optionally end, optionally calendar_label. If unparseable, return title='UNPARSEABLE'.
+const SYSTEM_PROMPT = (tz: string, nowIso: string) => `You parse a single calendar-create request.
+
+The current date and time is ${nowIso}. The user's timezone is ${tz}. Resolve all relative date phrases (e.g. "i morgen", "tomorrow", "om to dage", "next Monday") against this. Without this anchor, your training-data assumption of "today" will be wrong by months — always use the timestamp above.
+
+Return a tool call with title, start, optionally end, optionally calendar_label. If unparseable, return title='UNPARSEABLE'.
 
 Ambiguous-time handling: for inputs without AM/PM context (e.g. "kl. 5", "5 o'clock", "fem"), default to the next reasonable occurrence in the user-local 07:00–22:00 window. If 'now' is before 07:00, pick today 07:00–22:00; if after 22:00, pick tomorrow's window. Specifically prefer afternoon hours (13:00–18:00) when the input is plausibly social/work-related ("møde", "meeting", "lunch", "drinks") — Danish "klokken fem" overwhelmingly means 17:00 in those contexts.
 
@@ -55,7 +59,7 @@ export async function extractEvent(
     body: JSON.stringify({
       model: CLAUDE_MODEL,
       max_tokens: 512,
-      system: SYSTEM_PROMPT(timezone),
+      system: SYSTEM_PROMPT(timezone, new Date().toISOString()),
       tools: [TOOL],
       tool_choice: { type: 'tool', name: 'create_calendar_event' },
       messages: [{ role: 'user', content: prompt }],
