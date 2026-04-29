@@ -3109,6 +3109,30 @@ export async function markMemoryConsentShown(uid: string): Promise<void> {
   } catch {}
 }
 
+// ─── Microsoft scope-bump reconnect prompt ─────────────────────────────────
+// One-shot nudge tied to the Calendars.Read → Calendars.ReadWrite scope
+// bump. Old tokens still carry Calendars.Read, so calendar writes 403 until
+// the user re-consents. Key is per-uid so a fresh sign-in on the same device
+// still gets the prompt once.
+
+const msReconnectPromptKey = (uid: string) =>
+  `zolva.${uid}.prompts.ms-calendar-rw.v1`;
+
+export async function shouldShowMsReconnectPrompt(uid: string): Promise<boolean> {
+  try {
+    const raw = await AsyncStorage.getItem(msReconnectPromptKey(uid));
+    return !raw;
+  } catch {
+    return true;
+  }
+}
+
+export async function markMsReconnectPromptShown(uid: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(msReconnectPromptKey(uid), Date.now().toString());
+  } catch {}
+}
+
 // ─── setPrivacyFlag ────────────────────────────────────────────────────────
 
 export async function setPrivacyFlag(id: PrivacyFlagId, value: boolean): Promise<void> {

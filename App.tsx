@@ -22,7 +22,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useState } from 'react';
-import { AppState, Linking, StyleSheet, View } from 'react-native';
+import { Alert, AppState, Linking, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { ChromeInsetsContext, PhoneChrome, TabId } from './src/components/PhoneChrome';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
@@ -46,7 +46,12 @@ import { initNotificationFeed, markFeedByPayload } from './src/lib/notification-
 import type { InboxMail, NotificationPayload } from './src/lib/types';
 import { colors } from './src/theme';
 import { useAuth } from './src/lib/auth';
-import { shouldShowMemoryConsent, markMemoryConsentShown } from './src/lib/hooks';
+import {
+  shouldShowMemoryConsent,
+  markMemoryConsentShown,
+  shouldShowMsReconnectPrompt,
+  markMsReconnectPromptShown,
+} from './src/lib/hooks';
 import { MemoryConsentModal } from './src/components/MemoryConsentModal';
 import { isDemoUser } from './src/lib/demo';
 import { syncUserProfile } from './src/lib/user-profile';
@@ -77,7 +82,7 @@ export default function App() {
     JetBrainsMono_600SemiBold,
   });
 
-  const { user } = useAuth();
+  const { user, microsoftAccessToken, signInWithMicrosoft, disconnectProvider } = useAuth();
   const [introPlaying, setIntroPlaying] = useState(!introShownThisSession);
   const dismissIntro = () => {
     introShownThisSession = true;
@@ -111,6 +116,41 @@ export default function App() {
     });
     return () => { cancelled = true; };
   }, [user?.id]);
+
+  // One-shot Microsoft reconnect nudge — old tokens carry Calendars.Read,
+  // new code requires Calendars.ReadWrite for chatbot/voice calendar writes.
+  useEffect(() => {
+    const uid = user?.id;
+    if (!uid || isDemoUser(user) || !microsoftAccessToken) return;
+    let cancelled = false;
+    void shouldShowMsReconnectPrompt(uid).then((show) => {
+      if (cancelled || !show) return;
+      Alert.alert(
+        'Genforbind Microsoft',
+        'Vi har udvidet Microsoft-tilladelserne, så Zolva kan oprette og redigere møder for dig. Genforbind din Microsoft-konto for at aktivere det.',
+        [
+          {
+            text: 'Senere',
+            style: 'cancel',
+            onPress: () => { void markMsReconnectPromptShown(uid); },
+          },
+          {
+            text: 'Genforbind',
+            onPress: async () => {
+              await markMsReconnectPromptShown(uid);
+              try {
+                await disconnectProvider('microsoft');
+                await signInWithMicrosoft();
+              } catch (err) {
+                if (__DEV__) console.warn('[ms-reconnect] failed:', err);
+              }
+            },
+          },
+        ],
+      );
+    });
+    return () => { cancelled = true; };
+  }, [user?.id, microsoftAccessToken, disconnectProvider, signInWithMicrosoft, user]);
 
   useEffect(() => {
     if (!user?.id || isDemoUser(user)) return;
