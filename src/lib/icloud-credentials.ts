@@ -101,6 +101,19 @@ async function callLinkEndpoint(
   password: string,
   calendarHomeUrl: string,
 ): Promise<void> {
+  // Refresh the session right before the call so the JWT iat is < a few
+  // seconds old. The icloud-creds-link endpoint enforces a 5-min iat window
+  // as a sanity check; without this refresh, a session that auto-refreshed
+  // more than 5 min ago would fail with reauth-required even though the
+  // user is actively in the app. Real step-up auth (OTP) would replace
+  // both this refresh and the freshness gate; documented in the migration
+  // header for 20260429140000_icloud_calendar_creds.sql.
+  try {
+    await supabase.auth.refreshSession();
+  } catch (err) {
+    if (__DEV__) console.warn('[icloud-creds] refreshSession failed (continuing):', err);
+  }
+
   const { data, error } = await supabase.functions.invoke<LinkResponseBody>('icloud-creds-link', {
     method: 'POST',
     body: { email, password, calendar_home_url: calendarHomeUrl },
