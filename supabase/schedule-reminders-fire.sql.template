@@ -1,0 +1,32 @@
+-- supabase/schedule-reminders-fire.sql.template
+--
+-- pg_cron schedule for reminders-fire. Held back from migrations because
+-- the secret values must be supplied per-environment by the operator —
+-- they don't belong in the repo.
+--
+-- Replace <SERVICE_ROLE_SECRET> and <CRON_SHARED_SECRET> with the actual
+-- values from the Supabase dashboard before applying.
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'reminders-fire-every-min') THEN
+    PERFORM cron.unschedule('reminders-fire-every-min');
+  END IF;
+END
+$$;
+
+SELECT cron.schedule(
+  'reminders-fire-every-min',
+  '* * * * *',
+  $$
+  SELECT net.http_post(
+    url := 'https://sjkhfkatmeqtsrysixop.functions.supabase.co/reminders-fire',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer <SERVICE_ROLE_SECRET>',
+      'Content-Type', 'application/json',
+      'x-cron-secret', '<CRON_SHARED_SECRET>'
+    ),
+    body := '{"source":"cron"}'::jsonb
+  ) AS request_id;
+  $$
+);
