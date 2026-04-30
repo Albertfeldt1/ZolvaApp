@@ -588,6 +588,7 @@ const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 // because filtering may discard a lot.
 export async function fetchGmailCandidates(
   accessToken: string,
+  userOwnEmail: string,
   maxFetch = 200,
   keep = 50,
 ): Promise<CandidateMessage[]> {
@@ -644,7 +645,7 @@ export async function fetchGmailCandidates(
 
   // Step 3: filter and keep the most recent `keep`.
   return candidates
-    .filter((c) => !isAutomatedSender(c.fromEmail, c.subject, c.labels))
+    .filter((c) => !isAutomatedSender(c.fromEmail, c.subject, c.labels, undefined, userOwnEmail))
     .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt))
     .slice(0, keep);
 }
@@ -682,6 +683,7 @@ const BASE = 'https://graph.microsoft.com/v1.0';
 
 export async function fetchGraphCandidates(
   accessToken: string,
+  userOwnEmail: string,
   maxFetch = 200,
   keep = 50,
 ): Promise<CandidateMessage[]> {
@@ -718,7 +720,7 @@ export async function fetchGraphCandidates(
   });
 
   return candidates
-    .filter((c) => !isAutomatedSender(c.fromEmail, c.subject, c.labels, c.inferenceClassification))
+    .filter((c) => !isAutomatedSender(c.fromEmail, c.subject, c.labels, c.inferenceClassification, userOwnEmail))
     .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt))
     .slice(0, keep);
 }
@@ -1100,7 +1102,7 @@ serve(async (req) => {
 
   // Run all jobs in parallel. Each worker is wrapped in a try so one failure
   // doesn't sink the whole batch.
-  await Promise.allSettled(jobs.map((job) => runJob(service, userId, job, anthropicKey)));
+  await Promise.allSettled(jobs.map((job) => runJob(service, userId, userOwnEmail, job, anthropicKey)));
 
   const { data: doneJobs } = await service
     .from('backfill_jobs')
@@ -1119,6 +1121,7 @@ type Job = { id: string; kind: 'mail' | 'calendar'; provider: 'google' | 'micros
 async function runJob(
   service: SupabaseClient,
   userId: string,
+  userOwnEmail: string,
   job: Job,
   anthropicKey: string,
 ): Promise<void> {
@@ -1136,8 +1139,8 @@ async function runJob(
 
     if (job.kind === 'mail') {
       const candidates = job.provider === 'google'
-        ? await fetchGmailCandidates(accessToken)
-        : await fetchGraphCandidates(accessToken);
+        ? await fetchGmailCandidates(accessToken, userOwnEmail)
+        : await fetchGraphCandidates(accessToken, userOwnEmail);
 
       await setJobRunning(service, job.id, candidates.length);
 
