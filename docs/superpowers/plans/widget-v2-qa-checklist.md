@@ -132,3 +132,31 @@ Both Danish and English iOS locale required.
        transcript text is forwarded to Anthropic's Claude (under the
        terms above) to extract event details, then discarded after the
        calendar event is created. We do not store voice audio."*
+
+## Voice — reminder branch
+
+- [ ] "Hey Siri, Zolva husk mig på at ringe mor kl. 17"
+       Expected: snippet says "Jeg minder dig om at ringe mor i dag kl. sytten."
+       Reminder appears in public.reminders with the correct due_at.
+- [ ] "Hey Siri, Zolva remind me to take meds at 8 pm"
+       Expected: snippet in English; reminder created.
+- [ ] "Hey Siri, Zolva sæt et møde i morgen kl. 17"
+       Expected: STILL routes to create_calendar_event (event branch); not
+       create_reminder. Calendar event lands in iCloud as before.
+- [ ] At the reminder's due time: push notification fires from
+       reminders-fire cron, NOT from the device (kill the app first to
+       confirm the push reaches it).
+- [ ] After push tap: deeplink lands on Memory tab (zolva://memory).
+
+## Server-side reminders DB spot-check
+
+- [ ] After voice creates a reminder:
+       SELECT id, title, due_at, fired_at, scheduled_for_tz
+       FROM public.reminders
+       WHERE user_id = '<user>' ORDER BY created_at DESC LIMIT 5;
+       Expected: row exists, fired_at is null, scheduled_for_tz matches
+       the user's locale tz.
+- [ ] After the cron has fired:
+       fired_at is non-null, push delivered to device.
+- [ ] Reminders-fire idempotency: manually update fired_at back to null
+       (DEV ONLY); next cron tick re-fires once and re-stamps.
