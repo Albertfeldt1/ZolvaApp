@@ -429,31 +429,65 @@ export async function insertPendingFacts(
   sourceTag: string,
 ): Promise<number> {
   if (facts.length === 0) return 0;
-  const rows = facts
+
+  // Live `facts` columns: id, user_id, text, normalized_text, category,
+  // status, source, created_at, confirmed_at, rejected_at, rejection_ttl,
+  // expires_at, decay_warning_sent_at. There is NO `confidence` column and
+  // NO `referent_date` column — `confidence` is consumed only as a filter
+  // here; `referentDate` is dropped (the existing `expires_at` decay path is
+  // for action-y categories and is set elsewhere).
+  const candidates = facts
     .filter((f) => VALID_CATEGORIES.has(f.category))
     .filter((f) => f.confidence >= 0.55)
-    .map((f) => ({
+    .map((f) => ({ ...f, normalized: normalizeFactText(f.text) }))
+    // Within-batch dedup: Claude may emit the same fact twice across calls.
+    .filter((f, i, all) => all.findIndex((g) => g.normalized === f.normalized) === i);
+
+  if (candidates.length === 0) return 0;
+
+  // Pre-check: skip facts whose normalized_text already exists as confirmed,
+  // OR as a non-expired rejection. Mirrors findDuplicateFact() in
+  // src/lib/profile-store.ts. Two reasons:
+  //   1. Keeps backfill from re-suggesting facts the user already confirmed
+  //      or recently rejected (the review screen would re-prompt forever).
+  //   2. The unique index on (user_id, normalized_text) is PARTIAL — it
+  //      enforces uniqueness only WHERE status='confirmed'. Pending rows
+  //      with a normalized_text that collides with a confirmed row will
+  //      violate the index the moment the user confirms one of the pending
+  //      duplicates in the review screen.
+  const nowIso = new Date().toISOString();
+  const { data: dups, error: dupErr } = await client
+    .from('facts')
+    .select('normalized_text, status, rejection_ttl')
+    .eq('user_id', userId)
+    .in('normalized_text', candidates.map((c) => c.normalized));
+  if (dupErr) throw new Error(`facts dup-check: ${dupErr.message}`);
+  const blocked = new Set(
+    (dups ?? [])
+      .filter((d) =>
+        d.status === 'confirmed' ||
+        (d.status === 'rejected' && d.rejection_ttl && (d.rejection_ttl as string) > nowIso),
+      )
+      .map((d) => d.normalized_text as string),
+  );
+
+  const rows = candidates
+    .filter((c) => !blocked.has(c.normalized))
+    .map((c) => ({
       user_id: userId,
-      text: f.text,
-      normalized_text: normalizeFactText(f.text),
-      category: f.category,
+      text: c.text,
+      normalized_text: c.normalized,
+      category: c.category,
       status: 'pending',
       source: sourceTag,
-      confidence: f.confidence,
-      referent_date: f.referentDate,
     }));
   if (rows.length === 0) return 0;
 
-  // upsert on (user_id, normalized_text) so duplicates within a single batch
-  // are collapsed; existing ACCEPTED facts are preserved by the unique-index
-  // conflict handling on the client-side store, but for the backfill path
-  // we accept that pending duplicates may shadow accepted ones briefly —
-  // the review screen lets the user pick one.
-  const { error } = await client.from('facts').upsert(rows, {
-    onConflict: 'user_id,normalized_text',
-    ignoreDuplicates: false,
-  });
-  if (error) throw new Error(`facts upsert: ${error.message}`);
+  // Plain insert (no upsert). Pending rows from a previous run with the
+  // same normalized_text are technically possible; the review screen surfaces
+  // them grouped so the user can pick one.
+  const { error } = await client.from('facts').insert(rows);
+  if (error) throw new Error(`facts insert: ${error.message}`);
   return rows.length;
 }
 
