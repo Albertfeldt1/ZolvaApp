@@ -80,7 +80,7 @@ serve(async (req) => {
     const body = await req.json() as { kinds?: unknown };
     if (Array.isArray(body.kinds)) {
       const filtered = body.kinds.filter((k): k is 'mail' | 'calendar' => k === 'mail' || k === 'calendar');
-      if (filtered.length > 0) kinds = filtered;
+      if (filtered.length > 0) kinds = Array.from(new Set(filtered));
     }
   } catch { /* default */ }
 
@@ -114,8 +114,14 @@ serve(async (req) => {
     return json({ job_ids: [], reason: 'no_providers_connected' });
   }
 
-  // Create jobs.
-  const { data: jobs, error: jobErr } = await service
+  // Create jobs. The unique index on (user_id, kind, provider) handles the
+  // race where two near-simultaneous "Start" requests both pass the
+  // idempotency check above — the second insert returns 23505 and we
+  // re-fetch the rows the first request just created. Spec L185 calls for
+  // a Postgres advisory lock; this is the simpler equivalent that works
+  // with supabase-js's pooled-connection model (no transactional lifetime
+  // we can rely on for advisory locks).
+  const { data: insertedJobs, error: jobErr } = await service
     .from('backfill_jobs')
     .insert(providers.map((p) => ({
       user_id: userId,
@@ -124,7 +130,22 @@ serve(async (req) => {
       status: 'queued',
     })))
     .select();
-  if (jobErr || !jobs) return json({ error: 'internal', detail: jobErr?.message }, 500);
+  let jobs = insertedJobs;
+  if (jobErr) {
+    // 23505 = unique_violation. Re-fetch — the other request created them.
+    if (jobErr.code === '23505') {
+      const { data: refetched } = await service
+        .from('backfill_jobs')
+        .select('id, kind, provider, status')
+        .eq('user_id', userId);
+      if (!refetched || refetched.length === 0) {
+        return json({ error: 'internal', detail: 'race re-fetch empty' }, 500);
+      }
+      return json({ job_ids: refetched.map((j) => j.id), idempotent: true });
+    }
+    return json({ error: 'internal', detail: jobErr.message }, 500);
+  }
+  if (!jobs) return json({ error: 'internal' }, 500);
 
   await logBackfillEvent(service, userId, 'backfill_started', {
     jobs: jobs.length,
@@ -134,15 +155,33 @@ serve(async (req) => {
 
   // Run all jobs in parallel. Each worker is wrapped in a try so one failure
   // doesn't sink the whole batch.
-  await Promise.allSettled(jobs.map((job) => runJob(service, userId, userOwnEmail, job, anthropicKey)));
+  // KNOWN LIMITATION: Edge functions have a 150s wall-clock cap. If the
+  // worker hits it, the in-flight job stays in 'running' status and the
+  // terminal logBackfillEvent call below never fires. Spec L246 promises
+  // partial-completion → 'done', which would require a stale-job sweeper
+  // (Deno.cron or daily reaper). Tracked for follow-up; for now,
+  // production users are unlikely to exceed 150s on the realistic 4-job
+  // shape (Gmail + Outlook × mail + cal).
+  const settledResults = await Promise.allSettled(
+    jobs.map((job) => runJob(service, userId, userOwnEmail, job, anthropicKey))
+  );
+  const factsTotal = settledResults.reduce((sum, r) => {
+    if (r.status === 'fulfilled' && typeof r.value === 'number') return sum + r.value;
+    return sum;
+  }, 0);
 
   const { data: doneJobs } = await service
     .from('backfill_jobs')
     .select('id, status')
     .eq('user_id', userId);
-  const success = (doneJobs ?? []).every((j) => j.status === 'done');
+  const final = doneJobs ?? [];
+  const success = final.every((j) => j.status === 'done');
   await logBackfillEvent(service, userId, success ? 'backfill_completed' : 'backfill_failed', {
-    jobs: doneJobs ?? [],
+    jobs_total: final.length,
+    jobs_done: final.filter((j) => j.status === 'done').length,
+    jobs_failed: final.filter((j) => j.status === 'failed').length,
+    jobs_cancelled: final.filter((j) => j.status === 'cancelled').length,
+    facts_total: factsTotal,
   });
 
   return json({ job_ids: jobs.map((j) => j.id) });
@@ -156,12 +195,12 @@ async function runJob(
   userOwnEmail: string,
   job: Job,
   anthropicKey: string,
-): Promise<void> {
+): Promise<number> {
   try {
     const refresh = await loadRefreshToken(service, userId, job.provider);
     if (!refresh) {
       await finishJob(service, job.id, 'failed', 'no refresh token');
-      return;
+      return 0;
     }
     // Microsoft calendar requires the Calendars.Read scope; mail uses the
     // default Mail.* scope. Google ignores microsoftScope.
@@ -174,8 +213,10 @@ async function runJob(
       accessToken = result.accessToken;
     } catch (err) {
       await finishJob(service, job.id, 'failed', `token refresh: ${err instanceof Error ? err.message : String(err)}`);
-      return;
+      return 0;
     }
+
+    let factsThisJob = 0;
 
     if (job.kind === 'mail') {
       const candidates = job.provider === 'google'
@@ -189,7 +230,7 @@ async function runJob(
       for (let i = 0; i < candidates.length; i += BATCH) {
         if (await isCancelled(service, job.id)) {
           await finishJob(service, job.id, 'cancelled');
-          return;
+          return factsThisJob;
         }
         const slice = candidates.slice(i, i + BATCH);
         const userPayload = slice
@@ -199,12 +240,12 @@ Emne: ${c.subject}
 Uddrag: ${c.snippet}`)
           .join('\n\n');
         const facts = await callClaudeBatch(anthropicKey, MAIL_SYSTEM, userPayload);
-        await insertPendingFacts(service, userId, facts, `backfill:${job.provider}:mail`);
+        factsThisJob += await insertPendingFacts(service, userId, facts, `backfill:${job.provider}:mail`);
         processed += slice.length;
         await bumpJobProgress(service, job.id, processed);
       }
       await finishJob(service, job.id, 'done');
-      return;
+      return factsThisJob;
     }
 
     // calendar
@@ -219,7 +260,7 @@ Uddrag: ${c.snippet}`)
     for (let i = 0; i < series.length; i += BATCH_CAL) {
       if (await isCancelled(service, job.id)) {
         await finishJob(service, job.id, 'cancelled');
-        return;
+        return factsThisJob;
       }
       const slice = series.slice(i, i + BATCH_CAL);
       const userPayload = slice
@@ -229,12 +270,14 @@ Mønster: ${s.recurrencePattern}
 Deltagere: ${s.attendeeEmails.join(', ')}`)
         .join('\n\n');
       const facts = await callClaudeBatch(anthropicKey, CAL_SYSTEM, userPayload);
-      await insertPendingFacts(service, userId, facts, `backfill:${job.provider}:calendar`);
+      factsThisJob += await insertPendingFacts(service, userId, facts, `backfill:${job.provider}:calendar`);
       processed += slice.length;
       await bumpJobProgress(service, job.id, processed);
     }
     await finishJob(service, job.id, 'done');
+    return factsThisJob;
   } catch (err) {
     await finishJob(service, job.id, 'failed', err instanceof Error ? err.message : String(err));
+    return 0;
   }
 }

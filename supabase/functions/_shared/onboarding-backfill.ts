@@ -173,7 +173,8 @@ export async function callClaudeBatch(
     }),
   });
   if (!res.ok) {
-    throw new Error(`anthropic ${res.status}: ${await res.text()}`);
+    const body = (await res.text()).slice(0, 200);
+    throw new Error(`anthropic ${res.status}: ${body}`);
   }
   const json = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
   const text = (json.content ?? [])
