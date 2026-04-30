@@ -127,6 +127,47 @@ export async function rejectFact(factId: string): Promise<void> {
   if (error) throw error;
 }
 
+export async function listPendingFactsForReview(userId: string): Promise<Fact[]> {
+  const { data, error } = await supabase
+    .from('facts')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(rowToFact);
+}
+
+export async function bulkUpdatePendingFacts(
+  userId: string,
+  updates: Array<{ id: string; status: 'confirmed' | 'rejected' }>,
+): Promise<void> {
+  if (updates.length === 0) return;
+  // Mirror confirmFact / rejectFact in this same file: confirmed sets
+  // confirmed_at; rejected sets rejected_at + rejection_ttl(14d) so
+  // duplicate-detection (findDuplicateFact) and decay keep working.
+  const confirmed = updates.filter((u) => u.status === 'confirmed').map((u) => u.id);
+  const rejected = updates.filter((u) => u.status === 'rejected').map((u) => u.id);
+  const now = new Date().toISOString();
+  if (confirmed.length > 0) {
+    const { error } = await supabase
+      .from('facts')
+      .update({ status: 'confirmed', confirmed_at: now })
+      .eq('user_id', userId)
+      .in('id', confirmed);
+    if (error) throw error;
+  }
+  if (rejected.length > 0) {
+    const ttl = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+    const { error } = await supabase
+      .from('facts')
+      .update({ status: 'rejected', rejected_at: now, rejection_ttl: ttl })
+      .eq('user_id', userId)
+      .in('id', rejected);
+    if (error) throw error;
+  }
+}
+
 export async function deleteFact(factId: string): Promise<void> {
   const { error } = await supabase.from('facts').delete().eq('id', factId);
   if (error) throw error;
