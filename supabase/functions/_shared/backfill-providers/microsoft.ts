@@ -1,7 +1,7 @@
 // supabase/functions/_shared/backfill-providers/microsoft.ts
 
 import type { CandidateMessage } from '../onboarding-backfill.ts';
-import { isAutomatedSender } from '../onboarding-backfill.ts';
+import { isAutomatedSender, fetchWithRetry } from '../onboarding-backfill.ts';
 
 const BASE = 'https://graph.microsoft.com/v1.0';
 
@@ -14,7 +14,7 @@ export async function fetchGraphCandidates(
   // Graph supports $top up to 1000. We use 200 since we filter aggressively
   // and want recent mail.
   const url = `${BASE}/me/mailFolders/Inbox/messages?$top=${maxFetch}&$select=id,subject,from,bodyPreview,receivedDateTime,categories,inferenceClassification&$orderby=receivedDateTime desc`;
-  const res = await fetch(url, { headers: { authorization: `Bearer ${accessToken}` } });
+  const res = await fetchWithRetry(url, { headers: { authorization: `Bearer ${accessToken}` } });
   if (!res.ok) throw new Error(`graph list ${res.status}: ${await res.text()}`);
   const json = (await res.json()) as {
     value?: Array<{

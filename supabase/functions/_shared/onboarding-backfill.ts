@@ -140,7 +140,8 @@ export function isAutomatedSender(
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-haiku-4-5-20251001';
 
-async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+/** Single retry on 429 or 529, honoring retry-after up to 30s; else 2s backoff. */
+export async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
   const res = await fetch(url, init);
   if (res.status !== 429 && res.status !== 529) return res;
   // Honor retry-after if it's a small positive integer (seconds); fall back to 2s.

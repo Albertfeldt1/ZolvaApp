@@ -1,7 +1,7 @@
 // supabase/functions/_shared/backfill-providers/gmail.ts
 
 import type { CandidateMessage } from '../onboarding-backfill.ts';
-import { isAutomatedSender } from '../onboarding-backfill.ts';
+import { isAutomatedSender, fetchWithRetry } from '../onboarding-backfill.ts';
 
 const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
@@ -14,10 +14,15 @@ export async function fetchGmailCandidates(
   maxFetch = 200,
   keep = 50,
 ): Promise<CandidateMessage[]> {
+  // Single page (no pageToken loop). With maxFetch=200 and a typical
+  // post-filter survivor rate of ~25-50%, this gives a 50-fact target with
+  // headroom; heavily-promotional inboxes may yield <50 — that's acceptable
+  // for an onboarding skim. Pagination would be a v2 ask if telemetry shows
+  // a real shortfall.
   // Step 1: list IDs from inbox, excluding category labels via Gmail's q syntax.
   // The q= filter doesn't catch every newsletter, but cuts the pre-filter set.
   const q = encodeURIComponent('in:inbox -category:promotions -category:social -category:updates -category:forums');
-  const listRes = await fetch(`${BASE}/messages?q=${q}&maxResults=${maxFetch}`, {
+  const listRes = await fetchWithRetry(`${BASE}/messages?q=${q}&maxResults=${maxFetch}`, {
     headers: { authorization: `Bearer ${accessToken}` },
   });
   if (!listRes.ok) throw new Error(`gmail list ${listRes.status}: ${await listRes.text()}`);
@@ -31,10 +36,19 @@ export async function fetchGmailCandidates(
     const batch = ids.slice(i, i + BATCH);
     const metas = await Promise.all(
       batch.map((id) =>
-        fetch(
-          `${BASE}/messages/${id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
+        fetchWithRetry(
+          `${BASE}/messages/${id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`,
           { headers: { authorization: `Bearer ${accessToken}` } },
-        ).then((r) => r.ok ? r.json() : null).catch(() => null),
+        )
+          .then((r) => {
+            if (r.ok) return r.json();
+            console.warn('[backfill] gmail meta drop', id, r.status);
+            return null;
+          })
+          .catch((err) => {
+            console.warn('[backfill] gmail meta error', id, err instanceof Error ? err.message : err);
+            return null;
+          }),
       ),
     );
     for (const meta of metas) {
