@@ -115,70 +115,11 @@ export function registerResponseHandler(
   return () => sub.remove();
 }
 
-// "Når som helst" nudges: a reminder created without a specific time gets
-// daily-repeating nudges at these hours, asking "Fik du gjort det?". They
-// fire forever until the user marks the reminder done (or deletes it).
-const NUDGE_HOURS: ReadonlyArray<number> = [9, 13, 18];
-const NUDGE_BODY = 'Fik du gjort det?';
-
 export async function scheduleReminderNotification(reminder: Reminder): Promise<void> {
-  const settings = getNotificationSettings();
-  if (!settings.reminders) return;
-
-  const permission = await getPermissionStatus();
-  if (permission !== 'granted') return;
-
-  // Wipe any prior schedules for this reminder (one-shot or nudge slots) so
-  // edits don't double-fire and switching between timed/no-time works.
-  await cancelReminderNotification(reminder.id);
-
-  if (reminder.dueAt) {
-    if (reminder.dueAt.getTime() <= Date.now()) return;
-    try {
-      await Notifications.scheduleNotificationAsync({
-        identifier: reminderIdentifier(reminder.id),
-        content: {
-          title: reminder.text,
-          data: { type: 'reminder', reminderId: reminder.id } satisfies NotificationPayload,
-        },
-        trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.DATE,
-          date: reminder.dueAt,
-        },
-      });
-      void recordFeedEntry({
-        id: `reminder:${reminder.id}:${reminder.dueAt.getTime()}`,
-        type: 'reminder',
-        title: reminder.text,
-        firesAt: reminder.dueAt,
-        payload: { type: 'reminder', reminderId: reminder.id },
-      });
-    } catch (err) {
-      if (__DEV__) console.warn('[notifications] schedule reminder failed:', err);
-    }
-    return;
-  }
-
-  // No dueAt → schedule daily-repeating "fik du gjort det?" nudges.
-  for (const hour of NUDGE_HOURS) {
-    try {
-      await Notifications.scheduleNotificationAsync({
-        identifier: nudgeIdentifier(reminder.id, hour),
-        content: {
-          title: reminder.text,
-          body: NUDGE_BODY,
-          data: { type: 'reminder', reminderId: reminder.id } satisfies NotificationPayload,
-        },
-        trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.DAILY,
-          hour,
-          minute: 0,
-        },
-      });
-    } catch (err) {
-      if (__DEV__) console.warn('[notifications] schedule nudge failed:', err);
-    }
-  }
+  // SERVER-SIDE FIRE — no-op on client. The reminders-fire cron pushes
+  // notifications via Expo. Stub kept through one release cycle for any
+  // stale callers; remove in Phase 6 cleanup.
+  void reminder;
 }
 
 export async function cancelReminderNotification(reminderId: string): Promise<void> {

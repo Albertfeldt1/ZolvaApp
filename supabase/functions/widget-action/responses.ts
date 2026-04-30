@@ -1,3 +1,5 @@
+import { naturalTime } from './format.ts';
+
 export type ErrorClass =
   | 'empty_prompt'
   | 'unparseable'
@@ -87,5 +89,30 @@ export function loggedOut(): WidgetActionResponse {
   return {
     dialog: 'Logget ud — åbn Zolva for at logge ind igen.',
     snippet: { mood: 'worried', summary: 'Logget ud', deepLink: 'zolva://settings' },
+  };
+}
+
+export function reminderCreated(
+  ext: { text: string; due_at: string | null; prompt_language: 'da' | 'en' | 'unknown' },
+  timezone: string,
+): WidgetActionResponse {
+  const isEnglish = ext.prompt_language === 'en';
+  const due = ext.due_at ? new Date(ext.due_at) : null;
+  let timePart = '';
+  if (due) {
+    const naturalLocale: 'da' | 'en' = isEnglish ? 'en' : 'da';
+    timePart = ' ' + naturalTime({
+      eventIso: due.toISOString(),
+      nowIso: new Date().toISOString(),
+      locale: naturalLocale,
+      timezone,
+    });
+  }
+  const verb = isEnglish ? "I'll remind you" : 'Jeg minder dig om';
+  const dialog = `${verb} ${ext.text.toLowerCase()}${timePart}.`;
+  const summary = `${ext.text}${timePart}`;
+  return {
+    dialog,
+    snippet: { mood: 'happy', summary, deepLink: 'zolva://memory' },
   };
 }

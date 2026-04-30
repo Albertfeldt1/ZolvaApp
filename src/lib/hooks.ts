@@ -27,15 +27,18 @@ import {
 } from './claude';
 import {
   addNote as storeAddNote,
-  addReminder as storeAddReminder,
   listNotes,
-  listReminders,
-  markReminderDone as storeMarkReminderDone,
   removeNote as storeRemoveNote,
-  removeReminder as storeRemoveReminder,
   subscribeNotes,
-  subscribeReminders,
 } from './memory-store';
+import {
+  listAllReminders,
+  addReminder,
+  markReminderDone,
+  deleteReminder,
+  isPendingAndDueOrUpcoming,
+  formatReminderForListTool,
+} from './reminders';
 import {
   eventEnd,
   eventStart,
@@ -2171,67 +2174,67 @@ export function usePrivacyToggles() {
 
 export function useReminders() {
   const { user } = useAuth();
+  const userId = user?.id ?? null;
   const demo = isDemoUser(user);
   const [reminders, setReminders] = useState<Reminder[]>(() =>
-    isDemoUser(user) ? demoReminders() : listReminders(),
+    demo ? demoReminders() : [],
   );
-  useEffect(() => {
+  const [loading, setLoading] = useState(!demo);
+
+  const refresh = useCallback(async () => {
+    if (demo) { setReminders(demoReminders()); setLoading(false); return; }
+    if (!userId) { setReminders([]); setLoading(false); return; }
+    try {
+      const next = await listAllReminders(userId);
+      setReminders(next);
+    } catch (err) {
+      if (__DEV__) console.warn('[useReminders] refresh failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [demo, userId]);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const markDone = useCallback(async (id: string) => {
     if (demo) {
-      setReminders(demoReminders());
+      setReminders((p) =>
+        p.map((r) => r.id === id ? { ...r, status: 'done' as const, doneAt: new Date() } : r));
       return;
     }
-    return subscribeReminders(setReminders);
-  }, [demo]);
-  const markDone = useCallback(
-    (id: string) => {
-      if (demo) {
-        setReminders((prev) =>
-          prev.map((r) =>
-            r.id === id ? { ...r, status: 'done' as const, doneAt: new Date() } : r,
-          ),
-        );
-        return;
-      }
-      void storeMarkReminderDone(id);
-    },
-    [demo],
-  );
-  const remove = useCallback(
-    (id: string) => {
-      if (demo) {
-        setReminders((prev) => prev.filter((r) => r.id !== id));
-        return;
-      }
-      void storeRemoveReminder(id);
-    },
-    [demo],
-  );
-  const add = useCallback(
-    (text: string, dueAt?: Date): Promise<Reminder> => {
-      if (demo) {
-        const r: Reminder = {
-          id: `d-r-${Date.now()}`,
-          text,
-          dueAt: dueAt ?? null,
-          status: 'pending',
-          createdAt: new Date(),
-          doneAt: null,
-        };
-        setReminders((prev) => [...prev, r]);
-        return Promise.resolve(r);
-      }
-      return storeAddReminder(text, dueAt);
-    },
-    [demo],
-  );
-  return {
-    data: reminders,
-    loading: false,
-    error: null as Error | null,
-    markDone,
-    remove,
-    add,
-  };
+    await markReminderDone(id);
+    await refresh();
+  }, [demo, refresh]);
+
+  const remove = useCallback(async (id: string) => {
+    if (demo) { setReminders((p) => p.filter((r) => r.id !== id)); return; }
+    await deleteReminder(id);
+    await refresh();
+  }, [demo, refresh]);
+
+  const add = useCallback(async (text: string, dueAt?: Date): Promise<Reminder> => {
+    if (demo) {
+      const r: Reminder = {
+        id: `d-r-${Date.now()}`,
+        text,
+        dueAt: dueAt ?? null,
+        status: 'pending',
+        createdAt: new Date(),
+        doneAt: null,
+        firedAt: null,
+        scheduledForTz: null,
+      };
+      setReminders((p) => [...p, r]);
+      return r;
+    }
+    if (!userId) throw new Error('useReminders.add: no user');
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const r = await addReminder(userId, text, dueAt ?? null, tz);
+    await refresh();
+    return r;
+  }, [demo, refresh, userId]);
+
+  return { data: reminders, loading, error: null as Error | null, markDone, remove, add };
 }
 
 export function useNotes() {
@@ -2720,9 +2723,12 @@ async function runChatTool(
       const text = typeof input.text === 'string' ? input.text : '';
       if (!text.trim()) return { content: 'Manglede tekst.', isError: true };
       const dueRaw = typeof input.due_at === 'string' ? input.due_at : undefined;
-      const due = dueRaw ? new Date(dueRaw) : undefined;
-      const dueClean = due && !Number.isNaN(due.getTime()) ? due : undefined;
-      const r = await storeAddReminder(text, dueClean);
+      const due = dueRaw ? new Date(dueRaw) : null;
+      const dueClean = due && !Number.isNaN(due.getTime()) ? due : null;
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const userId = ctx.userId;
+      if (!userId) return { content: 'Ikke logget ind.', isError: true };
+      const r = await addReminder(userId, text, dueClean, tz);
       return { content: `Oprettet påmindelse ${r.id}: "${r.text}"${r.dueAt ? ` til ${r.dueAt.toISOString()}` : ''}.`, isError: false };
     }
     if (name === 'add_note') {
@@ -2732,25 +2738,13 @@ async function runChatTool(
       return { content: `Oprettet note ${n.id}: "${n.text}".`, isError: false };
     }
     if (name === 'list_reminders') {
-      // Drop completed reminders and past-due ones — the user asks "mine
-      // påmindelser" expecting things still to come, not a backlog of
-      // already-handled stuff. 5-minute grace covers the gap between a
-      // reminder firing and the user opening chat to ask about it.
-      const all = listReminders();
-      const now = Date.now();
-      const PAST_DUE_GRACE_MS = 5 * 60 * 1000;
-      const rs = all.filter((r) => {
-        if (r.status === 'done') return false;
-        if (r.dueAt && r.dueAt.getTime() < now - PAST_DUE_GRACE_MS) return false;
-        return true;
-      });
+      const userId = ctx.userId;
+      if (!userId) return { content: 'Ikke logget ind.', isError: true };
+      const all = await listAllReminders(userId);
+      const now = new Date();
+      const rs = all.filter((r) => isPendingAndDueOrUpcoming(r, now));
       if (rs.length === 0) return { content: 'Ingen påmindelser gemt.', isError: false };
-      return {
-        content: rs
-          .map((r) => `${r.id} [${r.status}] ${r.dueAt ? r.dueAt.toISOString() : 'ingen tid'}: ${r.text}`)
-          .join('\n'),
-        isError: false,
-      };
+      return { content: rs.map(formatReminderForListTool).join('\n'), isError: false };
     }
     if (name === 'list_notes') {
       const ns = listNotes();

@@ -21,10 +21,14 @@
         "SupabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNqa2hma2F0bWVxdHNyeXNpeG9wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNDA0MjMsImV4cCI6MjA5MTgxNjQyM30.pKadjlb7pQPXoZHfws4BvkdjyT2_hUeDtMFzX9v5_dY"
       },
       "entitlements": {
-        "com.apple.security.application-groups": ["group.io.zolva.app"],
-        "keychain-access-groups": ["$(AppIdentifierPrefix)io.zolva.shared"]
+        "com.apple.security.application-groups": [
+          "group.io.zolva.app"
+        ],
+        "keychain-access-groups": [
+          "$(AppIdentifierPrefix)io.zolva.shared"
+        ]
       },
-      "buildNumber": "16"
+      "buildNumber": "17"
     },
     "android": {
       "package": "com.zolva.app",
@@ -68,7 +72,12 @@
           "color": "#5C7355"
         }
       ],
-      ["@bacons/apple-targets", { "appleTeamId": "N6WPH3FPFA" }],
+      [
+        "@bacons/apple-targets",
+        {
+          "appleTeamId": "N6WPH3FPFA"
+        }
+      ],
       [
         "expo-build-properties",
         {

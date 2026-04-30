@@ -2,7 +2,8 @@
 // No widget_action_calls table. Supabase platform log retention applies (~7 days).
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { extractEvent } from './claude.ts';
+import { extractAction } from './claude.ts';
+import type { ClaudeExtraction } from './claude.ts';
 import { verifyJwt } from './jwt.ts';
 import {
   emptyPrompt,
@@ -11,6 +12,7 @@ import {
   oauthInvalid,
   permissionDenied,
   provider5xx,
+  reminderCreated,
   unparseable,
   type WidgetActionResponse,
 } from './responses.ts';
@@ -110,6 +112,60 @@ export async function workerHandler(req: Request): Promise<Response> {
     return json(200, emptyPrompt());
   }
 
+  let extraction: ClaudeExtraction;
+  try {
+    const claude = await extractAction(prompt, timezone);
+    extraction = claude.extraction;
+    // usage + model captured for logging in Task 18.
+  } catch (err) {
+    console.warn('[widget-action] claude error:', err instanceof Error ? err.message : err);
+    return json(200, unparseable());
+  }
+
+  // Reminder branch — split before the calendar-event flow.
+  if (extraction.kind === 'reminder') {
+    const text = (extraction.text ?? '').trim();
+    if (!text) {
+      console.log(JSON.stringify({
+        action: 'create_reminder', user_id: userId, success: false,
+        error_class: 'unparseable', prompt_language: extraction.prompt_language,
+      }));
+      return json(200, unparseable());
+    }
+    const dueAt = extraction.due_at ? new Date(extraction.due_at) : null;
+    if (dueAt && Number.isNaN(dueAt.getTime())) {
+      return json(200, unparseable());
+    }
+    const supabaseClient = admin();
+    const { data: inserted, error } = await supabaseClient
+      .from('reminders')
+      .insert({
+        user_id: userId,
+        title: text,
+        due_at: (dueAt ?? new Date('2099-12-31T00:00:00Z')).toISOString(),
+        scheduled_for_tz: timezone,
+      })
+      .select('id, due_at')
+      .single();
+    if (error || !inserted) {
+      console.error('[widget-action] reminder insert failed:', error?.message);
+      console.log(JSON.stringify({
+        action: 'create_reminder', user_id: userId, success: false,
+        error_class: 'db_error', prompt_language: extraction.prompt_language,
+      }));
+      return json(200, unparseable());
+    }
+    console.log(JSON.stringify({
+      action: 'create_reminder', user_id: userId, success: true,
+      reminder_id: inserted.id, due_iso: inserted.due_at,
+      prompt_language: extraction.prompt_language,
+    }));
+    return json(200, reminderCreated(extraction, timezone));
+  }
+
+  // extraction.kind narrows to 'event' here via the discriminated union.
+  const eventExtraction = extraction;
+
   const labels = await readLabels(admin(), userId);
   if (!labels.work && !labels.personal) {
     console.log(JSON.stringify({
@@ -122,39 +178,17 @@ export async function workerHandler(req: Request): Promise<Response> {
     return json(200, noCalendarLabels());
   }
 
-  let extraction;
-  try {
-    const claude = await extractEvent(prompt, timezone);
-    extraction = claude.extraction;
-    // usage + model captured for logging in Task 18.
-  } catch (err) {
-    console.warn('[widget-action] claude error:', err instanceof Error ? err.message : err);
-    return json(200, unparseable());
-  }
-
-  if (extraction.title === 'UNPARSEABLE') {
-    console.log(JSON.stringify({
-      action: 'create_event',
-      user_id: userId,
-      success: false,
-      error_class: 'unparseable',
-      calendar_resolution: 'no_calendar',
-      prompt_language: extraction.prompt_language,
-    }));
-    return json(200, unparseable());
-  }
-
   const selection = selectCalendar({
-    hint: extraction.calendar_label,
+    hint: eventExtraction.calendar_label,
     labels,
   });
   if (!selection.target) {
-    // Defensive: caller exited on empty labels above. Treat like no_calendar_labels.
+    // Defensive: labels were checked above. Treat like no_calendar_labels.
     return json(200, noCalendarLabels());
   }
 
-  const startIso = extraction.start;
-  const endIso = extraction.end ?? new Date(new Date(extraction.start).getTime() + 60 * 60 * 1000).toISOString();
+  const startIso = eventExtraction.start;
+  const endIso = eventExtraction.end ?? new Date(new Date(eventExtraction.start).getTime() + 60 * 60 * 1000).toISOString();
 
   const supabaseClient = admin();
   const write = await writeEvent({
@@ -162,7 +196,7 @@ export async function workerHandler(req: Request): Promise<Response> {
     userId,
     provider: selection.target.provider,
     calendarId: selection.target.id,
-    title: extraction.title,
+    title: eventExtraction.title,
     startIso,
     endIso,
     timezone,
@@ -181,12 +215,12 @@ export async function workerHandler(req: Request): Promise<Response> {
       error_class: write.errorClass,
       calendar_resolution: selection.resolution,
       calendar_provider: selection.target.provider,
-      prompt_language: extraction.prompt_language,
+      prompt_language: eventExtraction.prompt_language,
     }));
     return json(200, resp);
   }
 
-  const locale: 'da' | 'en' = extraction.prompt_language === 'en' ? 'en' : 'da';
+  const locale: 'da' | 'en' = eventExtraction.prompt_language === 'en' ? 'en' : 'da';
   const time = naturalTime({
     eventIso: startIso,
     nowIso: new Date().toISOString(),
@@ -200,19 +234,19 @@ export async function workerHandler(req: Request): Promise<Response> {
 
   let dialog: string;
   if (locale === 'da') {
-    dialog = `Tilføjet: '${extraction.title}', ${time} i din ${labelWord}kalender.`;
+    dialog = `Tilføjet: '${eventExtraction.title}', ${time} i din ${labelWord}kalender.`;
     if (selection.fallbackFromLabel) {
       const missing = selection.fallbackFromLabel === 'work' ? 'arbejds' : 'privat';
       dialog = `Tilføjet i din ${labelWord}kalender — du har ikke valgt en ${missing}-kalender endnu. ${dialog}`;
     }
   } else {
-    dialog = `Added: '${extraction.title}', ${time} in your ${labelWord} calendar.`;
+    dialog = `Added: '${eventExtraction.title}', ${time} in your ${labelWord} calendar.`;
     if (selection.fallbackFromLabel) {
       dialog = `Added to your ${labelWord} calendar — you haven't picked a ${selection.fallbackFromLabel} calendar yet. ${dialog}`;
     }
   }
 
-  const summary = `${extraction.title} · ${time}`;
+  const summary = `${eventExtraction.title} · ${time}`;
 
   const truncated = {
     dialog: truncate(dialog, 120),
@@ -229,7 +263,7 @@ export async function workerHandler(req: Request): Promise<Response> {
     success: true,
     calendar_resolution: selection.resolution,
     calendar_provider: selection.target.provider,
-    prompt_language: extraction.prompt_language,
+    prompt_language: eventExtraction.prompt_language,
   }));
 
   return json(200, truncated);
