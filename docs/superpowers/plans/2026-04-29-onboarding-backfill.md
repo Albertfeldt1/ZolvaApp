@@ -1042,6 +1042,7 @@ serve(async (req) => {
   const { data: userData, error: userErr } = await authClient.auth.getUser();
   if (userErr || !userData.user) return json({ error: 'unauthorized' }, 401);
   const userId = userData.user.id;
+  const userOwnEmail = (userData.user.email ?? '').toLowerCase().trim();
 
   let kinds: Array<'mail' | 'calendar'> = ['mail', 'calendar'];
   try {
