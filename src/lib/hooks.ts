@@ -3039,6 +3039,26 @@ export async function markMemoryConsentShown(uid: string): Promise<void> {
   } catch {}
 }
 
+// ─── Onboarding backfill state ─────────────────────────────────────────────
+
+const onboardingBackfillKey = (uid: string) => `zolva.${uid}.onboarding-backfill.shown`;
+
+export async function shouldShowOnboardingBackfill(uid: string): Promise<boolean> {
+  if (!getPrivacyFlag('memory-enabled')) return false;
+  try {
+    const raw = await AsyncStorage.getItem(onboardingBackfillKey(uid));
+    return raw !== '1';
+  } catch {
+    return false;
+  }
+}
+
+export async function markOnboardingBackfillShown(uid: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(onboardingBackfillKey(uid), '1');
+  } catch {}
+}
+
 // ─── setPrivacyFlag ────────────────────────────────────────────────────────
 
 export async function setPrivacyFlag(id: PrivacyFlagId, value: boolean): Promise<void> {

@@ -46,8 +46,16 @@ import { initNotificationFeed, markFeedByPayload } from './src/lib/notification-
 import type { InboxMail, NotificationPayload } from './src/lib/types';
 import { colors } from './src/theme';
 import { useAuth } from './src/lib/auth';
-import { shouldShowMemoryConsent, markMemoryConsentShown } from './src/lib/hooks';
+import {
+  shouldShowMemoryConsent,
+  markMemoryConsentShown,
+  shouldShowOnboardingBackfill,
+  markOnboardingBackfillShown,
+} from './src/lib/hooks';
 import { MemoryConsentModal } from './src/components/MemoryConsentModal';
+import { OnboardingBackfillScreen } from './src/screens/OnboardingBackfillScreen';
+import { OnboardingChatQuestionsScreen } from './src/screens/OnboardingChatQuestionsScreen';
+import { OnboardingFactReviewScreen } from './src/screens/OnboardingFactReviewScreen';
 import { isDemoUser } from './src/lib/demo';
 import { syncUserProfile } from './src/lib/user-profile';
 import { writeSnapshotFromSources } from './src/lib/widget-bridge';
@@ -98,6 +106,8 @@ export default function App() {
   const [chromeHeight, setChromeHeight] = useState(0);
   const [migrationsDone, setMigrationsDone] = useState(false);
   const [memoryConsentOpen, setMemoryConsentOpen] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [onboardingStage, setOnboardingStage] = useState<'intro' | 'questions' | 'review'>('intro');
   // Bumped whenever a 'brief' push or in-app notification row is tapped.
   // TodayScreen opens the brief modal on each change.
   const [briefOpenTrigger, setBriefOpenTrigger] = useState(0);
@@ -108,6 +118,19 @@ export default function App() {
     void shouldShowMemoryConsent(user.id).then((show) => {
       if (cancelled || !show) return;
       setMemoryConsentOpen(true);
+    });
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
+  // Show onboarding-backfill on launch for users who already enabled memory
+  // in a previous session but never completed the chain.
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    void shouldShowOnboardingBackfill(user.id).then((show) => {
+      if (cancelled || !show) return;
+      setOnboardingStage('intro');
+      setOnboardingOpen(true);
     });
     return () => { cancelled = true; };
   }, [user?.id]);
@@ -445,6 +468,39 @@ export default function App() {
             />
           </Animated.View>
         )}
+        {onboardingOpen && user?.id && !chatOpen && !openMail && !notificationsOpen && !icloudSetupOpen && !adminConsentOpen && (
+          <Animated.View
+            key="onboarding-backfill"
+            style={StyleSheet.absoluteFill}
+            entering={SlideInDown.duration(320)}
+            exiting={SlideOutDown.duration(260)}
+          >
+            {onboardingStage === 'intro' && (
+              <OnboardingBackfillScreen
+                onStart={() => setOnboardingStage('questions')}
+                onSkip={() => {
+                  const uid = user.id;
+                  void markOnboardingBackfillShown(uid);
+                  setOnboardingOpen(false);
+                }}
+              />
+            )}
+            {onboardingStage === 'questions' && (
+              <OnboardingChatQuestionsScreen
+                onContinue={() => setOnboardingStage('review')}
+              />
+            )}
+            {onboardingStage === 'review' && (
+              <OnboardingFactReviewScreen
+                onDone={() => {
+                  const uid = user.id;
+                  void markOnboardingBackfillShown(uid);
+                  setOnboardingOpen(false);
+                }}
+              />
+            )}
+          </Animated.View>
+        )}
       </View>
       {user?.id && (
         <MemoryConsentModal
@@ -454,6 +510,12 @@ export default function App() {
             const uid = user.id;
             setMemoryConsentOpen(false);
             void markMemoryConsentShown(uid);
+            // If memory was just enabled, kick off the onboarding backfill chain.
+            void shouldShowOnboardingBackfill(uid).then((show) => {
+              if (!show) return;
+              setOnboardingStage('intro');
+              setOnboardingOpen(true);
+            });
           }}
         />
       )}
