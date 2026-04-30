@@ -4,7 +4,7 @@
 
 **Goal:** Ship the one-time onboarding backfill from `docs/superpowers/specs/2026-04-29-onboarding-backfill-design.md` — when a user toggles `memory-enabled` ON for the first time, scan their last 50 "good" emails per inbox + 90 days of recurring calendar events, extract facts via Claude, and present a review screen where the user picks/chooses what to keep.
 
-**Architecture:** Three new edge functions (`onboarding-backfill-start`, `-status`, `-cancel`) sharing one worker module under `_shared/onboarding-backfill.ts`. New `backfill_jobs` table tracks per-source progress. Three new screens chain after the existing `MemoryConsentModal`. The existing `profile-extractor` chat trigger handles onboarding question answers; a new server-side path inserts `pending_facts` for backfilled facts. Review screen flips `pending → accepted` per user choice.
+**Architecture:** Three new edge functions (`onboarding-backfill-start`, `-status`, `-cancel`) sharing one worker module under `_shared/onboarding-backfill.ts`. New `backfill_jobs` table tracks per-source progress. Three new screens chain after the existing `MemoryConsentModal`. The existing `profile-extractor` chat trigger handles onboarding question answers; a new server-side path inserts `pending_facts` for backfilled facts. Review screen flips `pending → confirmed` per user choice (matching the existing `confirmFact` lifecycle in `profile-store.ts`).
 
 **Tech Stack:** Supabase Edge Functions (Deno), Supabase Postgres, React Native (Expo SDK 54), TypeScript. No new client dependencies. Server uses Anthropic API via the existing claude-proxy pattern (called directly with `ANTHROPIC_API_KEY` for server-side context).
 
@@ -90,7 +90,7 @@ PGPASSWORD="$SUPABASE_DB_PASSWORD" psql "$SUPABASE_DB_URL" -c "
 "
 ```
 
-Or via the MCP if available. Note the existing CHECK constraint values for `status`. Expected from spec history: `'pending' | 'accepted' | 'rejected'` already permitted. If `'pending'` is missing, the migration must extend it.
+Or via the MCP if available. Note the existing CHECK constraint values for `status`. Expected: `'pending' | 'confirmed' | 'rejected'` already permitted (verified live: yes, all three are present, no extension needed). The plan's literal name for the "accepted" terminal state is `'confirmed'` because that matches the existing `confirmFact()` helper in `profile-store.ts`.
 
 - [ ] **Step 2: Write the migration**
 
@@ -154,7 +154,7 @@ alter table public.facts
   drop constraint if exists facts_status_check;
 alter table public.facts
   add constraint facts_status_check
-  check (status in ('pending', 'accepted', 'rejected'));
+  check (status in ('pending', 'confirmed', 'rejected'));
 ```
 
 - [ ] **Step 3: Push the migration**
@@ -1373,25 +1373,30 @@ export async function listPendingFactsForReview(userId: string): Promise<Fact[]>
 
 export async function bulkUpdatePendingFacts(
   userId: string,
-  updates: Array<{ id: string; status: 'accepted' | 'rejected' }>,
+  updates: Array<{ id: string; status: 'confirmed' | 'rejected' }>,
 ): Promise<void> {
   if (updates.length === 0) return;
   // Postgres doesn't have a clean batched-different-values UPDATE via the JS
-  // client, so we run two grouped updates.
-  const accepted = updates.filter((u) => u.status === 'accepted').map((u) => u.id);
+  // client, so we run two grouped updates. Mirror the field set used by
+  // confirmFact / rejectFact in this same file: confirmed sets confirmed_at;
+  // rejected sets rejected_at + rejection_ttl (14d) so duplicate-detection
+  // and decay keep working the same as for non-backfill facts.
+  const confirmed = updates.filter((u) => u.status === 'confirmed').map((u) => u.id);
   const rejected = updates.filter((u) => u.status === 'rejected').map((u) => u.id);
-  if (accepted.length > 0) {
+  const now = new Date().toISOString();
+  if (confirmed.length > 0) {
     const { error } = await supabase
       .from('facts')
-      .update({ status: 'accepted' })
+      .update({ status: 'confirmed', confirmed_at: now })
       .eq('user_id', userId)
-      .in('id', accepted);
+      .in('id', confirmed);
     if (error) throw error;
   }
   if (rejected.length > 0) {
+    const ttl = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
     const { error } = await supabase
       .from('facts')
-      .update({ status: 'rejected' })
+      .update({ status: 'rejected', rejected_at: now, rejection_ttl: ttl })
       .eq('user_id', userId)
       .in('id', rejected);
     if (error) throw error;
@@ -1870,7 +1875,7 @@ export function OnboardingFactReviewScreen({ onDone }: Props) {
     try {
       const updates = facts.map((f) => ({
         id: f.id,
-        status: accepted.has(f.id) ? ('accepted' as const) : ('rejected' as const),
+        status: accepted.has(f.id) ? ('confirmed' as const) : ('rejected' as const),
       }));
       await bulkUpdatePendingFacts(userId, updates);
       invalidatePreamble(userId);
@@ -2153,7 +2158,7 @@ select event_type, count(*) from consent_events where user_id = '28c51177-...' g
 ```
 
 Expected:
-- `facts` shows `accepted` (the count you ticked) and `rejected` (the ones you unticked) plus any pre-existing.
+- `facts` shows `confirmed` (the count you ticked) and `rejected` (the ones you unticked) plus any pre-existing.
 - `backfill_jobs` shows all rows with `status='done'`.
 - `consent_events` shows `backfill_started` + `backfill_completed`.
 

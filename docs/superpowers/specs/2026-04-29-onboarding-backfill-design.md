@@ -60,7 +60,7 @@ When ALL backfill_jobs reach 'done' OR timeout (90s):
   ↓
 NEW: OnboardingFactReviewScreen — lists pending_facts with source labels (e.g. "fra Gmail", "fra kalender"), each row has a checkbox (default: checked), "Gem valgte fakta" / "Spring over alle" buttons
   ↓
-On confirm: bulk update pending_facts.status: checked → 'accepted', unchecked → 'rejected'
+On confirm: bulk update pending_facts.status: checked → 'confirmed', unchecked → 'rejected'
   ↓
 Existing fact-decay + preamble logic picks up the accepted facts
 ```
@@ -161,7 +161,7 @@ create policy "users read own backfill jobs"
 
 ### Schema: extending `facts` for review-before-accept
 
-The existing `facts` table has a `status` column. We use `status='pending'` for backfill output, then bulk-update to `'accepted'` on review confirm. Need to verify `status='pending'` is a valid value in the existing CHECK constraint. If not, migration adds it.
+The existing `facts` table has a `status` column with CHECK constraint `status in ('pending', 'confirmed', 'rejected')` (verified in Task 1). We use `status='pending'` for backfill output, then bulk-update to `'confirmed'` (matching the existing `confirmFact` helper in `profile-store.ts`) on review confirm. The `confirmed_at` / `rejected_at` / `rejection_ttl` timestamps must be set alongside the status change to match the existing fact-lifecycle pattern.
 
 ### Cost ceiling
 
@@ -233,7 +233,7 @@ Layout:
 - Sticky footer: "Gem 12 fakta" (count updates live) and a small "Spring over alle"-link.
 
 On submit:
-- Update `pending_facts` rows in bulk: checked → `status='accepted'`, unchecked → `status='rejected'`.
+- Update `pending_facts` rows in bulk: checked → `status='confirmed', confirmed_at=now()`; unchecked → `status='rejected', rejected_at=now(), rejection_ttl=now()+14d` (mirroring `confirmFact` / `rejectFact` in `profile-store.ts`).
 - Invalidate the user's preamble cache so the next Claude call rebuilds with the new facts.
 - Navigate to home / Today screen with a brief toast: "Tak. Jeg lærer dig løbende."
 
