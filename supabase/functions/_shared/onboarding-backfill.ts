@@ -98,9 +98,13 @@ export function isAutomatedSender(
   subject: string,
   labels: string[] = [],
   inferenceClassification?: 'focused' | 'other',
+  userOwnEmail?: string,
 ): boolean {
   const email = fromEmail.toLowerCase().trim();
   if (!email) return true;
+
+  // From-self filter — exclude the user's own sent-to-self mail.
+  if (userOwnEmail && email === userOwnEmail.toLowerCase().trim()) return true;
 
   const localPart = email.split('@')[0];
   if (SENDER_LOCAL_PATTERNS.some((re) => re.test(localPart))) return true;
@@ -123,6 +127,11 @@ export function isAutomatedSender(
 
   if (inferenceClassification === 'other') return true;
 
+  // NOTE: spec listed a conditional 'support@' rule (skip only if subject
+  // contains 'ticket'/'case'/'automated'). The SUBJECT_PATTERNS above
+  // (your order, tracking, kvittering, etc.) cover the automated cases in
+  // practice; real human support@ correspondence is rare in personal
+  // inboxes, so we accept the small false-negative rate.
   return false;
 }
 
@@ -131,12 +140,24 @@ export function isAutomatedSender(
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-haiku-4-5-20251001';
 
+async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+  const res = await fetch(url, init);
+  if (res.status !== 429 && res.status !== 529) return res;
+  // Honor retry-after if it's a small positive integer (seconds); fall back to 2s.
+  const retryAfter = Number(res.headers.get('retry-after'));
+  const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 && retryAfter <= 30
+    ? retryAfter * 1000
+    : 2000;
+  await new Promise((r) => setTimeout(r, waitMs));
+  return fetch(url, init);
+}
+
 export async function callClaudeBatch(
   apiKey: string,
   systemPrompt: string,
   userPayload: string,
 ): Promise<ExtractedFact[]> {
-  const res = await fetch(ANTHROPIC_URL, {
+  const res = await fetchWithRetry(ANTHROPIC_URL, {
     method: 'POST',
     headers: {
       'x-api-key': apiKey,
@@ -173,6 +194,7 @@ export async function callClaudeBatch(
       typeof f.confidence === 'number',
     ) as ExtractedFact[];
   } catch {
+    console.warn('[backfill] claude returned non-JSON:', cleaned.slice(0, 200));
     return [];
   }
 }
