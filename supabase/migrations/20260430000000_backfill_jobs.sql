@@ -43,10 +43,10 @@ create trigger backfill_jobs_updated_at
   before update on public.backfill_jobs
   for each row execute function public.backfill_jobs_set_updated_at();
 
--- consent_events.event_type already accepts arbitrary text (per
--- 20260427130000_admin_consent_microsoft.sql) — no change needed for the
--- backfill_started / backfill_completed / backfill_failed / backfill_cancelled
--- event types we'll start writing.
+-- consent_events.event_type has a hard-coded CHECK constraint (added in
+-- 20260427130000_admin_consent_microsoft.sql). The four new event types
+-- (backfill_started / backfill_completed / backfill_failed / backfill_cancelled)
+-- are added by the next migration: 20260430000001_consent_events_backfill_types.sql.
 
 -- NOTE on facts.status: as of 2026-04-30 the live constraint is
 --   CHECK (status IN ('pending','confirmed','rejected'))
