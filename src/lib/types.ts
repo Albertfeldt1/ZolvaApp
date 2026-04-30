@@ -165,6 +165,8 @@ export type Reminder = {
   status: ReminderStatus;
   createdAt: Date;
   doneAt: Date | null;
+  firedAt: Date | null;
+  scheduledForTz: string | null;
 };
 
 export type NoteCategory = 'task' | 'idea' | 'note' | 'info';
