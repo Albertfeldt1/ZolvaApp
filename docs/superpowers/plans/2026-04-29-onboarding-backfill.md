@@ -1132,9 +1132,21 @@ async function runJob(
       await finishJob(service, job.id, 'failed', 'no refresh token');
       return;
     }
-    const accessToken = await refreshAccessToken(job.provider, refresh);
-    if (!accessToken) {
-      await finishJob(service, job.id, 'failed', 'token refresh failed');
+    // refreshAccessToken signature is (client, userId, provider, refreshToken, opts?).
+    // For Microsoft we must pass the per-job scope explicitly: mail uses the
+    // default Mail.* scope, calendar needs Calendars.Read (mirrors the
+    // existing pattern in supabase/functions/_shared/calendar.ts).
+    const microsoftScope = job.provider === 'microsoft'
+      ? (job.kind === 'calendar'
+        ? 'offline_access Calendars.Read'
+        : undefined /* default mail scope */)
+      : undefined;
+    let accessToken: string;
+    try {
+      const result = await refreshAccessToken(service, userId, job.provider, refresh, { microsoftScope });
+      accessToken = result.accessToken;
+    } catch (err) {
+      await finishJob(service, job.id, 'failed', `token refresh: ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
 
