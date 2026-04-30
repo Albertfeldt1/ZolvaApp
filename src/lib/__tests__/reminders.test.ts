@@ -1,6 +1,10 @@
-// Mock supabase before any module that imports it to avoid native-module
-// errors from AsyncStorage (which supabase chains through secure-storage).
+// Mock supabase + AsyncStorage before any module that imports them to avoid
+// native-module errors. Pure helpers under test never call either.
 jest.mock('../supabase', () => ({ supabase: {} }));
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  __esModule: true,
+  default: { getItem: jest.fn(), setItem: jest.fn(), removeItem: jest.fn() },
+}));
 
 import { isPendingAndDueOrUpcoming, formatReminderForListTool } from '../reminders';
 import type { Reminder } from '../types';

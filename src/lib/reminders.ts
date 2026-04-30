@@ -5,6 +5,7 @@
 // the authenticated user's JWT — RLS policies enforce per-user
 // isolation, so no extra server-side endpoints are needed for CRUD.
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import type { Reminder } from './types';
 
@@ -91,4 +92,40 @@ export function isPendingAndDueOrUpcoming(r: Reminder, now: Date): boolean {
 export function formatReminderForListTool(r: Reminder): string {
   const due = r.dueAt ? r.dueAt.toISOString() : 'ingen tid';
   return `${r.id} [${r.status}] ${due}: ${r.text}`;
+}
+
+const REMINDERS_LEGACY_KEY = (uid: string) => `zolva.${uid}.memory.reminders`;
+const MIGRATION_FLAG = (uid: string) => `zolva.${uid}.migration.reminders-server.v1`;
+
+export async function migrateLocalRemindersToServer(userId: string): Promise<void> {
+  if (!userId) return;
+  const flag = await AsyncStorage.getItem(MIGRATION_FLAG(userId));
+  if (flag) return;
+
+  try {
+    const raw = await AsyncStorage.getItem(REMINDERS_LEGACY_KEY(userId));
+    if (raw) {
+      const parsed = JSON.parse(raw) as Array<{
+        id: string; text: string; dueAt?: string; status?: 'pending' | 'done'; createdAt?: string;
+      }>;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const rows = parsed
+          .filter((r) => r.status !== 'done')
+          .map((r) => ({
+            user_id: userId,
+            title: r.text,
+            due_at: r.dueAt
+              ? new Date(r.dueAt).toISOString()
+              : new Date('2099-12-31T00:00:00Z').toISOString(),
+          }));
+        if (rows.length > 0) {
+          await supabase.from(TABLE).insert(rows);
+        }
+      }
+      await AsyncStorage.removeItem(REMINDERS_LEGACY_KEY(userId));
+    }
+    await AsyncStorage.setItem(MIGRATION_FLAG(userId), '1');
+  } catch (err) {
+    if (__DEV__) console.warn('[reminders] migration failed:', err);
+  }
 }

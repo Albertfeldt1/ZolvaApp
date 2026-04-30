@@ -48,6 +48,7 @@ import {
 import { registerPushToken, unregisterPushToken, setMailWatchersEnabled } from './push';
 import { recordUserEmailDomain } from './admin-consent';
 import { readCalendarLabels, setCalendarLabel } from './calendar-labels';
+import { migrateLocalRemindersToServer } from './reminders';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -205,6 +206,7 @@ const init = () => {
       loadProviderTokens(uid);
       ensurePushTokenListener();
       void registerPushToken();
+      void migrateLocalRemindersToServer(uid);
     }
   })();
 
