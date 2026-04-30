@@ -3,7 +3,7 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { extractAction } from './claude.ts';
-import type { ClaudeExtractionEvent } from './claude.ts';
+import type { ClaudeExtraction } from './claude.ts';
 import { verifyJwt } from './jwt.ts';
 import {
   emptyPrompt,
@@ -112,7 +112,7 @@ export async function workerHandler(req: Request): Promise<Response> {
     return json(200, emptyPrompt());
   }
 
-  let extraction;
+  let extraction: ClaudeExtraction;
   try {
     const claude = await extractAction(prompt, timezone);
     extraction = claude.extraction;
@@ -163,20 +163,8 @@ export async function workerHandler(req: Request): Promise<Response> {
     return json(200, reminderCreated(extraction, timezone));
   }
 
-  // extraction.kind === 'event' from here on.
-  const eventExtraction = extraction as ClaudeExtractionEvent;
-
-  if (eventExtraction.title === 'UNPARSEABLE') {
-    console.log(JSON.stringify({
-      action: 'create_event',
-      user_id: userId,
-      success: false,
-      error_class: 'unparseable',
-      calendar_resolution: 'no_calendar',
-      prompt_language: eventExtraction.prompt_language,
-    }));
-    return json(200, unparseable());
-  }
+  // extraction.kind narrows to 'event' here via the discriminated union.
+  const eventExtraction = extraction;
 
   const labels = await readLabels(admin(), userId);
   if (!labels.work && !labels.personal) {

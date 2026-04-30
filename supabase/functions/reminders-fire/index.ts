@@ -4,10 +4,12 @@
 // scheduling, which proved unreliable (settings hydrate race, OS
 // permission revoke, app deleted before due time, etc.).
 //
-// Idempotency: fired_at gets stamped before push send. Two ticks
-// hitting the same row would race only if one finishes between the
-// other's SELECT and UPDATE; the .is('fired_at', null) filter on the
-// UPDATE makes the second a no-op.
+// Idempotency: fired_at is stamped after the push attempt, gated by
+// .is('fired_at', null) on the UPDATE — so two ticks hitting the same
+// row both attempt to update, but the second matches zero rows.
+// Stamping after means a crash between push and UPDATE could double-fire
+// on the next tick; we accept that over the alternative (stamp first +
+// crash leaves the user with no notification).
 //
 // Deploy with --no-verify-jwt: ES256 keys, manual cron-secret check.
 
