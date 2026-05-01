@@ -1,6 +1,6 @@
 // Minimal Google Calendar client. Reads events from the user's primary
 // calendar using the OAuth provider_token returned by Supabase after
-// signing in with Google (scope: calendar.readonly).
+// signing in with Google (scope: calendar.events + calendar.freebusy).
 
 import { ProviderAuthError, tryWithRefresh } from './auth';
 import { fetchWithTimeout } from './network-errors';
@@ -120,4 +120,126 @@ export function userAccepted(e: GoogleCalendarEvent): boolean {
   const me = list.find((a) => a.self === true);
   if (!me) return true;
   return me.responseStatus === 'accepted';
+}
+
+// ─── Writes ───────────────────────────────────────────────────────────────
+
+export type GoogleEventInput = {
+  title: string;
+  start: Date;
+  end: Date;
+  isAllDay?: boolean;
+  location?: string;
+  description?: string;
+  attendees?: Array<{ email: string; name?: string }>;
+};
+
+// All-day events use date-only; timed events use the ISO 8601 dateTime
+// preserving the offset that came in. Google honours the offset and
+// doesn't need a separate timeZone field for the event-edit case.
+function toGoogleDateTime(d: Date, isAllDay: boolean): { dateTime?: string; date?: string } {
+  if (isAllDay) {
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    return { date: `${yyyy}-${mm}-${dd}` };
+  }
+  return { dateTime: d.toISOString() };
+}
+
+function buildGoogleEventBody(input: GoogleEventInput): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    summary: input.title,
+    start: toGoogleDateTime(input.start, !!input.isAllDay),
+    end: toGoogleDateTime(input.end, !!input.isAllDay),
+  };
+  if (input.location) body.location = input.location;
+  if (input.description) body.description = input.description;
+  if (input.attendees && input.attendees.length > 0) {
+    body.attendees = input.attendees.map((a) => ({
+      email: a.email,
+      displayName: a.name,
+    }));
+  }
+  return body;
+}
+
+export async function createEvent(input: GoogleEventInput): Promise<{ id: string }> {
+  return tryWithRefresh('google', async (accessToken) => {
+    // sendUpdates=all so attendees actually receive the invitation. With no
+    // attendees this is a no-op — Google ignores the param.
+    const url = `${BASE}/calendars/primary/events?sendUpdates=all`;
+    const res = await fetchWithTimeout('google', url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(buildGoogleEventBody(input)),
+    });
+    if (res.status === 401 || res.status === 403) {
+      throw new ProviderAuthError('google', `Google Calendar afvist (${res.status}).`);
+    }
+    if (!res.ok) {
+      throw new Error(`Google Calendar create failed: ${res.status} ${await res.text()}`);
+    }
+    const data = (await res.json()) as { id: string };
+    return { id: data.id };
+  });
+}
+
+export async function updateEvent(
+  id: string,
+  input: Partial<GoogleEventInput>,
+): Promise<void> {
+  return tryWithRefresh('google', async (accessToken) => {
+    // PATCH accepts a partial body. Forward only the fields the caller sent;
+    // start/end always travel together because Google rejects a partial pair.
+    const body: Record<string, unknown> = {};
+    if (input.title !== undefined) body.summary = input.title;
+    if (input.location !== undefined) body.location = input.location;
+    if (input.description !== undefined) body.description = input.description;
+    if (input.start && input.end) {
+      body.start = toGoogleDateTime(input.start, !!input.isAllDay);
+      body.end = toGoogleDateTime(input.end, !!input.isAllDay);
+    }
+    if (input.attendees !== undefined) {
+      body.attendees = input.attendees.map((a) => ({
+        email: a.email,
+        displayName: a.name,
+      }));
+    }
+    const url = `${BASE}/calendars/primary/events/${encodeURIComponent(id)}?sendUpdates=all`;
+    const res = await fetchWithTimeout('google', url, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 401 || res.status === 403) {
+      throw new ProviderAuthError('google', `Google Calendar afvist (${res.status}).`);
+    }
+    if (!res.ok) {
+      throw new Error(`Google Calendar update failed: ${res.status} ${await res.text()}`);
+    }
+  });
+}
+
+export async function deleteEvent(id: string): Promise<void> {
+  return tryWithRefresh('google', async (accessToken) => {
+    const url = `${BASE}/calendars/primary/events/${encodeURIComponent(id)}?sendUpdates=all`;
+    const res = await fetchWithTimeout('google', url, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (res.status === 401 || res.status === 403) {
+      throw new ProviderAuthError('google', `Google Calendar afvist (${res.status}).`);
+    }
+    // 410 Gone = already deleted; treat as success so retries are idempotent.
+    if (!res.ok && res.status !== 410) {
+      throw new Error(`Google Calendar delete failed: ${res.status} ${await res.text()}`);
+    }
+  });
 }

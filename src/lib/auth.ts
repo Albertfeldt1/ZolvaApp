@@ -39,6 +39,7 @@ import { useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import { supabase } from './supabase';
 import * as secureStorage from './secure-storage';
+import { writeSharedSession, clearSharedSession } from './keychain';
 import { buildDemoSession, isDemoCredentials, isDemoUser } from './demo';
 import {
   getNotificationSettings,
@@ -46,6 +47,8 @@ import {
 } from './notification-settings';
 import { registerPushToken, unregisterPushToken, setMailWatchersEnabled } from './push';
 import { recordUserEmailDomain } from './admin-consent';
+import { readCalendarLabels, setCalendarLabel } from './calendar-labels';
+import { migrateLocalRemindersToServer } from './reminders';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -58,8 +61,11 @@ const GOOGLE_SCOPES = [
   'openid',
   'email',
   'profile',
-  'https://www.googleapis.com/auth/calendar.readonly',
-  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/calendar.events',
+  'https://www.googleapis.com/auth/calendar.freebusy',
+  'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.compose',
 ].join(' ');
 
 const MICROSOFT_SCOPES = [
@@ -69,7 +75,7 @@ const MICROSOFT_SCOPES = [
   'offline_access',
   'Mail.ReadWrite',
   'Mail.Send',
-  'Calendars.Read',
+  'Calendars.ReadWrite',
 ].join(' ');
 
 const SECURE_STORE_MIGRATION_FLAG = 'zolva.migration.secure-store.v1';
@@ -189,12 +195,18 @@ const init = () => {
     // signed in as demo while getSession was in flight.
     if (isDemoUser(cachedSession?.user)) return;
     broadcastSession(data.session);
+    if (data.session?.access_token && data.session?.refresh_token) {
+      void writeSharedSession(data.session.access_token, data.session.refresh_token).catch((err) => {
+        if (__DEV__) console.warn('[auth] writeSharedSession (init) failed:', err);
+      });
+    }
     const uid = data.session?.user?.id ?? null;
     await hydrateNotificationSettingsForUser(uid);
     if (uid) {
       loadProviderTokens(uid);
       ensurePushTokenListener();
       void registerPushToken();
+      void migrateLocalRemindersToServer(uid);
     }
   })();
 
@@ -205,6 +217,19 @@ const init = () => {
     const prevUserId = cachedSession?.user?.id ?? null;
     const nextUserId = session?.user?.id ?? null;
     broadcastSession(session);
+    // Mirror Supabase access + refresh token into the shared keychain so the
+    // Siri-dispatched AppIntent can read them. Best-effort — keychain failures
+    // are not fatal; voice will surface "logget ud" gracefully.
+    if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.access_token && session?.refresh_token) {
+      void writeSharedSession(session.access_token, session.refresh_token).catch((err) => {
+        if (__DEV__) console.warn('[auth] writeSharedSession failed:', err);
+      });
+    }
+    if (event === 'SIGNED_OUT') {
+      void clearSharedSession().catch((err) => {
+        if (__DEV__) console.warn('[auth] clearSharedSession failed:', err);
+      });
+    }
     if (prevUserId !== nextUserId) {
       broadcastGoogle(null);
       broadcastMicrosoft(null);
@@ -272,7 +297,21 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
     if (cachedSession && linkedIdentity) {
       const { error: unlinkError } = await supabase.auth.unlinkIdentity(linkedIdentity);
       if (unlinkError) {
-        console.warn('[auth] unlinkIdentity failed (using signInWithOAuth fallback):', unlinkError.message);
+        const msg = unlinkError.message ?? '';
+        // Supabase returns 422 single_identity_not_deletable when the user has
+        // only this identity. Without recovery, the downstream signInWithOAuth
+        // call returns a session WITHOUT provider_refresh_token (Supabase
+        // quirk for already-linked identity, see comment above), the row
+        // never gets persisted to user_oauth_tokens, silentRefresh has
+        // nothing to exchange on every future expiry, and the iOS OAuth
+        // dialog fires hourly forever. Sign out so the next signInWithOAuth
+        // runs the fresh-login path, which DOES forward provider_refresh_token.
+        if (msg.includes('single_identity_not_deletable') || msg.includes('at least 1 identity')) {
+          console.log('[auth] forcing sign-out before re-auth — sole-identity user');
+          await supabase.auth.signOut();
+        } else {
+          console.warn('[auth] unlinkIdentity failed (using signInWithOAuth fallback):', msg);
+        }
       } else {
         identityUnlinked = true;
       }
@@ -540,6 +579,28 @@ export async function disconnectProvider(
   init();
   const uid = currentUserId();
   if (!uid) return;
+
+  // Auto-clear any voice-routing labels that point at this provider — a
+  // stale label can never silently mis-route a voice call to a calendar
+  // the user no longer has access to.
+  try {
+    const labels = await readCalendarLabels(uid);
+    await Promise.all(
+      (Object.entries(labels) as Array<[
+        'work' | 'personal',
+        { provider: 'google' | 'microsoft'; id: string } | undefined,
+      ]>).map(async ([key, target]) => {
+        if (target?.provider === provider) {
+          await setCalendarLabel(uid, key, null);
+        }
+      }),
+    );
+  } catch (err) {
+    // Demo user (no real DB row) or transient DB error — fall through. The
+    // label is at worst stale; the Edge Function's defensive null-check on
+    // resolution catches a row state where columns are inconsistent.
+    if (__DEV__) console.warn('[auth] auto-clear calendar labels failed:', err);
+  }
 
   // Demo user — no real tokens exist server-side. Just drop the local cache.
   if (isDemoUser(cachedSession?.user)) {

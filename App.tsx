@@ -22,7 +22,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useState } from 'react';
-import { AppState, Linking, StyleSheet, View } from 'react-native';
+import { Alert, AppState, Linking, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { ChromeInsetsContext, PhoneChrome, TabId } from './src/components/PhoneChrome';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
@@ -51,8 +51,13 @@ import {
   markMemoryConsentShown,
   shouldShowOnboardingBackfill,
   markOnboardingBackfillShown,
+  shouldShowMsReconnectPrompt,
+  markMsReconnectPromptShown,
+  shouldShowWhatsNew,
+  markWhatsNewShown,
 } from './src/lib/hooks';
 import { MemoryConsentModal } from './src/components/MemoryConsentModal';
+import { WhatsNewModal, WHATS_NEW_VERSION } from './src/components/WhatsNewModal';
 import { OnboardingBackfillScreen } from './src/screens/OnboardingBackfillScreen';
 import { OnboardingChatQuestionsScreen } from './src/screens/OnboardingChatQuestionsScreen';
 import { OnboardingFactReviewScreen } from './src/screens/OnboardingFactReviewScreen';
@@ -85,7 +90,7 @@ export default function App() {
     JetBrainsMono_600SemiBold,
   });
 
-  const { user } = useAuth();
+  const { user, microsoftAccessToken, signInWithMicrosoft, disconnectProvider } = useAuth();
   const [introPlaying, setIntroPlaying] = useState(!introShownThisSession);
   const dismissIntro = () => {
     introShownThisSession = true;
@@ -108,6 +113,7 @@ export default function App() {
   const [memoryConsentOpen, setMemoryConsentOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingStage, setOnboardingStage] = useState<'intro' | 'questions' | 'review'>('intro');
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   // Bumped whenever a 'brief' push or in-app notification row is tapped.
   // TodayScreen opens the brief modal on each change.
   const [briefOpenTrigger, setBriefOpenTrigger] = useState(0);
@@ -123,9 +129,10 @@ export default function App() {
   }, [user?.id]);
 
   // Show onboarding-backfill on launch for users who already enabled memory
-  // in a previous session but never completed the chain.
+  // in a previous session but never completed the chain. Defer to memory
+  // consent modal — only consider opening once that's been seen.
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || memoryConsentOpen) return;
     let cancelled = false;
     void shouldShowOnboardingBackfill(user.id).then((show) => {
       if (cancelled || !show) return;
@@ -133,7 +140,55 @@ export default function App() {
       setOnboardingOpen(true);
     });
     return () => { cancelled = true; };
-  }, [user?.id]);
+  }, [user?.id, memoryConsentOpen]);
+
+  // What's-new modal: one-shot per user per WHATS_NEW_VERSION. Don't compete
+  // with the memory-consent modal — defer until that has been seen.
+  useEffect(() => {
+    const uid = user?.id;
+    if (!uid || isDemoUser(user) || memoryConsentOpen) return;
+    let cancelled = false;
+    void shouldShowWhatsNew(uid, WHATS_NEW_VERSION).then((show) => {
+      if (cancelled || !show) return;
+      setWhatsNewOpen(true);
+    });
+    return () => { cancelled = true; };
+  }, [user?.id, user, memoryConsentOpen]);
+
+  // One-shot Microsoft reconnect nudge — old tokens carry Calendars.Read,
+  // new code requires Calendars.ReadWrite for chatbot/voice calendar writes.
+  useEffect(() => {
+    const uid = user?.id;
+    if (!uid || isDemoUser(user) || !microsoftAccessToken) return;
+    let cancelled = false;
+    void shouldShowMsReconnectPrompt(uid).then((show) => {
+      if (cancelled || !show) return;
+      Alert.alert(
+        'Genforbind Microsoft',
+        'Vi har udvidet Microsoft-tilladelserne, så Zolva kan oprette og redigere møder for dig. Genforbind din Microsoft-konto for at aktivere det.',
+        [
+          {
+            text: 'Senere',
+            style: 'cancel',
+            onPress: () => { void markMsReconnectPromptShown(uid); },
+          },
+          {
+            text: 'Genforbind',
+            onPress: async () => {
+              await markMsReconnectPromptShown(uid);
+              try {
+                await disconnectProvider('microsoft');
+                await signInWithMicrosoft();
+              } catch (err) {
+                if (__DEV__) console.warn('[ms-reconnect] failed:', err);
+              }
+            },
+          },
+        ],
+      );
+    });
+    return () => { cancelled = true; };
+  }, [user?.id, microsoftAccessToken, disconnectProvider, signInWithMicrosoft, user]);
 
   useEffect(() => {
     if (!user?.id || isDemoUser(user)) return;
@@ -236,6 +291,14 @@ export default function App() {
         // event-detail open is handled by CalendarScreen via the URL — left as a
         // follow-up. v1: tapping a meeting nudge lands the user on the calendar
         // tab focused on the right day.
+        return;
+      }
+      if (url.startsWith('zolva://settings')) {
+        setTab('settings');
+        // Anchor (e.g. #calendars from voice oauthInvalid response) is read
+        // by SettingsScreen via the URL — left as a follow-up. v2: landing
+        // the user on the Settings tab is enough to unblock label setup or
+        // provider reconnect after a voice-action snippet tap.
         return;
       }
     };
@@ -516,6 +579,16 @@ export default function App() {
               setOnboardingStage('intro');
               setOnboardingOpen(true);
             });
+          }}
+        />
+      )}
+      {user?.id && (
+        <WhatsNewModal
+          visible={whatsNewOpen}
+          onClose={() => {
+            const uid = user.id;
+            setWhatsNewOpen(false);
+            void markWhatsNewShown(uid, WHATS_NEW_VERSION);
           }}
         />
       )}

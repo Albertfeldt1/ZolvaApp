@@ -86,7 +86,7 @@ serve(async (req) => {
   let prefsQuery = client
     .from('work_preferences')
     .select('user_id, id, value')
-    .in('id', ['morning-brief', 'evening-brief']);
+    .in('id', ['morning-brief', 'midday-brief', 'evening-brief']);
   if (scopedUserId) {
     prefsQuery = prefsQuery.eq('user_id', scopedUserId);
   }
@@ -105,7 +105,10 @@ serve(async (req) => {
     const tz = zoneByUser.get(pref.user_id) ?? 'UTC';
     const local = localHourMinute(now, tz);
     if (!windowMatches(pref.value, local.hour, local.minute)) continue;
-    const kind = pref.id === 'morning-brief' ? 'morning' : 'evening';
+    const kind: 'morning' | 'midday' | 'evening' =
+      pref.id === 'morning-brief' ? 'morning'
+      : pref.id === 'midday-brief' ? 'midday'
+      : 'evening';
     const status = await generateOneBrief(client, anthropicKey, pref.user_id, kind, tz);
     results.push({ userId: pref.user_id, kind, status });
   }
@@ -168,7 +171,7 @@ async function generateOneBrief(
   client: SupabaseClient,
   anthropicKey: string,
   userId: string,
-  kind: 'morning' | 'evening',
+  kind: 'morning' | 'midday' | 'evening',
   timezone: string,
 ): Promise<string> {
   const today = new Date().toISOString().slice(0, 10);
@@ -224,7 +227,7 @@ async function generateOneBrief(
 async function assembleInputs(
   client: SupabaseClient,
   userId: string,
-  kind: 'morning' | 'evening',
+  kind: 'morning' | 'midday' | 'evening',
   timezone: string,
 ): Promise<BriefInputs> {
   const [commitmentsRes, mailRes, weather, events] = await Promise.all([
@@ -313,7 +316,7 @@ async function composeWithClaude(
 async function sendPush(
   client: SupabaseClient,
   userId: string,
-  kind: 'morning' | 'evening',
+  kind: 'morning' | 'midday' | 'evening',
   headline: string,
   briefId: string,
   firstLine: string | null,
@@ -324,7 +327,10 @@ async function sendPush(
     .eq('user_id', userId);
   if (!tokens || tokens.length === 0) return;
 
-  const title = kind === 'morning' ? 'Morgenbrief fra Zolva' : 'Aftenbrief fra Zolva';
+  const title =
+    kind === 'morning' ? 'Morgenbrief fra Zolva'
+    : kind === 'midday' ? 'Middagsbrief fra Zolva'
+    : 'Aftenbrief fra Zolva';
   // Multi-line push: headline as bold first, then the first body item
   // as a preview. iOS/Android expand when the user long-presses.
   const body = firstLine ? `${headline}\n\n${firstLine}` : headline;

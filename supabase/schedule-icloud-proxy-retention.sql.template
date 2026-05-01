@@ -1,0 +1,21 @@
+-- Paste this whole file into the Supabase Dashboard SQL editor AFTER the
+-- 20260427130000_icloud_proxy_calls_retention migration has been applied.
+-- This one needs no service-role bearer — the function runs in-DB via
+-- pg_cron, no HTTP hop, so there's nothing to redact. Safe to commit.
+--
+-- Schedule: daily at 03:30 UTC. Off-peak window for the EU and well
+-- before the morning briefings burst.
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'icloud-proxy-calls-retention') THEN
+    PERFORM cron.unschedule('icloud-proxy-calls-retention');
+  END IF;
+END
+$$;
+
+select cron.schedule(
+  'icloud-proxy-calls-retention',
+  '30 3 * * *',
+  $cmd$select public.purge_old_icloud_proxy_calls();$cmd$
+);

@@ -17,12 +17,18 @@
       "bundleIdentifier": "io.zolva.app",
       "infoPlist": {
         "NSUserNotificationsUsageDescription": "Zolva sender notifikationer om påmindelser, dagens overblik og kommende møder.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "SupabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNqa2hma2F0bWVxdHNyeXNpeG9wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNDA0MjMsImV4cCI6MjA5MTgxNjQyM30.pKadjlb7pQPXoZHfws4BvkdjyT2_hUeDtMFzX9v5_dY"
       },
       "entitlements": {
-        "com.apple.security.application-groups": ["group.io.zolva.app"]
+        "com.apple.security.application-groups": [
+          "group.io.zolva.app"
+        ],
+        "keychain-access-groups": [
+          "$(AppIdentifierPrefix)io.zolva.shared"
+        ]
       },
-      "buildNumber": "16"
+      "buildNumber": "17"
     },
     "android": {
       "package": "com.zolva.app",
@@ -66,8 +72,22 @@
           "color": "#5C7355"
         }
       ],
-      ["@bacons/apple-targets", { "appleTeamId": "N6WPH3FPFA" }],
-      "./plugins/widget-bridge/withWidgetBridge"
+      [
+        "@bacons/apple-targets",
+        {
+          "appleTeamId": "N6WPH3FPFA"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "16.0"
+          }
+        }
+      ],
+      "./plugins/widget-bridge/withWidgetBridge",
+      "./plugins/voice-intents/withVoiceIntents"
     ],
     "extra": {
       "eas": {
