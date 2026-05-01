@@ -409,6 +409,15 @@ const styles = StyleSheet.create({
   },
   iconAbs: {
     position: 'absolute',
+    // Anchor the icon's CENTER at the parent's center so transform
+    // translateX/Y orbits the Stone (which is the parent's natural-flow
+    // centered child). Without this, position:absolute without top/left
+    // defaults to (0,0) of the parent and the icons drifted toward the
+    // top-left corner instead of around the Stone.
+    top: '50%',
+    left: '50%',
+    marginTop: -ICON_SIZE / 2,
+    marginLeft: -ICON_SIZE / 2,
     width: ICON_SIZE,
     height: ICON_SIZE,
     alignItems: 'center',
