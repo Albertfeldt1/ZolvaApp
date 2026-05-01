@@ -3182,6 +3182,15 @@ export async function setPrivacyFlag(id: PrivacyFlagId, value: boolean): Promise
     try {
       await AsyncStorage.setItem(privacyTogglesKey(uid), JSON.stringify(privacyCache));
     } catch {}
+    // Reset the onboarding-backfill shown flag whenever memory is turned off,
+    // so toggling memory off → on re-triggers the chain. Without this, a user
+    // who dismissed the intro before connecting providers is permanently
+    // locked out of the onboarding flow.
+    if (id === 'memory-enabled' && value === false) {
+      try {
+        await AsyncStorage.removeItem(`zolva.${uid}.onboarding-backfill.shown`);
+      } catch {}
+    }
   }
   notifyPrivacyChange();
 }

@@ -90,7 +90,7 @@ export default function App() {
     JetBrainsMono_600SemiBold,
   });
 
-  const { user, microsoftAccessToken, signInWithMicrosoft, disconnectProvider } = useAuth();
+  const { user, googleAccessToken, microsoftAccessToken, signInWithMicrosoft, disconnectProvider } = useAuth();
   const [introPlaying, setIntroPlaying] = useState(!introShownThisSession);
   const dismissIntro = () => {
     introShownThisSession = true;
@@ -559,7 +559,14 @@ export default function App() {
             const uid = user.id;
             setMemoryConsentOpen(false);
             void markMemoryConsentShown(uid);
-            // If memory was just enabled, kick off the onboarding backfill chain.
+            // If memory was just enabled, kick off the onboarding backfill
+            // chain — but only if Google or Microsoft is connected. Apple-only
+            // sign-in has nothing to backfill, so the intro screen would land
+            // on a "no accounts connected" empty state with a disabled Start
+            // button. Skip it; the user can re-trigger by toggling memory
+            // off/on after they've connected a provider.
+            const hasProvider = !!googleAccessToken || !!microsoftAccessToken;
+            if (!hasProvider) return;
             void shouldShowOnboardingBackfill(uid).then((show) => {
               if (!show) return;
               setOnboardingStage('intro');
