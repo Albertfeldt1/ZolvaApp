@@ -21,6 +21,7 @@ import { SkeletonRow } from '../components/Skeleton';
 import { Stone } from '../components/Stone';
 import { formatClock, formatToday } from '../lib/date';
 import { useHasProvider, useInboxCleared, useInboxWaiting } from '../lib/hooks';
+import type { MailProviderError } from '../lib/hooks';
 import type { InboxMail, MailProvider } from '../lib/types';
 import { colors, fonts, shadows } from '../theme';
 import { translateProviderError } from '../utils/danish';
@@ -33,6 +34,19 @@ const PROVIDER_LOGOS: Record<MailProvider, ReturnType<typeof require>> = {
 
 const ARCHIVE_HINT_KEY = 'zolva.inbox.archive-fab-hint-shown';
 const HINT_AUTOHIDE_MS = 5000;
+
+function providerFailureCopy(e: MailProviderError): string {
+  if (e.provider === 'icloud') {
+    if (e.code === 'network' || e.code === 'timeout' || e.code === 'gateway-unavailable') {
+      return 'Apple-mails kunne ikke hentes — netværket eller iCloud svarer ikke. Prøv igen om lidt.';
+    }
+    return 'Apple-mails kunne ikke hentes lige nu. Prøv igen om lidt.';
+  }
+  if (e.provider === 'microsoft') {
+    return 'Outlook-mails kunne ikke hentes — prøv igen om lidt.';
+  }
+  return 'Gmail kunne ikke hentes — prøv igen om lidt.';
+}
 
 type Props = {
   onGoToSettings: () => void;
@@ -47,12 +61,44 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
   const clock = useMemo(() => formatClock(today), [today]);
   const { bottom: chromeBottom } = useChromeInsets();
 
-  const { data: waiting, loading: waitingLoading, error: waitingError } = useInboxWaiting();
+  const { data: waiting, loading: waitingLoading, error: waitingError, providerErrors } = useInboxWaiting();
   const { data: cleared } = useInboxCleared();
   const hasProvider = useHasProvider();
 
-  const { user } = useAuth();
+  // Soft per-provider failures — when iCloud throws but Gmail succeeds (or
+  // vice versa), `waitingError` stays null because the global "all failed"
+  // condition isn't met. Without these banners the failed provider was
+  // silently absent from the list. iCloud auth-failed has its own
+  // (credential-rejected) banner above; suppress here to avoid doubling up.
+  const softFailures = providerErrors.filter((e) => {
+    if (e.provider === 'icloud') return e.code !== 'auth-failed' && e.code !== 'credential-rejected';
+    return true;
+  });
+
+  const {
+    user,
+    initializing,
+    googleAccessToken,
+    microsoftAccessToken,
+    googleRefreshingAtBoot,
+    microsoftRefreshingAtBoot,
+    signInWithGoogle,
+    signInWithMicrosoft,
+  } = useAuth();
   const userId = user?.id ?? '';
+
+  // Provider-in-identity-but-no-token: the user signed in with this provider
+  // (Supabase auth.identities row exists), but `silentRefresh` couldn't mint
+  // an access token — typically because `user_oauth_tokens` has no row for
+  // this user/provider (broker upsert never ran or failed). Without these
+  // banners the missing provider was silently absent from the inbox and the
+  // user had no path to recover short of full sign-out.
+  const providers = (user?.app_metadata?.providers as string[] | undefined) ?? [];
+  const needsMicrosoftReauth =
+    !initializing && !microsoftRefreshingAtBoot && providers.includes('azure') && !microsoftAccessToken;
+  const needsGoogleReauth =
+    !initializing && !googleRefreshingAtBoot && providers.includes('google') && !googleAccessToken;
+
   const [icloudExpired, setIcloudExpired] = useState(false);
   const [icloudExpiredEmail, setIcloudExpiredEmail] = useState<string | null>(null);
   useEffect(() => {
@@ -141,6 +187,36 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
             </Text>
           </Pressable>
         )}
+
+        {needsMicrosoftReauth && (
+          <Pressable
+            style={styles.expiredBanner}
+            onPress={() => { void signInWithMicrosoft(); }}
+            accessibilityRole="button"
+          >
+            <Text style={styles.expiredBannerText}>
+              Microsoft-forbindelsen er udløbet — Outlook-mails vises ikke. Tryk for at logge ind igen.
+            </Text>
+          </Pressable>
+        )}
+
+        {needsGoogleReauth && (
+          <Pressable
+            style={styles.expiredBanner}
+            onPress={() => { void signInWithGoogle(); }}
+            accessibilityRole="button"
+          >
+            <Text style={styles.expiredBannerText}>
+              Google-forbindelsen er udløbet — Gmail vises ikke. Tryk for at logge ind igen.
+            </Text>
+          </Pressable>
+        )}
+
+        {softFailures.map((e) => (
+          <View key={e.provider} style={styles.softBanner}>
+            <Text style={styles.softBannerText}>{providerFailureCopy(e)}</Text>
+          </View>
+        ))}
 
         <View style={styles.list}>
           <View style={styles.sectionHead}>
@@ -318,6 +394,13 @@ const styles = StyleSheet.create({
   },
   expiredBannerText: {
     fontFamily: fonts.ui, fontSize: 13, lineHeight: 19, color: colors.warningInk,
+  },
+  softBanner: {
+    marginHorizontal: 20, marginTop: 8,
+    backgroundColor: colors.line, padding: 10, borderRadius: 8,
+  },
+  softBannerText: {
+    fontFamily: fonts.ui, fontSize: 12.5, lineHeight: 18, color: colors.fg2,
   },
 
   list: { paddingHorizontal: 20, paddingTop: 28 },

@@ -699,10 +699,23 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
   return state;
 }
 
+// Per-provider failure surfaced to the UI when one provider errored but at
+// least one other succeeded — without this, `Promise.allSettled` swallowed
+// e.g. an iCloud `protocol`/`timeout` and the user saw Gmail mails with no
+// hint that Apple-mails were missing.
+export type MailProviderError = {
+  provider: 'google' | 'microsoft' | 'icloud';
+  // For iCloud: the `IcloudErrorCode` from icloud-mail. For others: 'failed'.
+  // Auth-failed iCloud errors still appear here, but InboxScreen suppresses
+  // the soft banner for them since the credential-invalid banner covers that.
+  code: string;
+};
+
 function useMailItems(): {
   items: NormalizedMail[];
   loading: boolean;
   error: Error | null;
+  providerErrors: MailProviderError[];
 } {
   const { googleAccessToken, microsoftAccessToken, user } = useAuth();
   const userId = user?.id ?? '';
@@ -711,83 +724,103 @@ function useMailItems(): {
     items: NormalizedMail[];
     loading: boolean;
     error: Error | null;
-  }>({ items: [], loading: false, error: null });
+    providerErrors: MailProviderError[];
+  }>({ items: [], loading: false, error: null, providerErrors: [] });
 
   useEffect(() => {
     if (!user || (!googleAccessToken && !microsoftAccessToken && !icloudConnected)) {
-      setState({ items: [], loading: false, error: null });
+      setState({ items: [], loading: false, error: null, providerErrors: [] });
       return;
     }
     let cancelled = false;
-    setState({ items: [], loading: true, error: null });
+    setState({ items: [], loading: true, error: null, providerErrors: [] });
 
-    const tasks: Promise<NormalizedMail[]>[] = [];
+    type Task = {
+      provider: 'google' | 'microsoft' | 'icloud';
+      run: () => Promise<NormalizedMail[]>;
+    };
+    const tasks: Task[] = [];
     if (googleAccessToken) {
-      tasks.push(
-        listGmailMessages(12).then((msgs) =>
-          msgs.map((m) => ({
-            id: m.id,
-            provider: 'google' as const,
-            from: m.from,
-            subject: m.subject,
-            receivedAt: m.date,
-            isRead: !m.unread,
-            preview: m.snippet ?? '',
-          })),
-        ),
-      );
+      tasks.push({
+        provider: 'google',
+        run: () =>
+          listGmailMessages(12).then((msgs) =>
+            msgs.map((m) => ({
+              id: m.id,
+              provider: 'google' as const,
+              from: m.from,
+              subject: m.subject,
+              receivedAt: m.date,
+              isRead: !m.unread,
+              preview: m.snippet ?? '',
+            })),
+          ),
+      });
     }
     if (microsoftAccessToken) {
-      tasks.push(
-        listGraphMessages(12).then((msgs) =>
-          msgs.map((m) => ({
-            id: m.id,
-            provider: 'microsoft' as const,
-            from: m.from,
-            subject: m.subject,
-            receivedAt: m.receivedAt,
-            isRead: m.isRead,
-            preview: m.preview ?? '',
-          })),
-        ),
-      );
+      tasks.push({
+        provider: 'microsoft',
+        run: () =>
+          listGraphMessages(12).then((msgs) =>
+            msgs.map((m) => ({
+              id: m.id,
+              provider: 'microsoft' as const,
+              from: m.from,
+              subject: m.subject,
+              receivedAt: m.receivedAt,
+              isRead: m.isRead,
+              preview: m.preview ?? '',
+            })),
+          ),
+      });
     }
     if (icloudConnected && userId) {
-      tasks.push(
-        listIcloudMessages(userId, 12).then((r) => {
-          if (!r.ok) {
-            // markInvalid was already called inside icloud-mail.ts on auth-failed.
-            throw new Error(`icloud:${r.error}`);
-          }
-          return r.data.map((m) => ({
-            id: `icloud:${m.uid}`,
-            provider: 'icloud' as const,
-            from: m.from,
-            subject: m.subject,
-            receivedAt: m.date,
-            isRead: !m.unread,
-            preview: m.preview,
-          }));
-        }),
-      );
+      tasks.push({
+        provider: 'icloud',
+        run: () =>
+          listIcloudMessages(userId, 12).then((r) => {
+            if (!r.ok) {
+              // markInvalid was already called inside icloud-mail.ts on auth-failed.
+              throw new Error(`icloud:${r.error}`);
+            }
+            return r.data.map((m) => ({
+              id: `icloud:${m.uid}`,
+              provider: 'icloud' as const,
+              from: m.from,
+              subject: m.subject,
+              receivedAt: m.date,
+              isRead: !m.unread,
+              preview: m.preview,
+            }));
+          }),
+      });
     }
 
     // Promise.allSettled: one provider's failure shouldn't blank Gmail/Outlook
     // mails when iCloud is flaky. Error state surfaces only when all providers
-    // failed; otherwise show partial results and log per-provider failures.
-    Promise.allSettled(tasks)
+    // failed; per-provider errors are reported separately so the UI can show
+    // a soft banner for "iCloud failed but Gmail loaded" instead of silently
+    // dropping the missing provider.
+    Promise.allSettled(tasks.map((t) => t.run()))
       .then((results) => {
         if (cancelled) return;
-        const fulfilled = results.flatMap((r) =>
-          r.status === 'fulfilled' ? r.value : [],
-        );
-        const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
-        if (__DEV__) {
-          for (const r of rejected) {
-            console.warn('[hooks] mail provider failed:', (r.reason as Error)?.message ?? r.reason);
+        const fulfilled: NormalizedMail[] = [];
+        const providerErrors: MailProviderError[] = [];
+        results.forEach((r, i) => {
+          const provider = tasks[i].provider;
+          if (r.status === 'fulfilled') {
+            fulfilled.push(...r.value);
+            return;
           }
-        }
-        const allFailed = rejected.length === results.length && results.length > 0;
+          const reason = r.reason as Error | undefined;
+          const msg = reason?.message ?? String(r.reason);
+          if (__DEV__) {
+            console.warn(`[hooks] mail provider ${provider} failed:`, msg);
+          }
+          const code = msg.startsWith('icloud:') ? msg.slice('icloud:'.length) : 'failed';
+          providerErrors.push({ provider, code });
+        });
+        const allFailed = providerErrors.length === results.length && results.length > 0;
         const merged = fulfilled.sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime());
         setState({
           items: merged,
@@ -795,6 +828,7 @@ function useMailItems(): {
           error: allFailed
             ? new Error('Kunne ikke hente indbakke. Noget gik galt. Prøv igen.')
             : null,
+          providerErrors,
         });
       });
 
@@ -1273,10 +1307,14 @@ async function generateDraft(
   });
 }
 
-export function useInboxWaiting(): Result<InboxMail[]> {
+export type InboxWaitingResult = Result<InboxMail[]> & {
+  providerErrors: MailProviderError[];
+};
+
+export function useInboxWaiting(): InboxWaitingResult {
   const { user } = useAuth();
   const demo = isDemoUser(user);
-  const { items, loading, error } = useMailItems();
+  const { items, loading, error, providerErrors } = useMailItems();
   const dismissed = useDismissedMailIds();
   const { data: workRows } = useWorkPreferences();
   const { data: profile } = useUser();
@@ -1407,6 +1445,7 @@ export function useInboxWaiting(): Result<InboxMail[]> {
       data: demoInboxWaiting().filter((m) => !dismissed.has(m.id)),
       loading: false,
       error: null,
+      providerErrors: [],
     };
   }
 
@@ -1425,7 +1464,7 @@ export function useInboxWaiting(): Result<InboxMail[]> {
       initials: initialsOf(m.from),
       aiDraft: drafts[m.id] ?? null,
     }));
-  return { data, loading, error };
+  return { data, loading, error, providerErrors };
 }
 
 export function useInboxArchived(): Result<InboxMail[]> {

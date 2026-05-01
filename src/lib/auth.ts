@@ -84,10 +84,17 @@ let cachedSession: Session | null = null;
 let cachedGoogleToken: string | null = null;
 let cachedMicrosoftToken: string | null = null;
 let initialized = false;
+// True while an init-time silent refresh is in flight for that provider. The
+// re-auth banner suppresses itself until this flips to false, so the banner
+// doesn't flicker on every cold launch for users whose refresh succeeds.
+let googleInitRefreshing = false;
+let microsoftInitRefreshing = false;
 
 const sessionListeners = new Set<(s: Session | null) => void>();
 const googleListeners = new Set<(t: string | null) => void>();
 const microsoftListeners = new Set<(t: string | null) => void>();
+const googleInitRefreshingListeners = new Set<(b: boolean) => void>();
+const microsoftInitRefreshingListeners = new Set<(b: boolean) => void>();
 const userIdListeners = new Set<(uid: string | null) => void>();
 
 let lastBroadcastUid: string | null | undefined = undefined;
@@ -121,6 +128,15 @@ const broadcastGoogle = (t: string | null) => {
 const broadcastMicrosoft = (t: string | null) => {
   cachedMicrosoftToken = t;
   microsoftListeners.forEach((l) => l(t));
+};
+
+const setGoogleInitRefreshing = (b: boolean) => {
+  googleInitRefreshing = b;
+  googleInitRefreshingListeners.forEach((l) => l(b));
+};
+const setMicrosoftInitRefreshing = (b: boolean) => {
+  microsoftInitRefreshing = b;
+  microsoftInitRefreshingListeners.forEach((l) => l(b));
 };
 
 async function loadProviderTokens(userId: string) {
@@ -203,7 +219,21 @@ const init = () => {
     const uid = data.session?.user?.id ?? null;
     await hydrateNotificationSettingsForUser(uid);
     if (uid) {
-      loadProviderTokens(uid);
+      await loadProviderTokens(uid);
+      // For each provider in the user's identities, if we don't have a cached
+      // access token, try one silent refresh. If a refresh_token exists in
+      // user_oauth_tokens this populates the token; if it doesn't (e.g. the
+      // user signed in pre-broker, or the broker upsert failed), the token
+      // stays null and the InboxScreen banner can prompt re-auth. Without
+      // this, those users sat with `microsoftAccessToken === null` forever
+      // and Outlook mails were silently absent from the inbox.
+      const providers = (data.session?.user?.app_metadata?.providers as string[] | undefined) ?? [];
+      if (providers.includes('azure') && !cachedMicrosoftToken) {
+        void trySilentRefreshAndBroadcast('microsoft');
+      }
+      if (providers.includes('google') && !cachedGoogleToken) {
+        void trySilentRefreshAndBroadcast('google');
+      }
       ensurePushTokenListener();
       void registerPushToken();
       void migrateLocalRemindersToServer(uid);
@@ -234,7 +264,20 @@ const init = () => {
       broadcastGoogle(null);
       broadcastMicrosoft(null);
       void hydrateNotificationSettingsForUser(nextUserId);
-      if (nextUserId) loadProviderTokens(nextUserId);
+      if (nextUserId) {
+        void loadProviderTokens(nextUserId).then(() => {
+          // Same proactive-refresh as init() — covers the user-switch /
+          // sign-back-in flow where loadProviderTokens finds nothing in the
+          // new user's secure-store but the server still has a refresh_token.
+          const providers = (session?.user?.app_metadata?.providers as string[] | undefined) ?? [];
+          if (providers.includes('azure') && !cachedMicrosoftToken) {
+            void trySilentRefreshAndBroadcast('microsoft');
+          }
+          if (providers.includes('google') && !cachedGoogleToken) {
+            void trySilentRefreshAndBroadcast('google');
+          }
+        });
+      }
     }
     if (event === 'SIGNED_IN' && nextUserId) {
       ensurePushTokenListener();
@@ -505,6 +548,42 @@ async function silentRefresh(provider: 'google' | 'microsoft'): Promise<string |
   } catch (err) {
     if (__DEV__) console.warn('[auth] refresh-provider-token threw:', err);
     return null;
+  }
+}
+
+// Init-time proactive refresh — calls silentRefresh ONLY (no full-OAuth
+// fallback). On success, persists the token and broadcasts it so the inbox
+// can include this provider on the first render. On failure (e.g. no
+// refresh_token row server-side), leaves the broadcast at null so the
+// re-auth banner can prompt the user. Using doRefresh/startRefresh here
+// would surprise-pop ASWebAuthenticationSession on every cold launch for
+// users who can't silently refresh — exactly the dialog the silent-refresh
+// machinery was added to suppress.
+async function trySilentRefreshAndBroadcast(provider: 'google' | 'microsoft'): Promise<void> {
+  if (provider === 'google') setGoogleInitRefreshing(true);
+  else setMicrosoftInitRefreshing(true);
+  try {
+    let token: string | null = null;
+    try {
+      token = await silentRefresh(provider);
+    } catch (err) {
+      if (__DEV__) console.warn('[auth] init-time silent refresh threw:', err);
+      return;
+    }
+    if (!token) return;
+    const uid = currentUserId();
+    if (uid) {
+      try {
+        await secureStorage.setItem(tokenKey(provider, uid), token);
+      } catch (err) {
+        if (__DEV__) console.warn('[auth] init-time token persist failed:', err);
+      }
+    }
+    if (provider === 'google') broadcastGoogle(token);
+    else broadcastMicrosoft(token);
+  } finally {
+    if (provider === 'google') setGoogleInitRefreshing(false);
+    else setMicrosoftInitRefreshing(false);
   }
 }
 
@@ -805,12 +884,16 @@ export function useAuth() {
   const [googleToken, setGoogleToken] = useState<string | null>(cachedGoogleToken);
   const [microsoftToken, setMicrosoftToken] = useState<string | null>(cachedMicrosoftToken);
   const [initializing, setInitializing] = useState(!initialized);
+  const [googleRefreshingAtBoot, setGoogleRefreshingAtBoot] = useState(googleInitRefreshing);
+  const [microsoftRefreshingAtBoot, setMicrosoftRefreshingAtBoot] = useState(microsoftInitRefreshing);
 
   useEffect(() => {
     init();
     sessionListeners.add(setSession);
     googleListeners.add(setGoogleToken);
     microsoftListeners.add(setMicrosoftToken);
+    googleInitRefreshingListeners.add(setGoogleRefreshingAtBoot);
+    microsoftInitRefreshingListeners.add(setMicrosoftRefreshingAtBoot);
     if (initializing) {
       const id = setTimeout(() => setInitializing(false), 0);
       return () => {
@@ -818,12 +901,16 @@ export function useAuth() {
         sessionListeners.delete(setSession);
         googleListeners.delete(setGoogleToken);
         microsoftListeners.delete(setMicrosoftToken);
+        googleInitRefreshingListeners.delete(setGoogleRefreshingAtBoot);
+        microsoftInitRefreshingListeners.delete(setMicrosoftRefreshingAtBoot);
       };
     }
     return () => {
       sessionListeners.delete(setSession);
       googleListeners.delete(setGoogleToken);
       microsoftListeners.delete(setMicrosoftToken);
+      googleInitRefreshingListeners.delete(setGoogleRefreshingAtBoot);
+      microsoftInitRefreshingListeners.delete(setMicrosoftRefreshingAtBoot);
     };
   }, [initializing]);
 
@@ -832,6 +919,8 @@ export function useAuth() {
     user: session?.user ?? null,
     googleAccessToken: googleToken,
     microsoftAccessToken: microsoftToken,
+    googleRefreshingAtBoot,
+    microsoftRefreshingAtBoot,
     initializing,
     signIn: (email: string, password: string) =>
       signInWithPasswordOrDemo(email, password),
