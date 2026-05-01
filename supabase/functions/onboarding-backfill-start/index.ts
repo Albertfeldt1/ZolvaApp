@@ -191,36 +191,53 @@ serve(async (req) => {
     providers: providers.map((p) => `${p.provider}:${p.kind}`),
   });
 
-  // Run all jobs in parallel. Each worker is wrapped in a try so one failure
-  // doesn't sink the whole batch.
-  // KNOWN LIMITATION: Edge functions have a 150s wall-clock cap. If the
-  // worker hits it, the in-flight job stays in 'running' status and the
-  // terminal logBackfillEvent call below never fires. Spec L246 promises
-  // partial-completion → 'done', which would require a stale-job sweeper
-  // (Deno.cron or daily reaper). Tracked for follow-up; for now,
-  // production users are unlikely to exceed 150s on the realistic 4-job
-  // shape (Gmail + Outlook × mail + cal).
-  const settledResults = await Promise.allSettled(
-    jobs.map((job) => runJob(service, userId, userOwnEmail, job, anthropicKey))
-  );
-  const factsTotal = settledResults.reduce((sum, r) => {
-    if (r.status === 'fulfilled' && typeof r.value === 'number') return sum + r.value;
-    return sum;
-  }, 0);
+  // Run all jobs in parallel — but DON'T await them in the request scope.
+  // The client's progress screen polls backfill-status to drive its
+  // animation, which only works if this endpoint returns as soon as the
+  // jobs are queued. EdgeRuntime.waitUntil keeps the workers running
+  // after the HTTP response is sent.
+  //
+  // KNOWN LIMITATION: edge functions still have a 150s wall-clock cap on
+  // background work. If the worker hits it, the in-flight job stays in
+  // 'running' status and the terminal logBackfillEvent below never
+  // fires. Spec L246 promises partial-completion → 'done', which would
+  // require a stale-job sweeper (Deno.cron or daily reaper). Tracked
+  // for follow-up.
+  const workerPromise = (async () => {
+    const settledResults = await Promise.allSettled(
+      jobs!.map((job) => runJob(service, userId, userOwnEmail, job, anthropicKey)),
+    );
+    const factsTotal = settledResults.reduce((sum, r) => {
+      if (r.status === 'fulfilled' && typeof r.value === 'number') return sum + r.value;
+      return sum;
+    }, 0);
+    const { data: doneJobs } = await service
+      .from('backfill_jobs')
+      .select('id, status')
+      .eq('user_id', userId);
+    const final = doneJobs ?? [];
+    const success = final.every((j) => j.status === 'done');
+    await logBackfillEvent(service, userId, success ? 'backfill_completed' : 'backfill_failed', {
+      jobs_total: final.length,
+      jobs_done: final.filter((j) => j.status === 'done').length,
+      jobs_failed: final.filter((j) => j.status === 'failed').length,
+      jobs_cancelled: final.filter((j) => j.status === 'cancelled').length,
+      facts_total: factsTotal,
+    });
+  })();
 
-  const { data: doneJobs } = await service
-    .from('backfill_jobs')
-    .select('id, status')
-    .eq('user_id', userId);
-  const final = doneJobs ?? [];
-  const success = final.every((j) => j.status === 'done');
-  await logBackfillEvent(service, userId, success ? 'backfill_completed' : 'backfill_failed', {
-    jobs_total: final.length,
-    jobs_done: final.filter((j) => j.status === 'done').length,
-    jobs_failed: final.filter((j) => j.status === 'failed').length,
-    jobs_cancelled: final.filter((j) => j.status === 'cancelled').length,
-    facts_total: factsTotal,
-  });
+  // EdgeRuntime is a Supabase Edge Functions Deno global. It keeps the
+  // background promise alive after we return the HTTP response.
+  // deno-lint-ignore no-explicit-any
+  const edgeRuntime = (globalThis as any).EdgeRuntime;
+  if (edgeRuntime && typeof edgeRuntime.waitUntil === 'function') {
+    edgeRuntime.waitUntil(workerPromise);
+  } else {
+    // Fallback: fire-and-forget. Locally / in environments without
+    // EdgeRuntime, the worker may be killed when the response returns,
+    // but the client polling will still observe whatever did finish.
+    void workerPromise;
+  }
 
   return json({ job_ids: jobs.map((j) => j.id) });
 });
