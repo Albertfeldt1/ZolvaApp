@@ -255,6 +255,11 @@ export async function insertPendingFacts(
     (dups ?? [])
       .filter((d) =>
         d.status === 'confirmed' ||
+        // Cross-batch / cross-run dedup: a pending row already exists for
+        // this normalized_text. Don't insert a second copy. Without this,
+        // Claude returning the same fact in batches 1 and 5 produced N
+        // pending rows that the review screen had to de-dup display-side.
+        d.status === 'pending' ||
         (d.status === 'rejected' && d.rejection_ttl && (d.rejection_ttl as string) > nowIso),
       )
       .map((d) => d.normalized_text as string),
