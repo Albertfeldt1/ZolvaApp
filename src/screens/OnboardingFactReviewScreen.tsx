@@ -28,6 +28,7 @@ import {
 import { useChromeInsets } from '../components/PhoneChrome';
 import { subscribeUserId } from '../lib/auth';
 import { invalidatePreamble } from '../lib/profile';
+import { triggerBackfillRerun, type BackfillJob } from '../lib/onboarding-backfill';
 import {
   bulkUpdatePendingFacts,
   listPendingFactsForReview,
@@ -37,7 +38,25 @@ import { colors, fonts } from '../theme';
 
 type Props = {
   onDone: () => void;
+  failedJobs?: BackfillJob[];
 };
+
+const FAILED_LABEL: Record<string, string> = {
+  'google:mail': 'Gmail',
+  'google:calendar': 'Google Kalender',
+  'microsoft:mail': 'Outlook',
+  'microsoft:calendar': 'Outlook Kalender',
+};
+
+function failedJobsLabel(jobs: BackfillJob[]): string {
+  const names = Array.from(
+    new Set(jobs.map((j) => FAILED_LABEL[`${j.provider}:${j.kind}`] ?? `${j.provider} ${j.kind}`)),
+  );
+  if (names.length === 0) return '';
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} og ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')} og ${names[names.length - 1]}`;
+}
 
 const SOURCE_GROUP_LABELS: Record<string, string> = {
   'backfill:google:mail': 'Fra Gmail',
@@ -67,7 +86,7 @@ const GROUP_ORDER = [
   'Andet',
 ];
 
-export function OnboardingFactReviewScreen({ onDone }: Props) {
+export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
   const { bottom: chromeBottom } = useChromeInsets();
 
   const [userId, setUserId] = useState<string | null>(null);
@@ -209,6 +228,24 @@ export function OnboardingFactReviewScreen({ onDone }: Props) {
           <Text style={styles.eyebrow}>HUKOMMELSE</Text>
           <Text style={styles.heroH1}>Hvad jeg har lært om dig</Text>
         </View>
+
+        {failedJobs.length > 0 && (
+          <View style={styles.failBanner}>
+            <Text style={styles.failBannerText}>
+              {`Jeg kunne ikke læse ${failedJobsLabel(failedJobs)}.`}
+            </Text>
+            <Pressable
+              onPress={() => {
+                onDone();
+                triggerBackfillRerun();
+              }}
+              style={styles.failBannerCta}
+              accessibilityRole="button"
+            >
+              <Text style={styles.failBannerCtaText}>Prøv igen</Text>
+            </Pressable>
+          </View>
+        )}
 
         <View style={styles.section}>
           <Text style={styles.body}>
@@ -379,6 +416,36 @@ const styles = StyleSheet.create({
   primaryBtnText: {
     fontFamily: fonts.uiSemi,
     fontSize: 15,
+    color: colors.paper,
+  },
+  failBanner: {
+    marginHorizontal: 20,
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: colors.warningSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  failBannerText: {
+    flex: 1,
+    fontFamily: fonts.ui,
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.warningInk,
+  },
+  failBannerCta: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: colors.ink,
+  },
+  failBannerCtaText: {
+    fontFamily: fonts.uiSemi,
+    fontSize: 13,
     color: colors.paper,
   },
 });

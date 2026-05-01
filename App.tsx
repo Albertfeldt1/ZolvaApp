@@ -60,9 +60,9 @@ import {
 import { MemoryConsentModal } from './src/components/MemoryConsentModal';
 import { WhatsNewModal, WHATS_NEW_VERSION } from './src/components/WhatsNewModal';
 import { OnboardingBackfillScreen } from './src/screens/OnboardingBackfillScreen';
-import { OnboardingChatQuestionsScreen } from './src/screens/OnboardingChatQuestionsScreen';
+import { OnboardingBackfillProgressScreen } from './src/screens/OnboardingBackfillProgressScreen';
 import { OnboardingFactReviewScreen } from './src/screens/OnboardingFactReviewScreen';
-import { subscribeBackfillRerun } from './src/lib/onboarding-backfill';
+import { subscribeBackfillRerun, type BackfillJob } from './src/lib/onboarding-backfill';
 import { isDemoUser } from './src/lib/demo';
 import { syncUserProfile } from './src/lib/user-profile';
 import { writeSnapshotFromSources } from './src/lib/widget-bridge';
@@ -114,8 +114,9 @@ export default function App() {
   const [migrationsDone, setMigrationsDone] = useState(false);
   const [memoryConsentOpen, setMemoryConsentOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
-  const [onboardingStage, setOnboardingStage] = useState<'intro' | 'questions' | 'review'>('intro');
+  const [onboardingStage, setOnboardingStage] = useState<'intro' | 'progress' | 'review'>('intro');
   const [onboardingForceRerun, setOnboardingForceRerun] = useState(false);
+  const [onboardingFailedJobs, setOnboardingFailedJobs] = useState<BackfillJob[]>([]);
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   // Bumped whenever a 'brief' push or in-app notification row is tapped.
   // TodayScreen opens the brief modal on each change.
@@ -566,7 +567,10 @@ export default function App() {
             {onboardingStage === 'intro' && (
               <OnboardingBackfillScreen
                 forceRerun={onboardingForceRerun}
-                onStart={() => setOnboardingStage('questions')}
+                onStart={() => {
+                  setOnboardingFailedJobs([]);
+                  setOnboardingStage('progress');
+                }}
                 onSkip={() => {
                   const uid = user.id;
                   void markOnboardingBackfillShown(uid);
@@ -575,18 +579,23 @@ export default function App() {
                 }}
               />
             )}
-            {onboardingStage === 'questions' && (
-              <OnboardingChatQuestionsScreen
-                onContinue={() => setOnboardingStage('review')}
+            {onboardingStage === 'progress' && (
+              <OnboardingBackfillProgressScreen
+                onComplete={(failed) => {
+                  setOnboardingFailedJobs(failed);
+                  setOnboardingStage('review');
+                }}
               />
             )}
             {onboardingStage === 'review' && (
               <OnboardingFactReviewScreen
+                failedJobs={onboardingFailedJobs}
                 onDone={() => {
                   const uid = user.id;
                   void markOnboardingBackfillShown(uid);
                   setOnboardingOpen(false);
                   setOnboardingForceRerun(false);
+                  setOnboardingFailedJobs([]);
                 }}
               />
             )}
