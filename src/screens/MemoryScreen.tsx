@@ -7,7 +7,7 @@ import { useChromeInsets } from '../components/PhoneChrome';
 import { Stone } from '../components/Stone';
 import { formatToday } from '../lib/date';
 import { useNotes, useReminders, getPrivacyFlag, hydratePrivacyCache, setPrivacyFlag } from '../lib/hooks';
-import { deleteAllChatHistory, deleteAllFacts, deleteAllMailEvents, deleteFact, listFacts, listRecentChatMessages } from '../lib/profile-store';
+import { deleteAllChatHistory, deleteAllFacts, deleteAllMailEvents, deleteFact, listFacts, listRecentChatMessages, subscribeFactsChanged } from '../lib/profile-store';
 import { migrateLocalChatIfNeeded } from '../lib/chat-sync';
 import { triggerBackfillRerun } from '../lib/onboarding-backfill';
 import { useAuth } from '../lib/auth';
@@ -79,12 +79,19 @@ export function MemoryScreen({ onOpenChat }: Props) {
   const memoryEnabled = useMemoryEnabledLocal(privacyVersion);
   const [facts, setFacts] = useState<Fact[]>([]);
   const [chat, setChat] = useState<ChatMessageRow[]>([]);
+  const [factsRev, setFactsRev] = useState(0);
+
+  // Re-fetch when any fact mutation fires (confirmFact, rejectFact,
+  // bulkUpdatePendingFacts from the onboarding review screen, deleteFact
+  // from the row swipe, etc). Without this, facts saved via the chain
+  // stay invisible here until the user toggles memory off/on.
+  useEffect(() => subscribeFactsChanged(() => setFactsRev((v) => v + 1)), []);
 
   useEffect(() => {
     if (!memoryEnabled || !userId) { setFacts([]); setChat([]); return; }
     void listFacts(userId, 'confirmed').then(setFacts).catch(() => setFacts([]));
     void listRecentChatMessages(userId, 100).then(setChat).catch(() => setChat([]));
-  }, [memoryEnabled, userId]);
+  }, [memoryEnabled, userId, factsRev]);
 
   const toggleMemory = async () => {
     const next = !memoryEnabled;

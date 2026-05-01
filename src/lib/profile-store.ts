@@ -8,6 +8,24 @@ import type {
   MailEventType,
 } from './types';
 
+// ─── facts-changed event bus ────────────────────────────────────────────
+// Mutation helpers below fire `notifyFactsChanged()` so subscribers (e.g.
+// MemoryScreen) can re-fetch without polling. Fires once per logical
+// mutation regardless of how many SQL statements it issued.
+
+const factsChangedListeners = new Set<() => void>();
+
+export function subscribeFactsChanged(listener: () => void): () => void {
+  factsChangedListeners.add(listener);
+  return () => { factsChangedListeners.delete(listener); };
+}
+
+function notifyFactsChanged(): void {
+  for (const fn of factsChangedListeners) {
+    try { fn(); } catch { /* swallow; one bad listener shouldn't sink others */ }
+  }
+}
+
 export function normalizeFactText(text: string): string {
   return text
     .toLowerCase()
@@ -107,6 +125,7 @@ export async function insertPendingFact(
     .select('*')
     .single();
   if (error) throw error;
+  notifyFactsChanged();
   return rowToFact(data as Record<string, unknown>);
 }
 
@@ -116,6 +135,7 @@ export async function confirmFact(factId: string): Promise<void> {
     .update({ status: 'confirmed', confirmed_at: new Date().toISOString() })
     .eq('id', factId);
   if (error) throw error;
+  notifyFactsChanged();
 }
 
 export async function rejectFact(factId: string): Promise<void> {
@@ -125,6 +145,7 @@ export async function rejectFact(factId: string): Promise<void> {
     .update({ status: 'rejected', rejected_at: new Date().toISOString(), rejection_ttl: ttl })
     .eq('id', factId);
   if (error) throw error;
+  notifyFactsChanged();
 }
 
 export async function listPendingFactsForReview(userId: string): Promise<Fact[]> {
@@ -225,16 +246,20 @@ export async function bulkUpdatePendingFacts(
       .in('normalized_text', confirmedTexts);
     if (error) throw error;
   }
+
+  notifyFactsChanged();
 }
 
 export async function deleteFact(factId: string): Promise<void> {
   const { error } = await supabase.from('facts').delete().eq('id', factId);
   if (error) throw error;
+  notifyFactsChanged();
 }
 
 export async function deleteAllFacts(userId: string): Promise<void> {
   const { error } = await supabase.from('facts').delete().eq('user_id', userId);
   if (error) throw error;
+  notifyFactsChanged();
 }
 
 export async function listRecentMailEvents(userId: string, limit = 5): Promise<MailEvent[]> {
