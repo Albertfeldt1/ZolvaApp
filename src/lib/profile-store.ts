@@ -135,7 +135,19 @@ export async function listPendingFactsForReview(userId: string): Promise<Fact[]>
     .eq('status', 'pending')
     .order('created_at', { ascending: false });
   if (error) throw error;
-  return (data ?? []).map(rowToFact);
+  // De-dup by normalized_text — backfill workers can emit the same fact
+  // across multiple Claude batches. Keep the most recent (first in
+  // desc-by-created_at order) so the user sees a clean list.
+  const seen = new Set<string>();
+  const unique: Fact[] = [];
+  for (const row of data ?? []) {
+    const nt = (row as { normalized_text?: string }).normalized_text;
+    if (!nt) continue;
+    if (seen.has(nt)) continue;
+    seen.add(nt);
+    unique.push(rowToFact(row));
+  }
+  return unique;
 }
 
 export async function bulkUpdatePendingFacts(
@@ -143,27 +155,74 @@ export async function bulkUpdatePendingFacts(
   updates: Array<{ id: string; status: 'confirmed' | 'rejected' }>,
 ): Promise<void> {
   if (updates.length === 0) return;
-  // Mirror confirmFact / rejectFact in this same file: confirmed sets
-  // confirmed_at; rejected sets rejected_at + rejection_ttl(14d) so
-  // duplicate-detection (findDuplicateFact) and decay keep working.
-  const confirmed = updates.filter((u) => u.status === 'confirmed').map((u) => u.id);
-  const rejected = updates.filter((u) => u.status === 'rejected').map((u) => u.id);
+
+  const confirmedIds = updates.filter((u) => u.status === 'confirmed').map((u) => u.id);
+  let rejectedIds = updates.filter((u) => u.status === 'rejected').map((u) => u.id);
   const now = new Date().toISOString();
-  if (confirmed.length > 0) {
+  const ttl = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+
+  // De-dup confirmed by normalized_text. The partial unique index
+  // `WHERE status='confirmed'` on (user_id, normalized_text) allows only
+  // one confirmed row per (user, text). When the user has duplicate
+  // pending rows (cross-batch dupes from the worker, or legacy data),
+  // flipping them all to confirmed at once violates the index. Keep one
+  // per group; demote the rest to rejected.
+  let actualConfirmedIds = confirmedIds;
+  const confirmedTexts: string[] = [];
+  if (confirmedIds.length > 0) {
+    const { data: confirmedRows, error: fetchErr } = await supabase
+      .from('facts')
+      .select('id, normalized_text')
+      .eq('user_id', userId)
+      .in('id', confirmedIds);
+    if (fetchErr) throw fetchErr;
+    const seen = new Set<string>();
+    actualConfirmedIds = [];
+    const demoted: string[] = [];
+    for (const row of confirmedRows ?? []) {
+      const nt = (row as { normalized_text?: string }).normalized_text ?? '';
+      if (!nt) continue;
+      if (seen.has(nt)) {
+        demoted.push((row as { id: string }).id);
+      } else {
+        seen.add(nt);
+        actualConfirmedIds.push((row as { id: string }).id);
+        confirmedTexts.push(nt);
+      }
+    }
+    if (demoted.length > 0) {
+      rejectedIds = [...rejectedIds, ...demoted];
+    }
+  }
+
+  if (actualConfirmedIds.length > 0) {
     const { error } = await supabase
       .from('facts')
       .update({ status: 'confirmed', confirmed_at: now })
       .eq('user_id', userId)
-      .in('id', confirmed);
+      .in('id', actualConfirmedIds);
     if (error) throw error;
   }
-  if (rejected.length > 0) {
-    const ttl = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+  if (rejectedIds.length > 0) {
     const { error } = await supabase
       .from('facts')
       .update({ status: 'rejected', rejected_at: now, rejection_ttl: ttl })
       .eq('user_id', userId)
-      .in('id', rejected);
+      .in('id', rejectedIds);
+    if (error) throw error;
+  }
+
+  // Reject any OTHER pending rows that share normalized_text with what
+  // we just confirmed — hidden duplicates from the display dedup pass.
+  // Without this, they sit as pending forever and would re-surface on
+  // the next review.
+  if (confirmedTexts.length > 0) {
+    const { error } = await supabase
+      .from('facts')
+      .update({ status: 'rejected', rejected_at: now, rejection_ttl: ttl })
+      .eq('user_id', userId)
+      .eq('status', 'pending')
+      .in('normalized_text', confirmedTexts);
     if (error) throw error;
   }
 }

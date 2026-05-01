@@ -18,6 +18,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -129,7 +130,11 @@ export function OnboardingFactReviewScreen({ onDone }: Props) {
       onDone();
     } catch (e) {
       if (__DEV__) console.warn('[fact-review] save failed:', e);
-      // Stay on screen so the user can retry.
+      Alert.alert(
+        'Kunne ikke gemme',
+        'Noget gik galt. Prøv igen om et øjeblik.',
+        [{ text: 'OK' }],
+      );
     } finally {
       setSaving(false);
     }
