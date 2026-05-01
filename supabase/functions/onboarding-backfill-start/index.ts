@@ -104,17 +104,27 @@ serve(async (req) => {
   const userOwnEmail = (userData.user.email ?? '').toLowerCase().trim();
 
   let kinds: Array<'mail' | 'calendar'> = ['mail', 'calendar'];
+  let force = false;
   try {
-    const body = await req.json() as { kinds?: unknown };
+    const body = await req.json() as { kinds?: unknown; force?: unknown };
     if (Array.isArray(body.kinds)) {
       const filtered = body.kinds.filter((k): k is 'mail' | 'calendar' => k === 'mail' || k === 'calendar');
       if (filtered.length > 0) kinds = Array.from(new Set(filtered));
     }
+    if (body.force === true) force = true;
   } catch { /* default */ }
 
   const service = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
+  // Force re-run: clear existing backfill_jobs so the idempotency check below
+  // doesn't short-circuit. Confirmed/rejected facts in `facts` are preserved
+  // (only the job rows get removed); the dedup pre-check in insertPendingFacts
+  // ensures we don't re-emit duplicates of facts the user already curated.
+  if (force) {
+    await service.from('backfill_jobs').delete().eq('user_id', userId);
+  }
 
   // Idempotency: if any backfill_jobs row exists for this user, just return.
   const { data: existingJobs } = await service

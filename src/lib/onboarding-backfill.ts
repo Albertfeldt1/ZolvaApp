@@ -25,13 +25,29 @@ type StatusResponse = { jobs: Array<{
   started_at: string | null; finished_at: string | null; error: string | null;
 }> };
 
-export async function startBackfill(): Promise<StartResponse> {
+export async function startBackfill(opts: { force?: boolean } = {}): Promise<StartResponse> {
   const { data, error } = await supabase.functions.invoke<StartResponse>(
     'onboarding-backfill-start',
-    { body: {} },
+    { body: opts.force ? { force: true } : {} },
   );
   if (error) throw new Error(error.message);
   return data ?? { job_ids: [] };
+}
+
+// ─── Re-run trigger ──────────────────────────────────────────────────────
+// MemoryScreen exposes a "Genscan" button; tapping it should reopen the
+// onboarding chain in force-rerun mode. App.tsx owns the chain state, so
+// we use a tiny module-level event bus to bridge them without prop-drilling.
+
+const rerunSubscribers = new Set<() => void>();
+
+export function subscribeBackfillRerun(fn: () => void): () => void {
+  rerunSubscribers.add(fn);
+  return () => { rerunSubscribers.delete(fn); };
+}
+
+export function triggerBackfillRerun(): void {
+  for (const fn of rerunSubscribers) fn();
 }
 
 export async function fetchBackfillStatus(): Promise<BackfillJob[]> {

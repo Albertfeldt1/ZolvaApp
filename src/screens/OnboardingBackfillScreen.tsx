@@ -25,9 +25,10 @@ import { colors, fonts } from '../theme';
 type Props = {
   onStart: () => void;
   onSkip: () => void;
+  forceRerun?: boolean;
 };
 
-export function OnboardingBackfillScreen({ onStart, onSkip }: Props) {
+export function OnboardingBackfillScreen({ onStart, onSkip, forceRerun }: Props) {
   const { bottom: chromeBottom } = useChromeInsets();
   const { data: connections } = useConnections();
   const [busy, setBusy] = useState(false);
@@ -50,7 +51,7 @@ export function OnboardingBackfillScreen({ onStart, onSkip }: Props) {
   const handleStart = async () => {
     setBusy(true);
     try {
-      await startBackfill();
+      await startBackfill({ force: forceRerun });
       onStart();
     } catch {
       // The status screen handles failures; we just stop the spinner

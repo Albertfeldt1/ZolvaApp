@@ -9,6 +9,7 @@ import { formatToday } from '../lib/date';
 import { useNotes, useReminders, getPrivacyFlag, hydratePrivacyCache, setPrivacyFlag } from '../lib/hooks';
 import { deleteAllChatHistory, deleteAllFacts, deleteAllMailEvents, deleteFact, listFacts, listRecentChatMessages } from '../lib/profile-store';
 import { migrateLocalChatIfNeeded } from '../lib/chat-sync';
+import { triggerBackfillRerun } from '../lib/onboarding-backfill';
 import { useAuth } from '../lib/auth';
 import type { ChatMessageRow, Fact, Note, NoteCategory, Reminder } from '../lib/types';
 import { colors, fonts } from '../theme';
@@ -95,6 +96,17 @@ export function MemoryScreen({ onOpenChat }: Props) {
   const deleteFactAndRefresh = async (id: string) => {
     await deleteFact(id);
     if (userId) setFacts((prev) => prev.filter((f) => f.id !== id));
+  };
+
+  const confirmRerunBackfill = () => {
+    Alert.alert(
+      'Genscan dine emails og kalender?',
+      'Vi gennemgår dine seneste emails og tilbagevendende møder igen for at finde nye fakta. Allerede gemte fakta er bevaret.',
+      [
+        { text: 'Annullér', style: 'cancel' },
+        { text: 'Genscan', onPress: () => { triggerBackfillRerun(); } },
+      ],
+    );
   };
 
   const confirmWipeFacts = () => {
@@ -250,6 +262,11 @@ export function MemoryScreen({ onOpenChat }: Props) {
                   </View>
                 ))
               )}
+
+              {/* Re-run scan */}
+              <Pressable style={styles.rerunRow} onPress={confirmRerunBackfill}>
+                <Text style={styles.rerunText}>Genscan emails og kalender</Text>
+              </Pressable>
 
               {/* Danger actions */}
               <View style={{ marginTop: 32, gap: 1 }}>
@@ -632,6 +649,19 @@ const styles = StyleSheet.create({
   killRowAction: {
     fontFamily: fonts.uiSemi,
     fontSize: 13,
+    color: colors.sageDeep,
+  },
+
+  // ── Re-run scan ───────────────────────────────────────────────────────────
+  rerunRow: {
+    marginTop: 24,
+    paddingVertical: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.line,
+  },
+  rerunText: {
+    fontFamily: fonts.ui,
+    fontSize: 14,
     color: colors.sageDeep,
   },
 
