@@ -7,6 +7,7 @@ import { useChromeInsets } from '../components/PhoneChrome';
 import { Stone } from '../components/Stone';
 import { formatToday } from '../lib/date';
 import { useNotes, useReminders, getPrivacyFlag, hydratePrivacyCache, setPrivacyFlag } from '../lib/hooks';
+import { isPendingAndDueOrUpcoming } from '../lib/reminders';
 import { deleteAllChatHistory, deleteAllFacts, deleteAllMailEvents, deleteFact, listFacts, listRecentChatMessages, subscribeFactsChanged } from '../lib/profile-store';
 import { migrateLocalChatIfNeeded } from '../lib/chat-sync';
 import { triggerBackfillRerun } from '../lib/onboarding-backfill';
@@ -139,20 +140,28 @@ export function MemoryScreen({ onOpenChat }: Props) {
     ]);
   };
 
+  // `isPendingAndDueOrUpcoming` drops pending reminders whose dueAt is more
+  // than 5 minutes past — once the reminders-fire cron has pushed and the
+  // user has had time to act on the notification, the reminder shouldn't
+  // keep occupying space in the "Husk" list. Filtering only on
+  // `status === 'pending'` left fired reminders sitting on the screen
+  // forever until the user manually checked them off.
   const pendingReminders = useMemo(
     () =>
       reminders
-        .filter((r) => r.status === 'pending')
+        .filter((r) => isPendingAndDueOrUpcoming(r, today))
         .sort((a, b) => (a.dueAt?.getTime() ?? Infinity) - (b.dueAt?.getTime() ?? Infinity)),
-    [reminders],
+    [reminders, today],
   );
 
-  // For the Påmindelser tab: keep done reminders visible the rest of the day
-  // they were marked done in. The next morning they fall out naturally.
+  // Keep recently-done reminders visible the rest of the day so the user
+  // sees their just-checked-off item before it falls away tomorrow.
   const visibleReminders = useMemo(() => {
     const startToday = startOfToday(today).getTime();
     return reminders.filter(
-      (r) => r.status === 'pending' || (r.doneAt != null && r.doneAt.getTime() >= startToday),
+      (r) =>
+        isPendingAndDueOrUpcoming(r, today) ||
+        (r.doneAt != null && r.doneAt.getTime() >= startToday),
     );
   }, [reminders, today]);
 

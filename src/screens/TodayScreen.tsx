@@ -50,6 +50,7 @@ import type {
 } from '../lib/types';
 import { colors, fonts } from '../theme';
 import { plural, translateProviderError } from '../utils/danish';
+import { isPendingAndDueOrUpcoming } from '../lib/reminders';
 
 const toneColor = (t: UpcomingEvent['tone']) =>
   t === 'sage' ? colors.sage : t === 'clay' ? colors.clay : t === 'warning' ? colors.warning : colors.stone;
@@ -166,12 +167,15 @@ export function TodayScreen({
   const hasMoreObservations = visibleObservations.length > FEED_OBSERVATION_COUNT;
   const [observationsModalOpen, setObservationsModalOpen] = useState(false);
 
+  // Match the MemoryScreen filter: pending + dueAt within 5min past — so a
+  // reminder that already fired and decayed stops counting toward the
+  // "1 påmindelse" preview and stops showing in the Husk preview row.
   const pendingReminders = useMemo(
     () =>
       reminders
-        .filter((r) => r.status === 'pending')
+        .filter((r) => isPendingAndDueOrUpcoming(r, today))
         .sort((a, b) => (a.dueAt?.getTime() ?? Infinity) - (b.dueAt?.getTime() ?? Infinity)),
-    [reminders],
+    [reminders, today],
   );
   const showHuskPreview = pendingReminders.length > 0 || notes.length > 0;
 
