@@ -3103,6 +3103,30 @@ export async function markMemoryConsentShown(uid: string): Promise<void> {
   } catch {}
 }
 
+// ─── What's-new modal helpers ──────────────────────────────────────────────
+//
+// One-shot per-user modal shown after an OTA with notable user-visible
+// changes. Keyed by version so bumping WHATS_NEW_VERSION re-triggers for
+// users who already saw the prior version's modal.
+
+const whatsNewKey = (uid: string, version: string) =>
+  `zolva.${uid}.whatsnew.shown.${version}`;
+
+export async function shouldShowWhatsNew(uid: string, version: string): Promise<boolean> {
+  try {
+    const raw = await AsyncStorage.getItem(whatsNewKey(uid, version));
+    return !raw;
+  } catch {
+    return false;
+  }
+}
+
+export async function markWhatsNewShown(uid: string, version: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(whatsNewKey(uid, version), Date.now().toString());
+  } catch {}
+}
+
 // ─── Microsoft scope-bump reconnect prompt ─────────────────────────────────
 // One-shot nudge tied to the Calendars.Read → Calendars.ReadWrite scope
 // bump. Old tokens still carry Calendars.Read, so calendar writes 403 until

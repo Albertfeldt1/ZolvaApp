@@ -51,8 +51,11 @@ import {
   markMemoryConsentShown,
   shouldShowMsReconnectPrompt,
   markMsReconnectPromptShown,
+  shouldShowWhatsNew,
+  markWhatsNewShown,
 } from './src/lib/hooks';
 import { MemoryConsentModal } from './src/components/MemoryConsentModal';
+import { WhatsNewModal, WHATS_NEW_VERSION } from './src/components/WhatsNewModal';
 import { isDemoUser } from './src/lib/demo';
 import { syncUserProfile } from './src/lib/user-profile';
 import { writeSnapshotFromSources } from './src/lib/widget-bridge';
@@ -103,6 +106,7 @@ export default function App() {
   const [chromeHeight, setChromeHeight] = useState(0);
   const [migrationsDone, setMigrationsDone] = useState(false);
   const [memoryConsentOpen, setMemoryConsentOpen] = useState(false);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   // Bumped whenever a 'brief' push or in-app notification row is tapped.
   // TodayScreen opens the brief modal on each change.
   const [briefOpenTrigger, setBriefOpenTrigger] = useState(0);
@@ -116,6 +120,19 @@ export default function App() {
     });
     return () => { cancelled = true; };
   }, [user?.id]);
+
+  // What's-new modal: one-shot per user per WHATS_NEW_VERSION. Don't compete
+  // with the memory-consent modal — defer until that has been seen.
+  useEffect(() => {
+    const uid = user?.id;
+    if (!uid || isDemoUser(user) || memoryConsentOpen) return;
+    let cancelled = false;
+    void shouldShowWhatsNew(uid, WHATS_NEW_VERSION).then((show) => {
+      if (cancelled || !show) return;
+      setWhatsNewOpen(true);
+    });
+    return () => { cancelled = true; };
+  }, [user?.id, user, memoryConsentOpen]);
 
   // One-shot Microsoft reconnect nudge — old tokens carry Calendars.Read,
   // new code requires Calendars.ReadWrite for chatbot/voice calendar writes.
@@ -502,6 +519,16 @@ export default function App() {
             const uid = user.id;
             setMemoryConsentOpen(false);
             void markMemoryConsentShown(uid);
+          }}
+        />
+      )}
+      {user?.id && (
+        <WhatsNewModal
+          visible={whatsNewOpen}
+          onClose={() => {
+            const uid = user.id;
+            setWhatsNewOpen(false);
+            void markWhatsNewShown(uid, WHATS_NEW_VERSION);
           }}
         />
       )}
