@@ -157,7 +157,15 @@ export async function callClaudeBatch(
   apiKey: string,
   systemPrompt: string,
   userPayload: string,
+  priorFacts: string[] = [],
 ): Promise<ExtractedFact[]> {
+  // Cross-batch anti-context: tell Claude what earlier batches in this run
+  // already produced so it doesn't restate the same theme with slightly
+  // different wording (the partial unique index on confirmed facts catches
+  // exact text dupes; semantic dupes need the model to avoid them up front).
+  const userContent = priorFacts.length > 0
+    ? `Allerede registreret i denne kørsel — UNDGÅ at gentage eller omformulere disse:\n${priorFacts.map((f) => `- ${f}`).join('\n')}\n\n---\n\n${userPayload}`
+    : userPayload;
   const res = await fetchWithRetry(ANTHROPIC_URL, {
     method: 'POST',
     headers: {
@@ -169,7 +177,7 @@ export async function callClaudeBatch(
       model: MODEL,
       max_tokens: 600,
       system: systemPrompt,
-      messages: [{ role: 'user', content: userPayload }],
+      messages: [{ role: 'user', content: userContent }],
     }),
   });
   if (!res.ok) {

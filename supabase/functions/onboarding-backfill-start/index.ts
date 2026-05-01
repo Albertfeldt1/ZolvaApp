@@ -24,25 +24,53 @@ import { fetchGraphCandidates } from '../_shared/backfill-providers/microsoft.ts
 import { fetchGoogleRecurring } from '../_shared/backfill-providers/google-calendar.ts';
 import { fetchGraphRecurring } from '../_shared/backfill-providers/microsoft-calendar.ts';
 
-const MAIL_SYSTEM = `Du analyserer en kort liste af emails (afsender, emne, uddrag) og udtrækker konklusioner om brugeren — ikke om emailen.
+const MAIL_SYSTEM = `Du analyserer en samling emails for at finde få vedvarende fakta om brugeren — ikke om emails.
 
-For HVER email, vurder om den fortæller os noget vedvarende om brugeren:
-- relation: hvem brugeren arbejder med (kollega, kunde, partner)
-- role: brugerens rolle/titel/firma
-- preference: brugerens præference
-- project: igangværende projekt brugeren er involveret i
-- commitment: noget brugeren har lovet/aftalt med en deadline
+REGLER:
 
-Returnér en JSON-array med højst 5 fakta på tværs af alle emails. Skriv på dansk i kort sætningsform.
+1. Konsolidér på tværs af alle emails. Hvis flere emails handler om samme person, projekt eller tema, returnér ÉT fakta — aldrig flere. Den endelige liste skal være distinkt.
 
-Output-format (intet andet):
+2. Højst 3 fakta pr. svar. Vælg de stærkeste, mest specifikke signaler. Hellere færre, præcise fakta end mange svage.
+
+3. Kategori — vælg én og kun én pr. fakta. Disambiguering:
+   - relationship: en navngiven person brugeren har gentagen kontakt med (kollega, kunde, partner). Brug hvis personens navn nævnes.
+   - role: brugerens rolle, titel, firma eller funktion ("freelance backend-udvikler", "marketingchef hos Acme").
+   - preference: brugerens vane, værktøj eller måde at arbejde på ("foretrækker AI-værktøjer", "arbejder primært remote").
+   - project: et navngivent, igangværende initiativ ("Q2-budget", "lancering af qixotic").
+   - commitment: en konkret aftale med en deadline eller dato.
+
+4. Skriv på dansk, ÉN kort sætning. Eksempler:
+   "Maria er din leder."
+   "Du arbejder som freelance backend-udvikler."
+   "Du bruger Upwork til at finde freelancere."
+   "Du arbejder på Q2-budget."
+
+5. Ignorér markedsføringsmails, notifikationer, transaktioner, ordrebekræftelser og automatiske svar.
+
+Output (kun det her, intet andet, ingen markdown):
 [{"text": "...", "category": "relationship|role|preference|project|commitment", "confidence": 0.0-1.0, "referentDate": "YYYY-MM-DD" | null}]`;
 
-const CAL_SYSTEM = `Du analyserer brugerens tilbagevendende møder og udtrækker konklusioner om brugeren.
+const CAL_SYSTEM = `Du analyserer brugerens tilbagevendende møder og udtrækker få vedvarende fakta om brugeren.
 
-For HVER mødeserie, vurder om den fortæller noget om relation, role eller project. Skriv på dansk.
+REGLER:
 
-Output-format (intet andet):
+1. Konsolidér. Flere møder med samme person eller om samme projekt → ÉT fakta. Den endelige liste skal være distinkt.
+
+2. Højst 3 fakta pr. svar. Vælg de stærkeste signaler.
+
+3. Kategori (vælg én):
+   - relationship: tilbagevendende ekstern eller intern samarbejdspartner ved navn.
+   - role: brugerens funktion (fx "leder ugentlige team-stand-ups", "1:1 med leder hver uge").
+   - project: et navngivent initiativ.
+
+4. Skriv på dansk, ÉN kort sætning. Eksempler:
+   "Lars fra Acme er en tilbagevendende ekstern kontakt."
+   "Du leder ugentlige team-stand-ups."
+   "Du har 1:1 med Maria hver uge."
+
+5. Ignorér frokost, generiske kaffemøder, ferier.
+
+Output (kun det her):
 [{"text": "...", "category": "relationship|role|preference|project|commitment", "confidence": 0.0-1.0, "referentDate": null}]`;
 
 function json(value: unknown, status = 200): Response {
@@ -217,6 +245,10 @@ async function runJob(
     }
 
     let factsThisJob = 0;
+    // Cross-batch anti-context. Texts of facts already extracted in this
+    // run get passed back to Claude as "do not repeat these" — stops
+    // semantic dupes (different wording, same theme) from piling up.
+    const priorFactTexts: string[] = [];
 
     if (job.kind === 'mail') {
       const candidates = job.provider === 'google'
@@ -239,7 +271,8 @@ Fra: ${c.from}
 Emne: ${c.subject}
 Uddrag: ${c.snippet}`)
           .join('\n\n');
-        const facts = await callClaudeBatch(anthropicKey, MAIL_SYSTEM, userPayload);
+        const facts = await callClaudeBatch(anthropicKey, MAIL_SYSTEM, userPayload, priorFactTexts);
+        for (const f of facts) priorFactTexts.push(f.text);
         factsThisJob += await insertPendingFacts(service, userId, facts, `backfill:${job.provider}:mail`);
         processed += slice.length;
         await bumpJobProgress(service, job.id, processed);
@@ -269,7 +302,8 @@ Titel: ${s.title}
 Mønster: ${s.recurrencePattern}
 Deltagere: ${s.attendeeEmails.join(', ')}`)
         .join('\n\n');
-      const facts = await callClaudeBatch(anthropicKey, CAL_SYSTEM, userPayload);
+      const facts = await callClaudeBatch(anthropicKey, CAL_SYSTEM, userPayload, priorFactTexts);
+      for (const f of facts) priorFactTexts.push(f.text);
       factsThisJob += await insertPendingFacts(service, userId, facts, `backfill:${job.provider}:calendar`);
       processed += slice.length;
       await bumpJobProgress(service, job.id, processed);
