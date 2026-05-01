@@ -3061,7 +3061,7 @@ export function usePendingFacts(): Result<Fact[]> & {
   return { ...state, accept, reject };
 }
 
-function useMemoryEnabled(): boolean {
+export function useMemoryEnabled(): boolean {
   const [enabled, setEnabled] = useState<boolean>(() => getPrivacyFlag('memory-enabled'));
   useEffect(() => {
     let cancelled = false;

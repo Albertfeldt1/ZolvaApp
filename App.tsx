@@ -21,7 +21,7 @@ import {
 } from '@expo-google-fonts/playfair-display';
 import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Linking, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { ChromeInsetsContext, PhoneChrome, TabId } from './src/components/PhoneChrome';
@@ -51,6 +51,7 @@ import {
   markMemoryConsentShown,
   shouldShowOnboardingBackfill,
   markOnboardingBackfillShown,
+  useMemoryEnabled,
   shouldShowMsReconnectPrompt,
   markMsReconnectPromptShown,
   shouldShowWhatsNew,
@@ -127,6 +128,28 @@ export default function App() {
     });
     return () => { cancelled = true; };
   }, [user?.id]);
+
+  // Open the onboarding-backfill chain whenever memory-enabled flips false → true,
+  // regardless of which UI surface flipped it (MemoryConsentModal, MemoryScreen
+  // toggle, etc). Gate on having a Google/Microsoft provider connected — Apple
+  // -only sign-in lands on the empty "no accounts" state, which is a dead-end.
+  const memoryEnabled = useMemoryEnabled();
+  const prevMemoryEnabled = useRef(memoryEnabled);
+  useEffect(() => {
+    const uid = user?.id;
+    const transitionedOn = memoryEnabled && !prevMemoryEnabled.current;
+    prevMemoryEnabled.current = memoryEnabled;
+    if (!uid || !transitionedOn) return;
+    const hasProvider = !!googleAccessToken || !!microsoftAccessToken;
+    if (!hasProvider) return;
+    let cancelled = false;
+    void shouldShowOnboardingBackfill(uid).then((show) => {
+      if (cancelled || !show) return;
+      setOnboardingStage('intro');
+      setOnboardingOpen(true);
+    });
+    return () => { cancelled = true; };
+  }, [memoryEnabled, user?.id, googleAccessToken, microsoftAccessToken]);
 
   // What's-new modal: one-shot per user per WHATS_NEW_VERSION. Don't compete
   // with the memory-consent modal — defer until that has been seen.
@@ -559,19 +582,9 @@ export default function App() {
             const uid = user.id;
             setMemoryConsentOpen(false);
             void markMemoryConsentShown(uid);
-            // If memory was just enabled, kick off the onboarding backfill
-            // chain — but only if Google or Microsoft is connected. Apple-only
-            // sign-in has nothing to backfill, so the intro screen would land
-            // on a "no accounts connected" empty state with a disabled Start
-            // button. Skip it; the user can re-trigger by toggling memory
-            // off/on after they've connected a provider.
-            const hasProvider = !!googleAccessToken || !!microsoftAccessToken;
-            if (!hasProvider) return;
-            void shouldShowOnboardingBackfill(uid).then((show) => {
-              if (!show) return;
-              setOnboardingStage('intro');
-              setOnboardingOpen(true);
-            });
+            // The chain trigger now lives in the memory-enabled transition
+            // watcher above — it fires regardless of which UI surface flipped
+            // memory ON, so we don't need to fire it again here.
           }}
         />
       )}
