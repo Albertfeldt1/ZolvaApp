@@ -297,7 +297,21 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
     if (cachedSession && linkedIdentity) {
       const { error: unlinkError } = await supabase.auth.unlinkIdentity(linkedIdentity);
       if (unlinkError) {
-        console.warn('[auth] unlinkIdentity failed (using signInWithOAuth fallback):', unlinkError.message);
+        const msg = unlinkError.message ?? '';
+        // Supabase returns 422 single_identity_not_deletable when the user has
+        // only this identity. Without recovery, the downstream signInWithOAuth
+        // call returns a session WITHOUT provider_refresh_token (Supabase
+        // quirk for already-linked identity, see comment above), the row
+        // never gets persisted to user_oauth_tokens, silentRefresh has
+        // nothing to exchange on every future expiry, and the iOS OAuth
+        // dialog fires hourly forever. Sign out so the next signInWithOAuth
+        // runs the fresh-login path, which DOES forward provider_refresh_token.
+        if (msg.includes('single_identity_not_deletable') || msg.includes('at least 1 identity')) {
+          console.log('[auth] forcing sign-out before re-auth — sole-identity user');
+          await supabase.auth.signOut();
+        } else {
+          console.warn('[auth] unlinkIdentity failed (using signInWithOAuth fallback):', msg);
+        }
       } else {
         identityUnlinked = true;
       }
