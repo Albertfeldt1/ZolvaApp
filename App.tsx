@@ -128,20 +128,6 @@ export default function App() {
     return () => { cancelled = true; };
   }, [user?.id]);
 
-  // Show onboarding-backfill on launch for users who already enabled memory
-  // in a previous session but never completed the chain. Defer to memory
-  // consent modal — only consider opening once that's been seen.
-  useEffect(() => {
-    if (!user?.id || memoryConsentOpen) return;
-    let cancelled = false;
-    void shouldShowOnboardingBackfill(user.id).then((show) => {
-      if (cancelled || !show) return;
-      setOnboardingStage('intro');
-      setOnboardingOpen(true);
-    });
-    return () => { cancelled = true; };
-  }, [user?.id, memoryConsentOpen]);
-
   // What's-new modal: one-shot per user per WHATS_NEW_VERSION. Don't compete
   // with the memory-consent modal — defer until that has been seen.
   useEffect(() => {
