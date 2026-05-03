@@ -19,6 +19,7 @@ import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { SkeletonRow } from '../components/Skeleton';
 import { Stone } from '../components/Stone';
+import { TopRightActions } from '../components/TopRightActions';
 import { formatClock, formatToday } from '../lib/date';
 import { useHasProvider, useInboxCleared, useInboxWaiting } from '../lib/hooks';
 import type { MailProviderError } from '../lib/hooks';
@@ -53,9 +54,10 @@ type Props = {
   onOpenMail: (mail: InboxMail) => void;
   onOverDarkChange?: (over: boolean) => void;
   onOpenIcloudSetup?: (prefilledEmail?: string) => void;
+  onOpenNotifications: () => void;
 };
 
-export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOpenIcloudSetup }: Props) {
+export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOpenIcloudSetup, onOpenNotifications }: Props) {
   const today = useMemo(() => new Date(), []);
   const date = useMemo(() => formatToday(today), [today]);
   const clock = useMemo(() => formatClock(today), [today]);
@@ -160,6 +162,10 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
         <View style={styles.hero}>
           <View style={styles.heroTopRow}>
             <Text style={styles.eyebrow}>{`Indbakke · ${date.weekdayShort} ${clock}`}</Text>
+            <TopRightActions
+              onOpenNotifications={onOpenNotifications}
+              onOpenSettings={onGoToSettings}
+            />
           </View>
           <Text style={styles.heroH1}>Indbakke</Text>
 

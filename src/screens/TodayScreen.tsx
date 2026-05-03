@@ -1,4 +1,4 @@
-import { Bell, Bookmark, ChevronRight, Moon, Sun, X } from 'lucide-react-native';
+import { Bookmark, ChevronRight, Moon, Sun, X } from 'lucide-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -26,6 +26,7 @@ import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { SkeletonRow } from '../components/Skeleton';
 import { Stone } from '../components/Stone';
+import { TopRightActions } from '../components/TopRightActions';
 import type { Brief } from '../lib/briefs';
 import { useTodayBrief } from '../lib/briefs';
 import { formatToday, greeting } from '../lib/date';
@@ -36,7 +37,6 @@ import {
   useObservations,
   usePendingFacts,
   useReminders,
-  useUnreadNotificationCount,
   useUpcoming,
   useUser,
 } from '../lib/hooks';
@@ -117,7 +117,6 @@ export function TodayScreen({
   const { data: waiting } = useInboxWaiting();
   const { data: reminders } = useReminders();
   const { data: notes } = useNotes();
-  const unreadNotifications = useUnreadNotificationCount();
   const hasProvider = useHasProvider();
   const { data: pendingFacts, accept: acceptFact, reject: rejectFactHook } = usePendingFacts();
   const { brief, markRead: markBriefRead } = useTodayBrief();
@@ -243,16 +242,10 @@ export function TodayScreen({
       <View style={styles.hero}>
         <View style={styles.heroTopRow}>
           <Text style={styles.eyebrow}>{dateInfo.eyebrow}</Text>
-          <Pressable
-            onPress={onOpenNotifications}
-            style={({ pressed }) => [styles.roundIcon, pressed && { opacity: 0.6 }]}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="Notifikationer"
-          >
-            <Bell size={16} color={colors.ink} strokeWidth={1.75} />
-            {unreadNotifications > 0 && <View style={styles.bellBadge} />}
-          </Pressable>
+          <TopRightActions
+            onOpenNotifications={onOpenNotifications}
+            onOpenSettings={onGoToSettings}
+          />
         </View>
         <Text style={styles.heroH1}>
           {user ? `${hello},\n${user.name}.` : `${hello}.`}
@@ -665,22 +658,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.88,
     textTransform: 'uppercase',
     color: colors.sageDeep,
-  },
-  roundIcon: {
-    width: 34, height: 34, borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.6)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  bellBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: colors.clay,
-    borderWidth: 1.5,
-    borderColor: colors.paper,
   },
   heroH1: {
     marginTop: 10,

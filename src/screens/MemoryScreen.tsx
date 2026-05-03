@@ -5,6 +5,7 @@ import { EmptyState } from '../components/EmptyState';
 import { FactRow } from '../components/FactRow';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { Stone } from '../components/Stone';
+import { TopRightActions } from '../components/TopRightActions';
 import { formatToday } from '../lib/date';
 import { useNotes, useReminders, getPrivacyFlag, hydratePrivacyCache, setPrivacyFlag } from '../lib/hooks';
 import { isPendingAndDueOrUpcoming } from '../lib/reminders';
@@ -52,7 +53,11 @@ function endOfToday(now: Date): Date {
   return d;
 }
 
-type Props = { onOpenChat: () => void };
+type Props = {
+  onOpenChat: () => void;
+  onOpenNotifications: () => void;
+  onOpenSettings: () => void;
+};
 
 function useMemoryEnabledLocal(version: number): boolean {
   const [enabled, setEnabled] = useState<boolean>(() => getPrivacyFlag('memory-enabled'));
@@ -66,7 +71,7 @@ function useMemoryEnabledLocal(version: number): boolean {
   return enabled;
 }
 
-export function MemoryScreen({ onOpenChat }: Props) {
+export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }: Props) {
   const today = useMemo(() => new Date(), []);
   const date = useMemo(() => formatToday(today), [today]);
 
@@ -203,7 +208,13 @@ export function MemoryScreen({ onOpenChat }: Props) {
   return (
     <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom }]} showsVerticalScrollIndicator={false} contentInsetAdjustmentBehavior="never">
       <View style={styles.hero}>
-        <Text style={styles.eyebrow}>{`Husk · ${date.weekdayShort} ${date.day} ${date.monthShort}`}</Text>
+        <View style={styles.heroTopRow}>
+          <Text style={styles.eyebrow}>{`Husk · ${date.weekdayShort} ${date.day} ${date.monthShort}`}</Text>
+          <TopRightActions
+            onOpenNotifications={onOpenNotifications}
+            onOpenSettings={onOpenSettings}
+          />
+        </View>
         <Text style={styles.heroH1}>Husk</Text>
         <View style={styles.statsRow}>
           <Text style={styles.statBig}>{pendingReminders.length}</Text>
@@ -579,6 +590,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.line,
   },
+  heroTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   eyebrow: {
     fontFamily: fonts.mono, fontSize: 11, letterSpacing: 0.88,
     textTransform: 'uppercase', color: colors.sageDeep,

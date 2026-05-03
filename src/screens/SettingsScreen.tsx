@@ -5,7 +5,7 @@
 // email the contact address and Zolva responds within 30 days. When/if a real
 // JSON export is built (Edge Function + Resend), re-add a button here and grep
 // for this marker to update the handoff.
-import { Check } from 'lucide-react-native';
+import { Check, ChevronLeft } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
@@ -43,6 +43,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 import { makeRedirectUri } from 'expo-auth-session';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { Stone } from '../components/Stone';
+import { TopRightActions } from '../components/TopRightActions';
 import { useAuth } from '../lib/auth';
 import {
   useCalendarLabels,
@@ -59,6 +60,11 @@ import type { Connection, IntegrationStatus, WorkPreference } from '../lib/types
 import { clearCredential, loadCredential } from '../lib/icloud-credentials';
 import { clearDiscoveryCacheFor } from '../lib/icloud-calendar';
 import { clearBinding as clearIcloudBinding } from '../lib/icloud-mail';
+import {
+  loadManualSignature,
+  saveManualSignature,
+  subscribeManualSignature,
+} from '../lib/mail-signature';
 import { translateProviderError } from '../utils/danish';
 
 import {
@@ -118,6 +124,58 @@ function useNotificationSettings(): NotificationSettings {
   return state;
 }
 
+// Manual mail signature input. Only relevant for Outlook (Graph has no
+// public signature API) — Gmail's signature is fetched from sendAs and
+// appended automatically. The field is shown unconditionally so the user
+// can prepare a signature before connecting Outlook.
+function MailSignatureSection() {
+  const [value, setValue] = useState('');
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadManualSignature().then((s) => {
+      if (cancelled) return;
+      setValue(s ?? '');
+      setHydrated(true);
+    });
+    const unsub = subscribeManualSignature((s) => {
+      if (!cancelled) setValue(s ?? '');
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, []);
+
+  const commit = () => {
+    if (!hydrated) return;
+    void saveManualSignature(value);
+  };
+
+  return (
+    <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
+      <Text style={styles.sectionTitle}>Mail-signatur</Text>
+      <View style={styles.inkRule} />
+      <Text style={styles.signatureBody}>
+        Bruges ved mails sendt fra Outlook. Gmail bruger den signatur, du allerede har sat
+        op i Gmail-indstillingerne.
+      </Text>
+      <TextInput
+        style={[styles.input, styles.signatureInput]}
+        value={value}
+        onChangeText={setValue}
+        onBlur={commit}
+        placeholder={'Med venlig hilsen\nDit navn'}
+        placeholderTextColor={colors.fg3}
+        multiline
+        textAlignVertical="top"
+        editable={hydrated}
+      />
+    </Animated.View>
+  );
+}
+
 function useNotificationPermission(): PermissionStatus {
   const [status, setStatus] = useState<PermissionStatus>('undetermined');
   useEffect(() => {
@@ -138,9 +196,17 @@ type SettingsScreenProps = {
   // Bumped by App.tsx whenever the iCloud setup overlay closes, so this
   // screen reloads the credential state without remounting.
   icloudRefreshVersion?: number;
+  onOpenNotifications: () => void;
+  onBack: () => void;
 };
 
-export function SettingsScreen({ onOpenIcloudSetup, onOpenMicrosoftAdminConsent, icloudRefreshVersion = 0 }: SettingsScreenProps) {
+export function SettingsScreen({
+  onOpenIcloudSetup,
+  onOpenMicrosoftAdminConsent,
+  icloudRefreshVersion = 0,
+  onOpenNotifications,
+  onBack,
+}: SettingsScreenProps) {
   const { data: user, loading: userLoading } = useUser();
   const { data: subscription } = useSubscription();
   const { data: connections, connect, disconnect } = useConnections();
@@ -371,6 +437,18 @@ export function SettingsScreen({ onOpenIcloudSetup, onOpenMicrosoftAdminConsent,
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.hero}>
+          <View style={styles.heroTopRow}>
+            <Pressable
+              onPress={onBack}
+              style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Tilbage"
+            >
+              <ChevronLeft size={20} color={colors.ink} strokeWidth={1.75} />
+            </Pressable>
+            <TopRightActions onOpenNotifications={onOpenNotifications} />
+          </View>
           <Text style={styles.eyebrow}>
             {user ? `Konto · ${user.email}` : 'Konto'}
           </Text>
@@ -596,6 +674,8 @@ export function SettingsScreen({ onOpenIcloudSetup, onOpenMicrosoftAdminConsent,
                 onChange={(v) => toggleNotificationSetting('newMail', v)}
               />
             </Animated.View>
+
+            <MailSignatureSection />
 
             {/* T4: the privacy copy + export-button live above in the dark
                 "Privatliv" card. This Konto section is the account-deletion
@@ -831,7 +911,10 @@ function StemmestyringSection({ hasIcloud }: { hasIcloud: boolean }) {
 function groupByAccount(calendars: ProviderCalendar[]) {
   const groups = new Map<string, ProviderCalendar[]>();
   for (const c of calendars) {
-    const headingProvider = c.provider === 'google' ? 'GOOGLE' : 'MICROSOFT';
+    const headingProvider =
+      c.provider === 'google'    ? 'GOOGLE' :
+      c.provider === 'microsoft' ? 'MICROSOFT' :
+                                   'ICLOUD';
     const heading = `${headingProvider} — ${c.accountEmail ?? 'Ukendt konto'}`;
     if (!groups.has(heading)) groups.set(heading, []);
     groups.get(heading)!.push(c);
@@ -1213,6 +1296,20 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.line,
   },
+  heroTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  backBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   eyebrow: {
     fontFamily: fonts.mono, fontSize: 11,
     letterSpacing: 0.88, textTransform: 'uppercase', color: colors.sageDeep,
@@ -1253,6 +1350,18 @@ const styles = StyleSheet.create({
     fontFamily: fonts.ui,
     fontSize: 15,
     color: colors.ink,
+  },
+  signatureInput: {
+    minHeight: 96,
+    paddingTop: 14,
+    marginTop: 12,
+  },
+  signatureBody: {
+    fontFamily: fonts.ui,
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.fg3,
+    marginTop: 12,
   },
   loginError: {
     fontFamily: fonts.ui,

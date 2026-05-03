@@ -12,6 +12,7 @@ import * as Haptics from 'expo-haptics';
 import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { Skeleton } from '../components/Skeleton';
+import { TopRightActions } from '../components/TopRightActions';
 import { formatToday, weekStrip, type WeekStripDay } from '../lib/date';
 import { useDaySchedule, useHasProvider } from '../lib/hooks';
 import type { CalendarSlot } from '../lib/types';
@@ -38,7 +39,10 @@ function copenhagenDateKey(d: Date): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Copenhagen' }).format(d);
 }
 
-type Props = { onGoToSettings: () => void };
+type Props = {
+  onGoToSettings: () => void;
+  onOpenNotifications: () => void;
+};
 
 // Horizontal paging window: ~1 year each way is plenty for finger scrolling.
 const WEEKS_BEFORE = 26;
@@ -59,7 +63,7 @@ function sameDay(a: Date, b: Date): boolean {
   );
 }
 
-export function CalendarScreen({ onGoToSettings }: Props) {
+export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
   const [today, setToday] = useState<Date>(() => new Date());
   const [selectedDate, setSelectedDate] = useState<Date>(today);
   const [pageIndex, setPageIndex] = useState<number>(WEEKS_BEFORE);
@@ -163,11 +167,17 @@ export function CalendarScreen({ onGoToSettings }: Props) {
       <View style={styles.hero}>
         <View style={styles.heroTopRow}>
           <Text style={styles.eyebrow}>{visibleDate.weekHeadline}</Text>
-          {(pageIndex !== WEEKS_BEFORE || !isSelectedToday) && (
-            <Pressable onPress={jumpToToday} hitSlop={8}>
-              <Text style={styles.todayLink}>I dag</Text>
-            </Pressable>
-          )}
+          <View style={styles.heroRightCluster}>
+            {(pageIndex !== WEEKS_BEFORE || !isSelectedToday) && (
+              <Pressable onPress={jumpToToday} hitSlop={8}>
+                <Text style={styles.todayLink}>I dag</Text>
+              </Pressable>
+            )}
+            <TopRightActions
+              onOpenNotifications={onOpenNotifications}
+              onOpenSettings={onGoToSettings}
+            />
+          </View>
         </View>
         <Text style={styles.heroH1}>{selectedInfo.dayHeadline}</Text>
 
@@ -324,6 +334,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.line,
   },
   heroTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  heroRightCluster: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   eyebrow: {
     fontFamily: fonts.mono, fontSize: 11, letterSpacing: 0.88,
     textTransform: 'uppercase', color: colors.sageDeep,

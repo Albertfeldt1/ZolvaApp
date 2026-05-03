@@ -1,6 +1,6 @@
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Bookmark, Calendar, Mail, Settings, Sun } from 'lucide-react-native';
+import { Bookmark, Calendar, Mail, Sun } from 'lucide-react-native';
 import React, { createContext, useContext } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, fonts, shadows } from '../theme';
@@ -18,12 +18,11 @@ export function useChromeInsets(): ChromeInsets {
 
 export type TabId = 'today' | 'inbox' | 'calendar' | 'memory' | 'settings';
 
-const TABS: { id: TabId; label: string; Icon: typeof Sun }[] = [
+const TABS: { id: Exclude<TabId, 'settings'>; label: string; Icon: typeof Sun }[] = [
   { id: 'today', label: 'I dag', Icon: Sun },
   { id: 'inbox', label: 'Indbakke', Icon: Mail },
   { id: 'calendar', label: 'Kalender', Icon: Calendar },
   { id: 'memory', label: 'Husk', Icon: Bookmark },
-  { id: 'settings', label: 'Indstillinger', Icon: Settings },
 ];
 
 type Props = {

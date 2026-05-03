@@ -99,6 +99,9 @@ export default function App() {
     setIntroPlaying(false);
   };
   const [tab, setTab] = useState<TabId>('today');
+  // Tracks the last non-Settings tab so the Settings back button can return
+  // the user to whichever tab they came from (Today, Inbox, Calendar, Husk).
+  const [previousTab, setPreviousTab] = useState<Exclude<TabId, 'settings'>>('today');
   const [chatOpen, setChatOpen] = useState(false);
   const [chatDraft, setChatDraft] = useState<string | undefined>(undefined);
   const [openMail, setOpenMail] = useState<InboxMail | null>(null);
@@ -259,6 +262,15 @@ export default function App() {
   useEffect(() => {
     if (!chatOpen) setChatDraft(undefined);
   }, [chatOpen]);
+
+  // Keep `previousTab` in sync with `tab` whenever the user lands on any
+  // non-Settings tab. Captures changes from every code path (switchTab,
+  // notification response handler, deep links) without needing each call
+  // site to remember to update it. When tab flips to 'settings',
+  // previousTab is left alone — that's the value the back button reads.
+  useEffect(() => {
+    if (tab !== 'settings') setPreviousTab(tab);
+  }, [tab]);
 
   useEffect(() => {
     const unsub = registerResponseHandler((payload) => {
@@ -494,15 +506,29 @@ export default function App() {
                 onOpenMail={openMailDetail}
                 onOverDarkChange={setChromeOverDark}
                 onOpenIcloudSetup={openIcloudSetup}
+                onOpenNotifications={openNotifications}
               />
             )}
-            {tab === 'calendar' && <CalendarScreen onGoToSettings={() => switchTab('settings')} />}
-            {tab === 'memory' && <MemoryScreen onOpenChat={openChat} />}
+            {tab === 'calendar' && (
+              <CalendarScreen
+                onGoToSettings={() => switchTab('settings')}
+                onOpenNotifications={openNotifications}
+              />
+            )}
+            {tab === 'memory' && (
+              <MemoryScreen
+                onOpenChat={openChat}
+                onOpenNotifications={openNotifications}
+                onOpenSettings={() => switchTab('settings')}
+              />
+            )}
             {tab === 'settings' && (
               <SettingsScreen
                 onOpenIcloudSetup={openIcloudSetup}
                 onOpenMicrosoftAdminConsent={openAdminConsent}
                 icloudRefreshVersion={icloudRefreshVersion}
+                onOpenNotifications={openNotifications}
+                onBack={() => switchTab(previousTab)}
               />
             )}
           </Animated.View>
