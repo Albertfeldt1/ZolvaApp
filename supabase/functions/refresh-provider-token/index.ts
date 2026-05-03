@@ -32,18 +32,66 @@ type Body = { provider?: 'google' | 'microsoft' };
 const MICROSOFT_REFRESH_SCOPE =
   'openid email profile offline_access Mail.ReadWrite Mail.Send Calendars.Read';
 
+type EdgeOutcome =
+  | 'success'
+  | 'method_not_allowed'
+  | 'missing_env'
+  | 'unauthorized'
+  | 'invalid_body'
+  | 'invalid_provider'
+  | 'no_refresh_token'
+  | 'refresh_rejected'
+  | 'failed';
+
+// Note: a successful refresh emits TWO [oauth-refresh] lines — one from
+// oauth.ts (no `layer` field) and one from this edge handler
+// (layer: 'edge'). When grepping logs, distinguish by the `layer` field.
+// Expect ~2x line count vs. request count for the success path.
+function emitEdgeLog(fields: {
+  provider: string | null;
+  userId: string | null;
+  outcome: EdgeOutcome;
+  status: number;
+  elapsedMs: number;
+  errorMessage?: string;
+}): void {
+  console.log(
+    '[oauth-refresh]',
+    JSON.stringify({ layer: 'edge', source: 'refresh-provider-token', ...fields }),
+  );
+}
+
 serve(async (req) => {
-  if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405);
+  const startedAt = Date.now();
+  let provider: string | null = null;
+  let userId: string | null = null;
+  const finish = (outcome: EdgeOutcome, status: number, errorMessage?: string) => {
+    emitEdgeLog({
+      provider,
+      userId,
+      outcome,
+      status,
+      elapsedMs: Date.now() - startedAt,
+      errorMessage,
+    });
+  };
+
+  if (req.method !== 'POST') {
+    finish('method_not_allowed', 405);
+    return json({ error: 'method not allowed' }, 405);
+  }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
   if (!supabaseUrl || !serviceKey || !anonKey) {
+    finish('missing_env', 500);
     return json({ error: 'missing env' }, 500);
   }
 
   const authHeader = req.headers.get('Authorization') ?? '';
   if (!authHeader.toLowerCase().startsWith('bearer ')) {
+    finish('unauthorized', 401);
     return json({ error: 'unauthorized' }, 401);
   }
   const authClient = createClient(supabaseUrl, anonKey, {
@@ -51,38 +99,49 @@ serve(async (req) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const { data: userData, error: userErr } = await authClient.auth.getUser();
-  if (userErr || !userData.user) return json({ error: 'unauthorized' }, 401);
-  const userId = userData.user.id;
+  if (userErr || !userData.user) {
+    finish('unauthorized', 401);
+    return json({ error: 'unauthorized' }, 401);
+  }
+  userId = userData.user.id.slice(0, 8);
+  const fullUserId = userData.user.id;
 
   let body: Body;
   try {
     body = (await req.json()) as Body;
   } catch {
+    finish('invalid_body', 400);
     return json({ error: 'invalid body' }, 400);
   }
-  const provider = body.provider;
-  if (provider !== 'google' && provider !== 'microsoft') {
+  const providerRaw = body.provider;
+  if (providerRaw !== 'google' && providerRaw !== 'microsoft') {
+    finish('invalid_provider', 400);
     return json({ error: 'invalid provider' }, 400);
   }
+  provider = providerRaw;
 
   const client = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const refreshToken = await loadRefreshToken(client, userId, provider);
-  if (!refreshToken) return json({ error: 'no-refresh-token' }, 404);
+  const refreshToken = await loadRefreshToken(client, fullUserId, providerRaw);
+  if (!refreshToken) {
+    finish('no_refresh_token', 404);
+    return json({ error: 'no-refresh-token' }, 404);
+  }
 
   try {
-    const result = await refreshAccessToken(client, userId, provider, refreshToken, {
+    const result = await refreshAccessToken(client, fullUserId, providerRaw, refreshToken, {
       microsoftScope: MICROSOFT_REFRESH_SCOPE,
     });
+    finish('success', 200);
     return json({ access_token: result.accessToken, expires_in: result.expiresIn });
   } catch (err) {
     if (err instanceof RefreshRejectedError) {
-      console.warn('[refresh-provider-token] rejected:', provider, err.message);
+      finish('refresh_rejected', 401, err.message);
       return json({ error: 'refresh-rejected' }, 401);
     }
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn('[refresh-provider-token] failed:', provider, msg);
+    finish('failed', 500, msg);
     return json({ error: msg }, 500);
   }
 });

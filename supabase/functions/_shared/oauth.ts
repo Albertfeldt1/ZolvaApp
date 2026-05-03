@@ -53,6 +53,53 @@ export async function loadRefreshToken(
   return (data as { refresh_token?: string } | null)?.refresh_token ?? null;
 }
 
+// Single structured log line emitted from `refreshAccessToken` on every exit
+// path (success or thrown). Greppable in production via `[oauth-refresh]`.
+// Pure instrumentation — does not change control flow or persist behavior.
+//
+// Note: a successful refresh emits TWO [oauth-refresh] lines — one here
+// (no `layer` field) and one from refresh-provider-token (layer: 'edge').
+// When grepping logs, distinguish by the `layer` field. Expect ~2x line
+// count vs. request count for the success path.
+type RefreshLogCtx = {
+  provider: Provider;
+  userId: string;
+  scope: string;
+  tokenAgeS: number | null;
+  mintStatus: number | null;
+  rotation: 'rotated' | 'same' | 'missing' | 'unknown';
+  persist: 'ok' | 'failed' | 'na';
+  persistError: string | null;
+  outcome:
+    | 'success'
+    | 'refresh_rejected'
+    | 'scope_rejected'
+    | 'network'
+    | 'pending';
+  elapsedMs: number;
+};
+
+function emitRefreshLog(ctx: RefreshLogCtx): void {
+  console.log('[oauth-refresh]', JSON.stringify(ctx));
+}
+
+async function loadRefreshTokenAgeS(
+  client: SupabaseClient,
+  userId: string,
+  provider: Provider,
+): Promise<number | null> {
+  const { data, error } = await client
+    .from('user_oauth_tokens')
+    .select('updated_at')
+    .eq('user_id', userId)
+    .eq('provider', provider)
+    .maybeSingle();
+  if (error || !data?.updated_at) return null;
+  const updatedAtMs = Date.parse(data.updated_at as string);
+  if (Number.isNaN(updatedAtMs)) return null;
+  return Math.round((Date.now() - updatedAtMs) / 1000);
+}
+
 export async function refreshAccessToken(
   client: SupabaseClient,
   userId: string,
@@ -60,19 +107,79 @@ export async function refreshAccessToken(
   refreshToken: string,
   opts: RefreshOptions = {},
 ): Promise<RefreshResult> {
-  const minted = await mintAccessToken(provider, refreshToken, opts);
-  if (minted.rotatedRefreshToken && minted.rotatedRefreshToken !== refreshToken) {
-    await persistRefreshToken(client, userId, provider, minted.rotatedRefreshToken);
+  const startedAt = Date.now();
+  const ctx: RefreshLogCtx = {
+    provider,
+    userId: userId.slice(0, 8),
+    scope:
+      provider === 'microsoft'
+        ? opts.microsoftScope ?? DEFAULT_MICROSOFT_SCOPE
+        : 'google-default',
+    tokenAgeS: null,
+    mintStatus: null,
+    rotation: 'unknown',
+    persist: 'na',
+    persistError: null,
+    outcome: 'pending',
+    elapsedMs: 0,
+  };
+
+  try {
+    ctx.tokenAgeS = await loadRefreshTokenAgeS(client, userId, provider);
+
+    const minted = await mintAccessToken(provider, refreshToken, opts, ctx);
+
+    if (!minted.rotatedRefreshToken) {
+      ctx.rotation = 'missing';
+    } else if (minted.rotatedRefreshToken === refreshToken) {
+      ctx.rotation = 'same';
+    } else {
+      ctx.rotation = 'rotated';
+      const persistResult = await persistRefreshToken(
+        client,
+        userId,
+        provider,
+        minted.rotatedRefreshToken,
+      );
+      if (persistResult.ok) {
+        ctx.persist = 'ok';
+      } else {
+        ctx.persist = 'failed';
+        // Truncate: PG error strings can include row data via `detail` for
+        // some constraints, and we don't want a refresh_token fragment
+        // landing in logs. 200 chars keeps standard messages intact.
+        ctx.persistError = persistResult.error?.slice(0, 200) ?? null;
+      }
+    }
+
+    ctx.outcome = 'success';
+    return { accessToken: minted.accessToken, expiresIn: minted.expiresIn };
+  } catch (err) {
+    if (err instanceof RefreshRejectedError) {
+      ctx.outcome = 'refresh_rejected';
+    } else if (
+      err instanceof Error &&
+      /invalid_scope|consent_required/i.test(err.message)
+    ) {
+      ctx.outcome = 'scope_rejected';
+    } else {
+      ctx.outcome = 'network';
+    }
+    throw err;
+  } finally {
+    ctx.elapsedMs = Date.now() - startedAt;
+    emitRefreshLog(ctx);
   }
-  return { accessToken: minted.accessToken, expiresIn: minted.expiresIn };
 }
+
+type PersistResult = { ok: true } | { ok: false; error: string };
 
 async function persistRefreshToken(
   client: SupabaseClient,
   userId: string,
   provider: Provider,
   refreshToken: string,
-): Promise<void> {
+): Promise<PersistResult> {
   const { error } = await client.from('user_oauth_tokens').upsert(
     {
       user_id: userId,
@@ -83,8 +190,9 @@ async function persistRefreshToken(
     { onConflict: 'user_id,provider' },
   );
   if (error) {
-    console.warn('[oauth] persist rotated refresh token failed:', error.message);
+    return { ok: false, error: error.message };
   }
+  return { ok: true };
 }
 
 type MintedToken = {
@@ -97,6 +205,7 @@ async function mintAccessToken(
   provider: Provider,
   refreshToken: string,
   opts: RefreshOptions,
+  ctx?: RefreshLogCtx,
 ): Promise<MintedToken> {
   if (provider === 'google') {
     const clientId = Deno.env.get('GOOGLE_OAUTH_CLIENT_ID');
@@ -113,6 +222,7 @@ async function mintAccessToken(
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body,
     });
+    if (ctx) ctx.mintStatus = res.status;
     return parseTokenResponse('google', res);
   }
 
@@ -136,6 +246,7 @@ async function mintAccessToken(
       body,
     },
   );
+  if (ctx) ctx.mintStatus = res.status;
   return parseTokenResponse('microsoft', res);
 }
 
