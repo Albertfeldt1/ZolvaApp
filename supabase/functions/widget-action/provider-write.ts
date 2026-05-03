@@ -4,7 +4,8 @@ import {
   refreshAccessToken,
   type Provider as OAuthProvider,
 } from '../_shared/oauth.ts';
-import { loadIcloudCreds, writeIcloudEvent } from './icloud-write.ts';
+import { loadIcloudCreds } from '../_shared/icloud-creds.ts';
+import { writeIcloudEvent } from './icloud-write.ts';
 
 // Voice-path provider tag — superset of OAuthProvider that includes iCloud.
 // iCloud doesn't go through OAuth; creds come from user_icloud_calendar_creds.

@@ -17,6 +17,7 @@ import {
   refreshAccessToken,
   type Provider,
 } from './oauth.ts';
+import { fetchIcloudEvents, userHasIcloudCreds } from './icloud-calendar.ts';
 
 export type EventSummary = {
   title: string;
@@ -47,14 +48,36 @@ export async function fetchCalendarForUser(
   userId: string,
   timezone: string,
 ): Promise<EventSummary[]> {
-  const [providers, prefs] = await Promise.all([
+  const userIdShort = userId.slice(0, 8);
+  const [providers, prefs, hasIcloud] = await Promise.all([
     findConnectedProviders(client, userId),
     loadCalendarPrefs(client, userId),
+    userHasIcloudCreds(client, userId),
   ]);
-  if (providers.length === 0) return [];
+  if (providers.length === 0 && !hasIcloud) return [];
+
+  const branches: Array<{ provider: string; run: () => Promise<EventSummary[]> }> = [];
+  for (const p of providers) {
+    branches.push({
+      provider: p,
+      run: () => fetchProviderEvents(client, userId, p, timezone, prefs),
+    });
+  }
+  if (hasIcloud) {
+    const encryptionKey = Deno.env.get('ICLOUD_CREDS_ENCRYPTION_KEY');
+    if (!encryptionKey) {
+      console.warn(`[calendar] user=${userIdShort} provider=icloud skipped reason=missing_encryption_key`);
+    } else {
+      const { startIso, endIso } = getDayBoundsUTC(new Date(), timezone);
+      branches.push({
+        provider: 'icloud',
+        run: () => fetchIcloudEvents(client, userId, timezone, encryptionKey, startIso, endIso),
+      });
+    }
+  }
 
   const settled = await Promise.allSettled(
-    providers.map((p) => fetchProviderEvents(client, userId, p, timezone, prefs)),
+    branches.map((b) => timed(userIdShort, b.provider, b.run)),
   );
 
   const events: EventSummary[] = [];
@@ -63,6 +86,29 @@ export async function fetchCalendarForUser(
   }
   events.sort((a, b) => a.startIso.localeCompare(b.startIso));
   return events.slice(0, MAX_EVENTS);
+}
+
+// Per-provider timing + status log. Format mirrors [oauth-refresh] for
+// consistent grep/jq across production logs:
+//   [calendar] user=d02f1514 provider=icloud events=12 status=settled elapsed_ms=850
+async function timed(
+  userIdShort: string,
+  provider: string,
+  fn: () => Promise<EventSummary[]>,
+): Promise<EventSummary[]> {
+  const start = Date.now();
+  try {
+    const result = await fn();
+    console.log(
+      `[calendar] user=${userIdShort} provider=${provider} events=${result.length} status=settled elapsed_ms=${Date.now() - start}`,
+    );
+    return result;
+  } catch (err) {
+    console.log(
+      `[calendar] user=${userIdShort} provider=${provider} events=0 status=rejected elapsed_ms=${Date.now() - start} error=${String(err).slice(0, 200)}`,
+    );
+    throw err;
+  }
 }
 
 async function findConnectedProviders(

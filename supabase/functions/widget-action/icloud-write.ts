@@ -9,52 +9,13 @@
 // helpers (VEVENT generation, UID, escaping) are duplicated rather than
 // imported because client + edge are different runtimes (Hermes vs Deno).
 
-import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-export type IcloudCredsBlob = {
-  email: string;
-  password: string;
-  calendar_home_url: string;
-};
+import type { IcloudCredsBlob } from '../_shared/icloud-creds.ts';
 
 export type IcloudWriteOutcome =
   | { ok: true; eventUrl: string; uid: string }
   | { ok: false; errorClass: 'oauth_invalid' }              // creds row missing or auth-failed
   | { ok: false; errorClass: 'permission_denied'; calendarName: string }
   | { ok: false; errorClass: 'provider_5xx' };
-
-export async function loadIcloudCreds(
-  client: SupabaseClient,
-  userId: string,
-  encryptionKey: string,
-): Promise<IcloudCredsBlob | null> {
-  const { data: row, error } = await client
-    .from('user_icloud_calendar_creds')
-    .select('encrypted_blob')
-    .eq('user_id', userId)
-    .maybeSingle();
-  if (error) {
-    console.warn('[icloud-write] creds row read failed:', error.message);
-    return null;
-  }
-  if (!row) return null;
-
-  const { data: plaintext, error: decErr } = await client.rpc('decrypt_icloud_creds', {
-    blob: row.encrypted_blob,
-    encryption_key: encryptionKey,
-  });
-  if (decErr || typeof plaintext !== 'string') {
-    console.warn('[icloud-write] decrypt failed:', decErr?.message);
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(plaintext) as IcloudCredsBlob;
-    if (!parsed.email || !parsed.password || !parsed.calendar_home_url) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
 
 export async function writeIcloudEvent(args: {
   creds: IcloudCredsBlob;
