@@ -177,7 +177,11 @@ const OBSERVATION_SCHEMA =
   '- action (valgfri): hvad der skal ske når brugeren trykker på CTA\'en. Typer:\n' +
   '  • {"kind":"openMail","mailId": string} — kun hvis observationen handler om en specifik mail. Brug mail-id\'et vist i [id:…] i mail-listen.\n' +
   '  • {"kind":"prompt","prompt": string} — når brugeren skal notere noget eller følge op senere. "prompt" skal være en færdig 1. person-besked til Zolva på dansk, fx "Noter lige at jeg skal gennemgå Mettes kontrakt senere i dag." Så åbner chatten med beskeden klar til at sende.\n' +
-  '  • {"kind":"chat"} — generisk; bruges når intet af ovenstående passer. Udelad action for denne default.';
+  '  • {"kind":"chat"} — generisk; bruges når intet af ovenstående passer. Udelad action for denne default.\n' +
+  'REGLER FOR ACTION:\n' +
+  '1. Hvis observationen handler om en konkret mail i listen ovenfor (svare, læse, tjekke, åbne, arkivere) — fx CTA som "Svar nu", "Svar Lars", "Åbn mail", "Læs trådens svar" — SKAL action være {"kind":"openMail","mailId":...} med det rigtige [id:…]. Brug ALDRIG prompt eller chat til mail-handlinger; det dropper brugeren ind i en tom chat i stedet for at åbne mailen.\n' +
+  '2. Hvis du ikke kan finde et matchende mail-id i listen, skal CTA\'en omformuleres så den ikke lover at åbne en mail — fx "Følg op" med prompt-action i stedet for "Svar nu".\n' +
+  '3. prompt og chat er kun til observationer der ikke handler om en specifik mail (fx kalender-mønstre, opgaver, refleksioner).';
 
 function summarizeDay(events: NormalizedEvent[], mails: NormalizedMail[]): string {
   const calendar = events.length
@@ -2412,7 +2416,13 @@ function buildChatSystemPrompt(name: string): string {
     'regnet fra dette tidspunkt. Brug ISO 8601 med samme tidszone-offset. ' +
     'Hvis brugeren siger "om 2 minutter", læg 2 minutter til nu. Hvis brugeren siger ' +
     '"kl. 10.30" uden dato, vælg den næste fremtidige forekomst (i dag hvis klokken ' +
-    'endnu ikke er 10.30, ellers i morgen).';
+    'endnu ikke er 10.30, ellers i morgen). ' +
+    'Tidligere beskeder kan være præfikset med "[sendt: <ISO-tidspunkt>]" — det er ' +
+    'hvornår netop den besked blev skrevet. Når du fortolker relative ord som "i dag", ' +
+    '"i morgen", "om lidt" eller "kl. 17.30" i en historisk besked, skal du regne ' +
+    'fra beskedens sendt-tidspunkt — ikke fra nuværende lokaltid. Sig fx "for tre ' +
+    'dage siden kl. 17.30", ikke "i dag kl. 17.30", når en gammel besked refererer ' +
+    'til "i dag" på et tidspunkt der allerede er passeret.';
   return [
     'Du er Zolva, en venlig og omsorgsfuld dansk personlig assistent.',
     'Du svarer altid på dansk i en varm, jordnær og let uformel tone.',
@@ -2482,11 +2492,25 @@ function buildChatSystemPrompt(name: string): string {
     .join(' ');
 }
 
+function messageSentAt(m: ChatMessage): string | null {
+  if (m.createdAt) return m.createdAt;
+  const match = m.id.match(/^[uae]-(\d+)$/);
+  if (match) {
+    const n = Number(match[1]);
+    if (Number.isFinite(n) && n > 0) return new Date(n).toISOString();
+  }
+  return null;
+}
+
 function toClaudeMessages(messages: ChatMessage[]): ClaudeMessage[] {
-  return messages.slice(-CHAT_API_CONTEXT_LIMIT).map((m) => ({
-    role: m.from === 'user' ? 'user' : 'assistant',
-    content: m.text,
-  }));
+  return messages.slice(-CHAT_API_CONTEXT_LIMIT).map((m) => {
+    const sentAt = messageSentAt(m);
+    const content = sentAt ? `[sendt: ${sentAt}] ${m.text}` : m.text;
+    return {
+      role: m.from === 'user' ? 'user' : 'assistant',
+      content,
+    };
+  });
 }
 
 const CHAT_TOOLS: ClaudeToolSchema[] = [
@@ -3189,6 +3213,7 @@ export function useChat() {
         id: `u-${Date.now()}`,
         from: 'user',
         text: trimmed,
+        createdAt: new Date().toISOString(),
       };
       const nextHistory = [...messages, userMsg];
       setMessages(nextHistory);
@@ -3201,7 +3226,7 @@ export function useChat() {
         setTimeout(() => {
           setMessages((cur) => [
             ...cur,
-            { id: `a-${Date.now()}`, from: 'zolva', text: reply },
+            { id: `a-${Date.now()}`, from: 'zolva', text: reply, createdAt: new Date().toISOString() },
           ]);
           setTyping(false);
         }, 900);
@@ -3292,6 +3317,7 @@ export function useChat() {
             id: `a-${Date.now()}`,
             from: 'zolva',
             text: answer.length > 0 ? answer : CHAT_ERROR_TEXT,
+            createdAt: new Date().toISOString(),
           };
           setMessages((cur) => [...cur, assistantMsg]);
           if (userId) {
@@ -3310,7 +3336,7 @@ export function useChat() {
           }
           setMessages((cur) => [
             ...cur,
-            { id: `e-${Date.now()}`, from: 'zolva', text: CHAT_ERROR_TEXT },
+            { id: `e-${Date.now()}`, from: 'zolva', text: CHAT_ERROR_TEXT, createdAt: new Date().toISOString() },
           ]);
         })
         .finally(() => setTyping(false));

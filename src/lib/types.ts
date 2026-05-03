@@ -112,6 +112,11 @@ export type ChatMessage = {
   id: string;
   from: 'zolva' | 'user';
   text: string;
+  // ISO 8601 with timezone offset. Stamped on send so historical messages
+  // carry their original wall-clock when re-sent to Claude — without it the
+  // model interprets phrases like "i dag kl 17:30" relative to the current
+  // turn, not when the message was originally written.
+  createdAt?: string;
 };
 
 export type IntegrationKey =
