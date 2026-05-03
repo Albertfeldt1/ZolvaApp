@@ -16,8 +16,7 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { jwtVerify, createRemoteJWKSet, type JWTPayload } from 'https://esm.sh/jose@5.9.6';
 
-const PROJECT_REF = 'sjkhfkatmeqtsrysixop';
-const JWKS_URL = new URL(`https://${PROJECT_REF}.supabase.co/auth/v1/.well-known/jwks.json`);
+const JWKS_URL = new URL('https://auth.zolva.io/auth/v1/.well-known/jwks.json');
 let jwks = createRemoteJWKSet(JWKS_URL, {
   cooldownDuration: 30_000,
   cacheMaxAge: 10 * 60 * 1000,

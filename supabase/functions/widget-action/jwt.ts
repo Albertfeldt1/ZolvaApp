@@ -1,7 +1,7 @@
 import { jwtVerify, createRemoteJWKSet, type JWTPayload } from 'https://esm.sh/jose@5.9.6';
 
 const JWKS_URL = new URL(
-  'https://sjkhfkatmeqtsrysixop.supabase.co/auth/v1/.well-known/jwks.json',
+  'https://auth.zolva.io/auth/v1/.well-known/jwks.json',
 );
 
 let jwks = createRemoteJWKSet(JWKS_URL, {

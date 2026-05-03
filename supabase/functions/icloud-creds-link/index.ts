@@ -17,8 +17,7 @@ import { jwtVerify, createRemoteJWKSet, type JWTPayload } from 'https://esm.sh/j
 
 // JWKS verification — duplicated from widget-action/jwt.ts intentionally.
 // Refactor to _shared/jwt.ts in Phase 2 when widget-action is touched anyway.
-const PROJECT_REF = 'sjkhfkatmeqtsrysixop';
-const JWKS_URL = new URL(`https://${PROJECT_REF}.supabase.co/auth/v1/.well-known/jwks.json`);
+const JWKS_URL = new URL('https://auth.zolva.io/auth/v1/.well-known/jwks.json');
 let jwks = createRemoteJWKSet(JWKS_URL, {
   cooldownDuration: 30_000,
   cacheMaxAge: 10 * 60 * 1000,
