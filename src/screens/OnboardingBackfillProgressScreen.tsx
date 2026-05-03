@@ -70,6 +70,16 @@ const STONE_PULSE_UP_MS = 380;
 const STONE_PULSE_DOWN_MS = 620;
 const COMPLETION_HOLD_MS = 950;
 
+// Minimum visible animation time from mount. Fast scans (~200-800ms) used
+// to snap-cut and feel un-rewarding; the floor pads them so "Zolva is
+// doing work" reads. No effect on slow scans.
+const ANIMATION_FLOOR_MS = 1500;
+
+// Force-exit if the scan never reaches a terminal state. Tighter than the
+// 120s poll budget — caps how long the user stares at orbiting logos
+// before we get out of the way. Error UI is a separate ticket.
+const ANIMATION_CEILING_MS = 45_000;
+
 const STONE_SIZE = 132;
 const ICON_SIZE = 44;
 
@@ -100,6 +110,9 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
   const [jobs, setJobs] = useState<BackfillJob[]>([]);
   const [reduceMotion, setReduceMotion] = useState(false);
   const completedRef = useRef(false);
+  const mountedAtRef = useRef(Date.now());
+  const jobsRef = useRef<BackfillJob[]>([]);
+  useEffect(() => { jobsRef.current = jobs; }, [jobs]);
 
   const stoneScale = useSharedValue(1);
   const stoneRotate = useSharedValue(0);
@@ -168,6 +181,20 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Animation ceiling — force-exit if scan never reaches terminal state.
+  // Tighter than the 120s poll-attempt budget; this is the *animation*
+  // hard cap, not the poll cap. Error UI is a separate ticket.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      if (completedRef.current) return;
+      completedRef.current = true;
+      onComplete(jobsRef.current.filter((j) => j.status !== 'done'));
+    }, ANIMATION_CEILING_MS);
+    return () => clearTimeout(id);
+    // onComplete intentionally not in deps — stable single-fire timer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Completion: every real job is in a terminal state.
   useEffect(() => {
     if (completedRef.current) return;
@@ -186,7 +213,12 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
     }
 
     const failed = jobs.filter((j) => j.status === 'failed' || j.status === 'cancelled');
-    const id = setTimeout(() => onComplete(failed), COMPLETION_HOLD_MS);
+    // Honor the min-duration floor: pad fast scans so the animation
+    // doesn't snap-cut. Slow scans get the normal post-pulse hold.
+    const elapsed = Date.now() - mountedAtRef.current;
+    const floorRemaining = Math.max(0, ANIMATION_FLOOR_MS - elapsed);
+    const hold = Math.max(COMPLETION_HOLD_MS, floorRemaining);
+    const id = setTimeout(() => onComplete(failed), hold);
     return () => clearTimeout(id);
   }, [jobs, reduceMotion, stoneScale, onComplete]);
 
