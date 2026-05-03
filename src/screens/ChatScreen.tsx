@@ -42,7 +42,7 @@ export function ChatScreen({ onBack, initialDraft }: Props) {
   return (
     <KeyboardAvoidingView
       style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={0}
     >
       <View style={styles.topBar}>
@@ -66,6 +66,10 @@ export function ChatScreen({ onBack, initialDraft }: Props) {
         style={styles.flex}
         contentContainerStyle={styles.messagesContent}
         showsVerticalScrollIndicator={false}
+        automaticallyAdjustKeyboardInsets={false}
+        contentInsetAdjustmentBehavior="never"
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
       >
         <Text style={styles.daySeparator}>{`${dateInfo.weekdayFull} · ${clock}`}</Text>
         {messages.length === 0 && (
@@ -82,6 +86,7 @@ export function ChatScreen({ onBack, initialDraft }: Props) {
         showsHorizontalScrollIndicator={false}
         style={styles.suggestScroll}
         contentContainerStyle={styles.suggestRow}
+        keyboardShouldPersistTaps="handled"
       >
         {suggestions.map((q, i) => (
           <Pressable key={`${i}-${q}`} onPress={() => submit(q)} style={styles.suggestChip}>
