@@ -77,6 +77,12 @@ import {
   type ChatCtx,
   type WriteEventInput,
 } from './chat-tools';
+import {
+  buildCorrectionMessage,
+  classifyClaim,
+  GENERIC_CONFUSED_FALLBACK,
+  CHAT_GUARD_DEBUG_TAG,
+} from './chat-claim-guard';
 import { getMessageBody as getIcloudMessageBody, listInbox as listIcloudMessages } from './icloud-mail';
 import { listEvents as listIcloudEvents } from './icloud-calendar';
 import {
@@ -3209,6 +3215,13 @@ export function useChat() {
 
       const runTurn = async (): Promise<string> => {
         const working: ClaudeMessage[] = toClaudeMessages(nextHistory);
+        let correctionAttempted = false;
+        const toolCtx: ChatCtx = {
+          userId: userId ?? null,
+          hasGoogle: !!googleAccessToken,
+          hasMicrosoft: !!microsoftAccessToken,
+        };
+
         for (let round = 0; round < CHAT_TOOL_ROUND_CAP; round += 1) {
           const result = await completeRaw({
             system: buildChatSystemPrompt(name),
@@ -3216,29 +3229,61 @@ export function useChat() {
             tools: CHAT_TOOLS,
             metadata,
           });
-          if (result.toolUses.length === 0) {
-            return result.text.trim();
+
+          if (result.toolUses.length > 0) {
+            working.push({ role: 'assistant', content: result.rawContent });
+            const toolResults = await Promise.all(
+              result.toolUses.map(async (t) => {
+                const r = await runChatTool(t.name, t.input, toolCtx);
+                return {
+                  type: 'tool_result' as const,
+                  tool_use_id: t.id,
+                  content: r.content,
+                  is_error: r.isError,
+                };
+              }),
+            );
+            working.push({ role: 'user', content: toolResults });
+            continue;
           }
-          working.push({ role: 'assistant', content: result.rawContent });
-          const toolCtx: ChatCtx = {
-            userId: userId ?? null,
-            hasGoogle: !!googleAccessToken,
-            hasMicrosoft: !!microsoftAccessToken,
-          };
-          const toolResults = await Promise.all(
-            result.toolUses.map(async (t) => {
-              const r = await runChatTool(t.name, t.input, toolCtx);
-              return {
-                type: 'tool_result' as const,
-                tool_use_id: t.id,
-                content: r.content,
-                is_error: r.isError,
-              };
-            }),
+
+          const text = result.text.trim();
+          const toolUsedThisTurn = working.some(
+            (m) =>
+              m.role === 'assistant' &&
+              Array.isArray(m.content) &&
+              m.content.some((b) => b.type === 'tool_use'),
           );
-          working.push({ role: 'user', content: toolResults });
+
+          if (toolUsedThisTurn) {
+            // Final summary after a real tool call — grounded by tool_result.
+            return text;
+          }
+
+          const claim = await classifyClaim(text);
+          if (!claim.claimed) {
+            return text;
+          }
+
+          if (correctionAttempted) {
+            if (__DEV__ && getPrivacyFlag('anon-reports')) {
+              console.warn(`${CHAT_GUARD_DEBUG_TAG} correction failed, falling back`);
+            }
+            return GENERIC_CONFUSED_FALLBACK;
+          }
+
+          if (__DEV__ && getPrivacyFlag('anon-reports')) {
+            console.warn(
+              `${CHAT_GUARD_DEBUG_TAG} caught ${claim.tool ?? 'unknown'}: "${text.slice(0, 80)}"`,
+            );
+          }
+
+          correctionAttempted = true;
+          working.push({ role: 'assistant', content: result.rawContent });
+          working.push({ role: 'user', content: buildCorrectionMessage(claim.tool) });
         }
-        return 'Jeg nåede ikke frem til et svar. Prøv igen?';
+
+        return GENERIC_CONFUSED_FALLBACK;
       };
 
       runTurn()
