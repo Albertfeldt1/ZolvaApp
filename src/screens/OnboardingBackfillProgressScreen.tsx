@@ -113,7 +113,18 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
   const completedRef = useRef(false);
   const mountedAtRef = useRef(Date.now());
   const jobsRef = useRef<BackfillJob[]>([]);
+  const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => { jobsRef.current = jobs; }, [jobs]);
+
+  // Unmount-only cleanup for the completion timer. The timer itself is
+  // scheduled inside the [jobs] effect below but MUST survive re-runs of
+  // that effect — otherwise every poll-driven jobs change cancels the
+  // pending onComplete and the screen hangs forever.
+  useEffect(() => {
+    return () => {
+      if (completionTimerRef.current) clearTimeout(completionTimerRef.current);
+    };
+  }, []);
 
   const stoneScale = useSharedValue(1);
   const stoneRotate = useSharedValue(0);
@@ -218,8 +229,10 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
     // transition immediately when the scan finishes.
     const elapsed = Date.now() - mountedAtRef.current;
     const hold = Math.max(0, ANIMATION_FLOOR_MS - elapsed);
-    const id = setTimeout(() => onComplete(failed), hold);
-    return () => clearTimeout(id);
+    // Store in ref so the timer survives re-runs of this effect on jobs
+    // changes. Returning a cleanup that clears the timer would cancel it
+    // on the very next poll. Unmount cleanup is handled separately above.
+    completionTimerRef.current = setTimeout(() => onComplete(failed), hold);
   }, [jobs, reduceMotion, stoneScale, onComplete]);
 
   const stoneStyle = useAnimatedStyle(() => ({

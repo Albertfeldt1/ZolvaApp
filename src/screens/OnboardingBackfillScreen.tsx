@@ -48,19 +48,23 @@ export function OnboardingBackfillScreen({ onStart, onSkip, forceRerun }: Props)
 
   const noSources = sources.length === 0;
 
-  const handleStart = () => {
+  const handleStart = async () => {
     if (busy) return;
     setBusy(true);
-    // Fire-and-forget. The progress screen polls backfill-status and
-    // surfaces per-service state via the icon animation, so we don't
-    // need to await the orchestrator's HTTP response here. Awaiting
-    // would block the user on the intro screen for the full ~30-60s
-    // it takes the workers to finish.
-    void startBackfill({ force: forceRerun }).catch(() => {
+    // Await the start call itself so the progress screen's first poll
+    // doesn't see stale jobs from a previous run. The HTTP call returns
+    // after rows are cleared/inserted (sub-second); the workers run
+    // async after that and the progress screen polls for their state.
+    // Without awaiting, force:true reruns hit a race where the first
+    // poll returns the previous run's done jobs and the screen
+    // erroneously declares completion before the new run starts.
+    try {
+      await startBackfill({ force: forceRerun });
+    } catch {
       // Failures show up as 'failed' jobs in the polling stream, which
       // the progress screen renders as muted+warning icons and the
       // review screen surfaces as a banner. No need to handle here.
-    });
+    }
     onStart();
     setBusy(false);
   };
