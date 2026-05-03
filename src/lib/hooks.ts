@@ -82,6 +82,7 @@ import { listEvents as listIcloudEvents } from './icloud-calendar';
 import {
   readCalendarLabels,
   setCalendarLabel,
+  subscribeCalendarLabelsChanged,
   type CalendarLabels,
   type CalendarLabelKey,
   type CalendarLabelTarget,
@@ -3478,13 +3479,24 @@ export function useCalendarLabels() {
     void refresh();
   }, [refresh]);
 
+  // Subscribe to label-bus notifications so external writers (provider
+  // disconnect auto-clear in auth.ts / icloud-credentials.ts) trigger a
+  // refresh — without this, Stemmestyring keeps rendering a calendar the
+  // user just disconnected.
+  useEffect(() => {
+    return subscribeCalendarLabelsChanged(() => {
+      void refresh();
+    });
+  }, [refresh]);
+
   const setLabel = useCallback(
     async (key: CalendarLabelKey, target: CalendarLabelTarget | null) => {
       if (!user?.id) return;
       await setCalendarLabel(user.id, key, target);
-      await refresh();
+      // setCalendarLabel notifies the bus, which fires our subscription and
+      // refreshes — no explicit refresh() needed here.
     },
-    [refresh, user?.id],
+    [user?.id],
   );
 
   return { labels, loading, refresh, setLabel };

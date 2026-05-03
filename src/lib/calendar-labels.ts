@@ -10,6 +10,30 @@ export type CalendarLabelTarget = {
 };
 export type CalendarLabels = Partial<Record<CalendarLabelKey, CalendarLabelTarget>>;
 
+// In-process change bus. setCalendarLabel notifies after a successful write
+// so views (Stemmestyring section) refresh even when the write originated
+// outside their own setLabel call — e.g. the disconnect-provider auto-clear
+// in auth.ts / icloud-credentials.ts. Without this the picker keeps showing
+// a calendar the user just disconnected.
+const labelsChangedListeners = new Set<() => void>();
+
+export function subscribeCalendarLabelsChanged(listener: () => void): () => void {
+  labelsChangedListeners.add(listener);
+  return () => {
+    labelsChangedListeners.delete(listener);
+  };
+}
+
+function notifyCalendarLabelsChanged(): void {
+  for (const fn of labelsChangedListeners) {
+    try {
+      fn();
+    } catch {
+      // swallow; one bad listener shouldn't sink others
+    }
+  }
+}
+
 type Row = {
   work_calendar_provider: CalendarProvider | null;
   work_calendar_id: string | null;
@@ -60,4 +84,5 @@ export async function setCalendarLabel(
     .update(update)
     .eq('user_id', userId);
   if (error) throw error;
+  notifyCalendarLabelsChanged();
 }
