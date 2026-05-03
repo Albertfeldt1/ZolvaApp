@@ -1,7 +1,13 @@
 // Minimal Gmail client. Lists inbox messages and fetches metadata only.
 
-import { ProviderAuthError, tryWithRefresh } from './auth';
+import { ProviderAuthError, subscribeUserId, tryWithRefresh } from './auth';
 import { fetchWithTimeout } from './network-errors';
+
+// Reset the per-session signature cache when the active user changes — the
+// signature is account-specific and must not leak across accounts.
+subscribeUserId(() => {
+  resetGmailSignatureCache();
+});
 
 const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
@@ -150,18 +156,15 @@ export async function sendReply(ctx: {
     const refs = ctx.references
       ? `${ctx.references} ${ctx.inReplyTo}`.trim()
       : ctx.inReplyTo;
+    const signedBody = await appendGmailSignature(ctx.body);
 
-    const headerLines = [
-      `To: ${ctx.to}`,
-      `Subject: ${encodeHeader(subject)}`,
-      ctx.inReplyTo ? `In-Reply-To: ${ctx.inReplyTo}` : '',
-      refs ? `References: ${refs}` : '',
-      'MIME-Version: 1.0',
-      'Content-Type: text/plain; charset="UTF-8"',
-      'Content-Transfer-Encoding: 8bit',
-    ].filter((l) => l !== '');
-
-    const message = `${headerLines.join('\r\n')}\r\n\r\n${ctx.body}`;
+    const message = buildMime({
+      to: ctx.to,
+      subject,
+      body: signedBody,
+      inReplyTo: ctx.inReplyTo,
+      references: refs,
+    });
     const raw = base64UrlEncode(message);
 
     const res = await fetchWithTimeout('google', `${BASE}/messages/send`, {
@@ -179,6 +182,195 @@ export async function sendReply(ctx: {
       throw new Error(`Gmail send failed: ${res.status} ${await res.text()}`);
     }
   });
+}
+
+export type GmailComposeInput = {
+  to: string[];
+  cc?: string[];
+  subject: string;
+  body: string;
+  // For reply drafts/sends. If supplied, the message is posted into the same
+  // thread so Gmail's UI threads it correctly.
+  threadId?: string;
+  inReplyTo?: string;
+  references?: string;
+};
+
+// Creates a Gmail draft. Body gets the user's sendAs signature appended.
+// Returns the draft id so callers (e.g. UI) can navigate to it.
+export async function createDraft(input: GmailComposeInput): Promise<{ id: string }> {
+  return tryWithRefresh('google', async (accessToken) => {
+    const signedBody = await appendGmailSignature(input.body);
+    const message = buildMime({
+      to: input.to.join(', '),
+      cc: input.cc && input.cc.length > 0 ? input.cc.join(', ') : undefined,
+      subject: input.subject,
+      body: signedBody,
+      inReplyTo: input.inReplyTo,
+      references: input.references,
+    });
+    const raw = base64UrlEncode(message);
+    const body: Record<string, unknown> = { message: { raw } };
+    if (input.threadId) (body.message as Record<string, unknown>).threadId = input.threadId;
+
+    const res = await fetchWithTimeout('google', `${BASE}/drafts`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 401 || res.status === 403) {
+      throw new ProviderAuthError('google', `Gmail afvist (${res.status}).`);
+    }
+    if (!res.ok) {
+      throw new Error(`Gmail draft create failed: ${res.status} ${await res.text()}`);
+    }
+    const data = (await res.json()) as { id?: string };
+    return { id: data.id ?? '' };
+  });
+}
+
+// Sends a fresh email (not a reply to an existing thread). For replies, use
+// sendReply so threading headers are set correctly.
+export async function sendMail(input: GmailComposeInput): Promise<void> {
+  return tryWithRefresh('google', async (accessToken) => {
+    const signedBody = await appendGmailSignature(input.body);
+    const message = buildMime({
+      to: input.to.join(', '),
+      cc: input.cc && input.cc.length > 0 ? input.cc.join(', ') : undefined,
+      subject: input.subject,
+      body: signedBody,
+      inReplyTo: input.inReplyTo,
+      references: input.references,
+    });
+    const raw = base64UrlEncode(message);
+    const body: Record<string, unknown> = { raw };
+    if (input.threadId) body.threadId = input.threadId;
+
+    const res = await fetchWithTimeout('google', `${BASE}/messages/send`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 401 || res.status === 403) {
+      throw new ProviderAuthError('google', `Gmail afvist (${res.status}).`);
+    }
+    if (!res.ok) {
+      throw new Error(`Gmail send failed: ${res.status} ${await res.text()}`);
+    }
+  });
+}
+
+// ─── Signatures ──────────────────────────────────────────────────────────
+//
+// Reads the user's primary sendAs signature from Gmail settings and caches
+// it in-memory for the session. The endpoint is covered by the existing
+// `gmail.readonly` scope, so no scope bump is required. Signatures arrive
+// as HTML — we strip to plain text since outgoing mail goes out as
+// text/plain (matching the existing send pipeline).
+
+type SendAs = {
+  sendAsEmail: string;
+  isPrimary?: boolean;
+  isDefault?: boolean;
+  signature?: string;
+};
+
+let cachedSignature: string | null | undefined;
+let cachedSignatureFetchedAt = 0;
+const SIGNATURE_TTL_MS = 6 * 60 * 60 * 1000; // 6h — refreshes once per day-ish without paying for it on every send
+
+async function fetchPrimarySignature(): Promise<string | null> {
+  return tryWithRefresh('google', async (accessToken) => {
+    const res = await fetchWithTimeout('google', `${BASE}/settings/sendAs`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (res.status === 401 || res.status === 403) {
+      throw new ProviderAuthError('google', `Gmail afvist (${res.status}).`);
+    }
+    if (!res.ok) {
+      // Don't throw — a missing signature shouldn't block the send. Log and
+      // fall through to no-signature.
+      if (__DEV__) console.warn(`[gmail] sendAs fetch failed: ${res.status}`);
+      return null;
+    }
+    const data = (await res.json()) as { sendAs?: SendAs[] };
+    const list = data.sendAs ?? [];
+    const primary =
+      list.find((s) => s.isPrimary) ?? list.find((s) => s.isDefault) ?? list[0];
+    const html = primary?.signature?.trim();
+    if (!html) return null;
+    return stripHtml(html).trim() || null;
+  });
+}
+
+async function getGmailSignature(): Promise<string | null> {
+  const now = Date.now();
+  // Only cache POSITIVE hits. A null result means "no signature found right
+  // now" — could be a fresh account that hasn't configured one yet, or a
+  // transient empty response. Caching null for hours would mean the user's
+  // newly-set signature wouldn't appear until the TTL expires. Re-fetching
+  // on every send when there's no signature is cheap (one Gmail API call).
+  if (
+    cachedSignature !== undefined &&
+    cachedSignature !== null &&
+    now - cachedSignatureFetchedAt < SIGNATURE_TTL_MS
+  ) {
+    return cachedSignature;
+  }
+  let result: string | null = null;
+  try {
+    result = await fetchPrimarySignature();
+  } catch (err) {
+    if (__DEV__) console.warn('[gmail] signature fetch threw:', err);
+    result = null;
+  }
+  if (result) {
+    cachedSignature = result;
+    cachedSignatureFetchedAt = now;
+  }
+  return result;
+}
+
+async function appendGmailSignature(body: string): Promise<string> {
+  const sig = await getGmailSignature();
+  if (!sig) return body;
+  const trimmed = body.replace(/\s+$/, '');
+  return `${trimmed}\n\n${sig}\n`;
+}
+
+// Test/debug hook: clear the in-memory signature cache. Used when the user
+// changes Gmail accounts or signs out so we don't append a stale signature.
+export function resetGmailSignatureCache(): void {
+  cachedSignature = undefined;
+  cachedSignatureFetchedAt = 0;
+}
+
+function buildMime(opts: {
+  to: string;
+  cc?: string;
+  subject: string;
+  body: string;
+  inReplyTo?: string;
+  references?: string;
+}): string {
+  const subject = opts.subject;
+  const headerLines = [
+    `To: ${opts.to}`,
+    opts.cc ? `Cc: ${opts.cc}` : '',
+    `Subject: ${encodeHeader(subject)}`,
+    opts.inReplyTo ? `In-Reply-To: ${opts.inReplyTo}` : '',
+    opts.references ? `References: ${opts.references}` : '',
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: 8bit',
+  ].filter((l) => l !== '');
+  return `${headerLines.join('\r\n')}\r\n\r\n${opts.body}`;
 }
 
 function extractBody(part: RawMessagePart | undefined): string {

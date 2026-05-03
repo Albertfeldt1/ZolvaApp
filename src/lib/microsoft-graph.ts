@@ -2,6 +2,7 @@
 // for the signed-in Microsoft account.
 
 import { ProviderAuthError, tryWithRefresh } from './auth';
+import { loadManualSignature } from './mail-signature';
 import { fetchWithTimeout } from './network-errors';
 
 const BASE = 'https://graph.microsoft.com/v1.0';
@@ -225,12 +226,103 @@ export async function getMessageBody(id: string): Promise<GraphMessageBody> {
 
 export async function replyToMessage(id: string, body: string): Promise<void> {
   return tryWithRefresh('microsoft', async (token) => {
+    const signed = await appendManualSignature(body);
     await graphFetch<void>(token, `/me/messages/${id}/reply`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ comment: body }),
+      body: JSON.stringify({ comment: signed }),
     });
   });
+}
+
+export type GraphComposeInput = {
+  to: string[];
+  cc?: string[];
+  subject: string;
+  body: string;
+  // For a reply draft, supply the original message id. We post to
+  // /messages/{id}/createReplyDraft so Outlook builds the threading + quoted
+  // history automatically; subject/body still get our signature appended.
+  replyToId?: string;
+};
+
+function buildRecipients(addrs: string[]): Array<{ emailAddress: { address: string } }> {
+  return addrs.map((a) => ({ emailAddress: { address: a } }));
+}
+
+// Creates an Outlook draft. For new mail this is POST /me/messages; for
+// replies we use createReplyDraft which preserves threading + quoted history.
+// Manual signature (set in Settings) gets appended to the body.
+export async function createDraft(input: GraphComposeInput): Promise<{ id: string }> {
+  return tryWithRefresh('microsoft', async (token) => {
+    const signedBody = await appendManualSignature(input.body);
+    if (input.replyToId) {
+      const draft = await graphFetch<{ id: string }>(
+        token,
+        `/me/messages/${input.replyToId}/createReplyDraft`,
+        { method: 'POST' },
+      );
+      // Patch the draft with the user's body + signature. Outlook keeps the
+      // quoted history below.
+      await graphFetch<void>(token, `/me/messages/${draft.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          body: { contentType: 'text', content: signedBody },
+        }),
+      });
+      return { id: draft.id };
+    }
+    const data = await graphFetch<{ id: string }>(token, `/me/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subject: input.subject,
+        body: { contentType: 'text', content: signedBody },
+        toRecipients: buildRecipients(input.to),
+        ccRecipients: input.cc && input.cc.length > 0 ? buildRecipients(input.cc) : undefined,
+      }),
+    });
+    return { id: data.id };
+  });
+}
+
+// Sends a fresh email immediately (not via the existing /reply endpoint).
+// For replies, use replyToMessage so the original is threaded server-side.
+export async function sendMail(input: GraphComposeInput): Promise<void> {
+  return tryWithRefresh('microsoft', async (token) => {
+    const signedBody = await appendManualSignature(input.body);
+    if (input.replyToId) {
+      // Not exposed via /sendMail — use the reply endpoint instead. Caller
+      // typically routes through replyToMessage; this branch is just defensive.
+      await graphFetch<void>(token, `/me/messages/${input.replyToId}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment: signedBody }),
+      });
+      return;
+    }
+    await graphFetch<void>(token, `/me/sendMail`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: {
+          subject: input.subject,
+          body: { contentType: 'text', content: signedBody },
+          toRecipients: buildRecipients(input.to),
+          ccRecipients: input.cc && input.cc.length > 0 ? buildRecipients(input.cc) : undefined,
+        },
+        saveToSentItems: true,
+      }),
+    });
+  });
+}
+
+async function appendManualSignature(body: string): Promise<string> {
+  const sig = await loadManualSignature();
+  if (!sig) return body;
+  const trimmed = body.replace(/\s+$/, '');
+  return `${trimmed}\n\n${sig}\n`;
 }
 
 export async function archiveMessage(id: string): Promise<void> {

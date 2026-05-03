@@ -47,17 +47,21 @@ import {
   resolveGoogleEventColor,
 } from './google-calendar';
 import {
+  createDraft as gmailCreateDraft,
   getMessageBody as gmailGetMessageBody,
   initialsOf,
   listInboxMessages as listGmailMessages,
+  sendMail as gmailSendMail,
   sendReply as gmailSendReply,
 } from './gmail';
 import {
   archiveMessage as graphArchiveMessage,
+  createDraft as graphCreateDraft,
   getMessageBody as graphGetMessageBody,
   listCalendarEvents as listGraphEvents,
   listInboxMessages as listGraphMessages,
   replyToMessage as graphReplyToMessage,
+  sendMail as graphSendMail,
 } from './microsoft-graph';
 import { loadCredential } from './icloud-credentials';
 import { detectAdminConsentRequired } from './admin-consent';
@@ -2449,6 +2453,23 @@ function buildChatSystemPrompt(name: string): string {
       'højst 2-3 filer per spørgsmål for at holde svaret fokuseret.',
     'Drive-værktøjer er read-only — du kan ikke oprette, redigere eller slette ' +
       'filer. Forklar det hvis brugeren beder om det.',
+    'Når brugeren beder dig formulere en mail — fx "lav et udkast til Lars", ' +
+      '"skriv en mail til min chef", "udarbejd et svar" — brug create_draft. ' +
+      'Udkastet lægges i deres mailkonto, IKKE sendt. Brug KUN send_mail når ' +
+      'brugeren udtrykkeligt siger "send" eller "afsend". Når i tvivl, foretræk ' +
+      'create_draft — det kan altid sendes manuelt fra Mail-appen, mens en ' +
+      'fejlagtig send ikke kan fortrydes. BEKRÆFT ALTID modtager, emne og ' +
+      'indhold med brugeren før du kalder værktøjet — gentag det vigtigste og ' +
+      'spørg "Skal jeg gemme det som udkast?" eller "Skal jeg sende det nu?".',
+    'Hvis udkastet/sendingen er et SVAR på en eksisterende mail (brugeren henviser ' +
+      'til en mail de har modtaget), så send det fulde unified-ID i `reply_to_id` ' +
+      '(fx "google:abc" eller "microsoft:abc") — så bevares tråden korrekt. ' +
+      'Brug list_recent_mail eller read_mail_thread til at finde det rigtige ID.',
+    'Skriv ALDRIG en signatur/underskrift selv i `body` — Zolva tilføjer ' +
+      'automatisk brugerens egen signatur. Skriv kun selve beskeden.',
+    'Mail-værktøjerne understøtter Gmail (provider="google") og Outlook ' +
+      '(provider="microsoft"). iCloud kan ikke sende — forklar det hvis brugeren ' +
+      'beder om det og foreslå Apple Mail-appen i stedet.',
   ]
     .filter(Boolean)
     .join(' ');
@@ -2626,6 +2647,48 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
       required: ['id'],
     },
   },
+  {
+    name: 'create_draft',
+    description:
+      'Opret et udkast til en mail. Brug når brugeren siger "lav et udkast", "skriv en mail", "udarbejd et svar" eller lignende. Udkastet gemmes i brugerens mailkonto (Gmail eller Outlook) — det bliver IKKE sendt. BEKRÆFT ALTID modtager, emne og indhold med brugeren før du kalder værktøjet. Brugerens signatur tilføjes automatisk. Hvis udkastet er et svar på en eksisterende mail, send det fulde unified-ID i `reply_to_id` (fx "google:abc" eller "microsoft:abc") — så bevares tråden. iCloud understøttes ikke.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        provider: {
+          type: 'string',
+          enum: ['google', 'microsoft'],
+          description: 'Hvilken konto udkastet lægges på. Vælg ud fra hvor brugeren har konteksten.',
+        },
+        to: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Modtager-mailadresser. Mindst én.',
+        },
+        cc: { type: 'array', items: { type: 'string' } },
+        subject: { type: 'string' },
+        body: { type: 'string', description: 'Mailens brødtekst. Tilføj IKKE underskrift selv — den bliver hentet og lagt på automatisk.' },
+        reply_to_id: { type: 'string', description: 'Unified-ID fra list_recent_mail/read_mail_thread hvis det er et svar.' },
+      },
+      required: ['provider', 'to', 'subject', 'body'],
+    },
+  },
+  {
+    name: 'send_mail',
+    description:
+      'Send en mail med det samme. Brug KUN når brugeren udtrykkeligt siger "send", "afsend" eller "send afsted" — IKKE ved "udkast", "skriv", eller "lav et svar". Når i tvivl, brug create_draft. BEKRÆFT ALTID modtager, emne og indhold med brugeren før du kalder værktøjet. Brugerens signatur tilføjes automatisk. iCloud understøttes ikke.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        provider: { type: 'string', enum: ['google', 'microsoft'] },
+        to: { type: 'array', items: { type: 'string' } },
+        cc: { type: 'array', items: { type: 'string' } },
+        subject: { type: 'string' },
+        body: { type: 'string' },
+        reply_to_id: { type: 'string', description: 'Unified-ID hvis det er et svar — så bevares tråden.' },
+      },
+      required: ['provider', 'to', 'subject', 'body'],
+    },
+  },
 ];
 
 function parseDate(s: unknown): Date | null {
@@ -2691,6 +2754,154 @@ function parseWritePatch(input: Record<string, unknown>): ParseResult<Partial<Wr
   return { ok: true, data: patch };
 }
 
+type MailComposeProvider = 'google' | 'microsoft';
+
+type MailComposeParsed = {
+  provider: MailComposeProvider;
+  to: string[];
+  cc?: string[];
+  subject: string;
+  body: string;
+  replyToUnifiedId?: string;
+};
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function parseEmailList(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((x): x is string => typeof x === 'string')
+    .map((s) => s.trim())
+    .filter((s) => EMAIL_RE.test(s));
+}
+
+function parseMailComposeInput(input: Record<string, unknown>): ParseResult<MailComposeParsed> {
+  const provider = input.provider;
+  if (provider !== 'google' && provider !== 'microsoft') {
+    return {
+      ok: false,
+      reason: '`provider` skal være "google" eller "microsoft". iCloud-mail kan ikke sendes fra Zolva endnu.',
+    };
+  }
+  const to = parseEmailList(input.to);
+  if (to.length === 0) {
+    return { ok: false, reason: 'Mindst én gyldig modtager-mailadresse i `to` er påkrævet.' };
+  }
+  const ccRaw = input.cc;
+  const cc = ccRaw === undefined ? undefined : parseEmailList(ccRaw);
+  const subject = typeof input.subject === 'string' ? input.subject.trim() : '';
+  if (!subject) return { ok: false, reason: 'Mangler `subject`.' };
+  const body = typeof input.body === 'string' ? input.body : '';
+  if (!body.trim()) return { ok: false, reason: 'Mangler `body`.' };
+  const replyToUnifiedId =
+    typeof input.reply_to_id === 'string' && input.reply_to_id.trim()
+      ? input.reply_to_id.trim()
+      : undefined;
+  return {
+    ok: true,
+    data: { provider, to, cc, subject, body, replyToUnifiedId },
+  };
+}
+
+// Splits "google:abc" → ['google', 'abc']. Returns null if the unified ID
+// doesn't carry the provider prefix (i.e. the model passed a raw provider id).
+function splitUnifiedId(unified: string): { provider: string; id: string } | null {
+  const colon = unified.indexOf(':');
+  if (colon <= 0) return null;
+  return { provider: unified.slice(0, colon), id: unified.slice(colon + 1) };
+}
+
+async function runMailComposeTool(
+  name: 'create_draft' | 'send_mail',
+  input: Record<string, unknown>,
+  ctx: ChatCtx,
+): Promise<{ text: string; isError: boolean }> {
+  const parsed = parseMailComposeInput(input);
+  if (!parsed.ok) return { text: parsed.reason, isError: true };
+  const { provider, to, cc, subject, body, replyToUnifiedId } = parsed.data;
+
+  if (provider === 'google' && !ctx.hasGoogle) {
+    return {
+      text: 'Brugeren har ikke forbundet en Gmail-konto. Foreslå at forbinde Gmail under Indstillinger, eller brug "microsoft" hvis Outlook er forbundet.',
+      isError: true,
+    };
+  }
+  if (provider === 'microsoft' && !ctx.hasMicrosoft) {
+    return {
+      text: 'Brugeren har ikke forbundet en Outlook-konto. Foreslå at forbinde Outlook under Indstillinger, eller brug "google" hvis Gmail er forbundet.',
+      isError: true,
+    };
+  }
+
+  // For replies, resolve the original message id from the unified id. We
+  // also reject mismatched providers (e.g. provider=google with a microsoft:
+  // unified id) so the user gets a clear error rather than a silent crash.
+  let providerReplyId: string | undefined;
+  if (replyToUnifiedId) {
+    const split = splitUnifiedId(replyToUnifiedId);
+    const replyProvider = split?.provider ?? provider;
+    if (replyProvider !== provider) {
+      return {
+        text: `\`reply_to_id\` peger på ${replyProvider}, men provider er ${provider}. Brug samme provider som mailen blev modtaget på.`,
+        isError: true,
+      };
+    }
+    providerReplyId = split?.id ?? replyToUnifiedId;
+  }
+
+  try {
+    if (provider === 'google') {
+      // For Gmail replies we need threading headers from the original message.
+      // The /drafts and /messages/send endpoints take threadId + In-Reply-To/
+      // References — without them Gmail starts a new conversation even when
+      // we hit the right inbox.
+      let threadHeaders: { threadId?: string; inReplyTo?: string; references?: string } = {};
+      if (providerReplyId) {
+        try {
+          const original = await gmailGetMessageBody(providerReplyId);
+          const refs = original.references
+            ? `${original.references} ${original.messageIdHeader}`.trim()
+            : original.messageIdHeader;
+          threadHeaders = {
+            threadId: original.threadId,
+            inReplyTo: original.messageIdHeader || undefined,
+            references: refs || undefined,
+          };
+        } catch (err) {
+          if (__DEV__) console.warn('[hooks] gmail reply lookup failed:', err);
+          // Fall through — we'll still create the message, just without
+          // threading. Better than failing the whole call.
+        }
+      }
+
+      if (name === 'create_draft') {
+        const r = await gmailCreateDraft({ to, cc, subject, body, ...threadHeaders });
+        return { text: `Udkast oprettet i Gmail (id: ${r.id || 'ukendt'}).`, isError: false };
+      }
+      await gmailSendMail({ to, cc, subject, body, ...threadHeaders });
+      return { text: 'Mailen er sendt fra Gmail.', isError: false };
+    }
+
+    // Microsoft
+    if (name === 'create_draft') {
+      const r = await graphCreateDraft({ to, cc, subject, body, replyToId: providerReplyId });
+      return { text: `Udkast oprettet i Outlook (id: ${r.id || 'ukendt'}).`, isError: false };
+    }
+    if (providerReplyId) {
+      // Use the existing reply endpoint for sends so threading is preserved
+      // server-side. graphSendMail with replyToId routes here too, but going
+      // direct keeps the call shorter.
+      await graphReplyToMessage(providerReplyId, body);
+      return { text: 'Svaret er sendt fra Outlook.', isError: false };
+    }
+    await graphSendMail({ to, cc, subject, body });
+    return { text: 'Mailen er sendt fra Outlook.', isError: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { text: `Mail-værktøjet fejlede: ${msg}`, isError: true };
+  }
+}
+
 async function runChatTool(
   name: string,
   input: Record<string, unknown>,
@@ -2750,6 +2961,10 @@ async function runChatTool(
       const rawLimit = typeof input.limit === 'number' ? input.limit : 10;
       const limit = Math.max(1, Math.min(Math.floor(rawLimit), 25));
       const r = await searchDriveFilesTool(ctx, query, limit);
+      return { content: r.text, isError: r.isError };
+    }
+    if (name === 'create_draft' || name === 'send_mail') {
+      const r = await runMailComposeTool(name, input, ctx);
       return { content: r.text, isError: r.isError };
     }
     if (name === 'read_drive_file') {
