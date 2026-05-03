@@ -626,7 +626,7 @@ export default function App() {
           }}
         />
       )}
-      {!chatOpen && !openMail && !notificationsOpen && !icloudSetupOpen && !adminConsentOpen && (
+      {!chatOpen && !openMail && !notificationsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && (
         <View
           style={styles.chrome}
           pointerEvents="box-none"
