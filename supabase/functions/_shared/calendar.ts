@@ -43,6 +43,14 @@ type CalendarMeta = {
 
 type PrefsMap = Map<string, boolean>; // key: `${provider}:${calendarId}` -> included
 
+// Internal shape for one provider branch. `fallbackPrimaryOnly=true` signals
+// that the Google branch could not enumerate calendarList due to scope and
+// fell back to the `primary` alias — distinct from a real success.
+type BranchResult = {
+  events: EventSummary[];
+  fallbackPrimaryOnly?: boolean;
+};
+
 export async function fetchCalendarForUser(
   client: SupabaseClient,
   userId: string,
@@ -56,7 +64,7 @@ export async function fetchCalendarForUser(
   ]);
   if (providers.length === 0 && !hasIcloud) return [];
 
-  const branches: Array<{ provider: string; run: () => Promise<EventSummary[]> }> = [];
+  const branches: Array<{ provider: string; run: () => Promise<BranchResult> }> = [];
   for (const p of providers) {
     branches.push({
       provider: p,
@@ -71,7 +79,9 @@ export async function fetchCalendarForUser(
       const { startIso, endIso } = getDayBoundsUTC(new Date(), timezone);
       branches.push({
         provider: 'icloud',
-        run: () => fetchIcloudEvents(client, userId, timezone, encryptionKey, startIso, endIso),
+        run: async () => ({
+          events: await fetchIcloudEvents(client, userId, timezone, encryptionKey, startIso, endIso),
+        }),
       });
     }
   }
@@ -82,30 +92,38 @@ export async function fetchCalendarForUser(
 
   const events: EventSummary[] = [];
   for (const r of settled) {
-    if (r.status === 'fulfilled') events.push(...r.value);
+    if (r.status === 'fulfilled') events.push(...r.value.events);
   }
   events.sort((a, b) => a.startIso.localeCompare(b.startIso));
   return events.slice(0, MAX_EVENTS);
 }
 
 // Per-provider timing + status log. Format mirrors [oauth-refresh] for
-// consistent grep/jq across production logs:
-//   [calendar] user=d02f1514 provider=icloud events=12 status=settled elapsed_ms=850
+// consistent grep/jq across production logs. Three statuses:
+//   status=settled                 — real success, calendarList enumerated
+//   status=fallback_primary_only   — Google calendarList 403 → primary alias
+//                                    fallback. User has calendar.events but
+//                                    not calendar.readonly. Discovery fix
+//                                    for the regression introduced when the
+//                                    multi-calendar aggregator shipped.
+//   status=rejected reason=...     — anything else (refresh failure, network,
+//                                    iCloud auth, timeout)
 async function timed(
   userIdShort: string,
   provider: string,
-  fn: () => Promise<EventSummary[]>,
-): Promise<EventSummary[]> {
+  fn: () => Promise<BranchResult>,
+): Promise<BranchResult> {
   const start = Date.now();
   try {
     const result = await fn();
+    const status = result.fallbackPrimaryOnly ? 'fallback_primary_only' : 'settled';
     console.log(
-      `[calendar] user=${userIdShort} provider=${provider} events=${result.length} status=settled elapsed_ms=${Date.now() - start}`,
+      `[calendar] user=${userIdShort} provider=${provider} events=${result.events.length} status=${status} elapsed_ms=${Date.now() - start}`,
     );
     return result;
   } catch (err) {
     console.log(
-      `[calendar] user=${userIdShort} provider=${provider} events=0 status=rejected elapsed_ms=${Date.now() - start} error=${String(err).slice(0, 200)}`,
+      `[calendar] user=${userIdShort} provider=${provider} events=0 status=rejected elapsed_ms=${Date.now() - start} reason=${String(err).slice(0, 200)}`,
     );
     throw err;
   }
@@ -161,33 +179,37 @@ async function fetchProviderEvents(
   provider: Provider,
   timezone: string,
   prefs: PrefsMap,
-): Promise<EventSummary[]> {
+): Promise<BranchResult> {
   const refreshToken = await loadRefreshToken(client, userId, provider);
-  if (!refreshToken) return [];
+  if (!refreshToken) return { events: [] };
 
-  let accessToken: string;
-  try {
-    const result = await refreshAccessToken(client, userId, provider, refreshToken, {
-      microsoftScope: 'offline_access Calendars.Read',
-    });
-    accessToken = result.accessToken;
-  } catch (err) {
-    console.warn(`[calendar] refresh failed user=${userId} provider=${provider}:`, err);
-    return [];
-  }
+  const refresh = await refreshAccessToken(client, userId, provider, refreshToken, {
+    microsoftScope: 'offline_access Calendars.Read',
+  });
+  const accessToken = refresh.accessToken;
 
   let calendars: CalendarMeta[];
+  let fallbackPrimaryOnly = false;
   try {
     calendars = provider === 'google'
       ? await listGoogleCalendars(accessToken)
       : await listMicrosoftCalendars(accessToken);
   } catch (err) {
-    console.warn(`[calendar] list failed user=${userId} provider=${provider}:`, err);
-    return [];
+    // Google calendarList 403 means the OAuth grant has calendar.events but
+    // not calendar.readonly. Fall back to the documented `primary` alias —
+    // events.list on `primary` works under calendar.events alone, restoring
+    // the pre-multi-calendar behavior. 401 (token revoked) and other errors
+    // still propagate as rejected.
+    if (provider === 'google' && isCalendarListScopeError(err)) {
+      calendars = [{ id: 'primary', name: 'primary' }];
+      fallbackPrimaryOnly = true;
+    } else {
+      throw err;
+    }
   }
 
   const visible = calendars.filter((c) => isCalendarVisible(provider, c, prefs));
-  if (visible.length === 0) return [];
+  if (visible.length === 0) return { events: [], fallbackPrimaryOnly };
 
   const { startIso, endIso } = getDayBoundsUTC(new Date(), timezone);
 
@@ -216,7 +238,11 @@ async function fetchProviderEvents(
       );
     }
   }
-  return events;
+  return { events, fallbackPrimaryOnly };
+}
+
+function isCalendarListScopeError(err: unknown): boolean {
+  return err instanceof Error && err.message.includes('calendarList 403');
 }
 
 function isCalendarVisible(provider: Provider, cal: CalendarMeta, prefs: PrefsMap): boolean {
