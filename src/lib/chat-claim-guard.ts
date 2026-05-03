@@ -70,7 +70,7 @@ const CLASSIFIER_SYSTEM = [
 const CLASSIFIER_SCHEMA_HINT = [
   '{',
   '  "claimed": "boolean — true hvis beskeden påstår en udført handling",',
-  '  "tool": "string|null — én af: send_mail, create_draft, add_reminder, add_note, create_calendar_event, update_calendar_event, delete_calendar_event, list_calendar_events, list_recent_mail, read_mail_thread, list_reminders, list_notes, search_drive_files, read_drive_file. null hvis claimed=false eller værktøj uklart.",',
+  `  "tool": "string|null — én af: ${[...VALID_TOOLS].join(', ')}. null hvis claimed=false eller værktøj uklart.",`,
   '  "reason": "string — kort dansk begrundelse, max 100 tegn"',
   '}',
 ].join('\n');
@@ -111,7 +111,6 @@ export async function classifyClaim(
     return normalizeVerdict(raw);
   } catch (err) {
     if (__DEV__ && getPrivacyFlag('anon-reports')) {
-      // eslint-disable-next-line no-console
       console.warn(
         `${CHAT_GUARD_DEBUG_TAG} classifier failed:`,
         err instanceof Error ? err.message : String(err),

@@ -114,5 +114,6 @@ describe('classifyClaim', () => {
     const v = await classifyClaim('Jeg har sendt mailen.');
     expect(v.claimed).toBe(false);
     expect(v.reason).toBe('classifier-failed');
+    expect(v.tool).toBeNull();
   });
 });
