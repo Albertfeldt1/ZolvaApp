@@ -334,9 +334,13 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
     // the identity is already linked we unlink it first and re-enter through
     // linkIdentity. Unlink fails if it would leave the user with no
     // identities; in that case we fall through to the legacy path.
+    const initiallyHadSession = !!cachedSession;
     const identities = cachedSession?.user?.identities ?? [];
     const linkedIdentity = identities.find((i) => i.provider === provider);
+    const initiallyLinked = !!linkedIdentity;
     let identityUnlinked = false;
+    let unlinkSoleIdentity = false;
+    let unlinkOtherError = false;
     if (cachedSession && linkedIdentity) {
       const { error: unlinkError } = await supabase.auth.unlinkIdentity(linkedIdentity);
       if (unlinkError) {
@@ -352,8 +356,10 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
         if (msg.includes('single_identity_not_deletable') || msg.includes('at least 1 identity')) {
           console.log('[auth] forcing sign-out before re-auth — sole-identity user');
           await supabase.auth.signOut();
+          unlinkSoleIdentity = true;
         } else {
           console.warn('[auth] unlinkIdentity failed (using signInWithOAuth fallback):', msg);
+          unlinkOtherError = true;
         }
       } else {
         identityUnlinked = true;
@@ -362,12 +368,31 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
 
     let initiator;
     let usedLinkIdentity = false;
+    let initiatorPath:
+      | 'fresh-signin'
+      | 'link-identity'
+      | 'link-fallback-signin'
+      | 'unlink-then-link'
+      | 'unlink-then-link-fallback-signin'
+      | 'force-signout-then-signin'
+      | 'signin-already-linked-quirk' = 'fresh-signin';
+    if (initiallyHadSession && initiallyLinked) {
+      if (identityUnlinked) initiatorPath = 'unlink-then-link';
+      else if (unlinkSoleIdentity) initiatorPath = 'force-signout-then-signin';
+      else if (unlinkOtherError) initiatorPath = 'signin-already-linked-quirk';
+    } else if (initiallyHadSession && !initiallyLinked) {
+      initiatorPath = 'link-identity';
+    }
     const useLinkIdentity = cachedSession && (!linkedIdentity || identityUnlinked);
     if (useLinkIdentity) {
       const linked = await supabase.auth.linkIdentity({ provider, options: params });
       if (linked.error) {
         console.warn('[auth] linkIdentity failed, falling back to signInWithOAuth:', linked.error.message);
         initiator = await supabase.auth.signInWithOAuth({ provider, options: params });
+        initiatorPath =
+          initiatorPath === 'unlink-then-link'
+            ? 'unlink-then-link-fallback-signin'
+            : 'link-fallback-signin';
       } else {
         initiator = linked;
         usedLinkIdentity = true;
@@ -429,6 +454,25 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
       }
     } else if (!token) {
       console.warn('[auth] No provider_token in exchange response (linkIdentity:', usedLinkIdentity, ')');
+    }
+    // Diagnostic: provider_token captured but no provider_refresh_token. This
+    // is the silent-failure mode that causes hourly re-login dialogs — the
+    // initial grant looks fine but no row gets written to user_oauth_tokens,
+    // so silentRefresh has nothing to exchange when the access_token expires.
+    // Logged with the initiator path so we can tell which Supabase code path
+    // dropped the refresh_token (signin-already-linked-quirk is the known
+    // failure mode; if we see others showing up, the unlink/link dance has
+    // regressed).
+    if (token && !refreshToken) {
+      console.warn(
+        '[oauth-grant] provider_token present but provider_refresh_token missing',
+        JSON.stringify({
+          provider: providerKey,
+          userId: uid ? uid.slice(0, 8) : null,
+          initiatorPath,
+          usedLinkIdentity,
+        }),
+      );
     }
     if (uid) {
       await persistProviderRefreshToken(uid, providerKey, refreshToken);
