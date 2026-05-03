@@ -639,17 +639,10 @@ async function doRefresh(provider: 'google' | 'microsoft'): Promise<string | nul
     if (__DEV__) console.warn('[auth] silent refresh threw:', e);
   }
 
-  if (!token) {
-    if (__DEV__) console.log('[auth] silent refresh unavailable, falling back to full re-auth:', provider);
-    const full = await runOAuth(provider === 'google' ? 'google' : 'azure', provider === 'google' ? GOOGLE_SCOPES : MICROSOFT_SCOPES);
-    if (full.error) {
-      if (__DEV__) console.warn('[auth] full re-auth failed:', full.error.message);
-      return null;
-    }
-    token = provider === 'google' ? cachedGoogleToken : cachedMicrosoftToken;
-    if (token) return token;
-  }
-
+  // Do NOT fall through to runOAuth here. runOAuth's already-linked path
+  // calls supabase.auth.unlinkIdentity, which revokes EVERY refresh token
+  // for the user — silently logging them out of the app on next cold launch.
+  // Reconnect must be user-initiated from the connected-accounts screen.
   if (!token) return null;
 
   const uid = currentUserId();
