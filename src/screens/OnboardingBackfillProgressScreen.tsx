@@ -68,12 +68,13 @@ const STONE_BREATHE_MS = 3200;
 const STONE_SCAN_MS = 4200;
 const STONE_PULSE_UP_MS = 380;
 const STONE_PULSE_DOWN_MS = 620;
-const COMPLETION_HOLD_MS = 950;
 
-// Minimum visible animation time from mount. Fast scans (~200-800ms) used
+// Minimum total animation time from mount. Fast scans (~200-800ms) used
 // to snap-cut and feel un-rewarding; the floor pads them so "Zolva is
-// doing work" reads. No effect on slow scans.
-const ANIMATION_FLOOR_MS = 1500;
+// doing work" reads long enough for the user to see the orbit + Stone
+// pulse before transition. Slow scans transition as soon as the scan
+// completes (slot pool keeps looping in the meantime).
+const ANIMATION_FLOOR_MS = 3000;
 
 // Force-exit if the scan never reaches a terminal state. Tighter than the
 // 120s poll budget — caps how long the user stares at orbiting logos
@@ -213,11 +214,10 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
     }
 
     const failed = jobs.filter((j) => j.status === 'failed' || j.status === 'cancelled');
-    // Honor the min-duration floor: pad fast scans so the animation
-    // doesn't snap-cut. Slow scans get the normal post-pulse hold.
+    // 3s floor from mount — fast scans pad to feel rewarding, slow scans
+    // transition immediately when the scan finishes.
     const elapsed = Date.now() - mountedAtRef.current;
-    const floorRemaining = Math.max(0, ANIMATION_FLOOR_MS - elapsed);
-    const hold = Math.max(COMPLETION_HOLD_MS, floorRemaining);
+    const hold = Math.max(0, ANIMATION_FLOOR_MS - elapsed);
     const id = setTimeout(() => onComplete(failed), hold);
     return () => clearTimeout(id);
   }, [jobs, reduceMotion, stoneScale, onComplete]);
