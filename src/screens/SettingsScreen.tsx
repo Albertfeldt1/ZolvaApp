@@ -262,6 +262,7 @@ type SocialMeta = {
   gradient?: readonly string[]; // optional brand gradient (Instagram fallback)
   useGlobeIcon?: boolean; // when true, BrandIcon renders the Globe lucide icon instead of the glyph
   asset?: ImageSourcePropType; // pre-rendered brand-icon PNG (preferred over glyph when set)
+  assetScale?: number; // multiplier for the rendered asset relative to the requested size — used when the source PNG has extra transparent padding (e.g. Instagram).
 };
 
 const SOCIAL_META: Record<SocialType, SocialMeta> = {
@@ -271,7 +272,8 @@ const SOCIAL_META: Record<SocialType, SocialMeta> = {
                asset: require('../../assets/socials/twitter.png') },
   instagram: { label: 'Instagram', glyph: 'Ig',  bg: '#e4405f', fg: '#ffffff', placeholder: 'instagram.com/…',
                gradient: ['#833ab4', '#fd1d1d', '#fcb045'],
-               asset: require('../../assets/socials/instagram.png') },
+               asset: require('../../assets/socials/instagram.png'),
+               assetScale: 1.18 },
   facebook:  { label: 'Facebook',  glyph: 'f',   bg: '#1877f2', fg: '#ffffff', placeholder: 'facebook.com/…',
                asset: require('../../assets/socials/facebook.png') },
   tiktok:    { label: 'TikTok',    glyph: 'T',   bg: '#000000', fg: '#ffffff', placeholder: 'tiktok.com/@…',
@@ -296,11 +298,14 @@ function BrandIcon({ type, size = 36 }: { type: SocialType; size?: number }) {
 
   // Preferred path: pre-rendered brand-icon PNG. The asset already includes
   // the colored circle, so we just render the image at the requested size.
+  // assetScale compensates for source PNGs that have extra transparent
+  // padding (e.g. Instagram) so they don't visually shrink next to peers.
   if (meta.asset) {
+    const renderedSize = size * (meta.assetScale ?? 1);
     return (
       <Image
         source={meta.asset}
-        style={{ width: size, height: size, borderRadius: radius }}
+        style={{ width: renderedSize, height: renderedSize, borderRadius: renderedSize / 2 }}
         resizeMode="contain"
       />
     );
