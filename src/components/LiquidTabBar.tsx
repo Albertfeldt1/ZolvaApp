@@ -171,7 +171,7 @@ export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: P
             <AnimatedGlassView
               glassEffectStyle="clear"
               isInteractive
-              tintColor="rgba(26,30,28,0.12)"
+              tintColor="rgba(26,30,28,0.30)"
               colorScheme="auto"
               style={[styles.activePill, pillStyle]}
               pointerEvents="none"
