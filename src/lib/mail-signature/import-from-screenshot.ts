@@ -1,25 +1,78 @@
 // src/lib/mail-signature/import-from-screenshot.ts
 //
-// Vision-based signature import. Pure validation + error mapping live here;
-// the picker/Claude orchestrator (pickAndExtractSignature) lives below.
+// Vision-based signature import (HTML reproduction).
+//
+// Pipeline:
+//   1. Pick image via expo-image-picker.
+//   2. Resize to 1024px long side, JPEG q=0.85, base64.
+//   3. Vision call via completeWithTool — Claude tool-use returns
+//      { html, plaintext, logoBox }.
+//   4. Sanitize html via sanitizeSignatureHtml.
+//   5. Crop logo from the resized image at logoBox (sanity-checked).
+//   6. Build ImportedSignature and return.
+//
+// Pure parts (parseImportToolUse, mapClaudeError, importResultMessage)
+// are unit-tested. The orchestrator depends on Expo runtime + the live
+// Claude call and is verified manually.
 
 import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system';
-import { ClaudeRateLimitError, ClaudeConfigError, completeJson } from '../claude';
+import { ClaudeRateLimitError, ClaudeConfigError, completeWithTool } from '../claude';
+import { sanitizeSignatureHtml } from './sanitize';
+import type { ImportedSignature, InlineImage } from './types';
 
-export type ExtractedSignatureFields = {
-  name: string;
-  title: string;
-  company: string;
-  phone: string;
-  email: string;
-  website: string;
-  customLines: string;
+const VISION_MAX_DIMENSION = 1024;
+const VISION_MAX_BASE64_LEN = 300_000;
+
+const SIGNATURE_IMPORT_SYSTEM_PROMPT = `You reproduce the visual design of an email signature from a screenshot, as Outlook-safe HTML.
+
+CRITICAL constraints — output that violates these will be sanitized away:
+- Layout: use <table> elements only. No flexbox, grid, or modern positioning.
+- Styling: inline style="..." attributes only. No <style>, <script>, <link>, <iframe>, no @import, no @font-face.
+- Fonts: system stack only — e.g. font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif. No web fonts.
+- Properties allowed: font-family, font-size, font-weight, font-style, color, background-color, text-align, text-decoration, padding, margin, border, line-height, vertical-align, white-space. Do not use position, transform, animation, opacity.
+- URLs: <a href="..."> may use mailto:, tel:, https://, http://. <img> may ONLY be src="cid:zolva-sig" (we'll inject the cropped logo). No data: URIs, no remote URLs.
+
+Reproduce the screenshot's visible content as faithfully as possible: text content, weights, italics, colors, alignment, dividers, and the visual structure (single line vs multi-line vs columns implemented as nested tables).
+
+Return your output via the import_signature tool with three fields:
+- html: the Outlook-safe HTML (typically wrapped in a <table>)
+- plaintext: a plain-text version of the signature for multipart/alt
+- logoBox: if a logo or photo is visible, an object { x, y, w, h } in pixel coordinates of the screenshot you were shown. If no logo/photo is visible, null.
+
+If the screenshot doesn't appear to contain an email signature (e.g. it's a generic email body or unrelated content), return html: "", plaintext: "" and logoBox: null.`;
+
+const IMPORT_TOOL = {
+  name: 'import_signature',
+  description: 'Output the reproduced signature HTML, plaintext fallback, and optional logo bounding box.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      html: { type: 'string' },
+      plaintext: { type: 'string' },
+      logoBox: {
+        oneOf: [
+          { type: 'null' },
+          {
+            type: 'object',
+            properties: {
+              x: { type: 'number' },
+              y: { type: 'number' },
+              w: { type: 'number' },
+              h: { type: 'number' },
+            },
+            required: ['x', 'y', 'w', 'h'],
+          },
+        ],
+      },
+    },
+    required: ['html', 'plaintext', 'logoBox'],
+  },
 };
 
 export type ImportResult =
-  | { ok: true; data: ExtractedSignatureFields }
+  | { ok: true; data: ImportedSignature }
   | {
       ok: false;
       reason:
@@ -33,37 +86,46 @@ export type ImportResult =
         | 'unauthorized';
     };
 
-const REQUIRED_FIELDS = [
-  'name', 'title', 'company', 'phone', 'email', 'website', 'customLines',
-] as const;
+type ToolUseResult = {
+  html: string;
+  plaintext: string;
+  logoBox: { x: number; y: number; w: number; h: number } | null;
+};
 
-export function validateExtracted(input: unknown): ImportResult {
+type ParseOk = { ok: true; value: ToolUseResult };
+type ParseFail = { ok: false };
+
+export function parseImportToolUse(input: unknown): ParseOk | ParseFail {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) {
-    return { ok: false, reason: 'parse-failed' };
+    return { ok: false };
   }
   const obj = input as Record<string, unknown>;
-  const data: Partial<ExtractedSignatureFields> = {};
-  for (const key of REQUIRED_FIELDS) {
-    const v = obj[key];
-    if (typeof v !== 'string') return { ok: false, reason: 'parse-failed' };
-    (data as Record<string, string>)[key] = v;
+  if (typeof obj.html !== 'string' || typeof obj.plaintext !== 'string') {
+    return { ok: false };
   }
-  // No-data check: every field empty after trim.
-  const allEmpty = REQUIRED_FIELDS.every((k) => (data[k] ?? '').trim() === '');
-  if (allEmpty) return { ok: false, reason: 'no-data' };
-  return { ok: true, data: data as ExtractedSignatureFields };
+  let logoBox: ToolUseResult['logoBox'] = null;
+  if (obj.logoBox !== null && obj.logoBox !== undefined) {
+    if (typeof obj.logoBox !== 'object' || Array.isArray(obj.logoBox)) return { ok: false };
+    const lb = obj.logoBox as Record<string, unknown>;
+    if (
+      typeof lb.x !== 'number' ||
+      typeof lb.y !== 'number' ||
+      typeof lb.w !== 'number' ||
+      typeof lb.h !== 'number'
+    ) {
+      return { ok: false };
+    }
+    logoBox = { x: lb.x, y: lb.y, w: lb.w, h: lb.h };
+  }
+  return { ok: true, value: { html: obj.html, plaintext: obj.plaintext, logoBox } };
 }
 
 export function mapClaudeError(err: unknown): ImportResult {
   if (err instanceof ClaudeRateLimitError) return { ok: false, reason: 'rate-limit' };
-  if (err instanceof ClaudeConfigError)    return { ok: false, reason: 'unauthorized' };
-  // React Native fetch network failures surface as TypeError("Network request failed").
+  if (err instanceof ClaudeConfigError) return { ok: false, reason: 'unauthorized' };
   if (err instanceof TypeError && /network/i.test(err.message)) {
     return { ok: false, reason: 'network' };
   }
-  // Any other Error (including JSON.parse failures from completeJson, generic
-  // 5xx wrapped as Error) → parse-failed. The user-visible message is the same
-  // either way: "we couldn't read the screenshot, try again."
   return { ok: false, reason: 'parse-failed' };
 }
 
@@ -80,34 +142,40 @@ export function importResultMessage(result: Extract<ImportResult, { ok: false }>
   }
 }
 
-// --- Orchestrator (impure: image picker + Claude vision call) ---
+function isImplausibleBox(box: { x: number; y: number; w: number; h: number }, imgW: number, imgH: number): boolean {
+  if (box.w <= 0 || box.h <= 0) return true;
+  if (box.x < 0 || box.y < 0) return true;
+  if (box.x + box.w > imgW || box.y + box.h > imgH) return true;
+  if (box.w * box.h > 0.5 * imgW * imgH) return true;
+  return false;
+}
 
-const VISION_MAX_DIMENSION = 1024;
-const VISION_MAX_BASE64_LEN = 300_000;
+async function cropLogo(
+  resizedUri: string,
+  imgW: number,
+  imgH: number,
+  box: { x: number; y: number; w: number; h: number },
+): Promise<InlineImage | null> {
+  if (isImplausibleBox(box, imgW, imgH)) return null;
+  try {
+    const cropped = await manipulateAsync(
+      resizedUri,
+      [{ crop: { originX: box.x, originY: box.y, width: box.w, height: box.h } }],
+      { format: SaveFormat.PNG, base64: true },
+    );
+    if (!cropped.base64) return null;
+    return {
+      base64: cropped.base64,
+      mimeType: 'image/png',
+      width: Math.round(box.w),
+      height: Math.round(box.h),
+    };
+  } catch {
+    return null;
+  }
+}
 
-const SIGNATURE_EXTRACT_SYSTEM_PROMPT = `You extract structured contact info from a screenshot of an email signature.
-Return ONLY a JSON object with these exact keys, all strings:
-  name, title, company, phone, email, website, customLines
-
-Rules:
-- If a field is not visible in the screenshot, return an empty string ("").
-- Do NOT invent or guess data not visible in the screenshot.
-- "name" is the person's name (e.g. "Albert Hangaard").
-- "title" is their job title (e.g. "CEO", "Co-Founder").
-- "company" is the organization name.
-- "phone" is the most prominent phone number, formatted as shown.
-- "email" is the most prominent email address.
-- "website" is the URL without "https://" prefix (e.g. "zolva.io").
-- "customLines" captures anything else relevant — disclaimers, addresses,
-  multiple phone numbers, secondary fields — joined with newlines. Empty
-  if nothing else.
-- Ignore decorative elements: logos, social icons, "Kind regards", action
-  buttons.`;
-
-const SCHEMA_HINT =
-  '{ "name": string, "title": string, "company": string, "phone": string, "email": string, "website": string, "customLines": string }';
-
-export async function pickAndExtractSignature(): Promise<ImportResult> {
+export async function pickAndImportSignature(): Promise<ImportResult> {
   const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (!perm.granted) return { ok: false, reason: 'permission-denied' };
 
@@ -122,7 +190,9 @@ export async function pickAndExtractSignature(): Promise<ImportResult> {
 
   const asset = picked.assets[0];
   let base64: string;
-  let manipulatedUri: string | null = null;
+  let resizedUri: string | null = null;
+  let resizedWidth = 0;
+  let resizedHeight = 0;
   try {
     const longSide = Math.max(asset.width ?? 0, asset.height ?? 0);
     const scale = longSide > VISION_MAX_DIMENSION ? VISION_MAX_DIMENSION / longSide : 1;
@@ -134,39 +204,67 @@ export async function pickAndExtractSignature(): Promise<ImportResult> {
       [{ resize: { width: targetWidth, height: targetHeight } }],
       { compress: 0.85, format: SaveFormat.JPEG, base64: true },
     );
-    manipulatedUri = manipulated.uri;
+    resizedUri = manipulated.uri;
+    resizedWidth = manipulated.width ?? targetWidth;
+    resizedHeight = manipulated.height ?? targetHeight;
     base64 = manipulated.base64 ?? '';
   } catch {
     return { ok: false, reason: 'parse-failed' };
   }
-  if (manipulatedUri) {
-    // Best-effort tmp-file cleanup. Failures are silent.
-    try { await FileSystem.deleteAsync(manipulatedUri, { idempotent: true }); } catch {}
+  if (!base64 || !resizedUri) return { ok: false, reason: 'parse-failed' };
+  if (base64.length > VISION_MAX_BASE64_LEN) {
+    try { await FileSystem.deleteAsync(resizedUri, { idempotent: true }); } catch {}
+    return { ok: false, reason: 'too-large' };
   }
-  if (!base64) return { ok: false, reason: 'parse-failed' };
-  if (base64.length > VISION_MAX_BASE64_LEN) return { ok: false, reason: 'too-large' };
 
-  let parsed: unknown;
+  let toolInput: unknown;
   try {
-    parsed = await completeJson<unknown>({
+    toolInput = await completeWithTool<unknown>({
       model: 'claude-haiku-4-5-20251001',
-      maxTokens: 400,
-      system: SIGNATURE_EXTRACT_SYSTEM_PROMPT,
+      maxTokens: 2000,
+      system: SIGNATURE_IMPORT_SYSTEM_PROMPT,
       messages: [
         {
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
-            { type: 'text', text: 'Extract the signature fields from this screenshot. Return JSON only.' },
+            { type: 'text', text: 'Reproduce this signature using the import_signature tool.' },
           ],
         },
       ],
-      schemaHint: SCHEMA_HINT,
+      tool: IMPORT_TOOL,
       attachProfile: false,
     });
   } catch (err) {
+    try { await FileSystem.deleteAsync(resizedUri, { idempotent: true }); } catch {}
     return mapClaudeError(err);
   }
 
-  return validateExtracted(parsed);
+  const parsed = parseImportToolUse(toolInput);
+  if (!parsed.ok) {
+    try { await FileSystem.deleteAsync(resizedUri, { idempotent: true }); } catch {}
+    return { ok: false, reason: 'parse-failed' };
+  }
+
+  const sanitized = sanitizeSignatureHtml(parsed.value.html);
+  if (!sanitized) {
+    try { await FileSystem.deleteAsync(resizedUri, { idempotent: true }); } catch {}
+    return { ok: false, reason: 'no-data' };
+  }
+
+  let image: InlineImage | null = null;
+  if (parsed.value.logoBox) {
+    image = await cropLogo(resizedUri, resizedWidth, resizedHeight, parsed.value.logoBox);
+  }
+
+  try { await FileSystem.deleteAsync(resizedUri, { idempotent: true }); } catch {}
+
+  const data: ImportedSignature = {
+    kind: 'imported',
+    html: sanitized,
+    plaintext: parsed.value.plaintext,
+    image,
+    importedAt: Date.now(),
+  };
+  return { ok: true, data };
 }

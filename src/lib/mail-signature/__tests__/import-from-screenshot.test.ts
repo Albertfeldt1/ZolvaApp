@@ -1,7 +1,7 @@
-// Mock the claude module to avoid pulling in supabase / AsyncStorage native
-// modules at test-module import time. We only need the two error classes.
+// src/lib/mail-signature/__tests__/import-from-screenshot.test.ts
+
 jest.mock('../../claude', () => {
-  class ClaudeRateLimitError extends Error {
+  class ClaudeRateLimitErrorMock extends Error {
     readonly retryAfterSec: number;
     readonly reason: 'rpm' | 'daily';
     constructor(retryAfterSec: number, reason: 'rpm' | 'daily') {
@@ -11,87 +11,79 @@ jest.mock('../../claude', () => {
       this.reason = reason;
     }
   }
-  class ClaudeConfigError extends Error {
-    constructor(message = 'config error') {
-      super(message);
+  class ClaudeConfigErrorMock extends Error {
+    constructor() {
+      super('config');
       this.name = 'ClaudeConfigError';
     }
   }
-  return { ClaudeRateLimitError, ClaudeConfigError };
+  return {
+    ClaudeRateLimitError: ClaudeRateLimitErrorMock,
+    ClaudeConfigError: ClaudeConfigErrorMock,
+    completeWithTool: jest.fn(),
+  };
 });
 
 import {
-  validateExtracted,
+  parseImportToolUse,
   mapClaudeError,
   importResultMessage,
-  type ImportResult,
 } from '../import-from-screenshot';
 import { ClaudeRateLimitError, ClaudeConfigError } from '../../claude';
 
-describe('validateExtracted', () => {
-  const valid = {
-    name: 'Albert Hangaard',
-    title: 'CEO',
-    company: 'Zolva',
-    phone: '+45 12 34 56 78',
-    email: 'albert@zolva.io',
-    website: 'zolva.io',
-    customLines: 'CVR 12345678',
+describe('parseImportToolUse', () => {
+  const ok = {
+    html: '<table><tr><td>Hi</td></tr></table>',
+    plaintext: 'Hi',
+    logoBox: null,
   };
 
-  it('returns ok with the data when all fields are valid strings', () => {
-    const out = validateExtracted(valid);
-    expect(out).toEqual({ ok: true, data: valid });
+  it('accepts a valid no-logo response', () => {
+    expect(parseImportToolUse(ok)).toEqual({ ok: true, value: ok });
   });
 
-  it('returns parse-failed when a required field is missing', () => {
-    const broken = { ...valid } as Partial<typeof valid>;
-    delete broken.email;
-    expect(validateExtracted(broken)).toEqual({ ok: false, reason: 'parse-failed' });
+  it('accepts a valid with-logo response', () => {
+    const withLogo = { ...ok, logoBox: { x: 10, y: 20, w: 100, h: 50 } };
+    expect(parseImportToolUse(withLogo)).toEqual({ ok: true, value: withLogo });
   });
 
-  it('returns parse-failed when a field is the wrong type', () => {
-    expect(validateExtracted({ ...valid, name: null })).toEqual({ ok: false, reason: 'parse-failed' });
-    expect(validateExtracted({ ...valid, phone: 42 })).toEqual({ ok: false, reason: 'parse-failed' });
-    expect(validateExtracted({ ...valid, customLines: { foo: 'bar' } })).toEqual({ ok: false, reason: 'parse-failed' });
+  it('rejects missing html', () => {
+    const bad = { plaintext: 'x', logoBox: null };
+    expect(parseImportToolUse(bad)).toEqual({ ok: false });
   });
 
-  it('returns no-data when every field is empty after trim', () => {
-    const empty = {
-      name: '', title: '', company: '', phone: '', email: '', website: '', customLines: '   ',
-    };
-    expect(validateExtracted(empty)).toEqual({ ok: false, reason: 'no-data' });
+  it('rejects missing plaintext', () => {
+    const bad = { html: '<x>', logoBox: null };
+    expect(parseImportToolUse(bad)).toEqual({ ok: false });
   });
 
-  it('ignores extra fields beyond the known seven', () => {
-    const withExtra = { ...valid, somethingElse: 'ignored' };
-    expect(validateExtracted(withExtra)).toEqual({ ok: true, data: valid });
+  it('rejects logoBox with non-number fields', () => {
+    const bad = { ...ok, logoBox: { x: 'a', y: 0, w: 0, h: 0 } };
+    expect(parseImportToolUse(bad)).toEqual({ ok: false });
   });
 
-  it('returns parse-failed when input is not an object', () => {
-    expect(validateExtracted(null)).toEqual({ ok: false, reason: 'parse-failed' });
-    expect(validateExtracted('a string')).toEqual({ ok: false, reason: 'parse-failed' });
-    expect(validateExtracted(42)).toEqual({ ok: false, reason: 'parse-failed' });
+  it('rejects non-object inputs', () => {
+    expect(parseImportToolUse(null)).toEqual({ ok: false });
+    expect(parseImportToolUse('a string')).toEqual({ ok: false });
+    expect(parseImportToolUse(42)).toEqual({ ok: false });
   });
 });
 
 describe('mapClaudeError', () => {
   it('maps ClaudeRateLimitError to rate-limit', () => {
-    const err = new ClaudeRateLimitError(60, 'rpm');
-    expect(mapClaudeError(err)).toEqual({ ok: false, reason: 'rate-limit' });
+    expect(mapClaudeError(new ClaudeRateLimitError(60, 'rpm'))).toEqual({ ok: false, reason: 'rate-limit' });
   });
 
   it('maps ClaudeConfigError to unauthorized', () => {
-    const err = new ClaudeConfigError();
-    expect(mapClaudeError(err)).toEqual({ ok: false, reason: 'unauthorized' });
+    expect(mapClaudeError(new ClaudeConfigError())).toEqual({ ok: false, reason: 'unauthorized' });
   });
 
-  it('maps a TypeError-like network failure to network', () => {
+  it('maps a TypeError network failure to network', () => {
     expect(mapClaudeError(new TypeError('Network request failed'))).toEqual({ ok: false, reason: 'network' });
   });
 
-  it('maps a generic Error to parse-failed (Claude returned something unparseable)', () => {
-    expect(mapClaudeError(new Error('JSON.parse failed'))).toEqual({ ok: false, reason: 'parse-failed' });
+  it('maps a generic Error to parse-failed', () => {
+    expect(mapClaudeError(new Error('boom'))).toEqual({ ok: false, reason: 'parse-failed' });
   });
 
   it('maps unknown thrown values to parse-failed', () => {
