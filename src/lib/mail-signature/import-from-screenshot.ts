@@ -221,21 +221,21 @@ async function cropLogo(
 }
 
 // Strip icon stand-in elements that Claude reproduces as squeezed colored
-// shapes (e.g. blue oval with "f" for Facebook, black circle with "X").
-// Heuristic: any styled <a|td|div|span> whose visible text content (after
-// stripping nested tags) is 1-2 chars AND has a colored background. Those
-// are almost always Claude's failed icon reproductions — the actual social
-// links are rendered separately in the appended socials row, so dropping
-// these icon-attempts cleans up the imported signature.
-//
-// `getAttr` is duplicated locally to avoid importing from apply-bound-targets
-// (which depends on template.ts and triggers a heavier graph).
+// shapes — blue oval with "f", black circle with "X", or just a colored
+// box with no text content (after the sanitizer dropped the nested SVG).
+// Heuristic: any styled <a|td|div|span> whose visible text content is 0-2
+// chars (after stripping nested tags), AND has a colored background, AND
+// doesn't contain a real <img>. Those are almost always Claude's failed
+// icon reproductions — the actual social links live in the appended pill
+// row, so dropping them cleans up the imported signature.
 export function stripIconStandIns(html: string): string {
   const re = /<(a|td|div|span)\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi;
   return html.replace(re, (match, _tag, attrs: string, inner: string) => {
     const text = inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    if (text.length === 0 || text.length > 2) return match;
+    if (text.length > 2) return match;
     if (!hasColoredBackground(attrs)) return match;
+    // Keep button-with-image patterns (e.g. <a style="bg"><img src="cid:..."/></a>)
+    if (/<img\b/i.test(inner)) return match;
     return '';
   });
 }

@@ -199,4 +199,19 @@ describe('stripIconStandIns', () => {
     expect(out).toContain('>f</a>');
     expect(out).toContain('>X</div>');
   });
+
+  it('strips empty styled elements (Claude renders pure shapes with no text content)', () => {
+    const html = '<p>before</p><div style="background:#1877f2;width:30px;height:30px;border-radius:50%"></div><p>after</p>';
+    const out = stripIconStandIns(html);
+    expect(out).not.toContain('background:#1877f2');
+    expect(out).toContain('before');
+    expect(out).toContain('after');
+  });
+
+  it('keeps a styled element that wraps a real <img> (button-with-icon pattern)', () => {
+    const html = '<a style="background:#000"><img src="cid:zolva-sig"></a>';
+    const out = stripIconStandIns(html);
+    expect(out).toContain('cid:zolva-sig');
+    expect(out).toContain('background:#000');
+  });
 });
