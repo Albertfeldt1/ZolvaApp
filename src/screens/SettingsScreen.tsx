@@ -273,7 +273,7 @@ const SOCIAL_META: Record<SocialType, SocialMeta> = {
   instagram: { label: 'Instagram', glyph: 'Ig',  bg: '#e4405f', fg: '#ffffff', placeholder: 'instagram.com/…',
                gradient: ['#833ab4', '#fd1d1d', '#fcb045'],
                asset: require('../../assets/socials/instagram.png'),
-               assetScale: 1.18 },
+               assetScale: 1.35 },
   facebook:  { label: 'Facebook',  glyph: 'f',   bg: '#1877f2', fg: '#ffffff', placeholder: 'facebook.com/…',
                asset: require('../../assets/socials/facebook.png') },
   tiktok:    { label: 'TikTok',    glyph: 'T',   bg: '#000000', fg: '#ffffff', placeholder: 'tiktok.com/@…',
