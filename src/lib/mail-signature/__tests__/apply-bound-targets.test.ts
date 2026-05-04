@@ -69,7 +69,7 @@ describe('applyBoundTargets', () => {
     expect(result.unbound).toEqual([]);
   });
 
-  it('bound word inside an existing <a>…</a> with extra attributes → those are dropped, only our href+style remain', () => {
+  it('bound word inside an existing <a>…</a> preserves its other attributes — only the href is swapped', () => {
     const html = '<p><a href="http://x" target="_blank" data-x="y" style="color:red">her</a></p>';
     const link: SocialLink = {
       type: 'linkedin',
@@ -77,11 +77,14 @@ describe('applyBoundTargets', () => {
       target: { kind: 'word', text: 'her' },
     };
     const result = applyBoundTargets({ html, socials: [link] });
-    expect(result.html).not.toContain('target="_blank"');
-    expect(result.html).not.toContain('data-x');
+    // Old href is gone, replaced with the user's URL.
     expect(result.html).not.toContain('http://x');
     expect(result.html).toContain('href="https://example.com"');
-    expect(result.html).toContain('color:#0a66c2'); // LinkedIn brand color
+    // Every other attribute (and any inline button styling) survives so a
+    // styled-anchor button doesn't lose its visual.
+    expect(result.html).toContain('target="_blank"');
+    expect(result.html).toContain('data-x="y"');
+    expect(result.html).toContain('style="color:red"');
     expect(result.unbound).toEqual([]);
   });
 

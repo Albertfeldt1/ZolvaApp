@@ -184,22 +184,41 @@ function wrapWord(
   // Facebook" looking like a button instead of becoming a blue underlined
   // link inside the button.
   const isSimpleWord = /^[A-Za-z0-9_]+$/.test(word);
-  const newOpenTag = isSimpleWord
-    ? `<a href="${escapeAttr(href)}" style="color:${color};text-decoration:underline">`
-    : `<a href="${escapeAttr(href)}">`;
 
   if (found.inAnchor) {
-    // Replace the existing <a ...> opening tag with our fresh one. Inner
-    // content (including the matched word) is preserved as-is.
+    // Existing <a ...> wraps the match. Preserve its existing attributes
+    // (background, padding, font-weight, etc.) and just swap/insert the
+    // href. This keeps button-styled anchors looking like buttons after
+    // the user binds a new URL to them.
     const [aStart] = found.inAnchor;
-    const openTagEnd = html.indexOf('>', aStart) + 1;
+    const openTagEnd = html.indexOf('>', aStart);
     if (openTagEnd <= 0) return null;
-    return html.slice(0, aStart) + newOpenTag + html.slice(openTagEnd);
+    const openTag = html.slice(aStart, openTagEnd + 1);
+    const rewritten = setHrefOnTag(openTag, href);
+    return html.slice(0, aStart) + rewritten + html.slice(openTagEnd + 1);
   }
 
   // No surrounding anchor — wrap the match with a fresh <a>...</a>.
+  const newOpenTag = isSimpleWord
+    ? `<a href="${escapeAttr(href)}" style="color:${color};text-decoration:underline">`
+    : `<a href="${escapeAttr(href)}">`;
   const wrapped = `${newOpenTag}${found.matched}</a>`;
   return html.slice(0, found.index) + wrapped + html.slice(found.index + found.matched.length);
+}
+
+/**
+ * Rewrite an opening <a ...> tag to set its href to the new value, preserving
+ * every other attribute. If the tag has no href, one is inserted right after
+ * the tag name. The leading "<a" and trailing ">" are preserved verbatim.
+ */
+function setHrefOnTag(openTag: string, newHref: string): string {
+  // Match an existing href attribute (double-quoted, single-quoted, or unquoted).
+  const hrefRe = /\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+)/i;
+  if (hrefRe.test(openTag)) {
+    return openTag.replace(hrefRe, `href="${escapeAttr(newHref)}"`);
+  }
+  // No href yet — insert one immediately after "<a"
+  return openTag.replace(/^<a\b/i, `<a href="${escapeAttr(newHref)}"`);
 }
 
 /**
@@ -231,13 +250,15 @@ function wrapImage(
       }
     }
     if (inAnchor) {
-      // Replace the existing <a ...> opening tag — Claude's invented href
-      // is overridden by the user's bound URL.
+      // Existing <a ...> wraps the image. Preserve its other attributes
+      // (style, target, etc.) and just swap/insert the href so any logo
+      // styling Claude applied stays intact.
       const [aStart] = inAnchor;
-      const openTagEnd = html.indexOf('>', aStart) + 1;
+      const openTagEnd = html.indexOf('>', aStart);
       if (openTagEnd <= 0) return null;
-      const newOpenTag = `<a href="${escapeAttr(href)}">`;
-      return html.slice(0, aStart) + newOpenTag + html.slice(openTagEnd);
+      const openTag = html.slice(aStart, openTagEnd + 1);
+      const rewritten = setHrefOnTag(openTag, href);
+      return html.slice(0, aStart) + rewritten + html.slice(openTagEnd + 1);
     }
     // Not inside any anchor — wrap the <img> with a fresh <a>.
     const wrapped = `<a href="${escapeAttr(href)}">${imgTag}</a>`;
