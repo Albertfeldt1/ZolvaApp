@@ -184,6 +184,51 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
     }
   };
 
+  // Strip-level active-day pill. Lives once across the whole horizontal
+  // ScrollView so it can spring from one week's day to another when the
+  // user pages forward (or back) and THEN taps a day — instead of popping
+  // in cold at the new position. X is global within the scroll content.
+  const selectedPosition = useMemo(() => {
+    for (let wi = 0; wi < weeks.length; wi++) {
+      const di = weeks[wi].findIndex((d) => sameDay(d.date, selectedDate));
+      if (di >= 0) return { weekIdx: wi, dayIdx: di };
+    }
+    return null;
+  }, [weeks, selectedDate]);
+
+  const stripPillX = useSharedValue(0);
+  const stripPillSet = useRef(false);
+
+  useEffect(() => {
+    if (!selectedPosition || pageWidth === 0) return;
+    const innerWidth = pageWidth - BELT_INSET * 2;
+    const cellWidth = innerWidth / 7;
+    const target =
+      selectedPosition.weekIdx * pageWidth +
+      BELT_INSET +
+      selectedPosition.dayIdx * cellWidth +
+      PILL_HUG +
+      PILL_X_NUDGE;
+    if (!stripPillSet.current) {
+      // First measurement: snap so the pill appears under the already-
+      // selected day on initial mount instead of springing from x=0.
+      stripPillX.value = target;
+      stripPillSet.current = true;
+    } else {
+      stripPillX.value = withSpring(target, DAY_PILL_SPRING);
+    }
+  }, [selectedPosition, pageWidth, stripPillX]);
+
+  const stripPillStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: stripPillX.value }],
+  }));
+
+  const stripPillWidth = useMemo(() => {
+    if (pageWidth === 0) return 0;
+    const cellWidth = (pageWidth - BELT_INSET * 2) / 7;
+    return Math.max(0, cellWidth - PILL_HUG * 2);
+  }, [pageWidth]);
+
   const dayPanResponder = useMemo(
     () =>
       PanResponder.create({
@@ -256,6 +301,12 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
                   onSelect={(date) => selectDay(date)}
                 />
               ))}
+              {selectedPosition && (
+                <Animated.View
+                  style={[styles.dayPill, stripPillStyle, { width: stripPillWidth }]}
+                  pointerEvents="none"
+                />
+              )}
             </ScrollView>
           )}
         </View>
@@ -347,6 +398,13 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
   );
 }
 
+// Inset the outline a few px from each cell edge so the bordered pill hugs
+// the day text instead of touching the next cell. Manual rightward nudge
+// compensates for mono-letter + display-digit not being perfectly centred
+// in their typeface metrics. Both shared with the strip-level pill below.
+const PILL_HUG = 6;
+const PILL_X_NUDGE = 0;
+
 function WeekPage({
   week,
   width,
@@ -356,37 +414,12 @@ function WeekPage({
   width: number;
   onSelect: (date: Date) => void;
 }) {
-  const selectedIdx = week.findIndex((d) => d.isSelected);
   // Belt is a single capsule across the row; cells share its width equally
-  // minus the inset on each side that the pill respects.
+  // minus the inset on each side. The active-day pill is rendered ABOVE the
+  // strip at the parent level so it can spring across week boundaries when
+  // the user pages forward and then taps a day in a different week.
   const innerWidth = width - BELT_INSET * 2;
   const cellWidth = innerWidth / week.length;
-  const pillX = useSharedValue(0);
-
-  // Inset the outline a few px from each cell edge so the bordered pill hugs
-  // the day text instead of touching the next cell — also makes any X
-  // misalignment obvious instead of hidden by edge-to-edge contact.
-  const PILL_HUG = 6;
-
-  React.useEffect(() => {
-    if (selectedIdx < 0) return;
-    // Pill is absolute-positioned INSIDE the belt's padded content area, so
-    // left: 0 already sits at BELT_INSET from the belt's outer edge — no need
-    // to add the inset here.
-    const target = selectedIdx * cellWidth + PILL_HUG;
-    if (pillX.value === 0 && target > 0) {
-      // First measurement: snap so the pill appears under the already-selected
-      // day instead of springing in from the left edge.
-      pillX.value = target;
-    } else {
-      pillX.value = withSpring(target, DAY_PILL_SPRING);
-    }
-  }, [selectedIdx, cellWidth, pillX]);
-
-  const pillStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: pillX.value }],
-    width: Math.max(0, cellWidth - PILL_HUG * 2),
-  }));
 
   const cells = (
     <View style={styles.weekRow}>
@@ -424,21 +457,10 @@ function WeekPage({
     </View>
   );
 
-  // Active-day indicator is now a thin ink-bordered outline (no fill), so
-  // the day's text reads in its normal ink colour against the belt — same
-  // pattern in glass and fallback paths.
-  const activeBorder = selectedIdx >= 0 && (
-    <Animated.View
-      style={[styles.dayPill, pillStyle]}
-      pointerEvents="none"
-    />
-  );
-
   if (liquidGlassReady) {
     return (
       <View style={[styles.weekPage, { width }]}>
         <GlassView glassEffectStyle="regular" colorScheme="auto" style={styles.belt}>
-          {activeBorder}
           {cells}
         </GlassView>
       </View>
@@ -447,10 +469,7 @@ function WeekPage({
 
   return (
     <View style={[styles.weekPage, { width }]}>
-      <View style={[styles.belt, styles.beltFallback]}>
-        {activeBorder}
-        {cells}
-      </View>
+      <View style={[styles.belt, styles.beltFallback]}>{cells}</View>
     </View>
   );
 }
@@ -519,13 +538,14 @@ const styles = StyleSheet.create({
   },
   dayCellPressed: { opacity: 0.55 },
   // Active-day outline — springs between days inside the belt. No fill;
-  // just a thin ink border that frames the selected cell. The cell's text
-  // keeps its normal ink colour and reads through the empty interior.
+  // just a thin ink border that frames the selected cell. Height = text
+  // content (letter 10pt + margin 2pt + lineHeight 24pt = 38pt) + ~3pt
+  // breathing room top and bottom so the border doesn't clip the digits.
   dayPill: {
     position: 'absolute',
     left: 0,
-    top: BELT_INSET,
-    height: BELT_HEIGHT - BELT_INSET * 2,
+    top: (BELT_HEIGHT - 44) / 2,
+    height: 44,
     borderRadius: 12,
     borderWidth: 1.5,
     borderColor: colors.ink,
