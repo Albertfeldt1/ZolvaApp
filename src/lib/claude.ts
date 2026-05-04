@@ -215,3 +215,43 @@ export async function completeJson<T>(opts: CompleteOptions & { schemaHint: stri
     throw new Error(`Claude returned non-JSON: ${cleaned.slice(0, 200)}`);
   }
 }
+
+// Force a single tool_use response and return its parsed input. Use this
+// instead of completeJson when the caller wants a guaranteed structured
+// shape (Anthropic's tool-use is more reliable than JSON-mode for vision +
+// extraction tasks). Throws on missing or wrong tool_use — callers should
+// route the error through mapClaudeError to surface 'parse-failed'.
+export async function completeWithTool<T>(opts: {
+  system: CompleteOptions['system'];
+  messages: ClaudeMessage[];
+  maxTokens: number;
+  temperature?: number;
+  tool: ClaudeToolSchema;
+  attachProfile?: boolean;
+  model?: string;
+}): Promise<T> {
+  // Call through the module's own exports so jest.spyOn(claude, 'completeRaw')
+  // intercepts the call in tests (CJS live-export binding).
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  const self: typeof import('./claude') = require('./claude');
+  const result = await self.completeRaw({
+    system: opts.system,
+    messages: opts.messages,
+    maxTokens: opts.maxTokens,
+    temperature: opts.temperature,
+    tools: [opts.tool],
+    attachProfile: opts.attachProfile,
+    model: opts.model,
+  });
+
+  if (result.toolUses.length === 0) {
+    throw new Error(`completeWithTool: no tool_use in response (stop_reason=${result.stopReason})`);
+  }
+  const match = result.toolUses.find((u) => u.name === opts.tool.name);
+  if (!match) {
+    throw new Error(
+      `completeWithTool: wrong tool invoked (got ${result.toolUses[0].name}, expected ${opts.tool.name})`,
+    );
+  }
+  return match.input as T;
+}
