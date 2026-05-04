@@ -319,6 +319,54 @@ export function replaceContactEmoji(html: string, fallbackColor = DEFAULT_CONTAC
   return out;
 }
 
+// Inject styled-circle icons before contact-line patterns that don't have
+// one yet. Claude is inconsistent — sometimes only one of phone/email/web/
+// address gets an icon, the rest are bare. Walks each pattern and inserts
+// our uniform circle at line-start matches that aren't already preceded
+// by an existing icon (border-radius:50%).
+export function ensureContactIcons(html: string, color = DEFAULT_CONTACT_ICON_COLOR): string {
+  let out = html;
+  // Phone: 7+ digit run with optional + and separators (spaces, dashes,
+  // parens, dots). Anchored \b so it doesn't catch zip-codes embedded in
+  // address text.
+  out = injectIconForPattern(out, /\+?\d[\d\s\-().]{6,}\d/g, 'T', color);
+  // Email
+  out = injectIconForPattern(out, /[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/gi, '@', color);
+  // URL: explicit scheme OR www. domain
+  out = injectIconForPattern(out, /(?:https?:\/\/[^\s<>"]+|www\.[a-z0-9-]+\.[a-z]{2,}[^\s<>"]*)/gi, 'W', color);
+  return out;
+}
+
+function injectIconForPattern(html: string, pattern: RegExp, letter: string, color: string): string {
+  const matches = [...html.matchAll(pattern)];
+  if (matches.length === 0) return html;
+
+  let result = '';
+  let cursor = 0;
+  for (const m of matches) {
+    const idx = m.index;
+    if (idx === undefined) continue;
+
+    // Already iconified within reasonable lookback?
+    const lookback = html.slice(Math.max(0, idx - 200), idx);
+    if (/border-radius\s*:\s*50%/i.test(lookback)) continue;
+
+    // Only inject at line-start positions: after a block-level tag
+    // (open or close), <br>, or at the very beginning of the html.
+    // Trailing whitespace/&nbsp; before the match is OK.
+    const before = html.slice(0, idx).replace(/(?:\s|&nbsp;)+$/i, '');
+    const isLineStart =
+      before.length === 0 ||
+      /<\/?(p|div|td|tr|table|h[1-6])[^>]*>$/i.test(before) ||
+      /<br\s*\/?>$/i.test(before);
+    if (!isLineStart) continue;
+
+    result += html.slice(cursor, idx) + styledCircleSpan(letter, color) + ' ';
+    cursor = idx;
+  }
+  return result + html.slice(cursor);
+}
+
 // Force any element with `border-radius:50%` (an attempted circular icon)
 // to also have explicit equal width and height + matching line-height so
 // it renders as a true circle. Claude often emits padding-based sizing
@@ -476,7 +524,8 @@ export async function pickAndImportSignature(): Promise<ImportResult> {
   const sanitized = sanitizeSignatureHtml(parsed.value.html);
   const stripped = stripIconStandIns(sanitized);
   const circled = enforceCircularContactIcons(stripped);
-  const cleaned = replaceContactEmoji(circled);
+  const deemojied = replaceContactEmoji(circled);
+  const cleaned = ensureContactIcons(deemojied);
   if (!cleaned) {
     try { await FileSystem.deleteAsync(resizedUri, { idempotent: true }); } catch {}
     return { ok: false, reason: 'no-data' };
