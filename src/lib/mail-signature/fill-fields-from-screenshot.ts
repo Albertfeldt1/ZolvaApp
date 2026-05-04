@@ -7,8 +7,14 @@
 // design as HTML), this path keeps the signature in 'structured' mode
 // so the user can edit the extracted fields afterwards.
 
-import { ClaudeRateLimitError, ClaudeConfigError } from '../claude';
-import type { SocialLink, SocialType, StructuredSignature } from './types';
+import * as ImagePicker from 'expo-image-picker';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system';
+import { ClaudeRateLimitError, ClaudeConfigError, completeWithTool } from '../claude';
+import { EMPTY_SIGNATURE, type SocialLink, type SocialType, type StructuredSignature } from './types';
+
+const VISION_MAX_DIMENSION = 1024;
+const VISION_MAX_BASE64_LEN = 300_000;
 
 const SOCIAL_TYPES: ReadonlyArray<SocialType> = [
   'linkedin', 'twitter', 'instagram', 'facebook',
@@ -152,4 +158,90 @@ export function fillResultMessage(result: Extract<FillResult, { ok: false }>): s
   }
 }
 
-// pickAndFillFields lives in the next task — see Task 2.
+export async function pickAndFillFields(): Promise<FillResult> {
+  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!perm.granted) return { ok: false, reason: 'permission-denied' };
+
+  const picked = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'] as ImagePicker.MediaType[],
+    allowsMultipleSelection: false,
+    quality: 1,
+  });
+  if (picked.canceled || !picked.assets || picked.assets.length === 0) {
+    return { ok: false, reason: 'cancelled' };
+  }
+
+  const asset = picked.assets[0];
+  let base64: string;
+  let resizedUri: string | null = null;
+  try {
+    const longSide = Math.max(asset.width ?? 0, asset.height ?? 0);
+    const scale = longSide > VISION_MAX_DIMENSION ? VISION_MAX_DIMENSION / longSide : 1;
+    const targetWidth = Math.round((asset.width ?? VISION_MAX_DIMENSION) * scale);
+    const targetHeight = Math.round((asset.height ?? VISION_MAX_DIMENSION) * scale);
+
+    const manipulated = await manipulateAsync(
+      asset.uri,
+      [{ resize: { width: targetWidth, height: targetHeight } }],
+      { compress: 0.85, format: SaveFormat.JPEG, base64: true },
+    );
+    resizedUri = manipulated.uri;
+    base64 = manipulated.base64 ?? '';
+  } catch {
+    return { ok: false, reason: 'parse-failed' };
+  }
+  if (!base64 || !resizedUri) return { ok: false, reason: 'parse-failed' };
+  if (base64.length > VISION_MAX_BASE64_LEN) {
+    try { await FileSystem.deleteAsync(resizedUri, { idempotent: true }); } catch {}
+    return { ok: false, reason: 'too-large' };
+  }
+
+  let toolInput: unknown;
+  try {
+    toolInput = await completeWithTool<unknown>({
+      model: 'claude-sonnet-4-6',
+      maxTokens: 1200,
+      system: FILL_FIELDS_SYSTEM_PROMPT,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
+            { type: 'text', text: 'Extract the structured fields you can see using the fill_signature_fields tool.' },
+          ],
+        },
+      ],
+      tool: FILL_TOOL,
+      attachProfile: false,
+    });
+  } catch (err) {
+    try { await FileSystem.deleteAsync(resizedUri, { idempotent: true }); } catch {}
+    return mapFillError(err);
+  }
+
+  try { await FileSystem.deleteAsync(resizedUri, { idempotent: true }); } catch {}
+
+  const parsed = parseFillToolUse(toolInput);
+  if (!parsed.ok) return { ok: false, reason: 'parse-failed' };
+
+  const v = parsed.value;
+  // Guard against an all-empty response — that's "no signature visible".
+  const anyText = v.name || v.title || v.company || v.phone || v.email || v.website || v.customLines;
+  if (!anyText && v.socials.length === 0) {
+    return { ok: false, reason: 'no-data' };
+  }
+
+  const data: StructuredSignature = {
+    ...EMPTY_SIGNATURE,
+    name: v.name,
+    title: v.title,
+    company: v.company,
+    phone: v.phone,
+    email: v.email,
+    website: v.website,
+    customLines: v.customLines,
+    socials: v.socials,
+    // Logo is preserved by the caller (we don't carry it through the vision call).
+  };
+  return { ok: true, data };
+}
