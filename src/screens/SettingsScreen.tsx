@@ -35,12 +35,11 @@ import Animated, {
   FadeInDown,
   FadeOut,
   LinearTransition,
-  SlideInDown,
-  SlideOutDown,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
   withTiming,
+  type SharedValue,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -313,52 +312,110 @@ function BrandIcon({ type, size = 36 }: { type: SocialType; size?: number }) {
   );
 }
 
-function SocialTypePicker(props: {
+// Radial petal — fans outward from the wheel center on bloom-in.
+const WHEEL_RADIUS = 118;
+const WHEEL_PETAL_BOX = 84;
+
+function WheelPetal(props: {
+  type: SocialType;
+  selected: boolean;
+  index: number;
+  total: number;
+  progress: SharedValue<number>;
+  onPress: () => void;
+}) {
+  const { type, selected, index, total, progress, onPress } = props;
+  const meta = SOCIAL_META[type];
+  // Stagger window: each petal fully blooms over a 60% slice of progress,
+  // shifted by its index. Earlier petals lead by ~50ms-equivalent at the
+  // spring's natural cadence.
+  const start = (index / total) * 0.35;
+  const end = start + 0.65;
+  const angle = (index / total) * Math.PI * 2 - Math.PI / 2;
+  const tx = Math.cos(angle) * WHEEL_RADIUS;
+  const ty = Math.sin(angle) * WHEEL_RADIUS;
+
+  const animStyle = useAnimatedStyle(() => {
+    const raw = (progress.value - start) / (end - start);
+    const t = raw < 0 ? 0 : raw > 1 ? 1 : raw;
+    return {
+      opacity: t,
+      transform: [
+        { translateX: tx * t },
+        { translateY: ty * t },
+        { scale: 0.4 + 0.6 * t },
+      ],
+    };
+  });
+
+  return (
+    <AnimatedPressable
+      onPress={onPress}
+      style={[styles.sigWheelPetal, animStyle]}
+      accessibilityRole="button"
+      accessibilityLabel={meta.label}
+    >
+      <View style={selected ? styles.sigWheelPetalIconRingSelected : styles.sigWheelPetalIconRing}>
+        <BrandIcon type={type} size={50} />
+      </View>
+      <Text style={styles.sigWheelPetalLabel} numberOfLines={1}>{meta.label}</Text>
+    </AnimatedPressable>
+  );
+}
+
+function SocialTypeWheel(props: {
   visible: boolean;
   value: SocialType;
   onSelect: (next: SocialType) => void;
   onClose: () => void;
 }) {
   const { visible, value, onSelect, onClose } = props;
+  const progress = useSharedValue(0);
+  const seedScale = useSharedValue(0);
+
+  useEffect(() => {
+    if (visible) {
+      progress.value = 0;
+      seedScale.value = 0;
+      // The seed pops first, then the wheel blooms outward.
+      seedScale.value = withSpring(1, { damping: 13, stiffness: 220 });
+      progress.value = withSpring(1, { damping: 14, stiffness: 110, mass: 1.1 });
+    } else {
+      progress.value = withTiming(0, { duration: 180, easing: Easing.in(Easing.cubic) });
+      seedScale.value = withTiming(0, { duration: 140, easing: Easing.in(Easing.cubic) });
+    }
+  }, [visible, progress, seedScale]);
+
+  const seedStyle = useAnimatedStyle(() => ({
+    opacity: seedScale.value * (1 - progress.value * 0.7), // fades as petals bloom
+    transform: [{ scale: seedScale.value }],
+  }));
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
-        <BlurView intensity={24} tint="dark" style={StyleSheet.absoluteFill} />
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="Luk vælger">
+        <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} />
       </Pressable>
-      <Animated.View
-        entering={SlideInDown.springify().damping(18).stiffness(180)}
-        exiting={SlideOutDown.duration(180)}
-        style={styles.sigPickerSheet}
-      >
-        <View style={styles.sigPickerHandle} />
-        <Text style={styles.sigPickerTitle}>Vælg platform</Text>
-        <View style={styles.sigPickerGrid}>
-          {SOCIAL_TYPES.map((type) => {
-            const meta = SOCIAL_META[type];
-            const selected = type === value;
-            return (
-              <Pressable
-                key={type}
-                onPress={() => {
-                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  onSelect(type);
-                  onClose();
-                }}
-                style={[styles.sigPickerChip, selected && styles.sigPickerChipSelected]}
-                accessibilityRole="button"
-              >
-                <BrandIcon type={type} size={44} />
-                <Text style={styles.sigPickerChipLabel}>{meta.label}</Text>
-                {selected && (
-                  <View style={styles.sigPickerChipCheck}>
-                    <Check size={12} color="#fff" strokeWidth={3} />
-                  </View>
-                )}
-              </Pressable>
-            );
-          })}
+      <View style={styles.sigWheelStage} pointerEvents="box-none">
+        <View style={styles.sigWheelOrigin} pointerEvents="box-none">
+          <Animated.View style={[styles.sigWheelSeed, seedStyle]} pointerEvents="none" />
+          {SOCIAL_TYPES.map((type, i) => (
+            <WheelPetal
+              key={type}
+              type={type}
+              selected={type === value}
+              index={i}
+              total={SOCIAL_TYPES.length}
+              progress={progress}
+              onPress={() => {
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                onSelect(type);
+                onClose();
+              }}
+            />
+          ))}
         </View>
-      </Animated.View>
+      </View>
     </Modal>
   );
 }
@@ -434,7 +491,7 @@ function SocialLinkRow(props: {
         <X size={14} color={colors.fg2} strokeWidth={2.5} />
       </AnimatedPressable>
 
-      <SocialTypePicker
+      <SocialTypeWheel
         visible={pickerVisible}
         value={link.type}
         onSelect={(type) => onChange({ ...link, type })}
@@ -2123,77 +2180,59 @@ const styles = StyleSheet.create({
     color: colors.ink,
     letterSpacing: -0.1,
   },
-  sigPickerSheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingTop: 8,
-    paddingBottom: 32,
-    paddingHorizontal: 16,
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: -8 },
-  },
-  sigPickerHandle: {
-    alignSelf: 'center',
-    width: 38,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(0,0,0,0.18)',
-    marginBottom: 14,
-  },
-  sigPickerTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.ink,
-    textAlign: 'center',
-    marginBottom: 18,
-  },
-  sigPickerGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    rowGap: 14,
-  },
-  sigPickerChip: {
-    width: '23%',
-    aspectRatio: 0.85,
-    borderRadius: 14,
-    paddingTop: 10,
-    paddingBottom: 8,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#f7f7f8',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(0,0,0,0.06)',
-    position: 'relative',
-  },
-  sigPickerChipSelected: {
-    backgroundColor: '#eef0f3',
-    borderColor: colors.ink,
-  },
-  sigPickerChipLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.ink,
-    textAlign: 'center',
-    paddingHorizontal: 4,
-  },
-  sigPickerChipCheck: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: colors.ink,
+  sigWheelStage: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  sigWheelOrigin: {
+    width: 0,
+    height: 0,
+  },
+  sigWheelSeed: {
+    position: 'absolute',
+    left: -22,
+    top: -22,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.5)',
+  },
+  sigWheelPetal: {
+    position: 'absolute',
+    left: -42,  // -WHEEL_PETAL_BOX/2
+    top: -42,
+    width: 84,
+    height: 84,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  sigWheelPetalIconRing: {
+    padding: 3,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  sigWheelPetalIconRingSelected: {
+    padding: 3,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    shadowColor: '#fff',
+    shadowOpacity: 0.6,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  sigWheelPetalLabel: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#fff',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   signatureBody: {
     fontFamily: fonts.ui,
