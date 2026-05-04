@@ -659,7 +659,9 @@ export function SettingsScreen({
 
             <StemmestyringSection hasIcloud={hasIcloud} />
 
-            <CollapsibleSection title="Abonnement" paddingTop={28}>
+            <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
+              <Text style={styles.sectionTitle}>Abonnement</Text>
+              <View style={styles.inkRule} />
               {subscription ? (
                 <View style={styles.planRow}>
                   <Text style={styles.planPrice}>
@@ -684,7 +686,7 @@ export function SettingsScreen({
                   <Text style={styles.btnInkText}>{subscription ? 'Skift plan' : 'Vælg plan'}</Text>
                 </Pressable>
               </View>
-            </CollapsibleSection>
+            </Animated.View>
 
             <Animated.View layout={ROW_TRANSITION} style={styles.dark}>
               <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
