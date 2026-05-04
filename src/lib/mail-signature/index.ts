@@ -16,3 +16,11 @@ export { buildOutgoingBody } from './build-outgoing-body';
 export type { OutgoingBody } from './build-outgoing-body';
 export { pickAndCompressLogo, pickResultMessage } from './image';
 export type { PickResult } from './image';
+export {
+  pickAndExtractSignature,
+  importResultMessage,
+} from './import-from-screenshot';
+export type {
+  ImportResult,
+  ExtractedSignatureFields,
+} from './import-from-screenshot';
