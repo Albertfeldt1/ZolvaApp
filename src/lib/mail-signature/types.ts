@@ -19,8 +19,17 @@ export type SocialType =
 export type SocialLink = {
   type: SocialType;
   url: string;
-  label?: string;  // optional override, used when type === 'other' (else falls back to URL host).
+  label?: string;          // optional override, used when type === 'other' (else falls back to URL host).
+  target?: LinkTarget;     // when set (imported mode), the URL wraps the named element in the imported html instead of rendering as a separate row.
 };
+
+// In imported-mode signatures, a SocialLink may bind its URL to an existing
+// element in the imported html — e.g. wrap the word "her" or wrap the
+// already-cropped logo image. When unset, the link renders as a standalone
+// pill in the socials row alongside the signature.
+export type LinkTarget =
+  | { kind: 'word'; text: string }
+  | { kind: 'image'; src: string };
 
 export type StructuredSignature = {
   kind: 'structured';

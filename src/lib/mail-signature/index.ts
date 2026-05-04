@@ -12,6 +12,7 @@ export type {
   InlineAttachmentSpec,
   SocialLink,
   SocialType,
+  LinkTarget,
 } from './types';
 export { EMPTY_SIGNATURE } from './types';
 export { loadSignature, saveSignature, subscribeSignature } from './storage';
