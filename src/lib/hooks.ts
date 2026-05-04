@@ -2471,6 +2471,18 @@ function buildChatSystemPrompt(name: string): string {
       'brugeren før du kalder skrive-værktøjerne — gentag titel, dato, tid, sted, ' +
       'deltagere og spørg "Vil du have at jeg opretter/ændrer/sletter den?". Kald først ' +
       'efter brugeren har bekræftet.',
+    'STANDARD-VARIGHED: Når brugeren ikke nævner en sluttid eller varighed, brug 1 time som ' +
+      'standard. Spørg ikke om varighed for ÉN enkelt begivenhed — bekræft bare med 1-times ' +
+      'defaultet ("kl. 14-15") og opret hvis brugeren accepterer.',
+    'FLERE BEGIVENHEDER: Når brugeren beder dig oprette flere begivenheder i samme besked, ' +
+      'tjek FØRST om 1-times standard-vinduerne ville overlappe pairwise. Hvis to eller flere ' +
+      'vinduer overlapper, SKAL du spørge brugeren om de præcise start- og sluttider for hver ' +
+      'overlappende begivenhed før du opretter — fx "Hvor længe varer besøget hos din mor, og ' +
+      'hvornår skal du være færdig på arbejdet?". Hvis ingen vinduer overlapper, bekræft kort ' +
+      'med 1-times defaults for hver og opret. Eksempel der OVERLAPPER (skal afklares): ' +
+      '"besøg mor kl. 8:30 og være på arbejde kl. 9:00" → 8:30-9:30 vs 9:00-10:00 overlapper. ' +
+      'Eksempel der IKKE overlapper (brug defaults): "besøg mor kl. 8:30 og frokost kl. 12" → ' +
+      '8:30-9:30 vs 12:00-13:00.',
     'Skrive-værktøjer understøtter Google Kalender, Outlook (microsoft) og iCloud. ' +
       'Vælg `provider` ved oprettelse ud fra hvor brugeren har konteksten — eller spørg ' +
       'hvis det er uklart. Ved opdatering/sletning bestemmes provideren af unified-ID-præfikset.',
