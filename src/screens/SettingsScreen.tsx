@@ -996,6 +996,16 @@ function MailSignatureSection() {
               scrollEnabled={true}
               source={{ html: buildPreviewHtml(data) }}
               style={styles.sigImportedWebView}
+              onShouldStartLoadWithRequest={(req) => {
+                // Allow only the inline HTML's initial load. User-tapped
+                // links go to the system browser instead of navigating
+                // away from the inline page (which would render blank).
+                if (req.navigationType === 'click') {
+                  void Linking.openURL(req.url);
+                  return false;
+                }
+                return true;
+              }}
             />
           </View>
           <Pressable
