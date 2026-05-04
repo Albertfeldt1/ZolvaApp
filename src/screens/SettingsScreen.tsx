@@ -5,7 +5,7 @@
 // email the contact address and Zolva responds within 30 days. When/if a real
 // JSON export is built (Edge Function + Resend), re-add a button here and grep
 // for this marker to update the handoff.
-import { Check, ChevronDown, ChevronLeft, Globe, Plus, X } from 'lucide-react-native';
+import { Check, ChevronDown, ChevronLeft, Globe, Image as ImageIcon, Link2Off, Plus, X } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
@@ -83,6 +83,7 @@ import {
   type SocialLink,
   type SocialType,
   type LinkTarget,
+  type InlineImage,
 } from '../lib/mail-signature';
 import { detectImportedTargets, type DetectedTargets } from '../lib/mail-signature/detect-targets';
 import { translateProviderError } from '../utils/danish';
@@ -428,14 +429,71 @@ function SocialTypeWheel(props: {
   );
 }
 
+function WordChip(props: { word: string; selected: boolean; index: number; onPress: () => void }) {
+  const { word, selected, index, onPress } = props;
+  const press = useSharedValue(1);
+  const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: press.value }] }));
+  return (
+    <Animated.View entering={FadeInDown.delay(40 + index * 22).springify().damping(15).stiffness(180)}>
+      <AnimatedPressable
+        onPress={onPress}
+        onPressIn={() => { press.value = withSpring(0.92, { damping: 14, stiffness: 320 }); }}
+        onPressOut={() => { press.value = withSpring(1, { damping: 14, stiffness: 320 }); }}
+        style={[styles.sigBindWordChip, selected && styles.sigBindWordChipSelected, pressStyle]}
+        accessibilityRole="button"
+        accessibilityLabel={`Bind til ord ${word}`}
+      >
+        <Text style={[styles.sigBindWordChipText, selected && styles.sigBindWordChipTextSelected]} numberOfLines={1}>
+          {word}
+        </Text>
+      </AnimatedPressable>
+    </Animated.View>
+  );
+}
+
+function ImageBindOption(props: {
+  src: string;
+  description: string;
+  thumbnail?: InlineImage;
+  selected: boolean;
+  index: number;
+  onPress: () => void;
+}) {
+  const { description, thumbnail, selected, index, onPress } = props;
+  return (
+    <Animated.View entering={FadeInDown.delay(60 + index * 28).springify().damping(15).stiffness(180)}>
+      <Pressable
+        onPress={onPress}
+        style={[styles.sigBindImageRow, selected && styles.sigBindImageRowSelected]}
+        accessibilityRole="button"
+      >
+        <View style={styles.sigBindImageThumb}>
+          {thumbnail ? (
+            <Image
+              source={{ uri: `data:${thumbnail.mimeType};base64,${thumbnail.base64}` }}
+              style={styles.sigBindImageThumbImg}
+              resizeMode="contain"
+            />
+          ) : (
+            <ImageIcon size={18} color={colors.fg3} strokeWidth={2} />
+          )}
+        </View>
+        <Text style={styles.sigBindImageDesc} numberOfLines={1}>{description}</Text>
+        {selected && <Check size={16} color={colors.ink} strokeWidth={2.5} />}
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 function SocialBindPicker(props: {
   visible: boolean;
   target: LinkTarget | undefined;
   targets: DetectedTargets;
+  imageThumbnails: Record<string, InlineImage>;
   onSelect: (next: LinkTarget | undefined) => void;
   onClose: () => void;
 }) {
-  const { visible, target, targets, onSelect, onClose } = props;
+  const { visible, target, targets, imageThumbnails, onSelect, onClose } = props;
   const isEmpty = targets.words.length === 0 && targets.images.length === 0;
 
   const handleSelect = (next: LinkTarget | undefined) => {
@@ -459,60 +517,63 @@ function SocialBindPicker(props: {
         >
           <View style={styles.sigBindSheetHandle} />
           <Text style={styles.sigBindSheetTitle}>Bind til element</Text>
+          <Text style={styles.sigBindSheetSub}>Vælg et ord eller billede i signaturen, som linket skal pege på.</Text>
 
-          <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
-            {/* "Vis som separat link" option */}
-            <Pressable
-              onPress={() => handleSelect(undefined)}
-              style={[styles.sigBindOption, isVisSeparat && styles.sigBindOptionSelected]}
-              accessibilityRole="button"
-            >
-              <Text style={styles.sigBindOptionText}>Vis som separat link</Text>
-              {isVisSeparat && <Check size={16} color={colors.sageDeep} strokeWidth={2.5} />}
-            </Pressable>
+          <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+            {/* Unbind option — distinct full-width pill with link-off icon */}
+            <Animated.View entering={FadeInDown.delay(20).springify().damping(15).stiffness(180)}>
+              <Pressable
+                onPress={() => handleSelect(undefined)}
+                style={[styles.sigBindUnbindPill, isVisSeparat && styles.sigBindUnbindPillSelected]}
+                accessibilityRole="button"
+              >
+                <Link2Off size={15} color={isVisSeparat ? '#fff' : colors.fg2} strokeWidth={2.2} />
+                <Text style={[styles.sigBindUnbindPillText, isVisSeparat && styles.sigBindUnbindPillTextSelected]}>
+                  Vis som separat link
+                </Text>
+              </Pressable>
+            </Animated.View>
 
             {isEmpty ? (
-              <Text style={styles.sigBindEmptyHint}>
-                Ingen ord eller billeder fundet i signaturen. Importér et tydeligere screenshot for at få bind-muligheder.
-              </Text>
+              <View style={styles.sigBindEmptyState}>
+                <Text style={styles.sigBindEmptyEmoji}>🔍</Text>
+                <Text style={styles.sigBindEmptyTitle}>Ingen elementer fundet</Text>
+                <Text style={styles.sigBindEmptyHint}>
+                  Importér et tydeligere screenshot for at få bind-muligheder.
+                </Text>
+              </View>
             ) : (
               <>
                 {targets.words.length > 0 && (
                   <>
-                    <Text style={styles.sigBindSectionLabel}>Ord i signaturen</Text>
-                    {targets.words.map((word) => {
-                      const selected = target?.kind === 'word' && target.text === word;
-                      return (
-                        <Pressable
+                    <Text style={styles.sigBindSectionLabel}>ORD I SIGNATUREN</Text>
+                    <View style={styles.sigBindWordWrap}>
+                      {targets.words.map((word, i) => (
+                        <WordChip
                           key={word}
+                          word={word}
+                          selected={target?.kind === 'word' && target.text === word}
+                          index={i}
                           onPress={() => handleSelect({ kind: 'word', text: word })}
-                          style={[styles.sigBindOption, selected && styles.sigBindOptionSelected]}
-                          accessibilityRole="button"
-                        >
-                          <Text style={styles.sigBindOptionText}>{word}</Text>
-                          {selected && <Check size={16} color={colors.sageDeep} strokeWidth={2.5} />}
-                        </Pressable>
-                      );
-                    })}
+                        />
+                      ))}
+                    </View>
                   </>
                 )}
                 {targets.images.length > 0 && (
                   <>
-                    <Text style={styles.sigBindSectionLabel}>Billeder</Text>
-                    {targets.images.map((img) => {
-                      const selected = target?.kind === 'image' && target.src === img.src;
-                      return (
-                        <Pressable
-                          key={img.src}
-                          onPress={() => handleSelect({ kind: 'image', src: img.src })}
-                          style={[styles.sigBindOption, selected && styles.sigBindOptionSelected]}
-                          accessibilityRole="button"
-                        >
-                          <Text style={styles.sigBindOptionText}>{img.description}</Text>
-                          {selected && <Check size={16} color={colors.sageDeep} strokeWidth={2.5} />}
-                        </Pressable>
-                      );
-                    })}
+                    <Text style={[styles.sigBindSectionLabel, { marginTop: 18 }]}>BILLEDER</Text>
+                    {targets.images.map((img, i) => (
+                      <ImageBindOption
+                        key={img.src}
+                        src={img.src}
+                        description={img.description}
+                        thumbnail={imageThumbnails[img.src]}
+                        selected={target?.kind === 'image' && target.src === img.src}
+                        index={i}
+                        onPress={() => handleSelect({ kind: 'image', src: img.src })}
+                      />
+                    ))}
                   </>
                 )}
               </>
@@ -537,10 +598,11 @@ function SocialLinkRow(props: {
   link: SocialLink;
   mode: 'structured' | 'imported';
   targets: DetectedTargets;
+  imageThumbnails: Record<string, InlineImage>;
   onChange: (next: SocialLink) => void;
   onRemove: () => void;
 }) {
-  const { link, mode, targets, onChange, onRemove } = props;
+  const { link, mode, targets, imageThumbnails, onChange, onRemove } = props;
   const [pickerVisible, setPickerVisible] = useState(false);
   const [bindPickerVisible, setBindPickerVisible] = useState(false);
   const meta = SOCIAL_META[link.type];
@@ -630,6 +692,7 @@ function SocialLinkRow(props: {
         visible={bindPickerVisible}
         target={link.target}
         targets={targets}
+        imageThumbnails={imageThumbnails}
         onSelect={(next) => onChange({ ...link, target: next })}
         onClose={() => setBindPickerVisible(false)}
       />
@@ -641,11 +704,12 @@ function SocialsSection(props: {
   socials: SocialLink[];
   mode: 'structured' | 'imported';
   targets: DetectedTargets;
+  imageThumbnails: Record<string, InlineImage>;
   onUpdate: (idx: number, link: SocialLink) => void;
   onRemove: (idx: number) => void;
   onAdd: () => void;
 }) {
-  const { socials, mode, targets, onUpdate, onRemove, onAdd } = props;
+  const { socials, mode, targets, imageThumbnails, onUpdate, onRemove, onAdd } = props;
   const addScale = useSharedValue(1);
   const addStyle = useAnimatedStyle(() => ({ transform: [{ scale: addScale.value }] }));
   const isEmpty = socials.length === 0;
@@ -667,6 +731,7 @@ function SocialsSection(props: {
           link={link}
           mode={mode}
           targets={targets}
+          imageThumbnails={imageThumbnails}
           onChange={(next) => onUpdate(idx, next)}
           onRemove={() => onRemove(idx)}
         />
@@ -826,10 +891,19 @@ function MailSignatureSection() {
     [data],
   );
 
+  const imageThumbnails = useMemo<Record<string, InlineImage>>(() => {
+    const out: Record<string, InlineImage> = {};
+    if (data.kind === 'imported' && data.image) {
+      out['cid:zolva-sig'] = data.image;
+    }
+    return out;
+  }, [data]);
+
   const socialsBlock = <SocialsSection
     socials={data.socials}
     mode={data.kind}
     targets={importedTargets}
+    imageThumbnails={imageThumbnails}
     onUpdate={updateSocialAt}
     onRemove={removeSocialAt}
     onAdd={addSocial}
@@ -2448,39 +2522,128 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
     marginBottom: 12,
   },
-  sigBindSectionLabel: {
-    fontSize: 11,
-    fontWeight: '600',
+  sigBindSheetSub: {
+    fontSize: 12,
     color: colors.fg3,
-    letterSpacing: 0.5,
+    lineHeight: 16,
+    marginBottom: 16,
+  },
+  sigBindSectionLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.fg3,
+    letterSpacing: 1,
     textTransform: 'uppercase',
     marginTop: 14,
-    marginBottom: 4,
+    marginBottom: 10,
   },
-  sigBindOption: {
+  sigBindUnbindPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
+    gap: 8,
+    paddingVertical: 11,
     paddingHorizontal: 14,
-    borderRadius: 10,
-    marginBottom: 2,
-    backgroundColor: 'transparent',
+    borderRadius: 12,
+    backgroundColor: '#f4f4f5',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.06)',
   },
-  sigBindOptionSelected: {
-    backgroundColor: colors.mist,
+  sigBindUnbindPillSelected: {
+    backgroundColor: colors.ink,
+    borderColor: colors.ink,
   },
-  sigBindOptionText: {
-    fontSize: 15,
+  sigBindUnbindPillText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.fg2,
+    letterSpacing: -0.1,
+  },
+  sigBindUnbindPillTextSelected: {
+    color: '#fff',
+  },
+  sigBindWordWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  sigBindWordChip: {
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: '#f4f4f5',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.05)',
+    maxWidth: 220,
+  },
+  sigBindWordChipSelected: {
+    backgroundColor: colors.ink,
+    borderColor: colors.ink,
+  },
+  sigBindWordChipText: {
+    fontSize: 13,
+    fontWeight: '600',
     color: colors.ink,
-    fontWeight: '400',
+    letterSpacing: -0.1,
+  },
+  sigBindWordChipTextSelected: {
+    color: '#fff',
+  },
+  sigBindImageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#f4f4f5',
+    marginBottom: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  sigBindImageRowSelected: {
+    backgroundColor: '#eef0f3',
+    borderColor: colors.ink,
+  },
+  sigBindImageThumb: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
+  sigBindImageThumbImg: {
+    width: '100%',
+    height: '100%',
+  },
+  sigBindImageDesc: {
     flex: 1,
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.ink,
+  },
+  sigBindEmptyState: {
+    alignItems: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 12,
+  },
+  sigBindEmptyEmoji: {
+    fontSize: 28,
+    marginBottom: 8,
+  },
+  sigBindEmptyTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.ink,
+    marginBottom: 4,
   },
   sigBindEmptyHint: {
-    fontSize: 13,
+    fontSize: 12,
     color: colors.fg3,
-    lineHeight: 18,
-    marginTop: 12,
+    lineHeight: 16,
     textAlign: 'center',
   },
   signatureBody: {
