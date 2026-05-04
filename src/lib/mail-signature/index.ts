@@ -26,4 +26,15 @@ export {
   importResultMessage,
 } from './import-from-screenshot';
 export type { ImportResult } from './import-from-screenshot';
+export {
+  pickAndFillFields,
+  fillResultMessage,
+} from './fill-fields-from-screenshot';
+export type { FillResult } from './fill-fields-from-screenshot';
+export {
+  pickAndUseScreenshot,
+  useScreenshotResultMessage,
+  buildImageOnlySignature,
+} from './use-screenshot';
+export type { UseScreenshotResult } from './use-screenshot';
 export { sanitizeSignatureHtml } from './sanitize';
