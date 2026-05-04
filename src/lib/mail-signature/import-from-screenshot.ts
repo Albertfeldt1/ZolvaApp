@@ -53,15 +53,17 @@ Social-media icons and link icons:
 - If no social-media or link icons are visible, return socials: [].
 
 Inline icon markers (the small ones next to phone/email/website/address lines):
-- These ARE part of the signature's design — reproduce them faithfully. If the source shows a filled colored circle with a white glyph inside (📞 phone, ✉ email, 🌐 web, 📍 pin), reproduce the styling — e.g. a small <span> with background-color, border-radius:50%, padding, and a contrasting color for the glyph. Or a one-cell <table> with a colored bgcolor. Whatever lets the icon look like the source.
-- Keep them on the SAME line as the phone number / email / URL / address that follows. Don't promote them to standalone elements or emit them on their own row.
+- These ARE part of the signature's design — reproduce them as small filled colored circles using inline styling: <span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:#XXXXXX;vertical-align:middle;text-align:center;color:#fff;font:10px Arial">X</span> or a one-cell <table> with a colored bgcolor.
+- Inside the circle, use a SIMPLE TEXT GLYPH — a bold letter (T for telephone, @ for email, W for web, P or • for address) OR a Unicode geometric character (●, ◉, ☎, ✉ if you must). DO NOT use emoji (📞, ✉, 🌐, 📍, 📧, 🔗) — they render as full-color cartoon emoji which looks unprofessional in a corporate signature.
+- Keep them on the SAME line as the phone number / email / URL / address that follows.
 
-Divider lines and underline accents:
-- Reproduce horizontal divider lines, name underlines, and section separators visible in the source. <hr> is fine for full-width dividers; a styled <div> with border-bottom or a thin <table> row works for shorter accent underlines under a name/title.
+Divider lines and underline accents (REQUIRED if visible in source):
+- If you see a horizontal line under the name, between sections, or at the bottom of the signature, emit it. Use <hr style="border:none;border-top:1px solid #cccccc;margin:8px 0"> for full-width dividers, or <div style="border-bottom:2px solid #1c2e3a;width:80px;padding-bottom:4px"></div> for shorter accent underlines under a name/title.
+- Do not skip dividers or underline accents. They're visually load-bearing — without them the signature reads as flat content rather than the structured layout you saw.
 
 Decorative elements:
 - Do not reproduce decorative shapes that aren't real visual elements (no blank colored rectangles or empty styled boxes that don't represent anything). Real layout elements — dividers, lines, contact icons, brand backgrounds — are good to keep.
-- Do not invent emoji where the source had a graphic icon and you can't faithfully reproduce it. Better to leave it out than fabricate a stand-in.
+- Do not invent emoji anywhere in the html. Use plain text and CSS-styled shapes only. Emoji look out of place in a corporate signature reproduction.
 
 Return your output via the import_signature tool with three fields:
 - html: the Outlook-safe HTML (typically wrapped in a <table>)
