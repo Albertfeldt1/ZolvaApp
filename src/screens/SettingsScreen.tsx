@@ -2404,7 +2404,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   sigImportedPreview: {
-    height: 220,
+    height: 320,
     borderRadius: 12,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
