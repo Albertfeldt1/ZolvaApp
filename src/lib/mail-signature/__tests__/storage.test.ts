@@ -106,6 +106,7 @@ describe('storage / migration', () => {
         kind: 'structured',
         name: 'Albert', title: '', company: '', phone: '', email: '',
         website: '', customLines: '', logo: null,
+        socials: [],
       });
     });
 
@@ -116,6 +117,7 @@ describe('storage / migration', () => {
         plaintext: 'Hi',
         image: null,
         importedAt: 1700000000000,
+        socials: [],
       };
       __setCurrentUserForTests('uid-disc');
       await saveSignature(imported);
@@ -132,6 +134,66 @@ describe('storage / migration', () => {
       if (sig?.kind === 'structured') {
         expect(sig.customLines).toBe('Med venlig hilsen\nAlbert');
       }
+    });
+  });
+
+  describe('loadSignature — socials migration', () => {
+    beforeEach(async () => {
+      __resetForTests();
+      __setCurrentUserForTests('uid-soc');
+      await AsyncStorage.clear();
+    });
+
+    it('legacy structured entry without socials loads with socials: []', async () => {
+      await AsyncStorage.setItem(
+        'zolva.mail.signature.v2.uid-soc',
+        JSON.stringify({
+          kind: 'structured',
+          name: 'Albert', title: '', company: '', phone: '', email: '',
+          website: '', customLines: '', logo: null,
+        }),
+      );
+      const sig = await loadSignature('uid-soc');
+      expect(sig?.kind).toBe('structured');
+      if (sig?.kind === 'structured') {
+        expect(sig.socials).toEqual([]);
+      }
+    });
+
+    it('legacy imported entry without socials loads with socials: []', async () => {
+      await AsyncStorage.setItem(
+        'zolva.mail.signature.v2.uid-soc',
+        JSON.stringify({
+          kind: 'imported',
+          html: '<table><tr><td>Hi</td></tr></table>',
+          plaintext: 'Hi',
+          image: null,
+          importedAt: 1700000000000,
+        }),
+      );
+      const sig = await loadSignature('uid-soc');
+      expect(sig?.kind).toBe('imported');
+      if (sig?.kind === 'imported') {
+        expect(sig.socials).toEqual([]);
+      }
+    });
+
+    it('round-trips socials through save/load', async () => {
+      const withSocials: SignatureData = {
+        kind: 'structured',
+        name: 'Albert', title: '', company: '', phone: '', email: '',
+        website: '', customLines: '', logo: null,
+        socials: [
+          { type: 'linkedin', url: 'https://linkedin.com/in/albert' },
+          { type: 'github', url: 'https://github.com/albert' },
+        ],
+      };
+      __setCurrentUserForTests('uid-soc');
+      await saveSignature(withSocials);
+      __resetForTests();
+      __setCurrentUserForTests('uid-soc');
+      const loaded = await loadSignature('uid-soc');
+      expect(loaded).toEqual(withSocials);
     });
   });
 });
