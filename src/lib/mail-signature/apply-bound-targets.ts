@@ -199,9 +199,12 @@ function wrapWord(
   }
 
   // No surrounding anchor — wrap the match with a fresh <a>...</a>.
+  // Phrases inherit color/decoration from the parent so a button's
+  // existing white-on-blue / etc. survives the wrap. Single words still
+  // get explicit link styling so they read as a hyperlink in plain copy.
   const newOpenTag = isSimpleWord
     ? `<a href="${escapeAttr(href)}" style="color:${color};text-decoration:underline">`
-    : `<a href="${escapeAttr(href)}">`;
+    : `<a href="${escapeAttr(href)}" style="color:inherit;text-decoration:none">`;
   const wrapped = `${newOpenTag}${found.matched}</a>`;
   return html.slice(0, found.index) + wrapped + html.slice(found.index + found.matched.length);
 }
