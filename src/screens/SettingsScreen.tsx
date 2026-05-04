@@ -64,7 +64,11 @@ import {
   loadSignature,
   saveSignature,
   subscribeSignature,
+  pickAndCompressLogo,
+  pickResultMessage,
+  renderSignature,
   EMPTY_SIGNATURE,
+  type SignatureData,
 } from '../lib/mail-signature';
 import { translateProviderError } from '../utils/danish';
 
@@ -125,55 +129,164 @@ function useNotificationSettings(): NotificationSettings {
   return state;
 }
 
-// Manual mail signature input. Only relevant for Outlook (Graph has no
-// public signature API) — Gmail's signature is fetched from sendAs and
-// appended automatically. The field is shown unconditionally so the user
-// can prepare a signature before connecting Outlook.
+// Manual mail signature — structured form with optional logo. Renders
+// as HTML in Outlook send paths (and iCloud SMTP when that lands).
+// Gmail still uses the auto-fetched server signature.
 function MailSignatureSection() {
-  const [value, setValue] = useState('');
+  const [data, setData] = useState<SignatureData>(EMPTY_SIGNATURE);
   const [hydrated, setHydrated] = useState(false);
+  const [pickerError, setPickerError] = useState<string | null>(null);
+  const [pickerBusy, setPickerBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     void loadSignature().then((s) => {
       if (cancelled) return;
-      setValue(s?.customLines ?? '');
+      setData(s ?? EMPTY_SIGNATURE);
       setHydrated(true);
     });
     const unsub = subscribeSignature((s) => {
-      if (!cancelled) setValue(s?.customLines ?? '');
+      if (!cancelled) setData(s ?? EMPTY_SIGNATURE);
     });
-    return () => {
-      cancelled = true;
-      unsub();
-    };
+    return () => { cancelled = true; unsub(); };
   }, []);
 
+  const update = (patch: Partial<SignatureData>) => {
+    setData((prev) => ({ ...prev, ...patch }));
+  };
   const commit = () => {
     if (!hydrated) return;
-    void saveSignature({ ...EMPTY_SIGNATURE, customLines: value });
+    void saveSignature(data);
   };
+
+  const onPickLogo = async () => {
+    setPickerError(null);
+    setPickerBusy(true);
+    const result = await pickAndCompressLogo();
+    setPickerBusy(false);
+    if (!result.ok) {
+      const msg = pickResultMessage(result);
+      if (msg) setPickerError(msg);
+      return;
+    }
+    const next = { ...data, logo: result.image };
+    setData(next);
+    void saveSignature(next);
+  };
+
+  const onRemoveLogo = () => {
+    const next = { ...data, logo: null };
+    setData(next);
+    void saveSignature(next);
+  };
+
+  const rendered = renderSignature(data);
 
   return (
     <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
       <Text style={styles.sectionTitle}>Mail-signatur</Text>
       <View style={styles.inkRule} />
       <Text style={styles.signatureBody}>
-        Bruges ved mails sendt fra Outlook. Gmail bruger den signatur, du allerede har sat
-        op i Gmail-indstillingerne.
+        Bruges ved mails sendt fra Outlook (og iCloud, når mail-afsendelse fra Zolva er tilføjet senere).
+        Gmail bruger den signatur, du allerede har sat op i Gmail-indstillingerne.
       </Text>
-      <TextInput
-        style={[styles.input, styles.signatureInput]}
-        value={value}
-        onChangeText={setValue}
-        onBlur={commit}
-        placeholder={'Med venlig hilsen\nDit navn'}
-        placeholderTextColor={colors.fg3}
-        multiline
-        textAlignVertical="top"
-        editable={hydrated}
-      />
+
+      <SigField label="Navn"        value={data.name}        onChange={(v) => update({ name: v })}        onBlur={commit} editable={hydrated} />
+      <SigField label="Titel"       value={data.title}       onChange={(v) => update({ title: v })}       onBlur={commit} editable={hydrated} />
+      <SigField label="Virksomhed"  value={data.company}     onChange={(v) => update({ company: v })}     onBlur={commit} editable={hydrated} />
+      <SigField label="Telefon"     value={data.phone}       onChange={(v) => update({ phone: v })}       onBlur={commit} editable={hydrated} keyboardType="phone-pad" />
+      <SigField label="Email"       value={data.email}       onChange={(v) => update({ email: v })}       onBlur={commit} editable={hydrated} keyboardType="email-address" autoCapitalize="none" />
+      <SigField label="Website"     value={data.website}     onChange={(v) => update({ website: v })}     onBlur={commit} editable={hydrated} autoCapitalize="none" />
+      <SigField label="Egne linjer" value={data.customLines} onChange={(v) => update({ customLines: v })} onBlur={commit} editable={hydrated} multiline />
+
+      <Text style={styles.sigFieldLabel}>Logo</Text>
+      <View style={styles.sigLogoRow}>
+        {data.logo ? (
+          <>
+            <Image
+              source={{ uri: `data:${data.logo.mimeType};base64,${data.logo.base64}` }}
+              style={styles.sigLogoThumb}
+              resizeMode="contain"
+            />
+            <Pressable onPress={onRemoveLogo} style={styles.sigLogoBtn} accessibilityRole="button">
+              <Text style={styles.sigLogoBtnText}>Fjern</Text>
+            </Pressable>
+          </>
+        ) : (
+          <Pressable
+            onPress={onPickLogo}
+            disabled={pickerBusy}
+            style={[styles.sigLogoBtn, pickerBusy && { opacity: 0.5 }]}
+            accessibilityRole="button"
+          >
+            <Text style={styles.sigLogoBtnText}>{pickerBusy ? 'Indlæser…' : 'Vælg billede'}</Text>
+          </Pressable>
+        )}
+      </View>
+      {pickerError && <Text style={styles.sigError}>{pickerError}</Text>}
+
+      <Text style={[styles.sigFieldLabel, { marginTop: 24 }]}>Forhåndsvisning</Text>
+      <View style={styles.sigPreviewCard}>
+        {rendered ? <SignaturePreview data={data} /> : <Text style={styles.sigPreviewEmpty}>Udfyld felterne ovenfor for at se en forhåndsvisning.</Text>}
+      </View>
     </Animated.View>
+  );
+}
+
+function SigField(props: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  onBlur: () => void;
+  editable: boolean;
+  multiline?: boolean;
+  keyboardType?: 'default' | 'email-address' | 'phone-pad';
+  autoCapitalize?: 'none' | 'sentences';
+}) {
+  return (
+    <View style={{ marginTop: 14 }}>
+      <Text style={styles.sigFieldLabel}>{props.label}</Text>
+      <TextInput
+        style={[styles.input, props.multiline && styles.signatureInput]}
+        value={props.value}
+        onChangeText={props.onChange}
+        onBlur={props.onBlur}
+        editable={props.editable}
+        multiline={props.multiline}
+        keyboardType={props.keyboardType ?? 'default'}
+        autoCapitalize={props.autoCapitalize ?? 'sentences'}
+        autoCorrect={false}
+        textAlignVertical={props.multiline ? 'top' : 'center'}
+      />
+    </View>
+  );
+}
+
+function SignaturePreview({ data }: { data: SignatureData }) {
+  // Structural preview using RN components — not pixel-perfect against
+  // every email client, but shows what fields are present.
+  const headerParts = [data.name, data.title].filter(Boolean).join(' · ');
+  const contactParts = [
+    data.phone ? `T: ${data.phone}` : '',
+    data.email,
+  ].filter(Boolean).join(' · ');
+  return (
+    <View style={{ flexDirection: 'row', gap: 12 }}>
+      {data.logo && (
+        <Image
+          source={{ uri: `data:${data.logo.mimeType};base64,${data.logo.base64}` }}
+          style={{ width: 48, height: 48 }}
+          resizeMode="contain"
+        />
+      )}
+      <View style={{ flex: 1 }}>
+        {!!headerParts && <Text style={{ fontWeight: '600', color: colors.ink }}>{headerParts}</Text>}
+        {!!data.company && <Text style={{ color: colors.ink }}>{data.company}</Text>}
+        {!!contactParts && <Text style={{ color: colors.ink }}>{contactParts}</Text>}
+        {!!data.website && <Text style={{ color: colors.ink }}>{data.website}</Text>}
+        {!!data.customLines.trim() && <Text style={{ color: colors.ink }}>{data.customLines}</Text>}
+      </View>
+    </View>
   );
 }
 
@@ -1356,6 +1469,51 @@ const styles = StyleSheet.create({
     minHeight: 96,
     paddingTop: 14,
     marginTop: 12,
+  },
+  sigFieldLabel: {
+    marginTop: 8,
+    marginBottom: 4,
+    fontSize: 13,
+    color: colors.fg3,
+    fontWeight: '500',
+  },
+  sigLogoRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  sigLogoThumb: {
+    width: 56,
+    height: 56,
+    backgroundColor: colors.mist,
+    borderRadius: 8,
+  },
+  sigLogoBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: colors.ink,
+  },
+  sigLogoBtnText: {
+    color: colors.paper,
+    fontWeight: '500',
+  },
+  sigError: {
+    marginTop: 8,
+    color: colors.warningInk,
+    fontSize: 13,
+  },
+  sigPreviewCard: {
+    marginTop: 8,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: colors.mist,
+    minHeight: 80,
+  },
+  sigPreviewEmpty: {
+    color: colors.fg3,
+    fontStyle: 'italic',
   },
   signatureBody: {
     fontFamily: fonts.ui,
