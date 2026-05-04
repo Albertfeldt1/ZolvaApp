@@ -204,8 +204,8 @@ export function sanitizeSignatureHtml(input: unknown): string {
   for (const tok of tokens) {
     if (dropDepth > 0) {
       if (tok.kind === 'close' && tok.tag === dropTag) {
-        dropDepth = 0;
-        dropTag = '';
+        dropDepth--;
+        if (dropDepth === 0) dropTag = '';
       } else if (tok.kind === 'open' && tok.tag === dropTag) {
         dropDepth++;
       }

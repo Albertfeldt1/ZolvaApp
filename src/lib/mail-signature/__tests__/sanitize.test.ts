@@ -55,6 +55,21 @@ describe('sanitizeSignatureHtml — tag allowlist', () => {
     expect(out).toContain('visible');
   });
 
+  it('handles nested strip-with-content tags without leaking middle content', () => {
+    const out = sanitizeSignatureHtml('<script>outer<script>inner</script>middle</script>after');
+    expect(out).not.toContain('outer');
+    expect(out).not.toContain('inner');
+    expect(out).not.toContain('middle');
+    expect(out).toContain('after');
+  });
+
+  it('handles nested strip-with-content tags of different types', () => {
+    const out = sanitizeSignatureHtml('<style><svg>nested</svg>still in style</style>visible');
+    expect(out).not.toContain('nested');
+    expect(out).not.toContain('still in style');
+    expect(out).toContain('visible');
+  });
+
   it('strips HTML comments', () => {
     expect(sanitizeSignatureHtml('<!--evil-->ok')).toBe('ok');
   });
