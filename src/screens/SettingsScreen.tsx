@@ -725,6 +725,10 @@ function MailSignatureSection() {
           <SigField label="Email"       value={data.email}       onChange={(v) => update({ email: v })}       onBlur={commit} editable={hydrated} keyboardType="email-address" autoCapitalize="none" />
           <SigField label="Website"     value={data.website}     onChange={(v) => update({ website: v })}     onBlur={commit} editable={hydrated} autoCapitalize="none" />
           <SigField label="Egne linjer" value={data.customLines} onChange={(v) => update({ customLines: v })} onBlur={commit} editable={hydrated} multiline />
+          <Text style={styles.sigInlineLinkHint}>
+            Tip: lav et klikbart link med <Text style={styles.sigInlineLinkHintMono}>[tekst](url)</Text>{' '}— fx{' '}
+            <Text style={styles.sigInlineLinkHintMono}>Læs vores [privatlivspolitik](zolva.io/privacy)</Text>.
+          </Text>
 
           <Text style={styles.sigFieldLabel}>Logo</Text>
           <View style={styles.sigLogoRow}>
@@ -1988,6 +1992,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.fg3,
     fontWeight: '500',
+  },
+  sigInlineLinkHint: {
+    marginTop: 6,
+    fontSize: 12,
+    color: colors.fg3,
+    lineHeight: 16,
+  },
+  sigInlineLinkHintMono: {
+    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
+    fontSize: 11,
+    color: colors.fg2,
   },
   sigLogoRow: {
     marginTop: 8,

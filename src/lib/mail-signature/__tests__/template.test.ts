@@ -205,3 +205,66 @@ describe('renderSocials', () => {
     expect(out).toContain('href="https://zolva.io"');
   });
 });
+
+describe('escapeWithLinksAndBrs (inline markdown links in customLines)', () => {
+  // Imported via the same module path as renderSocials; the existing import
+  // line above pulls it from '../template'. Re-import to keep this block
+  // self-contained.
+  const { escapeWithLinksAndBrs } = require('../template') as {
+    escapeWithLinksAndBrs: (s: string) => string;
+  };
+
+  it('converts [text](url) to an anchor with normalized https', () => {
+    const out = escapeWithLinksAndBrs('Læs vores [privatlivspolitik her](zolva.io/privacy)');
+    expect(out).toContain('<a href="https://zolva.io/privacy">privatlivspolitik her</a>');
+    expect(out).toContain('Læs vores ');
+  });
+
+  it('preserves explicit https/http/mailto/tel schemes', () => {
+    expect(escapeWithLinksAndBrs('[a](https://x.com)')).toContain('href="https://x.com"');
+    expect(escapeWithLinksAndBrs('[a](http://x.com)')).toContain('href="http://x.com"');
+    expect(escapeWithLinksAndBrs('[mail](mailto:a@b.dk)')).toContain('href="mailto:a@b.dk"');
+    expect(escapeWithLinksAndBrs('[ring](tel:+4512345678)')).toContain('href="tel:+4512345678"');
+  });
+
+  it('rejects javascript: and other unsafe schemes — keeps raw markdown as escaped text', () => {
+    const out = escapeWithLinksAndBrs('[evil](javascript:alert(1))');
+    expect(out).not.toContain('<a ');
+    expect(out).not.toMatch(/href=/);
+    // The literal string is rendered as escaped text — harmless in body
+    // copy, only dangerous if it landed in an href (which it doesn't).
+    expect(out).toContain('[evil]');
+  });
+
+  it('handles multiple links in one string', () => {
+    const out = escapeWithLinksAndBrs('Se [siden](zolva.io) eller [policy](zolva.io/p)');
+    expect(out).toMatch(/<a href="https:\/\/zolva\.io">siden<\/a>/);
+    expect(out).toMatch(/<a href="https:\/\/zolva\.io\/p">policy<\/a>/);
+  });
+
+  it('escapes HTML in the link text and URL', () => {
+    const out = escapeWithLinksAndBrs('[<script>](https://x.com/<evil>)');
+    expect(out).not.toContain('<script>');
+    expect(out).toContain('&lt;script&gt;');
+    expect(out).toContain('&lt;evil&gt;');
+  });
+
+  it('escapes plain text outside of links and converts \\n to <br>', () => {
+    const out = escapeWithLinksAndBrs('Linje 1\n[link](zolva.io)\n<br>tag');
+    expect(out).toContain('Linje 1<br>');
+    expect(out).toContain('<a href="https://zolva.io">link</a>');
+    expect(out).toContain('&lt;br&gt;tag');
+  });
+
+  it('passes through plain text untouched (other than escaping + br)', () => {
+    expect(escapeWithLinksAndBrs('hello\nworld')).toBe('hello<br>world');
+  });
+
+  it('does not link a markdown-like fragment with a missing url part', () => {
+    const out = escapeWithLinksAndBrs('see [here]() for details');
+    expect(out).not.toContain('<a ');
+    // Empty () still matches the regex but normalizeHrefForBody returns ''
+    // so the source markdown is rendered as escaped text.
+    expect(out).toContain('[here]()');
+  });
+});

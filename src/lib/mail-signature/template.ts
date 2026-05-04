@@ -24,6 +24,56 @@ export function escapeWithBrBreaks(s: string): string {
   return escapeHtml(s).replaceAll('\n', '<br>');
 }
 
+// Markdown-style inline link: [text](url). Greedy on text, lazy on url so
+// trailing punctuation outside the parens isn't gobbled. Captures (text, url).
+const INLINE_LINK_RE = /\[([^\]\n]+)\]\(([^)\n]+)\)/g;
+
+// For customLines: parse [text](url) into <a> hyperlinks, escape everything
+// else, and convert \n to <br>. Unsafe URL schemes (anything that isn't
+// http/https/mailto/tel after normalization) render as plain escaped text.
+export function escapeWithLinksAndBrs(s: string): string {
+  let out = '';
+  let cursor = 0;
+  for (const m of s.matchAll(INLINE_LINK_RE)) {
+    const matchStart = m.index ?? 0;
+    if (matchStart > cursor) {
+      out += escapeHtml(s.slice(cursor, matchStart)).replaceAll('\n', '<br>');
+    }
+    const text = m[1];
+    const rawUrl = m[2];
+    const normalized = normalizeHrefForBody(rawUrl);
+    if (normalized) {
+      out += `<a href="${escapeHtml(normalized)}">${escapeHtml(text)}</a>`;
+    } else {
+      // Unsafe scheme — write the raw markdown back as escaped text so
+      // nothing is silently dropped.
+      out += escapeHtml(m[0]).replaceAll('\n', '<br>');
+    }
+    cursor = matchStart + m[0].length;
+  }
+  if (cursor < s.length) {
+    out += escapeHtml(s.slice(cursor)).replaceAll('\n', '<br>');
+  }
+  return out;
+}
+
+// Body-context href normalizer. Returns '' for unsafe schemes so the
+// caller knows to render the markdown source as plain text instead.
+function normalizeHrefForBody(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+  if (/^(https?:\/\/|mailto:|tel:)/i.test(trimmed)) return trimmed;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return ''; // explicit unsafe scheme like javascript:
+  return `https://${trimmed}`;
+}
+
+// Plaintext fallback for inline links: "text (url)" — readable in
+// non-HTML mail clients without leaving raw markdown brackets in the
+// alt body.
+function plainTextInlineLinks(s: string): string {
+  return s.replaceAll(INLINE_LINK_RE, (_match, text, url) => `${text} (${url})`);
+}
+
 // For the user's email body: escape, split on blank lines into paragraphs,
 // remaining \n become <br>, wrap each paragraph in <p>...</p>.
 export function bodyToParagraphs(s: string): string {
@@ -44,7 +94,7 @@ function renderPlaintext(data: StructuredSignature): string {
   if (data.email) contactParts.push(data.email);
   if (contactParts.length) lines.push(contactParts.join(' · '));
   if (data.website) lines.push(data.website);
-  if (data.customLines.trim()) lines.push(data.customLines);
+  if (data.customLines.trim()) lines.push(plainTextInlineLinks(data.customLines));
   return lines.join('\n');
 }
 
@@ -71,7 +121,7 @@ export function renderSignature(data: StructuredSignature): RenderedSignature | 
   }
 
   if (data.customLines.trim()) {
-    lines.push(escapeWithBrBreaks(data.customLines));
+    lines.push(escapeWithLinksAndBrs(data.customLines));
   }
 
   if (lines.length === 0 && !data.logo) return null;
