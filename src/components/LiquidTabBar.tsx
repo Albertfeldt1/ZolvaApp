@@ -1,6 +1,11 @@
 import { GlassContainer, GlassView } from 'expo-glass-effect';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import { colors, fonts } from '../theme';
 import { Stone } from './Stone';
 import { TABS, TabId } from './PhoneChrome';
@@ -13,9 +18,44 @@ type Props = {
   darkBg?: boolean;
 };
 
+const AnimatedGlassView = Animated.createAnimatedComponent(GlassView);
+
+// Spring tuned to match the iOS 26 system tab-bar feel: snappy but
+// settles cleanly without overshoot looking spongy. Roughly Apple's
+// UISpringTimingParameters defaults for the system pill.
+const PILL_SPRING = { damping: 22, stiffness: 260, mass: 1 };
+const PILL_INSET = 8;
+
 // darkBg is accepted for API-shape parity with ClassicTabBar but intentionally
 // unused — UIKit's colorScheme="auto" handles dark/light adaptation natively.
 export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: Props) {
+  const [rowWidth, setRowWidth] = useState(0);
+  const tabWidth = rowWidth / TABS.length;
+  const activeIndex = TABS.findIndex((t) => t.id === active);
+
+  const pillX = useSharedValue(0);
+  const pillW = useSharedValue(0);
+
+  useEffect(() => {
+    if (rowWidth === 0) return;
+    const targetX = activeIndex * tabWidth + PILL_INSET;
+    const targetW = Math.max(0, tabWidth - PILL_INSET * 2);
+    // First measurement: snap to position so the pill appears under the
+    // already-active tab instead of springing in from the left edge.
+    if (pillW.value === 0) {
+      pillX.value = targetX;
+      pillW.value = targetW;
+    } else {
+      pillX.value = withSpring(targetX, PILL_SPRING);
+      pillW.value = withSpring(targetW, PILL_SPRING);
+    }
+  }, [activeIndex, tabWidth, rowWidth, pillX, pillW]);
+
+  const pillStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: pillX.value }],
+    width: pillW.value,
+  }));
+
   return (
     <View style={styles.wrap}>
       <GlassContainer spacing={20} style={styles.container}>
@@ -38,21 +78,24 @@ export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: P
           colorScheme="auto"
           style={styles.bar}
         >
-          <View style={styles.tabsRow}>
+          <View
+            style={styles.tabsRow}
+            onLayout={(e) => setRowWidth(e.nativeEvent.layout.width)}
+          >
+            {rowWidth > 0 && (
+              <AnimatedGlassView
+                glassEffectStyle="clear"
+                tintColor="rgba(26,30,28,0.18)"
+                colorScheme="auto"
+                style={[styles.activePill, pillStyle]}
+                pointerEvents="none"
+              />
+            )}
             {TABS.map(({ id, label, Icon }) => {
               const isActive = active === id;
               const color = isActive ? colors.ink : colors.stone;
               return (
                 <Pressable key={id} style={styles.tab} onPress={() => onChange(id)}>
-                  {isActive && (
-                    <GlassView
-                      glassEffectStyle="clear"
-                      tintColor="rgba(26,30,28,0.18)"
-                      colorScheme="auto"
-                      style={styles.activePill}
-                      pointerEvents="none"
-                    />
-                  )}
                   <Icon size={20} color={color} strokeWidth={isActive ? 2.2 : 1.75} />
                   <Text style={[styles.tabLabel, { color }]}>{label}</Text>
                 </Pressable>
@@ -101,17 +144,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 2,
     paddingHorizontal: 4,
-    // No paddingVertical: keeps the bar height identical to ClassicTabBar
-    // so useChromeInsets() returns the same bottom padding on both branches.
-    // position: 'relative' anchors the absolutely-positioned activePill below.
-    position: 'relative',
   },
+  // Single shared pill, absolutely positioned within tabsRow. translateX
+  // and width are driven by the spring above; left: 0 is just the base.
   activePill: {
     position: 'absolute',
     top: 0,
     bottom: 0,
-    left: 8,
-    right: 8,
+    left: 0,
     borderRadius: 999,
   },
   tabLabel: { fontFamily: fonts.uiSemi, fontSize: 10 },
