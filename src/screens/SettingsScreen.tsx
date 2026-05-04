@@ -10,6 +10,7 @@ import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
+import { WebView } from 'react-native-webview';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -206,6 +207,19 @@ function useNotificationSettings(): NotificationSettings {
   return state;
 }
 
+function buildPreviewHtml(sig: { html: string; image: { base64: string; mimeType: 'image/png' | 'image/jpeg' } | null }): string {
+  // Resolve cid:zolva-sig to a data URL so the WebView preview renders the
+  // logo without an external load. The outgoing-mail path keeps cid: as-is —
+  // this transformation is preview-only.
+  const cidDataUrl = sig.image
+    ? `data:${sig.image.mimeType};base64,${sig.image.base64}`
+    : '';
+  const html = sig.image
+    ? sig.html.replaceAll('cid:zolva-sig', cidDataUrl)
+    : sig.html;
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:transparent;}img{max-width:100%;height:auto;}</style></head><body>${html}</body></html>`;
+}
+
 function formatImportedDate(unixMs: number): string {
   if (!unixMs) return '';
   const d = new Date(unixMs);
@@ -382,15 +396,19 @@ function MailSignatureSection() {
         </>
       ) : (
         <View style={styles.sigImportedPreviewWrap}>
-          <View style={styles.sigImportedCard}>
-            <Text style={styles.sigImportedCardTitle}>Importeret signatur</Text>
-            <Text style={styles.sigImportedCardSub}>
-              {`Importeret ${formatImportedDate(data.importedAt)}`}
-            </Text>
-            <Text style={styles.sigImportedCardHint}>
-              Send en test-mail til dig selv for at se, hvordan den ser ud.
-            </Text>
+          <Text style={[styles.sigFieldLabel, { marginTop: 0 }]}>Forhåndsvisning</Text>
+          <View style={styles.sigImportedPreview}>
+            <WebView
+              originWhitelist={['*']}
+              javaScriptEnabled={false}
+              scrollEnabled={true}
+              source={{ html: buildPreviewHtml(data) }}
+              style={styles.sigImportedWebView}
+            />
           </View>
+          <Text style={styles.sigImportedCardSub}>
+            {`Importeret ${formatImportedDate(data.importedAt)}`}
+          </Text>
           <Pressable onPress={onSwitchToManual} style={styles.sigSwitchBtn} accessibilityRole="button">
             <Text style={styles.sigSwitchBtnText}>Skift til manuel redigering</Text>
           </Pressable>
@@ -1664,28 +1682,23 @@ const styles = StyleSheet.create({
   sigImportedPreviewWrap: {
     marginTop: 16,
   },
-  sigImportedCard: {
-    padding: 16,
+  sigImportedPreview: {
+    height: 220,
     borderRadius: 12,
+    overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.line,
-    backgroundColor: colors.mist,
+    backgroundColor: '#fff',
+    marginTop: 8,
   },
-  sigImportedCardTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.ink,
+  sigImportedWebView: {
+    flex: 1,
+    backgroundColor: 'transparent',
   },
   sigImportedCardSub: {
-    marginTop: 4,
-    fontSize: 13,
-    color: colors.fg2,
-  },
-  sigImportedCardHint: {
-    marginTop: 12,
+    marginTop: 8,
     fontSize: 12,
     color: colors.fg3,
-    fontStyle: 'italic',
   },
   sigSwitchBtn: {
     marginTop: 14,
