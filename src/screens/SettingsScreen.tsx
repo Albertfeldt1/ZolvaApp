@@ -299,17 +299,29 @@ function BrandIcon({ type, size = 36 }: { type: SocialType; size?: number }) {
   const fontSize = size <= 28 ? size * 0.42 : size * 0.4;
 
   // Preferred path: pre-rendered brand-icon PNG. The asset already includes
-  // the colored circle, so we just render the image at the requested size.
-  // assetScale compensates for source PNGs that have extra transparent
-  // padding (e.g. Instagram) so they don't visually shrink next to peers.
+  // the colored circle, so we just render the image. The outer box stays at
+  // the requested `size` so every BrandIcon occupies the same row/wheel
+  // slot regardless of brand. assetScale only adjusts the visual size of
+  // the inner image — Instagram's transparent padding gets compensated
+  // without misaligning the layout of its peers.
   if (meta.asset) {
     const renderedSize = size * (meta.assetScale ?? 1);
     return (
-      <Image
-        source={meta.asset}
-        style={{ width: renderedSize, height: renderedSize, borderRadius: renderedSize / 2 }}
-        resizeMode="contain"
-      />
+      <View
+        style={{
+          width: size,
+          height: size,
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'visible',
+        }}
+      >
+        <Image
+          source={meta.asset}
+          style={{ width: renderedSize, height: renderedSize }}
+          resizeMode="contain"
+        />
+      </View>
     );
   }
 
