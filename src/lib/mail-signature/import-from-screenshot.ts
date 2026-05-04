@@ -43,15 +43,21 @@ Reproduce the screenshot's visible content as faithfully as possible: text conte
 
 Social-media icons and link icons:
 - If the screenshot contains social-media link icons (LinkedIn, Twitter/X, Instagram, Facebook, TikTok, YouTube, GitHub) or generic website/link icons (globe, "www", a personal/company URL displayed as a clickable element), extract them as a "socials" array. Each entry has a "type" (one of: linkedin, twitter, instagram, facebook, tiktok, youtube, github, website, other) and a "url". Use "website" for generic homepage/portfolio/company URLs that aren't a known platform. Use "other" with a "label" field for non-website platforms not in this list (e.g. Bluesky, Mastodon, Threads).
-- IMPORTANT: Do NOT include these icon links in the html output. We render the social row separately. The html must not contain ANY of:
+- IMPORTANT — Social icons NEVER appear in the html output. The app renders them as proper brand-icon pills in a separate row below the html. The html must not contain ANY of:
   · <a> tags wrapping social-media icons
-  · placeholder shapes/letters meant to look like brand icons (no blue ovals, colored squares, single-letter monograms, etc.)
+  · standalone single-letter, single-character, or single-emoji elements meant to represent a social platform — no "f", "X", "in", "Ig", "▶", "📸", "🐦", "🐙", "📺", or any other letter/emoji used as an icon stand-in
+  · placeholder shapes (blue ovals, colored circles/squares, monogrammed pills) styled to LOOK like brand icons
+  · rows of small icon-shaped elements with no real text content
   · any decorative reproduction of icon-only elements that don't have visible text
-  Skip those elements entirely. Pretend they aren't in the screenshot.
+  Skip those elements entirely from the html. Pretend they aren't in the screenshot. Their information lives in the socials array, not the html.
 - If no social-media or link icons are visible, return socials: [].
 
+Inline icon markers (the small ones next to phone/email/website lines):
+- Tiny visual markers like 📞 / ✉ / 🌐 immediately preceding a phone number, email address, or website URL on the SAME line are part of the contact line's design — keep them inline as part of the same text run. Don't promote them to standalone elements or emit them on their own line.
+
 Decorative elements:
-- Do not reproduce decorative shapes that aren't real text content (e.g. blank colored rectangles, circles, or geometric ornaments). Only reproduce text and bona-fide structural elements (lines, dividers, layout columns).
+- Do not reproduce decorative shapes that aren't real text content (e.g. blank colored rectangles, circles, geometric ornaments, or empty styled boxes). Only reproduce real text and bona-fide structural elements (horizontal rules, dividers, layout columns).
+- Do not invent emoji where the source had a graphic icon. If you can't reproduce an icon faithfully, leave it out — the html should be clean text + structure, never a string of emoji stand-ins.
 
 Return your output via the import_signature tool with three fields:
 - html: the Outlook-safe HTML (typically wrapped in a <table>)
