@@ -62,7 +62,7 @@ Decorative elements:
 Return your output via the import_signature tool with three fields:
 - html: the Outlook-safe HTML (typically wrapped in a <table>)
 - plaintext: a plain-text version of the signature for multipart/alt
-- logoBox: if a logo or photo is visible, an object { x, y, w, h } in pixel coordinates of the screenshot you were shown. If no logo/photo is visible, null.
+- logoBox: if a company logo or person photo is visible, an object { x, y, w, h } in pixel coordinates of the image you were shown (where (0,0) is the top-left). Be GENEROUS with the bounding box — include a comfortable margin around the logo on every side so the edges aren't clipped. If multiple icons or images are visible, choose the most prominent / largest one (typically the main company logo or person photo, NOT small social-media icons). If no logo or photo is visible, null.
 
 If the screenshot doesn't appear to contain an email signature (e.g. it's a generic email body or unrelated content), return html: "", plaintext: "" and logoBox: null.`;
 
@@ -193,33 +193,42 @@ export function importResultMessage(result: Extract<ImportResult, { ok: false }>
   }
 }
 
-function isImplausibleBox(box: { x: number; y: number; w: number; h: number }, imgW: number, imgH: number): boolean {
-  if (box.w <= 0 || box.h <= 0) return true;
-  if (box.x < 0 || box.y < 0) return true;
-  if (box.x + box.w > imgW || box.y + box.h > imgH) return true;
-  if (box.w * box.h > 0.5 * imgW * imgH) return true;
-  return false;
-}
-
 async function cropLogo(
   resizedUri: string,
   imgW: number,
   imgH: number,
   box: { x: number; y: number; w: number; h: number },
 ): Promise<InlineImage | null> {
-  if (isImplausibleBox(box, imgW, imgH)) return null;
+  // Vision models are imprecise at exact pixel coordinates; add ~10%
+  // padding (min 6 px) on each side and clamp to the image so a slightly
+  // off bbox doesn't clip the logo's edges. Padding includes some
+  // surrounding whitespace from the source screenshot, which generally
+  // looks fine since signatures live on a paper-colored background.
+  const padX = Math.max(6, Math.round(box.w * 0.1));
+  const padY = Math.max(6, Math.round(box.h * 0.1));
+  const x = Math.max(0, Math.round(box.x - padX));
+  const y = Math.max(0, Math.round(box.y - padY));
+  const w = Math.min(imgW - x, Math.round(box.w + 2 * padX));
+  const h = Math.min(imgH - y, Math.round(box.h + 2 * padY));
+
+  // Sanity: reject pathological boxes (zero/negative dims, tiny noise,
+  // or a box that swallows most of the screenshot — almost always a
+  // hallucination).
+  if (w < 16 || h < 16) return null;
+  if (w * h > 0.7 * imgW * imgH) return null;
+
   try {
     const cropped = await manipulateAsync(
       resizedUri,
-      [{ crop: { originX: box.x, originY: box.y, width: box.w, height: box.h } }],
+      [{ crop: { originX: x, originY: y, width: w, height: h } }],
       { format: SaveFormat.PNG, base64: true },
     );
     if (!cropped.base64) return null;
     return {
       base64: cropped.base64,
       mimeType: 'image/png',
-      width: Math.round(box.w),
-      height: Math.round(box.h),
+      width: w,
+      height: h,
     };
   } catch {
     return null;
