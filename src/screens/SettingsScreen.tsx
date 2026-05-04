@@ -928,6 +928,15 @@ export function SettingsScreen({
               </Pressable>
             )}
 
+            {user?.email === 'albertfeldt1@gmail.com' && onOpenMicrosoftAdminConsent && (
+              <Pressable
+                onPress={() => onOpenMicrosoftAdminConsent('it@contoso.com')}
+                style={{ padding: 16, backgroundColor: '#333', borderRadius: 8, marginTop: 12 }}
+              >
+                <Text style={{ color: '#fff' }}>Test admin consent screen (dev)</Text>
+              </Pressable>
+            )}
+
             <AnimatedPressable
               layout={ROW_TRANSITION}
               style={styles.signOutRow}
