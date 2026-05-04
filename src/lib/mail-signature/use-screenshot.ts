@@ -80,7 +80,10 @@ export async function pickAndUseScreenshot(): Promise<UseScreenshotResult> {
     );
 
     const base64 = manipulated.base64 ?? '';
-    if (!base64) return { ok: false, reason: 'parse-failed' };
+    if (!base64) {
+      try { await FileSystem.deleteAsync(manipulated.uri, { idempotent: true }); } catch {}
+      return { ok: false, reason: 'parse-failed' };
+    }
     if (base64.length > MAX_BASE64_LEN) {
       try { await FileSystem.deleteAsync(manipulated.uri, { idempotent: true }); } catch {}
       return { ok: false, reason: 'too-large' };
