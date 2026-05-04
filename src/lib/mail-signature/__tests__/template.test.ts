@@ -1,8 +1,9 @@
 // src/lib/mail-signature/__tests__/template.test.ts
 import { renderSignature, escapeWithBrBreaks, bodyToParagraphs } from '../template';
-import { EMPTY_SIGNATURE, SignatureData } from '../types';
+import { EMPTY_SIGNATURE, StructuredSignature } from '../types';
 
-const fullData: SignatureData = {
+const fullData: StructuredSignature = {
+  kind: 'structured',
   name: 'Albert Hangaard',
   title: 'CEO',
   company: 'Zolva',

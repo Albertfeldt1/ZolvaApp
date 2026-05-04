@@ -83,3 +83,57 @@ describe('buildOutgoingBody', () => {
     expect(out.content).toContain('<p>para1</p><p>para2</p>');
   });
 });
+
+describe('buildOutgoingBody — imported signatures', () => {
+  beforeEach(async () => {
+    await (AsyncStorage as any).clear();
+    __resetForTests();
+    __setCurrentUserForTests('user-1');
+  });
+
+  it('returns html with the imported signature appended and logo as attachment', async () => {
+    const imported = {
+      kind: 'imported' as const,
+      html: '<table><tr><td>Hi</td></tr></table>',
+      plaintext: 'Hi',
+      image: { base64: 'AAAA', mimeType: 'image/png' as const, width: 100, height: 50 },
+      importedAt: 1700000000000,
+    };
+    await saveSignature('user-1', imported);
+    const out = await buildOutgoingBody('Hello world');
+    expect(out.contentType).toBe('html');
+    expect(out.content).toContain('<table>');
+    expect(out.content).toContain('Hi');
+    expect(out.attachments).toHaveLength(1);
+    expect(out.attachments[0].contentId).toBe('zolva-sig');
+    expect(out.attachments[0].mimeType).toBe('image/png');
+  });
+
+  it('returns html with no attachments when imported signature has no logo', async () => {
+    const imported = {
+      kind: 'imported' as const,
+      html: '<table><tr><td>Hi</td></tr></table>',
+      plaintext: 'Hi',
+      image: null,
+      importedAt: 1700000000000,
+    };
+    await saveSignature('user-1', imported);
+    const out = await buildOutgoingBody('Hello');
+    expect(out.contentType).toBe('html');
+    expect(out.attachments).toHaveLength(0);
+  });
+
+  it('returns text when imported signature has empty html and no image', async () => {
+    const imported = {
+      kind: 'imported' as const,
+      html: '',
+      plaintext: '',
+      image: null,
+      importedAt: 1700000000000,
+    };
+    await saveSignature('user-1', imported);
+    const out = await buildOutgoingBody('Hello');
+    expect(out.contentType).toBe('text');
+    expect(out.attachments).toHaveLength(0);
+  });
+});

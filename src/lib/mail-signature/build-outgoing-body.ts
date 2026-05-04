@@ -1,13 +1,12 @@
 // src/lib/mail-signature/build-outgoing-body.ts
 //
-// Provider-agnostic body+attachments builder. Outlook calls this from
-// microsoft-graph.ts; iCloud SMTP will call it when that path is built.
-// Returns the contentType, the assembled content (text or html), and the
-// list of inline attachments to include in the outgoing message.
+// Provider-agnostic body+attachments builder. Branches on signature.kind:
+// 'structured' goes through the existing template.ts pipeline, 'imported'
+// uses the pre-sanitized html directly.
 
 import { loadSignature } from './storage';
-import { bodyToParagraphs, renderSignature } from './template';
-import type { InlineAttachmentSpec } from './types';
+import { bodyToParagraphs, renderImported, renderSignature } from './template';
+import type { InlineAttachmentSpec, RenderedSignature } from './types';
 
 export type OutgoingBody = {
   contentType: 'text' | 'html';
@@ -17,7 +16,10 @@ export type OutgoingBody = {
 
 export async function buildOutgoingBody(rawBody: string): Promise<OutgoingBody> {
   const data = await loadSignature();
-  const rendered = data ? renderSignature(data) : null;
+  let rendered: RenderedSignature | null = null;
+  if (data) {
+    rendered = data.kind === 'imported' ? renderImported(data) : renderSignature(data);
+  }
 
   if (!rendered) {
     return { contentType: 'text', content: rawBody, attachments: [] };

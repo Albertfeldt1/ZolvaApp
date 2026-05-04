@@ -7,7 +7,7 @@
 // Word's HTML rendering engine, which mishandles flexbox/grid. Inline
 // styles only — Gmail strips <style> blocks.
 
-import type { RenderedSignature, SignatureData } from './types';
+import type { ImportedSignature, RenderedSignature, StructuredSignature } from './types';
 
 export function escapeHtml(s: string): string {
   return s
@@ -32,7 +32,7 @@ export function bodyToParagraphs(s: string): string {
   return paragraphs.map((p) => `<p>${p.replaceAll('\n', '<br>')}</p>`).join('');
 }
 
-function renderPlaintext(data: SignatureData): string {
+function renderPlaintext(data: StructuredSignature): string {
   const lines: string[] = [];
   const headerParts: string[] = [];
   if (data.name) headerParts.push(data.name);
@@ -48,7 +48,7 @@ function renderPlaintext(data: SignatureData): string {
   return lines.join('\n');
 }
 
-export function renderSignature(data: SignatureData): RenderedSignature | null {
+export function renderSignature(data: StructuredSignature): RenderedSignature | null {
   const lines: string[] = [];
   const headerParts: string[] = [];
 
@@ -89,6 +89,17 @@ export function renderSignature(data: SignatureData): RenderedSignature | null {
     plaintext: renderPlaintext(data),
     image: data.logo
       ? { contentId: 'zolva-sig', bytes: data.logo.base64, mimeType: data.logo.mimeType }
+      : null,
+  };
+}
+
+export function renderImported(sig: ImportedSignature): RenderedSignature | null {
+  if (!sig.html.trim() && !sig.image) return null;
+  return {
+    html: sig.html,
+    plaintext: sig.plaintext,
+    image: sig.image
+      ? { contentId: 'zolva-sig', bytes: sig.image.base64, mimeType: sig.image.mimeType }
       : null,
   };
 }
