@@ -353,8 +353,8 @@ function BrandIcon({ type, size = 36 }: { type: SocialType; size?: number }) {
 }
 
 // Radial petal — fans outward from the wheel center on bloom-in.
-const WHEEL_RADIUS = 118;
-const WHEEL_PETAL_BOX = 84;
+const WHEEL_RADIUS = 138;
+const WHEEL_PETAL_BOX = 78;
 
 function WheelPetal(props: {
   type: SocialType;
@@ -396,7 +396,7 @@ function WheelPetal(props: {
       accessibilityLabel={meta.label}
     >
       <View style={selected ? styles.sigWheelPetalIconRingSelected : styles.sigWheelPetalIconRing}>
-        <BrandIcon type={type} size={50} />
+        <BrandIcon type={type} size={44} />
       </View>
       <Text style={styles.sigWheelPetalLabel} numberOfLines={1}>{meta.label}</Text>
     </AnimatedPressable>
@@ -2504,22 +2504,22 @@ const styles = StyleSheet.create({
   },
   sigWheelPetal: {
     position: 'absolute',
-    left: -42,  // -WHEEL_PETAL_BOX/2
-    top: -42,
-    width: 84,
-    height: 84,
+    left: -39,  // -WHEEL_PETAL_BOX/2
+    top: -39,
+    width: 78,
+    height: 78,
     alignItems: 'center',
     justifyContent: 'flex-start',
   },
   sigWheelPetalIconRing: {
-    padding: 3,
-    borderRadius: 30,
+    padding: 2,
+    borderRadius: 26,
     borderWidth: 2,
     borderColor: 'transparent',
   },
   sigWheelPetalIconRingSelected: {
-    padding: 3,
-    borderRadius: 30,
+    padding: 2,
+    borderRadius: 26,
     borderWidth: 2,
     borderColor: '#ffffff',
     shadowColor: '#fff',
