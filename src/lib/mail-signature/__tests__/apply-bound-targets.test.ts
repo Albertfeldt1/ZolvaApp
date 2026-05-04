@@ -142,6 +142,22 @@ describe('applyBoundTargets', () => {
     expect(result.unbound).toEqual([link]);
   });
 
+  it('bound image inside an existing <a>…</a> → REPLACES the existing href (Claude often wraps logos with an invented company URL)', () => {
+    const html = '<p><a href="http://invented.example">' +
+      '<img src="cid:zolva-sig" alt="logo">' +
+      '</a></p>';
+    const link: SocialLink = {
+      type: 'website',
+      url: 'https://example.com',
+      target: { kind: 'image', src: 'cid:zolva-sig' },
+    };
+    const result = applyBoundTargets({ html, socials: [link] });
+    expect(result.html).not.toContain('http://invented.example');
+    expect(result.html).toContain('href="https://example.com"');
+    expect(result.html).toContain('<img src="cid:zolva-sig" alt="logo">');
+    expect(result.unbound).toEqual([]);
+  });
+
   // ── Mixed bound + unbound ──────────────────────────────────────────────────
 
   it('mixed bound + unbound → html has binding applied, unbound = unbound + failed targets', () => {

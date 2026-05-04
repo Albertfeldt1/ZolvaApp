@@ -181,26 +181,43 @@ function wrapWord(
 }
 
 /**
- * Attempt to wrap the first <img> whose src matches `src` in `html` with an
- * <a> tag. Returns the new html string on success, or null.
+ * Attempt to wrap (or rewrite) the first <img> whose src matches `src` in
+ * `html` with an <a> tag. If the image is inside an existing <a>...</a>
+ * (Claude often wraps logos with an invented company-website href), the
+ * surrounding anchor's opening tag is replaced — same intent-override rule
+ * as wrapWord. Returns the new html string on success, or null when the
+ * image isn't present.
  */
 function wrapImage(
   html: string,
   src: string,
   href: string,
 ): string | null {
-  // Find first <img ...> whose src attribute matches exactly `src`.
   const imgRe = /<img\b[^>]*>/gi;
+  const aRanges = anchorRanges(html);
   let m: RegExpExecArray | null;
   while ((m = imgRe.exec(html)) !== null) {
     const imgTag = m[0];
     const imgSrc = getAttr(imgTag, 'src');
     if (imgSrc !== src) continue;
-    // Found -- check it's not already wrapped inside an <a>
     const idx = m.index;
-    const aRanges = anchorRanges(html);
-    if (insideAnyRange(idx, aRanges)) continue;
-    // Wrap it
+    let inAnchor: [number, number] | null = null;
+    for (const range of aRanges) {
+      if (idx >= range[0] && idx < range[1]) {
+        inAnchor = range;
+        break;
+      }
+    }
+    if (inAnchor) {
+      // Replace the existing <a ...> opening tag — Claude's invented href
+      // is overridden by the user's bound URL.
+      const [aStart] = inAnchor;
+      const openTagEnd = html.indexOf('>', aStart) + 1;
+      if (openTagEnd <= 0) return null;
+      const newOpenTag = `<a href="${escapeAttr(href)}">`;
+      return html.slice(0, aStart) + newOpenTag + html.slice(openTagEnd);
+    }
+    // Not inside any anchor — wrap the <img> with a fresh <a>.
     const wrapped = `<a href="${escapeAttr(href)}">${imgTag}</a>`;
     return html.slice(0, idx) + wrapped + html.slice(idx + imgTag.length);
   }
