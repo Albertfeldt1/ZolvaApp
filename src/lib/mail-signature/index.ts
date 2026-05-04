@@ -6,13 +6,14 @@
 export type {
   SignatureData,
   StructuredSignature,
+  ImportedSignature,
   InlineImage,
   RenderedSignature,
   InlineAttachmentSpec,
 } from './types';
 export { EMPTY_SIGNATURE } from './types';
 export { loadSignature, saveSignature, subscribeSignature } from './storage';
-export { renderSignature } from './template';
+export { renderSignature, renderImported } from './template';
 export { buildOutgoingBody } from './build-outgoing-body';
 export type { OutgoingBody } from './build-outgoing-body';
 export { pickAndCompressLogo, pickResultMessage } from './image';
@@ -22,3 +23,4 @@ export {
   importResultMessage,
 } from './import-from-screenshot';
 export type { ImportResult } from './import-from-screenshot';
+export { sanitizeSignatureHtml } from './sanitize';
