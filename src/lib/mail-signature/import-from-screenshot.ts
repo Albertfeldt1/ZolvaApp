@@ -220,6 +220,47 @@ async function cropLogo(
   }
 }
 
+// Strip icon stand-in elements that Claude reproduces as squeezed colored
+// shapes (e.g. blue oval with "f" for Facebook, black circle with "X").
+// Heuristic: any styled <a|td|div|span> whose visible text content (after
+// stripping nested tags) is 1-2 chars AND has a colored background. Those
+// are almost always Claude's failed icon reproductions — the actual social
+// links are rendered separately in the appended socials row, so dropping
+// these icon-attempts cleans up the imported signature.
+//
+// `getAttr` is duplicated locally to avoid importing from apply-bound-targets
+// (which depends on template.ts and triggers a heavier graph).
+export function stripIconStandIns(html: string): string {
+  const re = /<(a|td|div|span)\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi;
+  return html.replace(re, (match, _tag, attrs: string, inner: string) => {
+    const text = inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (text.length === 0 || text.length > 2) return match;
+    if (!hasColoredBackground(attrs)) return match;
+    return '';
+  });
+}
+
+function hasColoredBackground(attrs: string): boolean {
+  const styleMatch = attrs.match(/\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i);
+  const styleVal = styleMatch ? (styleMatch[1] ?? styleMatch[2] ?? styleMatch[3] ?? '') : '';
+  if (styleVal) {
+    const bgMatch = styleVal.match(/background(?:-color)?\s*:\s*([^;]+)/i);
+    if (bgMatch) {
+      const v = bgMatch[1].trim();
+      if (v && !/^(transparent|none|inherit|initial|unset)$/i.test(v)
+            && !/^(#fff(fff)?|white|rgb\(\s*255\s*,\s*255\s*,\s*255\s*\))$/i.test(v)) {
+        return true;
+      }
+    }
+  }
+  const bgcolorMatch = attrs.match(/\bbgcolor\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i);
+  const bgcolorVal = bgcolorMatch ? (bgcolorMatch[1] ?? bgcolorMatch[2] ?? bgcolorMatch[3] ?? '') : '';
+  if (bgcolorVal && !/^(transparent|#fff(fff)?|white)$/i.test(bgcolorVal)) {
+    return true;
+  }
+  return false;
+}
+
 export async function pickAndImportSignature(): Promise<ImportResult> {
   const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (!perm.granted) return { ok: false, reason: 'permission-denied' };
@@ -292,7 +333,8 @@ export async function pickAndImportSignature(): Promise<ImportResult> {
   }
 
   const sanitized = sanitizeSignatureHtml(parsed.value.html);
-  if (!sanitized) {
+  const cleaned = stripIconStandIns(sanitized);
+  if (!cleaned) {
     try { await FileSystem.deleteAsync(resizedUri, { idempotent: true }); } catch {}
     return { ok: false, reason: 'no-data' };
   }
@@ -306,7 +348,7 @@ export async function pickAndImportSignature(): Promise<ImportResult> {
 
   const data: ImportedSignature = {
     kind: 'imported',
-    html: sanitized,
+    html: cleaned,
     plaintext: parsed.value.plaintext,
     image,
     importedAt: Date.now(),

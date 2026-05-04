@@ -28,6 +28,7 @@ import {
   parseImportToolUse,
   mapClaudeError,
   importResultMessage,
+  stripIconStandIns,
 } from '../import-from-screenshot';
 import { ClaudeRateLimitError, ClaudeConfigError } from '../../claude';
 
@@ -153,5 +154,49 @@ describe('importResultMessage', () => {
     expect(importResultMessage({ ok: false, reason: 'network' })).toContain('forbindelse');
     expect(importResultMessage({ ok: false, reason: 'rate-limit' })).toContain('forsøg');
     expect(importResultMessage({ ok: false, reason: 'unauthorized' })).toContain('Log ind');
+  });
+});
+
+describe('stripIconStandIns', () => {
+  it('removes 1-2 char styled <a> elements (squeezed icon stand-ins)', () => {
+    const html = '<p>Hello</p><a style="background:#1877f2;padding:6px;color:#fff">f</a>';
+    const out = stripIconStandIns(html);
+    expect(out).not.toContain('background:#1877f2');
+    expect(out).not.toContain('>f<');
+    expect(out).toContain('Hello');
+  });
+
+  it('removes 1-2 char styled <td> with bgcolor', () => {
+    const html = '<table><tr><td bgcolor="#000">X</td></tr></table>';
+    const out = stripIconStandIns(html);
+    expect(out).not.toContain('X</td>');
+  });
+
+  it('removes <span style="background:..."> with single-char content', () => {
+    const html = 'before <span style="background:red">▶</span> after';
+    const out = stripIconStandIns(html);
+    expect(out).not.toContain('▶');
+    expect(out).toContain('before');
+    expect(out).toContain('after');
+  });
+
+  it('keeps elements without a colored background even when text is short', () => {
+    const html = '<p>X</p><span>Y</span>';
+    const out = stripIconStandIns(html);
+    expect(out).toContain('<p>X</p>');
+    expect(out).toContain('<span>Y</span>');
+  });
+
+  it('keeps styled elements with longer text content', () => {
+    const html = '<a style="background:#1877f2">Find me on Facebook</a>';
+    const out = stripIconStandIns(html);
+    expect(out).toContain('Find me on Facebook');
+  });
+
+  it('treats white / transparent backgrounds as no background', () => {
+    const html = '<a style="background:white">f</a><div style="background:transparent">X</div>';
+    const out = stripIconStandIns(html);
+    expect(out).toContain('>f</a>');
+    expect(out).toContain('>X</div>');
   });
 });
