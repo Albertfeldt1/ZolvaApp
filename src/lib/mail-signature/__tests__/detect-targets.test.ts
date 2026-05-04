@@ -249,6 +249,39 @@ describe('detectImportedTargets — button detection', () => {
     const result = detectImportedTargets(html);
     expect(result.buttons).toEqual([{ text: 'Click me', bgColor: '#000' }]);
   });
+
+  it('detects <td> cells with colored backgrounds (Outlook-style table buttons)', () => {
+    const html =
+      '<table><tr><td style="background:#1877f2;padding:10px"><a href="#">Find me on Facebook</a></td></tr></table>';
+    const result = detectImportedTargets(html);
+    expect(result.buttons).toContainEqual({ text: 'Find me on Facebook', bgColor: '#1877f2' });
+  });
+
+  it('detects <td> via legacy bgcolor attribute', () => {
+    const html = '<table><tr><td bgcolor="#1877f2">Click here</td></tr></table>';
+    const result = detectImportedTargets(html);
+    expect(result.buttons).toContainEqual({ text: 'Click here', bgColor: '#1877f2' });
+  });
+
+  it('detects <div> with a colored background as a button', () => {
+    const html = '<div style="background:#0a66c2;padding:10px;color:#fff">In Lets connect</div>';
+    const result = detectImportedTargets(html);
+    expect(result.buttons).toContainEqual({ text: 'In Lets connect', bgColor: '#0a66c2' });
+  });
+
+  it('rejects elements with text longer than 80 chars (probably containers, not buttons)', () => {
+    const longText = 'a'.repeat(120);
+    const html = `<div style="background:#000">${longText}</div>`;
+    const result = detectImportedTargets(html);
+    expect(result.buttons).toEqual([]);
+  });
+
+  it('skips single-char button candidates (those live in glyphs already)', () => {
+    const html = '<span style="background:#1877f2">f</span>';
+    const result = detectImportedTargets(html);
+    expect(result.buttons).toEqual([]);
+    expect(result.glyphs).toContain('f');
+  });
 });
 
 describe('detectImportedTargets — combined HTML', () => {

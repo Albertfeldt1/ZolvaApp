@@ -194,29 +194,52 @@ export function detectImportedTargets(html: unknown): DetectedTargets {
   words.sort((a, b) => b.length - a.length);
   glyphs.sort((a, b) => b.length - a.length);
 
-  // ── Pass 4: detect styled-button anchors ─────────────────────────────────
-  // Any <a ...style="...background[:-color]:...colored...">...text...</a>
-  // is treated as a CTA button candidate. Used by the picker to render a
-  // dedicated "KNAPPER" section so users can bind the whole button.
+  // ── Pass 4: detect styled-button elements ────────────────────────────────
+  // Buttons in email-signature HTML take a few shapes:
+  //   • <a style="background:#...;padding:...">Find me on Facebook</a>
+  //   • <td bgcolor="#1877f2"><a>Find me on Facebook</a></td>
+  //   • <div style="background:#...">…</div>
+  //   • <span style="background:#...">f</span>
+  // We accept any of those: walk a-, td-, div-, span-, p-tag pairs and
+  // capture each whose attributes carry a colored background (style or
+  // legacy bgcolor attr). Length-cap the captured text so we don't pull
+  // in the entire signature when an outer container has a faint background.
   const buttons: { text: string; bgColor: string }[] = [];
   const seenBtnText = new Set<string>();
-  const aRe = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
-  for (const am of html.matchAll(aRe)) {
-    const attrs = am[1];
-    const inner = am[2];
+  const buttonRe = /<(a|td|div|span|p)\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi;
+  for (const bm of html.matchAll(buttonRe)) {
+    const attrs = bm[2];
+    const inner = bm[3];
+
+    // Find a colored background — either via inline style or the legacy
+    // bgcolor attribute (Outlook-style <td bgcolor="#...">).
+    let bgValue = '';
     const styleAttr = getAttr(attrs, 'style');
-    if (!styleAttr) continue;
-    const bgMatch = styleAttr.match(/background(?:-color)?\s*:\s*([^;]+)/i);
-    if (!bgMatch) continue;
-    const bgValue = bgMatch[1].trim();
-    // Reject transparent / pure-white / "none" so we don't pick up
-    // every <a> that has a no-op background reset.
+    if (styleAttr) {
+      const bgMatch = styleAttr.match(/background(?:-color)?\s*:\s*([^;]+)/i);
+      if (bgMatch) bgValue = bgMatch[1].trim();
+    }
+    if (!bgValue) {
+      const bgcolorAttr = getAttr(attrs, 'bgcolor');
+      if (bgcolorAttr) bgValue = bgcolorAttr.trim();
+    }
     if (!bgValue) continue;
+
+    // Reject transparent / pure-white / "none" — these are no-op resets,
+    // not button backgrounds.
     if (/^(transparent|none|inherit|initial|unset)$/i.test(bgValue)) continue;
     if (/^(#fff(fff)?|white|rgb\(\s*255\s*,\s*255\s*,\s*255\s*\)|rgba\(\s*255\s*,\s*255\s*,\s*255\s*,\s*1?\.?0*\s*\))$/i.test(bgValue)) continue;
+
     // Extract button text (strip nested tags, normalize whitespace).
     const text = inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     if (!text) continue;
+    // Single-char tokens already live in the GLYPHS section — skip here so
+    // they don't appear twice.
+    if (text.length < 2) continue;
+    // Reject runs longer than 80 chars: those are usually entire signature
+    // containers with a faint background, not actual buttons.
+    if (text.length > 80) continue;
+
     const lower = text.toLowerCase();
     if (seenBtnText.has(lower)) continue;
     seenBtnText.add(lower);
