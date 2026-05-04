@@ -19,7 +19,15 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
+  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
+  | {
+      type: 'image';
+      source: {
+        type: 'base64';
+        media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+        data: string;
+      };
+    };
 
 type Message = {
   role: 'user' | 'assistant';

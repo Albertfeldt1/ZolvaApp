@@ -1,8 +1,9 @@
 // src/lib/mail-signature/__tests__/template.test.ts
-import { renderSignature, escapeWithBrBreaks, bodyToParagraphs } from '../template';
-import { EMPTY_SIGNATURE, SignatureData } from '../types';
+import { renderSignature, escapeWithBrBreaks, bodyToParagraphs, renderSocials } from '../template';
+import { EMPTY_SIGNATURE, StructuredSignature } from '../types';
 
-const fullData: SignatureData = {
+const fullData: StructuredSignature = {
+  kind: 'structured',
   name: 'Albert Hangaard',
   title: 'CEO',
   company: 'Zolva',
@@ -11,6 +12,7 @@ const fullData: SignatureData = {
   website: 'zolva.io',
   customLines: 'CVR 12345678\nFortroligt',
   logo: { base64: 'AAAA', mimeType: 'image/png', width: 120, height: 40 },
+  socials: [],
 };
 
 describe('renderSignature', () => {
@@ -105,5 +107,169 @@ describe('bodyToParagraphs', () => {
 
   it('returns empty paragraph for empty input', () => {
     expect(bodyToParagraphs('')).toBe('<p></p>');
+  });
+});
+
+describe('renderSocials', () => {
+  it('returns empty string for empty array', () => {
+    expect(renderSocials([])).toBe('');
+  });
+
+  it('renders one social as a single link', () => {
+    const out = renderSocials([
+      { type: 'linkedin', url: 'https://linkedin.com/in/albert' },
+    ]);
+    expect(out).toContain('LinkedIn');
+    expect(out).toContain('href="https://linkedin.com/in/albert"');
+    expect(out).toContain('<div');
+    expect(out).toContain('</div>');
+    // Each social is rendered as a tinted-background pill (display:inline-block)
+    expect(out).toContain('display:inline-block');
+    expect(out).toContain('border-radius:14px');
+  });
+
+  it('renders multiple socials as separate pills (no text separator)', () => {
+    const out = renderSocials([
+      { type: 'linkedin', url: 'https://linkedin.com/in/albert' },
+      { type: 'github', url: 'https://github.com/albert' },
+    ]);
+    expect(out).toContain('LinkedIn');
+    expect(out).toContain('GitHub');
+    // Two anchor pills, no middot separator span between them
+    const anchorMatches = out.match(/<a /g) ?? [];
+    expect(anchorMatches.length).toBe(2);
+    expect(out).not.toContain(' · ');
+  });
+
+  it('uses label when type is "other" and label is set', () => {
+    const out = renderSocials([
+      { type: 'other', url: 'https://bsky.app/profile/albert', label: 'Bluesky' },
+    ]);
+    expect(out).toContain('Bluesky');
+  });
+
+  it('falls back to URL host when type is "other" and no label', () => {
+    const out = renderSocials([
+      { type: 'other', url: 'https://bsky.app/profile/albert' },
+    ]);
+    expect(out).toContain('bsky.app');
+  });
+
+  it('skips items with empty URL', () => {
+    const out = renderSocials([
+      { type: 'linkedin', url: '' },
+      { type: 'github', url: 'https://github.com/albert' },
+    ]);
+    expect(out).not.toContain('LinkedIn');
+    expect(out).toContain('GitHub');
+  });
+
+  it('escapes HTML in URLs and labels', () => {
+    const out = renderSocials([
+      { type: 'other', url: 'https://x.com/<script>', label: '<b>Evil</b>' },
+    ]);
+    expect(out).not.toContain('<script>');
+    expect(out).not.toContain('<b>Evil</b>');
+    expect(out).toContain('&lt;script&gt;');
+    expect(out).toContain('&lt;b&gt;Evil&lt;/b&gt;');
+  });
+
+  it('returns empty string when all items have empty URLs', () => {
+    const out = renderSocials([
+      { type: 'linkedin', url: '' },
+      { type: 'twitter', url: '   ' },
+    ]);
+    expect(out).toBe('');
+  });
+
+  it('prepends https:// to URLs that omit a scheme', () => {
+    const out = renderSocials([
+      { type: 'linkedin', url: 'linkedin.com/in/albert' },
+    ]);
+    expect(out).toContain('href="https://linkedin.com/in/albert"');
+    expect(out).not.toContain('href="linkedin.com/in/albert"');
+  });
+
+  it('preserves existing https/http schemes', () => {
+    const httpsOut = renderSocials([
+      { type: 'github', url: 'https://github.com/albert' },
+    ]);
+    expect(httpsOut).toContain('href="https://github.com/albert"');
+
+    const httpOut = renderSocials([
+      { type: 'github', url: 'http://github.com/albert' },
+    ]);
+    expect(httpOut).toContain('href="http://github.com/albert"');
+    expect(httpOut).not.toContain('href="https://http://');
+  });
+
+  it('trims whitespace before normalizing', () => {
+    const out = renderSocials([
+      { type: 'website', url: '  zolva.io  ' },
+    ]);
+    expect(out).toContain('href="https://zolva.io"');
+  });
+});
+
+describe('escapeWithLinksAndBrs (inline markdown links in customLines)', () => {
+  // Imported via the same module path as renderSocials; the existing import
+  // line above pulls it from '../template'. Re-import to keep this block
+  // self-contained.
+  const { escapeWithLinksAndBrs } = require('../template') as {
+    escapeWithLinksAndBrs: (s: string) => string;
+  };
+
+  it('converts [text](url) to an anchor with normalized https', () => {
+    const out = escapeWithLinksAndBrs('Læs vores [privatlivspolitik her](zolva.io/privacy)');
+    expect(out).toContain('<a href="https://zolva.io/privacy">privatlivspolitik her</a>');
+    expect(out).toContain('Læs vores ');
+  });
+
+  it('preserves explicit https/http/mailto/tel schemes', () => {
+    expect(escapeWithLinksAndBrs('[a](https://x.com)')).toContain('href="https://x.com"');
+    expect(escapeWithLinksAndBrs('[a](http://x.com)')).toContain('href="http://x.com"');
+    expect(escapeWithLinksAndBrs('[mail](mailto:a@b.dk)')).toContain('href="mailto:a@b.dk"');
+    expect(escapeWithLinksAndBrs('[ring](tel:+4512345678)')).toContain('href="tel:+4512345678"');
+  });
+
+  it('rejects javascript: and other unsafe schemes — keeps raw markdown as escaped text', () => {
+    const out = escapeWithLinksAndBrs('[evil](javascript:alert(1))');
+    expect(out).not.toContain('<a ');
+    expect(out).not.toMatch(/href=/);
+    // The literal string is rendered as escaped text — harmless in body
+    // copy, only dangerous if it landed in an href (which it doesn't).
+    expect(out).toContain('[evil]');
+  });
+
+  it('handles multiple links in one string', () => {
+    const out = escapeWithLinksAndBrs('Se [siden](zolva.io) eller [policy](zolva.io/p)');
+    expect(out).toMatch(/<a href="https:\/\/zolva\.io">siden<\/a>/);
+    expect(out).toMatch(/<a href="https:\/\/zolva\.io\/p">policy<\/a>/);
+  });
+
+  it('escapes HTML in the link text and URL', () => {
+    const out = escapeWithLinksAndBrs('[<script>](https://x.com/<evil>)');
+    expect(out).not.toContain('<script>');
+    expect(out).toContain('&lt;script&gt;');
+    expect(out).toContain('&lt;evil&gt;');
+  });
+
+  it('escapes plain text outside of links and converts \\n to <br>', () => {
+    const out = escapeWithLinksAndBrs('Linje 1\n[link](zolva.io)\n<br>tag');
+    expect(out).toContain('Linje 1<br>');
+    expect(out).toContain('<a href="https://zolva.io">link</a>');
+    expect(out).toContain('&lt;br&gt;tag');
+  });
+
+  it('passes through plain text untouched (other than escaping + br)', () => {
+    expect(escapeWithLinksAndBrs('hello\nworld')).toBe('hello<br>world');
+  });
+
+  it('does not link a markdown-like fragment with a missing url part', () => {
+    const out = escapeWithLinksAndBrs('see [here]() for details');
+    expect(out).not.toContain('<a ');
+    // Empty () still matches the regex but normalizeHrefForBody returns ''
+    // so the source markdown is rendered as escaped text.
+    expect(out).toContain('[here]()');
   });
 });

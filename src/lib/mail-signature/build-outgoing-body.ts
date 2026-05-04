@@ -1,13 +1,13 @@
 // src/lib/mail-signature/build-outgoing-body.ts
 //
-// Provider-agnostic body+attachments builder. Outlook calls this from
-// microsoft-graph.ts; iCloud SMTP will call it when that path is built.
-// Returns the contentType, the assembled content (text or html), and the
-// list of inline attachments to include in the outgoing message.
+// Provider-agnostic body+attachments builder. Branches on signature.kind:
+// 'structured' goes through the existing template.ts pipeline, 'imported'
+// uses the pre-sanitized html directly.
 
+import { applyBoundTargets } from './apply-bound-targets';
 import { loadSignature } from './storage';
-import { bodyToParagraphs, renderSignature } from './template';
-import type { InlineAttachmentSpec } from './types';
+import { bodyToParagraphs, renderImported, renderSignature, renderSocials } from './template';
+import type { InlineAttachmentSpec, RenderedSignature, SocialLink } from './types';
 
 export type OutgoingBody = {
   contentType: 'text' | 'html';
@@ -17,14 +17,32 @@ export type OutgoingBody = {
 
 export async function buildOutgoingBody(rawBody: string): Promise<OutgoingBody> {
   const data = await loadSignature();
-  const rendered = data ? renderSignature(data) : null;
+  let rendered: RenderedSignature | null = null;
+  if (data) {
+    rendered = data.kind === 'imported' ? renderImported(data) : renderSignature(data);
+  }
 
   if (!rendered) {
     return { contentType: 'text', content: rawBody, attachments: [] };
   }
 
+  // data is guaranteed non-null here: rendered is only set when data is truthy.
+  const sigData = data!;
+  let signatureHtml: string;
+  let socialsForRow: SocialLink[];
+  if (sigData.kind === 'imported') {
+    const applied = applyBoundTargets({ html: rendered.html, socials: sigData.socials });
+    signatureHtml = applied.html;
+    socialsForRow = applied.unbound;
+  } else {
+    // structured: target is ignored — socials always render as separate pills
+    signatureHtml = rendered.html;
+    socialsForRow = sigData.socials;
+  }
+  const fullSignatureHtml = signatureHtml + renderSocials(socialsForRow);
+
   const bodyHtml = bodyToParagraphs(rawBody);
-  const content = `${bodyHtml}${rendered.html}`;
+  const content = `${bodyHtml}${fullSignatureHtml}`;
 
   const attachments: InlineAttachmentSpec[] = rendered.image
     ? [{

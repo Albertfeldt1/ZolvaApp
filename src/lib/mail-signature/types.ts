@@ -1,27 +1,64 @@
 // src/lib/mail-signature/types.ts
 //
-// Data shapes for the rich mail signature feature. SignatureData is the
-// form state persisted to AsyncStorage. RenderedSignature is what the
-// pure renderSignature() returns — html + plaintext + optional inline
-// image. InlineAttachmentSpec is the wire-format the provider-agnostic
-// build-outgoing-body helper hands to send paths (Outlook today, iCloud
-// SMTP later).
+// Data shapes for the rich mail signature feature.
+//
+// SignatureData is a discriminated union of two modes:
+//   - 'structured' — name/title/company/etc. + optional logo (the original
+//     rich-mail-signature feature). Renders via template.ts.
+//   - 'imported'   — sanitized Outlook-safe HTML + plaintext + optional
+//     cropped logo, produced by the screenshot-import flow. Renders by
+//     using its `html` directly.
+//
+// The `kind` field tags each entry. Migration on read defaults legacy
+// entries (no `kind` field) to 'structured' — see storage.ts.
 
-export type SignatureData = {
+export type SocialType =
+  | 'linkedin' | 'twitter' | 'instagram' | 'facebook'
+  | 'tiktok' | 'youtube' | 'github' | 'website' | 'other';
+
+export type SocialLink = {
+  type: SocialType;
+  url: string;
+  label?: string;          // optional override, used when type === 'other' (else falls back to URL host).
+  target?: LinkTarget;     // when set (imported mode), the URL wraps the named element in the imported html instead of rendering as a separate row.
+};
+
+// In imported-mode signatures, a SocialLink may bind its URL to an existing
+// element in the imported html — e.g. wrap the word "her" or wrap the
+// already-cropped logo image. When unset, the link renders as a standalone
+// pill in the socials row alongside the signature.
+export type LinkTarget =
+  | { kind: 'word'; text: string }
+  | { kind: 'image'; src: string };
+
+export type StructuredSignature = {
+  kind: 'structured';
   name: string;
   title: string;
   company: string;
   phone: string;
   email: string;
   website: string;
-  customLines: string;          // multiline freeform; also receives migrated plaintext
+  customLines: string;
   logo: InlineImage | null;
+  socials: SocialLink[];
 };
 
+export type ImportedSignature = {
+  kind: 'imported';
+  html: string;
+  plaintext: string;
+  image: InlineImage | null;
+  importedAt: number;
+  socials: SocialLink[];
+};
+
+export type SignatureData = StructuredSignature | ImportedSignature;
+
 export type InlineImage = {
-  base64: string;               // raw base64, no data URI prefix
+  base64: string;
   mimeType: 'image/png' | 'image/jpeg';
-  width: number;                // pixels — used for the <img> attribute, not for further compression
+  width: number;
   height: number;
 };
 
@@ -32,13 +69,14 @@ export type RenderedSignature = {
 };
 
 export type InlineAttachmentSpec = {
-  filename: string;             // 'signature.png' | 'signature.jpg'
+  filename: string;
   mimeType: string;
-  contentBytes: string;         // base64
-  contentId: string;            // matches the cid: in the HTML
+  contentBytes: string;
+  contentId: string;
 };
 
-export const EMPTY_SIGNATURE: SignatureData = {
+export const EMPTY_SIGNATURE: StructuredSignature = {
+  kind: 'structured',
   name: '',
   title: '',
   company: '',
@@ -47,4 +85,5 @@ export const EMPTY_SIGNATURE: SignatureData = {
   website: '',
   customLines: '',
   logo: null,
+  socials: [],
 };

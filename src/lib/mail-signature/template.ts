@@ -7,7 +7,7 @@
 // Word's HTML rendering engine, which mishandles flexbox/grid. Inline
 // styles only — Gmail strips <style> blocks.
 
-import type { RenderedSignature, SignatureData } from './types';
+import type { ImportedSignature, RenderedSignature, StructuredSignature, SocialLink, SocialType } from './types';
 
 export function escapeHtml(s: string): string {
   return s
@@ -24,6 +24,56 @@ export function escapeWithBrBreaks(s: string): string {
   return escapeHtml(s).replaceAll('\n', '<br>');
 }
 
+// Markdown-style inline link: [text](url). Greedy on text, lazy on url so
+// trailing punctuation outside the parens isn't gobbled. Captures (text, url).
+const INLINE_LINK_RE = /\[([^\]\n]+)\]\(([^)\n]+)\)/g;
+
+// For customLines: parse [text](url) into <a> hyperlinks, escape everything
+// else, and convert \n to <br>. Unsafe URL schemes (anything that isn't
+// http/https/mailto/tel after normalization) render as plain escaped text.
+export function escapeWithLinksAndBrs(s: string): string {
+  let out = '';
+  let cursor = 0;
+  for (const m of s.matchAll(INLINE_LINK_RE)) {
+    const matchStart = m.index ?? 0;
+    if (matchStart > cursor) {
+      out += escapeHtml(s.slice(cursor, matchStart)).replaceAll('\n', '<br>');
+    }
+    const text = m[1];
+    const rawUrl = m[2];
+    const normalized = normalizeHrefForBody(rawUrl);
+    if (normalized) {
+      out += `<a href="${escapeHtml(normalized)}">${escapeHtml(text)}</a>`;
+    } else {
+      // Unsafe scheme — write the raw markdown back as escaped text so
+      // nothing is silently dropped.
+      out += escapeHtml(m[0]).replaceAll('\n', '<br>');
+    }
+    cursor = matchStart + m[0].length;
+  }
+  if (cursor < s.length) {
+    out += escapeHtml(s.slice(cursor)).replaceAll('\n', '<br>');
+  }
+  return out;
+}
+
+// Body-context href normalizer. Returns '' for unsafe schemes so the
+// caller knows to render the markdown source as plain text instead.
+function normalizeHrefForBody(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+  if (/^(https?:\/\/|mailto:|tel:)/i.test(trimmed)) return trimmed;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return ''; // explicit unsafe scheme like javascript:
+  return `https://${trimmed}`;
+}
+
+// Plaintext fallback for inline links: "text (url)" — readable in
+// non-HTML mail clients without leaving raw markdown brackets in the
+// alt body.
+function plainTextInlineLinks(s: string): string {
+  return s.replaceAll(INLINE_LINK_RE, (_match, text, url) => `${text} (${url})`);
+}
+
 // For the user's email body: escape, split on blank lines into paragraphs,
 // remaining \n become <br>, wrap each paragraph in <p>...</p>.
 export function bodyToParagraphs(s: string): string {
@@ -32,7 +82,7 @@ export function bodyToParagraphs(s: string): string {
   return paragraphs.map((p) => `<p>${p.replaceAll('\n', '<br>')}</p>`).join('');
 }
 
-function renderPlaintext(data: SignatureData): string {
+function renderPlaintext(data: StructuredSignature): string {
   const lines: string[] = [];
   const headerParts: string[] = [];
   if (data.name) headerParts.push(data.name);
@@ -44,11 +94,11 @@ function renderPlaintext(data: SignatureData): string {
   if (data.email) contactParts.push(data.email);
   if (contactParts.length) lines.push(contactParts.join(' · '));
   if (data.website) lines.push(data.website);
-  if (data.customLines.trim()) lines.push(data.customLines);
+  if (data.customLines.trim()) lines.push(plainTextInlineLinks(data.customLines));
   return lines.join('\n');
 }
 
-export function renderSignature(data: SignatureData): RenderedSignature | null {
+export function renderSignature(data: StructuredSignature): RenderedSignature | null {
   const lines: string[] = [];
   const headerParts: string[] = [];
 
@@ -71,7 +121,7 @@ export function renderSignature(data: SignatureData): RenderedSignature | null {
   }
 
   if (data.customLines.trim()) {
-    lines.push(escapeWithBrBreaks(data.customLines));
+    lines.push(escapeWithLinksAndBrs(data.customLines));
   }
 
   if (lines.length === 0 && !data.logo) return null;
@@ -91,4 +141,103 @@ export function renderSignature(data: SignatureData): RenderedSignature | null {
       ? { contentId: 'zolva-sig', bytes: data.logo.base64, mimeType: data.logo.mimeType }
       : null,
   };
+}
+
+export function renderImported(sig: ImportedSignature): RenderedSignature | null {
+  if (!sig.html.trim() && !sig.image) return null;
+  return {
+    html: sig.html,
+    plaintext: sig.plaintext,
+    image: sig.image
+      ? { contentId: 'zolva-sig', bytes: sig.image.base64, mimeType: sig.image.mimeType }
+      : null,
+  };
+}
+
+const SOCIAL_LABELS: Record<SocialType, string> = {
+  linkedin:  'LinkedIn',
+  twitter:   'Twitter',
+  instagram: 'Instagram',
+  facebook:  'Facebook',
+  tiktok:    'TikTok',
+  youtube:   'YouTube',
+  github:    'GitHub',
+  website:   '',  // falls back to URL host
+  other:     '',  // falls back to label || URL host
+};
+
+export const SOCIAL_COLORS: Record<SocialType, string> = {
+  linkedin:  '#0a66c2',
+  twitter:   '#1da1f2',
+  instagram: '#e4405f',
+  facebook:  '#1877f2',
+  tiktok:    '#1a1a1a',
+  youtube:   '#ff0000',
+  github:    '#1a1a1a',
+  website:   '#1a1a1a',
+  other:     '#1a1a1a',
+};
+
+// Light-tinted pill backgrounds for the appended socials row. ~12% opacity
+// of the brand color, hand-picked to read clearly on a paper background
+// without overwhelming the rest of the signature.
+const SOCIAL_TINTS: Record<SocialType, string> = {
+  linkedin:  '#e3eef9',
+  twitter:   '#eef6fc',
+  instagram: '#fce7ec',
+  facebook:  '#e3edfa',
+  tiktok:    '#ececec',
+  youtube:   '#fde6e6',
+  github:    '#ececec',
+  website:   '#ececec',
+  other:     '#ececec',
+};
+
+function urlHost(url: string): string {
+  // Light parse — sufficient for label fallback. Doesn't need to be perfect.
+  const m = url.match(/^https?:\/\/([^/]+)/i);
+  return m ? m[1] : url;
+}
+
+// Prepend https:// to URLs that omit a scheme so the resulting <a href>
+// is absolute. mailto: and tel: are pass-through. Empty/whitespace input
+// returns '' so the caller can drop the link entirely.
+// Dangerous explicit schemes (e.g. javascript:) return '' so callers can skip.
+export function normalizeHref(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+  if (/^(https?:\/\/|mailto:|tel:)/i.test(trimmed)) return trimmed;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return ''; // explicit unsafe scheme like javascript:
+  return `https://${trimmed}`;
+}
+
+function socialDisplayName(link: SocialLink): string {
+  if (link.type === 'website') {
+    return link.label && link.label.trim() ? link.label : urlHost(link.url);
+  }
+  if (link.type === 'other') {
+    return link.label && link.label.trim() ? link.label : urlHost(link.url);
+  }
+  return SOCIAL_LABELS[link.type];
+}
+
+export function renderSocials(socials: SocialLink[]): string {
+  const items = socials.filter((s) => s.url.trim() !== '');
+  if (items.length === 0) return '';
+
+  const linkHtml = items
+    .map((s) => {
+      const color = SOCIAL_COLORS[s.type];
+      const tint = SOCIAL_TINTS[s.type];
+      const name = escapeHtml(socialDisplayName(s));
+      const href = escapeHtml(normalizeHref(s.url));
+      // Tinted-background pill. Inline-block + margin-right gives a wrapping
+      // row of buttons instead of a middot-separated text strip. Outlook
+      // desktop on Windows falls back to inline rendering (no padding/bg)
+      // but the text + color stay readable.
+      return `<a href="${href}" style="display:inline-block;padding:5px 12px;margin:0 6px 6px 0;border-radius:14px;background:${tint};color:${color};text-decoration:none;font-weight:600;font-size:12px">${name}</a>`;
+    })
+    .join('');
+
+  return `<div style="font:13px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1a1a;margin-top:8px">${linkHtml}</div>`;
 }

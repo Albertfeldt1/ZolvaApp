@@ -10,7 +10,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { subscribeUserId } from '../auth';
-import { EMPTY_SIGNATURE, type SignatureData } from './types';
+import { EMPTY_SIGNATURE, type SignatureData, type SocialLink } from './types';
 
 const v2Key = (uid: string) => `zolva.mail.signature.v2.${uid}`;
 const v1Key = (uid: string) => `zolva.mail.signature.${uid}`;
@@ -44,8 +44,24 @@ async function loadFromStorage(uid: string): Promise<SignatureData | null> {
   const v2Raw = await AsyncStorage.getItem(v2Key(uid));
   if (v2Raw !== null) {
     try {
-      const parsed = JSON.parse(v2Raw) as SignatureData;
-      return { ...EMPTY_SIGNATURE, ...parsed };
+      const parsed = JSON.parse(v2Raw) as Partial<SignatureData> & { kind?: 'structured' | 'imported' };
+      if (parsed.kind === 'imported') {
+        return {
+          kind: 'imported',
+          html: typeof parsed.html === 'string' ? parsed.html : '',
+          plaintext: typeof parsed.plaintext === 'string' ? parsed.plaintext : '',
+          image: parsed.image ?? null,
+          importedAt: typeof parsed.importedAt === 'number' ? parsed.importedAt : 0,
+          socials: Array.isArray(parsed.socials) ? parsed.socials as SocialLink[] : [],
+        };
+      }
+      // 'structured' OR missing kind (legacy v2 from before this feature)
+      return {
+        ...EMPTY_SIGNATURE,
+        ...parsed,
+        kind: 'structured',
+        socials: Array.isArray(parsed.socials) ? parsed.socials as SocialLink[] : [],
+      };
     } catch (err) {
       console.warn('[mail-signature] malformed v2 json, treating as no signature:', err);
       return null;

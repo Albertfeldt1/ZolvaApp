@@ -5,14 +5,36 @@
 
 export type {
   SignatureData,
+  StructuredSignature,
+  ImportedSignature,
   InlineImage,
   RenderedSignature,
   InlineAttachmentSpec,
+  SocialLink,
+  SocialType,
+  LinkTarget,
 } from './types';
 export { EMPTY_SIGNATURE } from './types';
 export { loadSignature, saveSignature, subscribeSignature } from './storage';
-export { renderSignature } from './template';
+export { renderSignature, renderImported } from './template';
 export { buildOutgoingBody } from './build-outgoing-body';
 export type { OutgoingBody } from './build-outgoing-body';
 export { pickAndCompressLogo, pickResultMessage } from './image';
 export type { PickResult } from './image';
+export {
+  pickAndImportSignature,
+  importResultMessage,
+} from './import-from-screenshot';
+export type { ImportResult } from './import-from-screenshot';
+export {
+  pickAndFillFields,
+  fillResultMessage,
+} from './fill-fields-from-screenshot';
+export type { FillResult } from './fill-fields-from-screenshot';
+export {
+  pickAndUseScreenshot,
+  useScreenshotResultMessage,
+  buildImageOnlySignature,
+} from './use-screenshot';
+export type { UseScreenshotResult } from './use-screenshot';
+export { sanitizeSignatureHtml } from './sanitize';

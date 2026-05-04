@@ -49,7 +49,15 @@ export function hasClaudeKey(): boolean {
 export type ClaudeContentBlock =
   | { type: 'text'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
+  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
+  | {
+      type: 'image';
+      source: {
+        type: 'base64';
+        media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+        data: string;
+      };
+    };
 
 export type ClaudeMessage = {
   role: 'user' | 'assistant';
@@ -206,4 +214,45 @@ export async function completeJson<T>(opts: CompleteOptions & { schemaHint: stri
   } catch (e) {
     throw new Error(`Claude returned non-JSON: ${cleaned.slice(0, 200)}`);
   }
+}
+
+// Parse a ClaudeCompletion looking for a single tool_use matching the named
+// tool, returning its input. Pure — no I/O. Throws on missing or wrong tool.
+export function parseToolUseResult<T>(result: ClaudeCompletion, toolName: string): T {
+  if (result.toolUses.length === 0) {
+    throw new Error(`completeWithTool: no tool_use in response (stop_reason=${result.stopReason})`);
+  }
+  const match = result.toolUses.find((u) => u.name === toolName);
+  if (!match) {
+    throw new Error(
+      `completeWithTool: wrong tool invoked (got ${result.toolUses[0].name}, expected ${toolName})`,
+    );
+  }
+  return match.input as T;
+}
+
+// Force a single tool_use response and return its parsed input. Use this
+// instead of completeJson when the caller wants a guaranteed structured
+// shape (Anthropic's tool-use is more reliable than JSON-mode for vision
+// + extraction tasks). Throws on missing or wrong tool_use — callers
+// should route the error through mapClaudeError to surface 'parse-failed'.
+export async function completeWithTool<T>(opts: {
+  system: CompleteOptions['system'];
+  messages: ClaudeMessage[];
+  maxTokens: number;
+  temperature?: number;
+  tool: ClaudeToolSchema;
+  attachProfile?: boolean;
+  model?: string;
+}): Promise<T> {
+  const result = await completeRaw({
+    system: opts.system,
+    messages: opts.messages,
+    maxTokens: opts.maxTokens,
+    temperature: opts.temperature,
+    tools: [opts.tool],
+    attachProfile: opts.attachProfile,
+    model: opts.model,
+  });
+  return parseToolUseResult<T>(result, opts.tool.name);
 }

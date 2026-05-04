@@ -5,12 +5,13 @@
 // email the contact address and Zolva responds within 30 days. When/if a real
 // JSON export is built (Edge Function + Resend), re-add a button here and grep
 // for this marker to update the handoff.
-import { Check, ChevronDown, ChevronLeft } from 'lucide-react-native';
+import { Check, ChevronDown, ChevronLeft, Globe, Image as ImageIcon, Link2Off, Plus, RefreshCw, X } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
-import React, { useEffect, useRef, useState } from 'react';
+import { WebView } from 'react-native-webview';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -31,12 +32,17 @@ import {
 import Animated, {
   Easing,
   FadeIn,
+  FadeInDown,
   FadeOut,
   LinearTransition,
   useAnimatedStyle,
   useSharedValue,
+  withSpring,
   withTiming,
+  type SharedValue,
 } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 import { makeRedirectUri } from 'expo-auth-session';
@@ -66,10 +72,24 @@ import {
   subscribeSignature,
   pickAndCompressLogo,
   pickResultMessage,
+  pickAndImportSignature,
+  importResultMessage,
+  pickAndFillFields,
+  fillResultMessage,
+  pickAndUseScreenshot,
+  useScreenshotResultMessage,
   renderSignature,
   EMPTY_SIGNATURE,
   type SignatureData,
+  type StructuredSignature,
+  type SocialLink,
+  type SocialType,
+  type LinkTarget,
+  type InlineImage,
 } from '../lib/mail-signature';
+import { detectImportedTargets, type DetectedTargets } from '../lib/mail-signature/detect-targets';
+import { applyBoundTargets } from '../lib/mail-signature/apply-bound-targets';
+import { renderSocials } from '../lib/mail-signature/template';
 import { translateProviderError } from '../utils/danish';
 
 import {
@@ -203,6 +223,649 @@ function useNotificationSettings(): NotificationSettings {
   return state;
 }
 
+function buildPreviewHtml(sig: {
+  html: string;
+  image: { base64: string; mimeType: 'image/png' | 'image/jpeg' } | null;
+  socials: SocialLink[];
+}): string {
+  // Apply any bound targets to the imported html (mirror the buildOutgoingBody
+  // path) so the preview reflects what recipients will actually see — the
+  // socials with target.set become inline anchors in the html, and the
+  // remaining unbound socials get appended as a separate row.
+  const applied = applyBoundTargets({ html: sig.html, socials: sig.socials });
+  const socialsRow = renderSocials(applied.unbound);
+  let combined = applied.html + socialsRow;
+
+  // Resolve cid:zolva-sig to a data URL so the WebView preview renders the
+  // cropped logo without an external load. The outgoing-mail path keeps cid:
+  // as-is — this transformation is preview-only.
+  if (sig.image) {
+    const cidDataUrl = `data:${sig.image.mimeType};base64,${sig.image.base64}`;
+    combined = combined.replaceAll('cid:zolva-sig', cidDataUrl);
+  }
+
+  // Render the signature at a fixed 600 px logical width so wide CTA buttons
+  // don't reflow into a squished multi-line shape inside the narrow preview
+  // pane. The WebView scales the 600 px page down to fit its actual width,
+  // giving a true "thumbnail" of how the email looks at email-client width.
+  // Viewport ~420 logical px keeps content at email-client proportions
+  // (CTA buttons stay side-by-side without wrapping) while landing at
+  // ~0.8× of the actual WebView width — content renders large and
+  // close to its natural size. Body padding kept tight (4 px) so the
+  // signature fills the preview pane edge-to-edge.
+  return `<!doctype html><html><head><meta name="viewport" content="width=420,initial-scale=0.81,user-scalable=no"><style>html,body{margin:0;padding:4px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:transparent;}img{max-width:100%;height:auto;}</style></head><body>${combined}</body></html>`;
+}
+
+function formatImportedDate(unixMs: number): string {
+  if (!unixMs) return '';
+  const d = new Date(unixMs);
+  try {
+    return new Intl.DateTimeFormat('da-DK', { year: 'numeric', month: 'long', day: 'numeric' }).format(d);
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
+}
+
+type SocialMeta = {
+  label: string;
+  glyph: string;       // letter monogram or unicode mark — fallback when no asset
+  bg: string;          // brand background color (used when rendering the glyph circle)
+  fg: string;          // glyph foreground color
+  placeholder: string; // url input hint
+  gradient?: readonly string[]; // optional brand gradient (Instagram fallback)
+  useGlobeIcon?: boolean; // when true, BrandIcon renders the Globe lucide icon instead of the glyph
+  asset?: ImageSourcePropType; // pre-rendered brand-icon PNG (preferred over glyph when set)
+  assetScale?: number; // multiplier for the rendered asset relative to the requested size — used when the source PNG has extra transparent padding (e.g. Instagram).
+};
+
+const SOCIAL_META: Record<SocialType, SocialMeta> = {
+  linkedin:  { label: 'LinkedIn',  glyph: 'in',  bg: '#0a66c2', fg: '#ffffff', placeholder: 'linkedin.com/in/…',
+               asset: require('../../assets/socials/linkedin.png'),
+               assetScale: 0.92 },
+  twitter:   { label: 'X / Twitter', glyph: '𝕏', bg: '#000000', fg: '#ffffff', placeholder: 'x.com/…',
+               asset: require('../../assets/socials/twitter.png'),
+               assetScale: 0.92 },
+  instagram: { label: 'Instagram', glyph: 'Ig',  bg: '#e4405f', fg: '#ffffff', placeholder: 'instagram.com/…',
+               gradient: ['#833ab4', '#fd1d1d', '#fcb045'],
+               asset: require('../../assets/socials/instagram.png'),
+               assetScale: 1.35 },
+  facebook:  { label: 'Facebook',  glyph: 'f',   bg: '#1877f2', fg: '#ffffff', placeholder: 'facebook.com/…',
+               asset: require('../../assets/socials/facebook.png') },
+  tiktok:    { label: 'TikTok',    glyph: 'T',   bg: '#000000', fg: '#ffffff', placeholder: 'tiktok.com/@…',
+               asset: require('../../assets/socials/tiktok.png') },
+  youtube:   { label: 'YouTube',   glyph: '▶',   bg: '#ff0000', fg: '#ffffff', placeholder: 'youtube.com/@…',
+               asset: require('../../assets/socials/youtube.png') },
+  github:    { label: 'GitHub',    glyph: 'Gh',  bg: '#1a1a1a', fg: '#ffffff', placeholder: 'github.com/…',
+               asset: require('../../assets/socials/github.png') },
+  website:   { label: 'Website',   glyph: '',    bg: '#3a7afe', fg: '#ffffff', placeholder: 'https://…',  useGlobeIcon: true },
+  other:     { label: 'Andet',     glyph: '•',   bg: '#777777', fg: '#ffffff', placeholder: 'https://…' },
+};
+
+const SOCIAL_TYPES: SocialType[] = [
+  'linkedin', 'twitter', 'instagram', 'facebook',
+  'tiktok', 'youtube', 'github', 'website', 'other',
+];
+
+function BrandIcon({ type, size = 36 }: { type: SocialType; size?: number }) {
+  const meta = SOCIAL_META[type];
+  const radius = size / 2;
+  const fontSize = size <= 28 ? size * 0.42 : size * 0.4;
+
+  // Preferred path: pre-rendered brand-icon PNG. The asset already includes
+  // the colored circle, so we just render the image. The outer box stays at
+  // the requested `size` so every BrandIcon occupies the same row/wheel
+  // slot regardless of brand. assetScale only adjusts the visual size of
+  // the inner image — Instagram's transparent padding gets compensated
+  // without misaligning the layout of its peers.
+  if (meta.asset) {
+    const renderedSize = size * (meta.assetScale ?? 1);
+    return (
+      <View
+        style={{
+          width: size,
+          height: size,
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'visible',
+        }}
+      >
+        <Image
+          source={meta.asset}
+          style={{ width: renderedSize, height: renderedSize }}
+          resizeMode="contain"
+        />
+      </View>
+    );
+  }
+
+  const inner = meta.useGlobeIcon ? (
+    <Globe size={Math.round(size * 0.5)} color={meta.fg} strokeWidth={2.2} />
+  ) : (
+    <Text
+      style={{
+        color: meta.fg,
+        fontSize,
+        fontWeight: '800',
+        letterSpacing: -0.5,
+        includeFontPadding: false,
+        textAlign: 'center',
+      }}
+    >
+      {meta.glyph}
+    </Text>
+  );
+
+  if (meta.gradient) {
+    return (
+      <LinearGradient
+        colors={[...meta.gradient] as [string, string, ...string[]]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={{ width: size, height: size, borderRadius: radius, alignItems: 'center', justifyContent: 'center' }}
+      >
+        {inner}
+      </LinearGradient>
+    );
+  }
+
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: radius,
+        backgroundColor: meta.bg,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {inner}
+    </View>
+  );
+}
+
+// Radial petal — fans outward from the wheel center on bloom-in.
+const WHEEL_RADIUS = 138;
+const WHEEL_PETAL_BOX = 78;
+
+function WheelPetal(props: {
+  type: SocialType;
+  selected: boolean;
+  index: number;
+  total: number;
+  progress: SharedValue<number>;
+  onPress: () => void;
+}) {
+  const { type, selected, index, total, progress, onPress } = props;
+  const meta = SOCIAL_META[type];
+  // Stagger window: each petal fully blooms over a 60% slice of progress,
+  // shifted by its index. Earlier petals lead by ~50ms-equivalent at the
+  // spring's natural cadence.
+  const start = (index / total) * 0.35;
+  const end = start + 0.65;
+  const angle = (index / total) * Math.PI * 2 - Math.PI / 2;
+  const tx = Math.cos(angle) * WHEEL_RADIUS;
+  const ty = Math.sin(angle) * WHEEL_RADIUS;
+
+  const animStyle = useAnimatedStyle(() => {
+    const raw = (progress.value - start) / (end - start);
+    const t = raw < 0 ? 0 : raw > 1 ? 1 : raw;
+    return {
+      opacity: t,
+      transform: [
+        { translateX: tx * t },
+        { translateY: ty * t },
+        { scale: 0.4 + 0.6 * t },
+      ],
+    };
+  });
+
+  return (
+    <AnimatedPressable
+      onPress={onPress}
+      style={[styles.sigWheelPetal, animStyle]}
+      accessibilityRole="button"
+      accessibilityLabel={meta.label}
+    >
+      <View style={selected ? styles.sigWheelPetalIconRingSelected : styles.sigWheelPetalIconRing}>
+        <BrandIcon type={type} size={44} />
+      </View>
+      <Text style={styles.sigWheelPetalLabel} numberOfLines={1}>{meta.label}</Text>
+    </AnimatedPressable>
+  );
+}
+
+function SocialTypeWheel(props: {
+  visible: boolean;
+  value: SocialType;
+  onSelect: (next: SocialType) => void;
+  onClose: () => void;
+}) {
+  const { visible, value, onSelect, onClose } = props;
+  const progress = useSharedValue(0);
+  const seedScale = useSharedValue(0);
+
+  useEffect(() => {
+    if (visible) {
+      progress.value = 0;
+      seedScale.value = 0;
+      // The seed pops first, then the wheel blooms outward.
+      seedScale.value = withSpring(1, { damping: 13, stiffness: 220 });
+      progress.value = withSpring(1, { damping: 14, stiffness: 110, mass: 1.1 });
+    } else {
+      progress.value = withTiming(0, { duration: 180, easing: Easing.in(Easing.cubic) });
+      seedScale.value = withTiming(0, { duration: 140, easing: Easing.in(Easing.cubic) });
+    }
+  }, [visible, progress, seedScale]);
+
+  const seedStyle = useAnimatedStyle(() => ({
+    opacity: seedScale.value * (1 - progress.value * 0.7), // fades as petals bloom
+    transform: [{ scale: seedScale.value }],
+  }));
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="Luk vælger">
+        <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} />
+      </Pressable>
+      <View style={styles.sigWheelStage} pointerEvents="box-none">
+        <View style={styles.sigWheelOrigin} pointerEvents="box-none">
+          <Animated.View style={[styles.sigWheelSeed, seedStyle]} pointerEvents="none" />
+          {SOCIAL_TYPES.map((type, i) => (
+            <WheelPetal
+              key={type}
+              type={type}
+              selected={type === value}
+              index={i}
+              total={SOCIAL_TYPES.length}
+              progress={progress}
+              onPress={() => {
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                onSelect(type);
+                onClose();
+              }}
+            />
+          ))}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function WordChip(props: { word: string; selected: boolean; onPress: () => void }) {
+  const { word, selected, onPress } = props;
+  const press = useSharedValue(1);
+  const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: press.value }] }));
+  return (
+    <AnimatedPressable
+      onPress={onPress}
+      onPressIn={() => { press.value = withSpring(0.92, { damping: 14, stiffness: 320 }); }}
+      onPressOut={() => { press.value = withSpring(1, { damping: 14, stiffness: 320 }); }}
+      style={[styles.sigBindWordChip, selected && styles.sigBindWordChipSelected, pressStyle]}
+      accessibilityRole="button"
+      accessibilityLabel={`Bind til ord ${word}`}
+    >
+      <Text style={[styles.sigBindWordChipText, selected && styles.sigBindWordChipTextSelected]} numberOfLines={1}>
+        {word}
+      </Text>
+    </AnimatedPressable>
+  );
+}
+
+function ImageBindOption(props: {
+  src: string;
+  description: string;
+  thumbnail?: InlineImage;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const { description, thumbnail, selected, onPress } = props;
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.sigBindImageRow, selected && styles.sigBindImageRowSelected]}
+      accessibilityRole="button"
+    >
+      <View style={styles.sigBindImageThumb}>
+        {thumbnail ? (
+          <Image
+            source={{ uri: `data:${thumbnail.mimeType};base64,${thumbnail.base64}` }}
+            style={styles.sigBindImageThumbImg}
+            resizeMode="contain"
+          />
+        ) : (
+          <ImageIcon size={18} color={colors.fg3} strokeWidth={2} />
+        )}
+      </View>
+      <Text style={styles.sigBindImageDesc} numberOfLines={1}>{description}</Text>
+      {selected && <Check size={16} color={colors.ink} strokeWidth={2.5} />}
+    </Pressable>
+  );
+}
+
+function SocialBindPicker(props: {
+  visible: boolean;
+  target: LinkTarget | undefined;
+  targets: DetectedTargets;
+  imageThumbnails: Record<string, InlineImage>;
+  onSelect: (next: LinkTarget | undefined) => void;
+  onClose: () => void;
+}) {
+  const { visible, target, targets, imageThumbnails, onSelect, onClose } = props;
+  const isEmpty =
+    targets.words.length === 0 &&
+    targets.glyphs.length === 0 &&
+    targets.buttons.length === 0 &&
+    targets.images.length === 0;
+
+  const handleSelect = (next: LinkTarget | undefined) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onSelect(next);
+    onClose();
+  };
+
+  const isVisSeparat = target == null;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        style={[StyleSheet.absoluteFill, { backgroundColor: colors.paperOn75 }]}
+        onPress={onClose}
+        accessibilityRole="button"
+        accessibilityLabel="Luk Bind til-vælger"
+      />
+      <View style={styles.sigBindFloatWrap} pointerEvents="box-none">
+        <Animated.View
+          entering={FadeIn.duration(180)}
+          exiting={FadeOut.duration(140)}
+          style={styles.sigBindFloat}
+        >
+          <Text style={styles.sigBindSheetTitle}>Bind til element</Text>
+          <Text style={styles.sigBindSheetSub}>Vælg et ord eller billede i signaturen.</Text>
+
+          <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 4 }}>
+            {/* Unbind option — distinct full-width pill with link-off icon */}
+            <Pressable
+              onPress={() => handleSelect(undefined)}
+              style={[styles.sigBindUnbindPill, isVisSeparat && styles.sigBindUnbindPillSelected]}
+              accessibilityRole="button"
+            >
+              <Link2Off size={15} color={isVisSeparat ? '#fff' : colors.fg2} strokeWidth={2.2} />
+              <Text style={[styles.sigBindUnbindPillText, isVisSeparat && styles.sigBindUnbindPillTextSelected]}>
+                Vis som separat link
+              </Text>
+            </Pressable>
+
+            {isEmpty ? (
+              <View style={styles.sigBindEmptyState}>
+                <Text style={styles.sigBindEmptyEmoji}>🔍</Text>
+                <Text style={styles.sigBindEmptyTitle}>Ingen elementer fundet</Text>
+                <Text style={styles.sigBindEmptyHint}>
+                  Importér et tydeligere screenshot for at få bind-muligheder.
+                </Text>
+              </View>
+            ) : (
+              <>
+                {targets.buttons.length > 0 && (
+                  <>
+                    <Text style={styles.sigBindSectionLabel}>KNAPPER</Text>
+                    <View style={styles.sigBindButtonsCol}>
+                      {targets.buttons.map((btn) => {
+                        const selected = target?.kind === 'word' && target.text === btn.text;
+                        return (
+                          <Pressable
+                            key={btn.text}
+                            onPress={() => handleSelect({ kind: 'word', text: btn.text })}
+                            style={[styles.sigBindButtonRow, selected && styles.sigBindButtonRowSelected]}
+                            accessibilityRole="button"
+                          >
+                            <View
+                              style={[
+                                styles.sigBindButtonChip,
+                                { backgroundColor: btn.bgColor },
+                              ]}
+                            >
+                              <Text style={styles.sigBindButtonChipText} numberOfLines={1}>
+                                {btn.text}
+                              </Text>
+                            </View>
+                            {selected && <Check size={16} color={colors.ink} strokeWidth={2.5} />}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </>
+                )}
+                {targets.words.length > 0 && (
+                  <>
+                    <Text style={[styles.sigBindSectionLabel, targets.buttons.length > 0 && { marginTop: 18 }]}>
+                      ORD I SIGNATUREN
+                    </Text>
+                    <View style={styles.sigBindWordWrap}>
+                      {targets.words.map((word) => (
+                        <WordChip
+                          key={word}
+                          word={word}
+                          selected={target?.kind === 'word' && target.text === word}
+                          onPress={() => handleSelect({ kind: 'word', text: word })}
+                        />
+                      ))}
+                    </View>
+                  </>
+                )}
+                {(targets.glyphs.length > 0 || targets.images.length > 0) && (
+                  <>
+                    <Text style={[styles.sigBindSectionLabel, { marginTop: 18 }]}>BILLEDER</Text>
+                    {/* Glyphs first — single-char/symbol icon stand-ins.
+                        Bound the same way as words (kind:'word') but rendered
+                        here as a wrap-flow of small chips for visual parity
+                        with the image rows below. */}
+                    {targets.glyphs.length > 0 && (
+                      <View style={styles.sigBindWordWrap}>
+                        {targets.glyphs.map((glyph) => (
+                          <WordChip
+                            key={glyph}
+                            word={glyph}
+                            selected={target?.kind === 'word' && target.text === glyph}
+                            onPress={() => handleSelect({ kind: 'word', text: glyph })}
+                          />
+                        ))}
+                      </View>
+                    )}
+                    {targets.images.map((img) => (
+                      <ImageBindOption
+                        key={img.src}
+                        src={img.src}
+                        description={img.description}
+                        thumbnail={imageThumbnails[img.src]}
+                        selected={target?.kind === 'image' && target.src === img.src}
+                        onPress={() => handleSelect({ kind: 'image', src: img.src })}
+                      />
+                    ))}
+                  </>
+                )}
+              </>
+            )}
+          </ScrollView>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
+function bindPillLabel(target: LinkTarget | undefined): string {
+  if (target == null) return 'Vis separat';
+  if (target.kind === 'word') {
+    const truncated = target.text.length > 16 ? target.text.slice(0, 16) + '…' : target.text;
+    return `↪ "${truncated}"`;
+  }
+  return '↪ Billede';
+}
+
+function SocialLinkRow(props: {
+  link: SocialLink;
+  mode: 'structured' | 'imported';
+  targets: DetectedTargets;
+  imageThumbnails: Record<string, InlineImage>;
+  onChange: (next: SocialLink) => void;
+  onRemove: () => void;
+}) {
+  const { link, mode, targets, imageThumbnails, onChange, onRemove } = props;
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [bindPickerVisible, setBindPickerVisible] = useState(false);
+  const meta = SOCIAL_META[link.type];
+
+  const removeScale = useSharedValue(1);
+  const brandScale = useSharedValue(1);
+  const removeStyle = useAnimatedStyle(() => ({ transform: [{ scale: removeScale.value }] }));
+  const brandStyle = useAnimatedStyle(() => ({ transform: [{ scale: brandScale.value }] }));
+
+  const isBound = link.target != null;
+
+  return (
+    <Animated.View
+      entering={FadeInDown.springify().damping(16).stiffness(180)}
+      exiting={FadeOut.duration(160)}
+      layout={LinearTransition.springify().damping(18).stiffness(200)}
+      style={styles.sigSocialRow}
+    >
+      <AnimatedPressable
+        onPressIn={() => { brandScale.value = withSpring(0.92, { damping: 14, stiffness: 320 }); }}
+        onPressOut={() => { brandScale.value = withSpring(1, { damping: 14, stiffness: 320 }); }}
+        onPress={() => {
+          void Haptics.selectionAsync();
+          setPickerVisible(true);
+        }}
+        style={[styles.sigSocialBrandBtn, brandStyle]}
+        accessibilityRole="button"
+        accessibilityLabel={`Skift platform fra ${meta.label}`}
+      >
+        <BrandIcon type={link.type} size={36} />
+      </AnimatedPressable>
+
+      <View style={styles.sigSocialInputs}>
+        <TextInput
+          value={link.url}
+          onChangeText={(url) => onChange({ ...link, url })}
+          placeholder={meta.placeholder}
+          placeholderTextColor={colors.fg3}
+          style={styles.sigSocialUrlInput}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
+        />
+        {link.type === 'other' && (
+          <TextInput
+            value={link.label ?? ''}
+            onChangeText={(label) => onChange({ ...link, label })}
+            placeholder="Visningsnavn"
+            placeholderTextColor={colors.fg3}
+            style={styles.sigSocialLabelInput}
+          />
+        )}
+        {mode === 'imported' && (
+          <Pressable
+            onPress={() => setBindPickerVisible(true)}
+            style={[styles.sigBindPill, isBound ? styles.sigBindPillBound : styles.sigBindPillUnbound]}
+            accessibilityRole="button"
+            accessibilityLabel="Bind til element i signatur"
+          >
+            <Text style={styles.sigBindPillText} numberOfLines={1}>{bindPillLabel(link.target)}</Text>
+          </Pressable>
+        )}
+      </View>
+
+      <AnimatedPressable
+        onPressIn={() => { removeScale.value = withSpring(0.85, { damping: 12, stiffness: 320 }); }}
+        onPressOut={() => { removeScale.value = withSpring(1, { damping: 12, stiffness: 320 }); }}
+        onPress={() => {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          onRemove();
+        }}
+        style={[styles.sigSocialRemoveBtn, removeStyle]}
+        accessibilityRole="button"
+        accessibilityLabel="Fjern social-medie"
+      >
+        <X size={14} color={colors.fg2} strokeWidth={2.5} />
+      </AnimatedPressable>
+
+      <SocialTypeWheel
+        visible={pickerVisible}
+        value={link.type}
+        onSelect={(type) => onChange({ ...link, type })}
+        onClose={() => setPickerVisible(false)}
+      />
+
+      <SocialBindPicker
+        visible={bindPickerVisible}
+        target={link.target}
+        targets={targets}
+        imageThumbnails={imageThumbnails}
+        onSelect={(next) => onChange({ ...link, target: next })}
+        onClose={() => setBindPickerVisible(false)}
+      />
+    </Animated.View>
+  );
+}
+
+function SocialsSection(props: {
+  socials: SocialLink[];
+  mode: 'structured' | 'imported';
+  targets: DetectedTargets;
+  imageThumbnails: Record<string, InlineImage>;
+  onUpdate: (idx: number, link: SocialLink) => void;
+  onRemove: (idx: number) => void;
+  onAdd: () => void;
+}) {
+  const { socials, mode, targets, imageThumbnails, onUpdate, onRemove, onAdd } = props;
+  const addScale = useSharedValue(1);
+  const addStyle = useAnimatedStyle(() => ({ transform: [{ scale: addScale.value }] }));
+  const isEmpty = socials.length === 0;
+
+  return (
+    <View style={styles.sigSocialsWrap}>
+      <View style={styles.sigSocialsHeader}>
+        <Text style={styles.sigFieldLabel}>Sociale medier</Text>
+        {!isEmpty && (
+          <View style={styles.sigSocialsCountPill}>
+            <Text style={styles.sigSocialsCountText}>{socials.length}</Text>
+          </View>
+        )}
+      </View>
+
+      {socials.map((link, idx) => (
+        <SocialLinkRow
+          key={idx}
+          link={link}
+          mode={mode}
+          targets={targets}
+          imageThumbnails={imageThumbnails}
+          onChange={(next) => onUpdate(idx, next)}
+          onRemove={() => onRemove(idx)}
+        />
+      ))}
+
+      <AnimatedPressable
+        onPressIn={() => { addScale.value = withSpring(0.97, { damping: 14, stiffness: 320 }); }}
+        onPressOut={() => { addScale.value = withSpring(1, { damping: 14, stiffness: 320 }); }}
+        onPress={() => {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          onAdd();
+        }}
+        style={[styles.sigSocialAddBtn, isEmpty && styles.sigSocialAddBtnEmpty, addStyle]}
+        accessibilityRole="button"
+      >
+        <View style={styles.sigSocialAddPlus}>
+          <Plus size={14} color={colors.ink} strokeWidth={2.5} />
+        </View>
+        <Text style={styles.sigSocialAddBtnText}>
+          {isEmpty ? 'Tilføj sociale medier' : 'Tilføj endnu et'}
+        </Text>
+      </AnimatedPressable>
+    </View>
+  );
+}
+
 // Manual mail signature — structured form with optional logo. Renders
 // as HTML in Outlook send paths (and iCloud SMTP when that lands).
 // Gmail still uses the auto-fetched server signature.
@@ -211,6 +874,13 @@ function MailSignatureSection() {
   const [hydrated, setHydrated] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [pickerBusy, setPickerBusy] = useState(false);
+  const [reproducing, setReproducing] = useState(false);
+  const [usingImage, setUsingImage] = useState(false);
+  const [fillingFields, setFillingFields] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const anyImporting = reproducing || usingImage || fillingFields;
+  const [previewKey, setPreviewKey] = useState(0);
+  const [previewHeight, setPreviewHeight] = useState(260);
   const dataRef = useRef(data);
   useEffect(() => { dataRef.current = data; }, [data]);
 
@@ -227,8 +897,13 @@ function MailSignatureSection() {
     return () => { cancelled = true; unsub(); };
   }, []);
 
-  const update = (patch: Partial<SignatureData>) => {
-    setData((prev) => ({ ...prev, ...patch }));
+  const update = (patch: Partial<StructuredSignature>) => {
+    setData((prev) => {
+      if (prev.kind !== 'structured') return prev;
+      const next = { ...prev, ...patch };
+      void saveSignature(next);
+      return next;
+    });
   };
   const commit = () => {
     if (!hydrated) return;
@@ -236,6 +911,7 @@ function MailSignatureSection() {
   };
 
   const onPickLogo = async () => {
+    if (data.kind !== 'structured') return;
     setPickerError(null);
     setPickerBusy(true);
     const result = await pickAndCompressLogo();
@@ -251,12 +927,139 @@ function MailSignatureSection() {
   };
 
   const onRemoveLogo = () => {
+    if (data.kind !== 'structured') return;
     const next = { ...data, logo: null };
     setData(next);
     void saveSignature(next);
   };
 
-  const rendered = renderSignature(data);
+  const onReproduceFromScreenshot = async () => {
+    setImportError(null);
+    setReproducing(true);
+    try {
+      const result = await pickAndImportSignature();
+      if (!result.ok) {
+        const msg = importResultMessage(result);
+        if (msg) setImportError(msg);
+        return;
+      }
+      setData(result.data);
+      void saveSignature(result.data);
+    } finally {
+      setReproducing(false);
+    }
+  };
+
+  const onUseScreenshotDirectly = async () => {
+    setImportError(null);
+    setUsingImage(true);
+    try {
+      const result = await pickAndUseScreenshot();
+      if (!result.ok) {
+        const msg = useScreenshotResultMessage(result);
+        if (msg) setImportError(msg);
+        return;
+      }
+      setData(result.data);
+      void saveSignature(result.data);
+    } finally {
+      setUsingImage(false);
+    }
+  };
+
+  const onFillFieldsFromScreenshot = async () => {
+    setImportError(null);
+    setFillingFields(true);
+    try {
+      const result = await pickAndFillFields();
+      if (!result.ok) {
+        const msg = fillResultMessage(result);
+        if (msg) setImportError(msg);
+        return;
+      }
+      // Preserve the existing logo (vision call doesn't touch it). Every
+      // other field is replaced — partial merges create surprising mixed
+      // states; the user explicitly asked to autofill from this screenshot.
+      const existingLogo = data.kind === 'structured' ? data.logo : null;
+      const next: StructuredSignature = { ...result.data, logo: existingLogo };
+      setData(next);
+      void saveSignature(next);
+    } finally {
+      setFillingFields(false);
+    }
+  };
+
+  const onSwitchToManual = () => {
+    Alert.alert(
+      'Skift til manuel redigering?',
+      'Dit importerede design slettes.',
+      [
+        { text: 'Annuller', style: 'cancel' },
+        {
+          text: 'Skift',
+          style: 'destructive',
+          onPress: () => {
+            setData(EMPTY_SIGNATURE);
+            void saveSignature(EMPTY_SIGNATURE);
+          },
+        },
+      ],
+    );
+  };
+
+  const addSocial = () => {
+    setData((prev) => {
+      const next: SignatureData = {
+        ...prev,
+        socials: [...prev.socials, { type: 'linkedin', url: '' }],
+      };
+      void saveSignature(next);
+      return next;
+    });
+  };
+
+  const updateSocialAt = (idx: number, link: SocialLink) => {
+    setData((prev) => {
+      const nextSocials = prev.socials.map((s, i) => (i === idx ? link : s));
+      const next: SignatureData = { ...prev, socials: nextSocials };
+      void saveSignature(next);
+      return next;
+    });
+  };
+
+  const removeSocialAt = (idx: number) => {
+    setData((prev) => {
+      const nextSocials = prev.socials.filter((_, i) => i !== idx);
+      const next: SignatureData = { ...prev, socials: nextSocials };
+      void saveSignature(next);
+      return next;
+    });
+  };
+
+  const rendered = data.kind === 'structured' ? renderSignature(data) : null;
+
+  const importedTargets = useMemo(
+    () => (data.kind === 'imported' ? detectImportedTargets(data.html) : { words: [], glyphs: [], buttons: [], images: [] }),
+    [data],
+  );
+
+  const imageThumbnails = useMemo<Record<string, InlineImage>>(() => {
+    const out: Record<string, InlineImage> = {};
+    if (data.kind === 'imported' && data.image) {
+      out['cid:zolva-sig'] = data.image;
+    }
+    return out;
+  }, [data]);
+
+  const socialsBlock = <SocialsSection
+    socials={data.socials}
+    mode={data.kind}
+    targets={importedTargets}
+    imageThumbnails={imageThumbnails}
+    onUpdate={updateSocialAt}
+    onRemove={removeSocialAt}
+    onAdd={addSocial}
+  />;
 
   return (
     <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
@@ -267,44 +1070,142 @@ function MailSignatureSection() {
         Gmail bruger den signatur, du allerede har sat op i Gmail-indstillingerne.
       </Text>
 
-      <SigField label="Navn"        value={data.name}        onChange={(v) => update({ name: v })}        onBlur={commit} editable={hydrated} />
-      <SigField label="Titel"       value={data.title}       onChange={(v) => update({ title: v })}       onBlur={commit} editable={hydrated} />
-      <SigField label="Virksomhed"  value={data.company}     onChange={(v) => update({ company: v })}     onBlur={commit} editable={hydrated} />
-      <SigField label="Telefon"     value={data.phone}       onChange={(v) => update({ phone: v })}       onBlur={commit} editable={hydrated} keyboardType="phone-pad" />
-      <SigField label="Email"       value={data.email}       onChange={(v) => update({ email: v })}       onBlur={commit} editable={hydrated} keyboardType="email-address" autoCapitalize="none" />
-      <SigField label="Website"     value={data.website}     onChange={(v) => update({ website: v })}     onBlur={commit} editable={hydrated} autoCapitalize="none" />
-      <SigField label="Egne linjer" value={data.customLines} onChange={(v) => update({ customLines: v })} onBlur={commit} editable={hydrated} multiline />
+      <Pressable
+        onPress={onReproduceFromScreenshot}
+        disabled={anyImporting}
+        style={[styles.sigImportBtn, reproducing && { opacity: 0.5 }]}
+        accessibilityRole="button"
+      >
+        <Text style={styles.sigImportBtnTitle}>
+          {reproducing ? 'Reproducerer signatur…' : '📷 Reproducér fra screenshot'}
+        </Text>
+        <Text style={styles.sigImportBtnSub}>
+          Zolva genskaber designet 1:1 ud fra et billede.
+        </Text>
+      </Pressable>
 
-      <Text style={styles.sigFieldLabel}>Logo</Text>
-      <View style={styles.sigLogoRow}>
-        {data.logo ? (
-          <>
-            <Image
-              source={{ uri: `data:${data.logo.mimeType};base64,${data.logo.base64}` }}
-              style={styles.sigLogoThumb}
-              resizeMode="contain"
-            />
-            <Pressable onPress={onRemoveLogo} style={styles.sigLogoBtn} accessibilityRole="button">
-              <Text style={styles.sigLogoBtnText}>Fjern</Text>
-            </Pressable>
-          </>
-        ) : (
+      <Pressable
+        onPress={onUseScreenshotDirectly}
+        disabled={anyImporting}
+        style={[styles.sigUseImageBtn, usingImage && { opacity: 0.5 }]}
+        accessibilityRole="button"
+      >
+        <Text style={styles.sigUseImageBtnText}>
+          {usingImage ? 'Indlæser billede…' : 'Brug screenshot som billede'}
+        </Text>
+      </Pressable>
+
+      {importError && <Text style={styles.sigError}>{importError}</Text>}
+
+      {data.kind === 'structured' ? (
+        <>
           <Pressable
-            onPress={onPickLogo}
-            disabled={pickerBusy}
-            style={[styles.sigLogoBtn, pickerBusy && { opacity: 0.5 }]}
+            onPress={onFillFieldsFromScreenshot}
+            disabled={anyImporting}
+            style={[styles.sigFillFieldsBtn, fillingFields && { opacity: 0.5 }]}
             accessibilityRole="button"
           >
-            <Text style={styles.sigLogoBtnText}>{pickerBusy ? 'Indlæser…' : 'Vælg billede'}</Text>
+            <Text style={styles.sigFillFieldsBtnText}>
+              {fillingFields ? 'Læser felter…' : '📷 Udfyld felter fra screenshot'}
+            </Text>
           </Pressable>
-        )}
-      </View>
-      {pickerError && <Text style={styles.sigError}>{pickerError}</Text>}
 
-      <Text style={[styles.sigFieldLabel, { marginTop: 24 }]}>Forhåndsvisning</Text>
-      <View style={styles.sigPreviewCard}>
-        {rendered ? <SignaturePreview data={data} /> : <Text style={styles.sigPreviewEmpty}>Udfyld felterne ovenfor for at se en forhåndsvisning.</Text>}
-      </View>
+          <SigField label="Navn"        value={data.name}        onChange={(v) => update({ name: v })}        onBlur={commit} editable={hydrated} />
+          <SigField label="Titel"       value={data.title}       onChange={(v) => update({ title: v })}       onBlur={commit} editable={hydrated} />
+          <SigField label="Virksomhed"  value={data.company}     onChange={(v) => update({ company: v })}     onBlur={commit} editable={hydrated} />
+          <SigField label="Telefon"     value={data.phone}       onChange={(v) => update({ phone: v })}       onBlur={commit} editable={hydrated} keyboardType="phone-pad" />
+          <SigField label="Email"       value={data.email}       onChange={(v) => update({ email: v })}       onBlur={commit} editable={hydrated} keyboardType="email-address" autoCapitalize="none" />
+          <SigField label="Website"     value={data.website}     onChange={(v) => update({ website: v })}     onBlur={commit} editable={hydrated} autoCapitalize="none" />
+          <SigField label="Egne linjer" value={data.customLines} onChange={(v) => update({ customLines: v })} onBlur={commit} editable={hydrated} multiline />
+          <Text style={styles.sigInlineLinkHint}>
+            Tip: lav et klikbart link med <Text style={styles.sigInlineLinkHintMono}>[tekst](url)</Text>{' '}— fx{' '}
+            <Text style={styles.sigInlineLinkHintMono}>Læs vores [privatlivspolitik](zolva.io/privacy)</Text>.
+          </Text>
+
+          <Text style={styles.sigFieldLabel}>Logo</Text>
+          <View style={styles.sigLogoRow}>
+            {data.logo ? (
+              <>
+                <Image
+                  source={{ uri: `data:${data.logo.mimeType};base64,${data.logo.base64}` }}
+                  style={styles.sigLogoThumb}
+                  resizeMode="contain"
+                />
+                <Pressable onPress={onRemoveLogo} style={styles.sigLogoBtn} accessibilityRole="button">
+                  <Text style={styles.sigLogoBtnText}>Fjern</Text>
+                </Pressable>
+              </>
+            ) : (
+              <Pressable
+                onPress={onPickLogo}
+                disabled={pickerBusy}
+                style={[styles.sigLogoBtn, pickerBusy && { opacity: 0.5 }]}
+                accessibilityRole="button"
+              >
+                <Text style={styles.sigLogoBtnText}>{pickerBusy ? 'Indlæser…' : 'Vælg billede'}</Text>
+              </Pressable>
+            )}
+          </View>
+          {pickerError && <Text style={styles.sigError}>{pickerError}</Text>}
+
+          {socialsBlock}
+
+          <Text style={[styles.sigFieldLabel, { marginTop: 24 }]}>Forhåndsvisning</Text>
+          <View style={styles.sigPreviewCard}>
+            {rendered ? <SignaturePreview data={data} /> : <Text style={styles.sigPreviewEmpty}>Udfyld felterne ovenfor for at se en forhåndsvisning.</Text>}
+          </View>
+        </>
+      ) : (
+        <View style={styles.sigImportedPreviewWrap}>
+          <Text style={[styles.sigFieldLabel, { marginTop: 0 }]}>Forhåndsvisning</Text>
+          <View style={[styles.sigImportedPreview, { height: previewHeight }]}>
+            <WebView
+              key={previewKey}
+              originWhitelist={['*']}
+              javaScriptEnabled
+              scrollEnabled={false}
+              source={{ html: buildPreviewHtml(data) }}
+              style={styles.sigImportedWebView}
+              injectedJavaScript={`(function(){function post(){try{window.ReactNativeWebView.postMessage(String(Math.ceil(document.body.scrollHeight)));}catch(e){}}post();window.addEventListener('load',post);setTimeout(post,80);setTimeout(post,300);})();true;`}
+              onMessage={(event) => {
+                const h = parseInt(event.nativeEvent.data, 10);
+                if (Number.isFinite(h) && h > 60 && h < 900) {
+                  setPreviewHeight(h);
+                }
+              }}
+              onShouldStartLoadWithRequest={(req) => {
+                // Allow only the inline HTML's initial load. User-tapped
+                // links go to the system browser instead of navigating
+                // away from the inline page (which would render blank).
+                if (req.navigationType === 'click') {
+                  void Linking.openURL(req.url);
+                  return false;
+                }
+                return true;
+              }}
+            />
+          </View>
+          <Pressable
+            onPress={() => {
+              void Haptics.selectionAsync();
+              setPreviewKey((k) => k + 1);
+            }}
+            style={styles.sigPreviewReloadBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Genindlæs forhåndsvisning"
+          >
+            <RefreshCw size={13} color={colors.fg2} strokeWidth={2.2} />
+            <Text style={styles.sigPreviewReloadText}>Genindlæs forhåndsvisning</Text>
+          </Pressable>
+          <Text style={styles.sigImportedCardSub}>
+            {`Importeret ${formatImportedDate(data.importedAt)}`}
+          </Text>
+          {socialsBlock}
+          <Pressable onPress={onSwitchToManual} style={styles.sigSwitchBtn} accessibilityRole="button">
+            <Text style={styles.sigSwitchBtnText}>Skift til manuel redigering</Text>
+          </Pressable>
+        </View>
+      )}
     </Animated.View>
   );
 }
@@ -338,7 +1239,7 @@ function SigField(props: {
   );
 }
 
-function SignaturePreview({ data }: { data: SignatureData }) {
+function SignaturePreview({ data }: { data: StructuredSignature }) {
   // Structural preview using RN components — not pixel-perfect against
   // every email client, but shows what fields are present.
   const headerParts = [data.name, data.title].filter(Boolean).join(' · ');
@@ -1523,6 +2424,17 @@ const styles = StyleSheet.create({
     color: colors.fg3,
     fontWeight: '500',
   },
+  sigInlineLinkHint: {
+    marginTop: 6,
+    fontSize: 12,
+    color: colors.fg3,
+    lineHeight: 16,
+  },
+  sigInlineLinkHintMono: {
+    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
+    fontSize: 11,
+    color: colors.fg2,
+  },
   sigLogoRow: {
     marginTop: 8,
     flexDirection: 'row',
@@ -1545,6 +2457,54 @@ const styles = StyleSheet.create({
     color: colors.paper,
     fontWeight: '500',
   },
+  sigImportBtn: {
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: colors.mist,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+  },
+  sigImportBtnTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.ink,
+  },
+  sigImportBtnSub: {
+    marginTop: 4,
+    fontSize: 12,
+    color: colors.fg3,
+  },
+  sigUseImageBtn: {
+    marginTop: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: 'transparent',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    alignItems: 'center',
+  },
+  sigUseImageBtnText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.ink,
+  },
+  sigFillFieldsBtn: {
+    marginTop: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: colors.mist,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    alignItems: 'center',
+  },
+  sigFillFieldsBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.ink,
+  },
   sigError: {
     marginTop: 8,
     color: colors.warningInk,
@@ -1560,6 +2520,426 @@ const styles = StyleSheet.create({
   sigPreviewEmpty: {
     color: colors.fg3,
     fontStyle: 'italic',
+  },
+  sigImportedPreviewWrap: {
+    marginTop: 16,
+  },
+  sigImportedPreview: {
+    // Dynamic height — see the inline style override on the preview View
+    // and the WebView's injectedJavaScript / onMessage that measure
+    // document.body.scrollHeight and update previewHeight state.
+    minHeight: 80,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    backgroundColor: '#fff',
+    marginTop: 8,
+  },
+  sigImportedWebView: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  sigImportedCardSub: {
+    marginTop: 8,
+    fontSize: 12,
+    color: colors.fg3,
+  },
+  sigPreviewReloadBtn: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+    alignSelf: 'flex-start',
+  },
+  sigPreviewReloadText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.fg2,
+    letterSpacing: -0.1,
+  },
+  sigSwitchBtn: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: 'transparent',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    alignItems: 'center',
+  },
+  sigSwitchBtnText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.ink,
+  },
+  sigSocialsWrap: {
+    marginTop: 16,
+  },
+  sigSocialsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sigSocialsCountPill: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 7,
+    borderRadius: 11,
+    backgroundColor: colors.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sigSocialsCountText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#fff',
+    includeFontPadding: false,
+  },
+  sigSocialRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 10,
+  },
+  sigSocialBrandBtn: {
+    // The BrandIcon already provides its own background; keep this wrapper
+    // transparent so the press-feedback scale is clean.
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sigSocialInputs: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  sigSocialUrlInput: {
+    flex: 1,
+    minWidth: 140,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    backgroundColor: '#fff',
+    fontSize: 13,
+    color: colors.ink,
+  },
+  sigSocialLabelInput: {
+    width: 120,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    backgroundColor: '#fff',
+    fontSize: 13,
+    color: colors.ink,
+  },
+  sigSocialRemoveBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.mist,
+  },
+  sigSocialAddBtn: {
+    marginTop: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    backgroundColor: colors.mist,
+  },
+  sigSocialAddBtnEmpty: {
+    borderStyle: 'dashed',
+    backgroundColor: 'transparent',
+  },
+  sigSocialAddPlus: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.06)',
+  },
+  sigSocialAddBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.ink,
+    letterSpacing: -0.1,
+  },
+  sigWheelStage: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sigWheelOrigin: {
+    width: 0,
+    height: 0,
+  },
+  sigWheelSeed: {
+    position: 'absolute',
+    left: -22,
+    top: -22,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.5)',
+  },
+  sigWheelPetal: {
+    position: 'absolute',
+    left: -39,  // -WHEEL_PETAL_BOX/2
+    top: -39,
+    width: 78,
+    height: 78,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  sigWheelPetalIconRing: {
+    padding: 2,
+    borderRadius: 26,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  sigWheelPetalIconRingSelected: {
+    padding: 2,
+    borderRadius: 26,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    shadowColor: '#fff',
+    shadowOpacity: 0.6,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  sigWheelPetalLabel: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#fff',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  sigBindPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignSelf: 'flex-start',
+  },
+  sigBindPillUnbound: {
+    backgroundColor: colors.mist,
+    borderColor: colors.line,
+  },
+  sigBindPillBound: {
+    backgroundColor: 'rgba(58, 122, 254, 0.1)',
+    borderColor: 'rgba(58, 122, 254, 0.4)',
+  },
+  sigBindPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.ink,
+    letterSpacing: -0.1,
+  },
+  sigBindFloatWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  sigBindFloat: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: colors.paper,
+    borderRadius: 22,
+    paddingTop: 18,
+    paddingHorizontal: 18,
+    paddingBottom: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.22,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 14 },
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
+  sigBindSheetTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.ink,
+    letterSpacing: -0.3,
+    marginBottom: 12,
+  },
+  sigBindSheetSub: {
+    fontSize: 12,
+    color: colors.fg3,
+    lineHeight: 16,
+    marginBottom: 16,
+  },
+  sigBindSectionLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.fg3,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginTop: 14,
+    marginBottom: 10,
+  },
+  sigBindUnbindPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: '#f4f4f5',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
+  sigBindUnbindPillSelected: {
+    backgroundColor: colors.ink,
+    borderColor: colors.ink,
+  },
+  sigBindUnbindPillText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.fg2,
+    letterSpacing: -0.1,
+  },
+  sigBindUnbindPillTextSelected: {
+    color: '#fff',
+  },
+  sigBindWordWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  sigBindButtonsCol: {
+    flexDirection: 'column',
+    gap: 8,
+  },
+  sigBindButtonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    borderRadius: 12,
+    backgroundColor: '#f4f4f5',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  sigBindButtonRowSelected: {
+    backgroundColor: '#eef0f3',
+    borderColor: colors.ink,
+  },
+  sigBindButtonChip: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sigBindButtonChipText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: -0.1,
+  },
+  sigBindWordChip: {
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: '#f4f4f5',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.05)',
+    maxWidth: 220,
+  },
+  sigBindWordChipSelected: {
+    backgroundColor: colors.ink,
+    borderColor: colors.ink,
+  },
+  sigBindWordChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.ink,
+    letterSpacing: -0.1,
+  },
+  sigBindWordChipTextSelected: {
+    color: '#fff',
+  },
+  sigBindImageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#f4f4f5',
+    marginBottom: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  sigBindImageRowSelected: {
+    backgroundColor: '#eef0f3',
+    borderColor: colors.ink,
+  },
+  sigBindImageThumb: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
+  sigBindImageThumbImg: {
+    width: '100%',
+    height: '100%',
+  },
+  sigBindImageDesc: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.ink,
+  },
+  sigBindEmptyState: {
+    alignItems: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 12,
+  },
+  sigBindEmptyEmoji: {
+    fontSize: 28,
+    marginBottom: 8,
+  },
+  sigBindEmptyTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.ink,
+    marginBottom: 4,
+  },
+  sigBindEmptyHint: {
+    fontSize: 12,
+    color: colors.fg3,
+    lineHeight: 16,
+    textAlign: 'center',
   },
   signatureBody: {
     fontFamily: fonts.ui,
