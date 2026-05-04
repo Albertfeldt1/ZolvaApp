@@ -267,9 +267,11 @@ type SocialMeta = {
 
 const SOCIAL_META: Record<SocialType, SocialMeta> = {
   linkedin:  { label: 'LinkedIn',  glyph: 'in',  bg: '#0a66c2', fg: '#ffffff', placeholder: 'linkedin.com/in/…',
-               asset: require('../../assets/socials/linkedin.png') },
+               asset: require('../../assets/socials/linkedin.png'),
+               assetScale: 0.92 },
   twitter:   { label: 'X / Twitter', glyph: '𝕏', bg: '#000000', fg: '#ffffff', placeholder: 'x.com/…',
-               asset: require('../../assets/socials/twitter.png') },
+               asset: require('../../assets/socials/twitter.png'),
+               assetScale: 0.92 },
   instagram: { label: 'Instagram', glyph: 'Ig',  bg: '#e4405f', fg: '#ffffff', placeholder: 'instagram.com/…',
                gradient: ['#833ab4', '#fd1d1d', '#fcb045'],
                asset: require('../../assets/socials/instagram.png'),
