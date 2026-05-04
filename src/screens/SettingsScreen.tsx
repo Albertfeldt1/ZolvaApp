@@ -35,8 +35,8 @@ import Animated, {
   FadeInDown,
   FadeOut,
   LinearTransition,
-  SlideInDown,
-  SlideOutDown,
+  ZoomIn,
+  ZoomOut,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -434,7 +434,7 @@ function WordChip(props: { word: string; selected: boolean; index: number; onPre
   const press = useSharedValue(1);
   const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: press.value }] }));
   return (
-    <Animated.View entering={FadeInDown.delay(40 + index * 22).springify().damping(15).stiffness(180)}>
+    <Animated.View entering={ZoomIn.delay(30 + index * 24).springify().damping(13).stiffness(170)} exiting={ZoomOut.duration(120)}>
       <AnimatedPressable
         onPress={onPress}
         onPressIn={() => { press.value = withSpring(0.92, { damping: 14, stiffness: 320 }); }}
@@ -461,7 +461,7 @@ function ImageBindOption(props: {
 }) {
   const { description, thumbnail, selected, index, onPress } = props;
   return (
-    <Animated.View entering={FadeInDown.delay(60 + index * 28).springify().damping(15).stiffness(180)}>
+    <Animated.View entering={ZoomIn.delay(50 + index * 30).springify().damping(13).stiffness(170)} exiting={ZoomOut.duration(120)}>
       <Pressable
         onPress={onPress}
         style={[styles.sigBindImageRow, selected && styles.sigBindImageRowSelected]}
@@ -505,23 +505,20 @@ function SocialBindPicker(props: {
   const isVisSeparat = target == null;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="Luk Bind til-vælger">
-        <BlurView intensity={24} tint="dark" style={StyleSheet.absoluteFill} />
-      </Pressable>
-      <View style={styles.sigBindSheetWrap} pointerEvents="box-none">
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="Luk Bind til-vælger" />
+      <View style={styles.sigBindFloatWrap} pointerEvents="box-none">
         <Animated.View
-          entering={SlideInDown.springify().damping(18).stiffness(180)}
-          exiting={SlideOutDown.duration(180)}
-          style={styles.sigBindSheet}
+          entering={ZoomIn.springify().damping(15).stiffness(190)}
+          exiting={ZoomOut.duration(140)}
+          style={styles.sigBindFloat}
         >
-          <View style={styles.sigBindSheetHandle} />
           <Text style={styles.sigBindSheetTitle}>Bind til element</Text>
-          <Text style={styles.sigBindSheetSub}>Vælg et ord eller billede i signaturen, som linket skal pege på.</Text>
+          <Text style={styles.sigBindSheetSub}>Vælg et ord eller billede i signaturen.</Text>
 
-          <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+          <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 4 }}>
             {/* Unbind option — distinct full-width pill with link-off icon */}
-            <Animated.View entering={FadeInDown.delay(20).springify().damping(15).stiffness(180)}>
+            <Animated.View entering={ZoomIn.delay(10).springify().damping(13).stiffness(170)} exiting={ZoomOut.duration(120)}>
               <Pressable
                 onPress={() => handleSelect(undefined)}
                 style={[styles.sigBindUnbindPill, isVisSeparat && styles.sigBindUnbindPillSelected]}
@@ -2491,29 +2488,26 @@ const styles = StyleSheet.create({
     color: colors.ink,
     letterSpacing: -0.1,
   },
-  sigBindSheetWrap: {
+  sigBindFloatWrap: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
   },
-  sigBindSheet: {
+  sigBindFloat: {
+    width: '100%',
+    maxWidth: 360,
     backgroundColor: colors.paper,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 12,
-    paddingHorizontal: 20,
-    paddingBottom: 40,
+    borderRadius: 22,
+    paddingTop: 18,
+    paddingHorizontal: 18,
+    paddingBottom: 18,
     shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: -4 },
-  },
-  sigBindSheetHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.line,
-    alignSelf: 'center',
-    marginBottom: 16,
+    shadowOpacity: 0.22,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 14 },
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.06)',
   },
   sigBindSheetTitle: {
     fontSize: 16,
