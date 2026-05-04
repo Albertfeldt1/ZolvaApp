@@ -29,6 +29,7 @@ import {
   mapClaudeError,
   importResultMessage,
   stripIconStandIns,
+  stripCidImageReferences,
 } from '../import-from-screenshot';
 import { ClaudeRateLimitError, ClaudeConfigError } from '../../claude';
 
@@ -214,5 +215,34 @@ describe('stripIconStandIns', () => {
     expect(out).not.toContain('<table>');
     expect(out).not.toContain('<tr>');
     expect(out).toContain('after');
+  });
+});
+
+describe('stripCidImageReferences', () => {
+  it('removes a bare cid:zolva-sig <img>', () => {
+    const html = '<p>before</p><img src="cid:zolva-sig"><p>after</p>';
+    expect(stripCidImageReferences(html)).toBe('<p>before</p><p>after</p>');
+  });
+
+  it('removes a cid:zolva-sig <img> with attributes', () => {
+    const html = '<img src="cid:zolva-sig" alt="" width="50" height="50" style="display:block">Hello';
+    expect(stripCidImageReferences(html)).toBe('Hello');
+  });
+
+  it('handles single-quoted src', () => {
+    const html = `<img src='cid:zolva-sig' alt=''>X`;
+    expect(stripCidImageReferences(html)).toBe('X');
+  });
+
+  it('keeps non-cid <img> tags', () => {
+    const html = '<img src="https://example.com/logo.png"><img src="cid:zolva-sig">';
+    const out = stripCidImageReferences(html);
+    expect(out).toContain('https://example.com/logo.png');
+    expect(out).not.toContain('cid:zolva-sig');
+  });
+
+  it('removes multiple references', () => {
+    const html = '<img src="cid:zolva-sig">A<img src="cid:zolva-sig">B';
+    expect(stripCidImageReferences(html)).toBe('AB');
   });
 });

@@ -416,6 +416,14 @@ export function enforceCircularContactIcons(html: string): string {
   });
 }
 
+// Drop `<img src="cid:zolva-sig">` tags from html when no logo was actually
+// cropped. Otherwise the preview renders a broken-image placeholder, and
+// outgoing mail references a missing inline part. Runs after cropping so
+// we know whether image bytes survived.
+export function stripCidImageReferences(html: string): string {
+  return html.replace(/<img\b[^>]*\bsrc\s*=\s*["']cid:zolva-sig["'][^>]*>/gi, '');
+}
+
 function stripEmptyStyledOnce(html: string): string {
   // table/tr/p included so empty wrappers, paragraphs, and rows left
   // behind after their styled cells are stripped also go.
@@ -550,9 +558,15 @@ export async function pickAndImportSignature(): Promise<ImportResult> {
 
   try { await FileSystem.deleteAsync(resizedUri, { idempotent: true }); } catch {}
 
+  // Claude's html almost always contains <img src="cid:zolva-sig"> when it
+  // sees a logo. If the crop failed (no logoBox, sanity-check rejected the
+  // box, or manipulator threw), we'd otherwise leave a dangling reference
+  // that renders as a broken-image placeholder in the preview.
+  const finalHtml = image ? cleaned : stripCidImageReferences(cleaned);
+
   const data: ImportedSignature = {
     kind: 'imported',
-    html: cleaned,
+    html: finalHtml,
     plaintext: parsed.value.plaintext,
     image,
     importedAt: Date.now(),
