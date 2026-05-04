@@ -1,7 +1,7 @@
 // src/lib/mail-signature/__tests__/build-outgoing-body.test.ts
 import { buildOutgoingBody } from '../build-outgoing-body';
 import { saveSignature, __resetForTests, __setCurrentUserForTests } from '../storage';
-import { EMPTY_SIGNATURE } from '../types';
+import { EMPTY_SIGNATURE, type SignatureData } from '../types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
@@ -98,6 +98,7 @@ describe('buildOutgoingBody — imported signatures', () => {
       plaintext: 'Hi',
       image: { base64: 'AAAA', mimeType: 'image/png' as const, width: 100, height: 50 },
       importedAt: 1700000000000,
+      socials: [],
     };
     await saveSignature('user-1', imported);
     const out = await buildOutgoingBody('Hello world');
@@ -116,6 +117,7 @@ describe('buildOutgoingBody — imported signatures', () => {
       plaintext: 'Hi',
       image: null,
       importedAt: 1700000000000,
+      socials: [],
     };
     await saveSignature('user-1', imported);
     const out = await buildOutgoingBody('Hello');
@@ -130,10 +132,49 @@ describe('buildOutgoingBody — imported signatures', () => {
       plaintext: '',
       image: null,
       importedAt: 1700000000000,
+      socials: [],
     };
     await saveSignature('user-1', imported);
     const out = await buildOutgoingBody('Hello');
     expect(out.contentType).toBe('text');
     expect(out.attachments).toHaveLength(0);
+  });
+});
+
+describe('buildOutgoingBody — socials integration', () => {
+  beforeEach(async () => {
+    await (AsyncStorage as any).clear();
+    __resetForTests();
+    __setCurrentUserForTests('user-1');
+  });
+
+  it('appends socials row to structured-mode html', async () => {
+    const sig: SignatureData = {
+      kind: 'structured',
+      name: 'Albert', title: '', company: '', phone: '', email: '',
+      website: '', customLines: '', logo: null,
+      socials: [{ type: 'linkedin', url: 'https://linkedin.com/in/albert' }],
+    };
+    await saveSignature('user-1', sig);
+    const out = await buildOutgoingBody('Hello');
+    expect(out.contentType).toBe('html');
+    expect(out.content).toContain('LinkedIn');
+    expect(out.content).toContain('href="https://linkedin.com/in/albert"');
+  });
+
+  it('appends socials row to imported-mode html', async () => {
+    const sig: SignatureData = {
+      kind: 'imported',
+      html: '<table><tr><td>Hi</td></tr></table>',
+      plaintext: 'Hi',
+      image: null,
+      importedAt: 1700000000000,
+      socials: [{ type: 'github', url: 'https://github.com/albert' }],
+    };
+    await saveSignature('user-1', sig);
+    const out = await buildOutgoingBody('Hello');
+    expect(out.contentType).toBe('html');
+    expect(out.content).toContain('Hi');
+    expect(out.content).toContain('GitHub');
   });
 });

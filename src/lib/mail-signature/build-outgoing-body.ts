@@ -5,7 +5,7 @@
 // uses the pre-sanitized html directly.
 
 import { loadSignature } from './storage';
-import { bodyToParagraphs, renderImported, renderSignature } from './template';
+import { bodyToParagraphs, renderImported, renderSignature, renderSocials } from './template';
 import type { InlineAttachmentSpec, RenderedSignature } from './types';
 
 export type OutgoingBody = {
@@ -25,8 +25,11 @@ export async function buildOutgoingBody(rawBody: string): Promise<OutgoingBody> 
     return { contentType: 'text', content: rawBody, attachments: [] };
   }
 
+  const socialsHtml = data ? renderSocials(data.socials) : '';
+  const fullSignatureHtml = rendered.html + socialsHtml;
+
   const bodyHtml = bodyToParagraphs(rawBody);
-  const content = `${bodyHtml}${rendered.html}`;
+  const content = `${bodyHtml}${fullSignatureHtml}`;
 
   const attachments: InlineAttachmentSpec[] = rendered.image
     ? [{

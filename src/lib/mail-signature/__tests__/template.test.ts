@@ -1,5 +1,5 @@
 // src/lib/mail-signature/__tests__/template.test.ts
-import { renderSignature, escapeWithBrBreaks, bodyToParagraphs } from '../template';
+import { renderSignature, escapeWithBrBreaks, bodyToParagraphs, renderSocials } from '../template';
 import { EMPTY_SIGNATURE, StructuredSignature } from '../types';
 
 const fullData: StructuredSignature = {
@@ -12,6 +12,7 @@ const fullData: StructuredSignature = {
   website: 'zolva.io',
   customLines: 'CVR 12345678\nFortroligt',
   logo: { base64: 'AAAA', mimeType: 'image/png', width: 120, height: 40 },
+  socials: [],
 };
 
 describe('renderSignature', () => {
@@ -106,5 +107,73 @@ describe('bodyToParagraphs', () => {
 
   it('returns empty paragraph for empty input', () => {
     expect(bodyToParagraphs('')).toBe('<p></p>');
+  });
+});
+
+describe('renderSocials', () => {
+  it('returns empty string for empty array', () => {
+    expect(renderSocials([])).toBe('');
+  });
+
+  it('renders one social as a single link', () => {
+    const out = renderSocials([
+      { type: 'linkedin', url: 'https://linkedin.com/in/albert' },
+    ]);
+    expect(out).toContain('LinkedIn');
+    expect(out).toContain('href="https://linkedin.com/in/albert"');
+    expect(out).toContain('<div');
+    expect(out).toContain('</div>');
+    expect(out).not.toContain(' · ');  // no separator for a single link
+  });
+
+  it('joins multiple socials with middot separator', () => {
+    const out = renderSocials([
+      { type: 'linkedin', url: 'https://linkedin.com/in/albert' },
+      { type: 'github', url: 'https://github.com/albert' },
+    ]);
+    expect(out).toContain('LinkedIn');
+    expect(out).toContain('GitHub');
+    expect(out).toContain(' · ');
+  });
+
+  it('uses label when type is "other" and label is set', () => {
+    const out = renderSocials([
+      { type: 'other', url: 'https://bsky.app/profile/albert', label: 'Bluesky' },
+    ]);
+    expect(out).toContain('Bluesky');
+  });
+
+  it('falls back to URL host when type is "other" and no label', () => {
+    const out = renderSocials([
+      { type: 'other', url: 'https://bsky.app/profile/albert' },
+    ]);
+    expect(out).toContain('bsky.app');
+  });
+
+  it('skips items with empty URL', () => {
+    const out = renderSocials([
+      { type: 'linkedin', url: '' },
+      { type: 'github', url: 'https://github.com/albert' },
+    ]);
+    expect(out).not.toContain('LinkedIn');
+    expect(out).toContain('GitHub');
+  });
+
+  it('escapes HTML in URLs and labels', () => {
+    const out = renderSocials([
+      { type: 'other', url: 'https://x.com/<script>', label: '<b>Evil</b>' },
+    ]);
+    expect(out).not.toContain('<script>');
+    expect(out).not.toContain('<b>Evil</b>');
+    expect(out).toContain('&lt;script&gt;');
+    expect(out).toContain('&lt;b&gt;Evil&lt;/b&gt;');
+  });
+
+  it('returns empty string when all items have empty URLs', () => {
+    const out = renderSocials([
+      { type: 'linkedin', url: '' },
+      { type: 'twitter', url: '   ' },
+    ]);
+    expect(out).toBe('');
   });
 });

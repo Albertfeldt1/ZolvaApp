@@ -7,7 +7,7 @@
 // Word's HTML rendering engine, which mishandles flexbox/grid. Inline
 // styles only — Gmail strips <style> blocks.
 
-import type { ImportedSignature, RenderedSignature, StructuredSignature } from './types';
+import type { ImportedSignature, RenderedSignature, StructuredSignature, SocialLink, SocialType } from './types';
 
 export function escapeHtml(s: string): string {
   return s
@@ -102,4 +102,55 @@ export function renderImported(sig: ImportedSignature): RenderedSignature | null
       ? { contentId: 'zolva-sig', bytes: sig.image.base64, mimeType: sig.image.mimeType }
       : null,
   };
+}
+
+const SOCIAL_LABELS: Record<SocialType, string> = {
+  linkedin:  'LinkedIn',
+  twitter:   'Twitter',
+  instagram: 'Instagram',
+  facebook:  'Facebook',
+  tiktok:    'TikTok',
+  youtube:   'YouTube',
+  github:    'GitHub',
+  other:     '',
+};
+
+const SOCIAL_COLORS: Record<SocialType, string> = {
+  linkedin:  '#0a66c2',
+  twitter:   '#1da1f2',
+  instagram: '#e4405f',
+  facebook:  '#1877f2',
+  tiktok:    '#1a1a1a',
+  youtube:   '#ff0000',
+  github:    '#1a1a1a',
+  other:     '#1a1a1a',
+};
+
+function urlHost(url: string): string {
+  // Light parse — sufficient for label fallback. Doesn't need to be perfect.
+  const m = url.match(/^https?:\/\/([^/]+)/i);
+  return m ? m[1] : url;
+}
+
+function socialDisplayName(link: SocialLink): string {
+  if (link.type === 'other') {
+    return link.label && link.label.trim() ? link.label : urlHost(link.url);
+  }
+  return SOCIAL_LABELS[link.type];
+}
+
+export function renderSocials(socials: SocialLink[]): string {
+  const items = socials.filter((s) => s.url.trim() !== '');
+  if (items.length === 0) return '';
+
+  const linkHtml = items
+    .map((s) => {
+      const color = SOCIAL_COLORS[s.type];
+      const name = escapeHtml(socialDisplayName(s));
+      const href = escapeHtml(s.url);
+      return `<a href="${href}" style="color:${color};text-decoration:none">${name}</a>`;
+    })
+    .join('<span style="color:#888"> · </span>');
+
+  return `<div style="font:13px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1a1a;margin-top:6px">${linkHtml}</div>`;
 }
