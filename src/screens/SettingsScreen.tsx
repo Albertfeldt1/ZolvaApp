@@ -244,13 +244,12 @@ function buildPreviewHtml(sig: {
   // don't reflow into a squished multi-line shape inside the narrow preview
   // pane. The WebView scales the 600 px page down to fit its actual width,
   // giving a true "thumbnail" of how the email looks at email-client width.
-  // Viewport ~520 logical px keeps content rendering at email-client
-  // proportions (CTA buttons don't wrap into a squished mess) while
-  // landing at ~0.66× of the actual WebView width — comfortably bigger
-  // than the 0.55× we shipped first, without overflowing horizontally.
-  // Body padding kept tight (4 px) so the signature reaches near the
-  // edges of the preview pane — less dead whitespace.
-  return `<!doctype html><html><head><meta name="viewport" content="width=520,initial-scale=0.66,user-scalable=no"><style>html,body{margin:0;padding:4px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:transparent;}img{max-width:100%;height:auto;}</style></head><body>${combined}</body></html>`;
+  // Viewport ~420 logical px keeps content at email-client proportions
+  // (CTA buttons stay side-by-side without wrapping) while landing at
+  // ~0.8× of the actual WebView width — content renders large and
+  // close to its natural size. Body padding kept tight (4 px) so the
+  // signature fills the preview pane edge-to-edge.
+  return `<!doctype html><html><head><meta name="viewport" content="width=420,initial-scale=0.81,user-scalable=no"><style>html,body{margin:0;padding:4px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:transparent;}img{max-width:100%;height:auto;}</style></head><body>${combined}</body></html>`;
 }
 
 function formatImportedDate(unixMs: number): string {
@@ -2410,7 +2409,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   sigImportedPreview: {
-    height: 260,
+    height: 300,
     borderRadius: 12,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
