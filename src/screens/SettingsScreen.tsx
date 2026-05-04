@@ -244,7 +244,11 @@ function buildPreviewHtml(sig: {
   // don't reflow into a squished multi-line shape inside the narrow preview
   // pane. The WebView scales the 600 px page down to fit its actual width,
   // giving a true "thumbnail" of how the email looks at email-client width.
-  return `<!doctype html><html><head><meta name="viewport" content="width=600,initial-scale=0.55,user-scalable=no"><style>html,body{margin:0;padding:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:transparent;}img{max-width:100%;height:auto;}</style></head><body>${combined}</body></html>`;
+  // Viewport ~520 logical px keeps content rendering at email-client
+  // proportions (CTA buttons don't wrap into a squished mess) while
+  // landing at ~0.66× of the actual WebView width — comfortably bigger
+  // than the 0.55× we shipped first, without overflowing horizontally.
+  return `<!doctype html><html><head><meta name="viewport" content="width=520,initial-scale=0.66,user-scalable=no"><style>html,body{margin:0;padding:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:transparent;}img{max-width:100%;height:auto;}</style></head><body>${combined}</body></html>`;
 }
 
 function formatImportedDate(unixMs: number): string {
