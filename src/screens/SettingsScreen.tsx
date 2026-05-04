@@ -66,11 +66,12 @@ import {
   subscribeSignature,
   pickAndCompressLogo,
   pickResultMessage,
-  pickAndExtractSignature,
+  pickAndImportSignature,
   importResultMessage,
   renderSignature,
   EMPTY_SIGNATURE,
   type SignatureData,
+  type StructuredSignature,
 } from '../lib/mail-signature';
 import { translateProviderError } from '../utils/danish';
 
@@ -205,6 +206,16 @@ function useNotificationSettings(): NotificationSettings {
   return state;
 }
 
+function formatImportedDate(unixMs: number): string {
+  if (!unixMs) return '';
+  const d = new Date(unixMs);
+  try {
+    return new Intl.DateTimeFormat('da-DK', { year: 'numeric', month: 'long', day: 'numeric' }).format(d);
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
+}
+
 // Manual mail signature — structured form with optional logo. Renders
 // as HTML in Outlook send paths (and iCloud SMTP when that lands).
 // Gmail still uses the auto-fetched server signature.
@@ -231,8 +242,13 @@ function MailSignatureSection() {
     return () => { cancelled = true; unsub(); };
   }, []);
 
-  const update = (patch: Partial<SignatureData>) => {
-    setData((prev) => ({ ...prev, ...patch }));
+  const update = (patch: Partial<StructuredSignature>) => {
+    setData((prev) => {
+      if (prev.kind !== 'structured') return prev;
+      const next = { ...prev, ...patch };
+      void saveSignature(next);
+      return next;
+    });
   };
   const commit = () => {
     if (!hydrated) return;
@@ -240,6 +256,7 @@ function MailSignatureSection() {
   };
 
   const onPickLogo = async () => {
+    if (data.kind !== 'structured') return;
     setPickerError(null);
     setPickerBusy(true);
     const result = await pickAndCompressLogo();
@@ -255,6 +272,7 @@ function MailSignatureSection() {
   };
 
   const onRemoveLogo = () => {
+    if (data.kind !== 'structured') return;
     const next = { ...data, logo: null };
     setData(next);
     void saveSignature(next);
@@ -263,24 +281,39 @@ function MailSignatureSection() {
   const onImportFromScreenshot = async () => {
     setImportError(null);
     setImporting(true);
-    const result = await pickAndExtractSignature();
-    setImporting(false);
-    if (!result.ok) {
-      const msg = importResultMessage(result);
-      if (msg) setImportError(msg);
-      return;
+    try {
+      const result = await pickAndImportSignature();
+      if (!result.ok) {
+        const msg = importResultMessage(result);
+        if (msg) setImportError(msg);
+        return;
+      }
+      setData(result.data);
+      void saveSignature(result.data);
+    } finally {
+      setImporting(false);
     }
-    // Preserve the user's existing logo (extraction never touches it).
-    const next: SignatureData = {
-      ...EMPTY_SIGNATURE,
-      ...result.data,
-      logo: dataRef.current.logo,
-    };
-    setData(next);
-    void saveSignature(next);
   };
 
-  const rendered = renderSignature(data);
+  const onSwitchToManual = () => {
+    Alert.alert(
+      'Skift til manuel redigering?',
+      'Dit importerede design slettes.',
+      [
+        { text: 'Annuller', style: 'cancel' },
+        {
+          text: 'Skift',
+          style: 'destructive',
+          onPress: () => {
+            setData(EMPTY_SIGNATURE);
+            void saveSignature(EMPTY_SIGNATURE);
+          },
+        },
+      ],
+    );
+  };
+
+  const rendered = data.kind === 'structured' ? renderSignature(data) : null;
 
   return (
     <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
@@ -306,44 +339,63 @@ function MailSignatureSection() {
       </Pressable>
       {importError && <Text style={styles.sigError}>{importError}</Text>}
 
-      <SigField label="Navn"        value={data.name}        onChange={(v) => update({ name: v })}        onBlur={commit} editable={hydrated} />
-      <SigField label="Titel"       value={data.title}       onChange={(v) => update({ title: v })}       onBlur={commit} editable={hydrated} />
-      <SigField label="Virksomhed"  value={data.company}     onChange={(v) => update({ company: v })}     onBlur={commit} editable={hydrated} />
-      <SigField label="Telefon"     value={data.phone}       onChange={(v) => update({ phone: v })}       onBlur={commit} editable={hydrated} keyboardType="phone-pad" />
-      <SigField label="Email"       value={data.email}       onChange={(v) => update({ email: v })}       onBlur={commit} editable={hydrated} keyboardType="email-address" autoCapitalize="none" />
-      <SigField label="Website"     value={data.website}     onChange={(v) => update({ website: v })}     onBlur={commit} editable={hydrated} autoCapitalize="none" />
-      <SigField label="Egne linjer" value={data.customLines} onChange={(v) => update({ customLines: v })} onBlur={commit} editable={hydrated} multiline />
+      {data.kind === 'structured' ? (
+        <>
+          <SigField label="Navn"        value={data.name}        onChange={(v) => update({ name: v })}        onBlur={commit} editable={hydrated} />
+          <SigField label="Titel"       value={data.title}       onChange={(v) => update({ title: v })}       onBlur={commit} editable={hydrated} />
+          <SigField label="Virksomhed"  value={data.company}     onChange={(v) => update({ company: v })}     onBlur={commit} editable={hydrated} />
+          <SigField label="Telefon"     value={data.phone}       onChange={(v) => update({ phone: v })}       onBlur={commit} editable={hydrated} keyboardType="phone-pad" />
+          <SigField label="Email"       value={data.email}       onChange={(v) => update({ email: v })}       onBlur={commit} editable={hydrated} keyboardType="email-address" autoCapitalize="none" />
+          <SigField label="Website"     value={data.website}     onChange={(v) => update({ website: v })}     onBlur={commit} editable={hydrated} autoCapitalize="none" />
+          <SigField label="Egne linjer" value={data.customLines} onChange={(v) => update({ customLines: v })} onBlur={commit} editable={hydrated} multiline />
 
-      <Text style={styles.sigFieldLabel}>Logo</Text>
-      <View style={styles.sigLogoRow}>
-        {data.logo ? (
-          <>
-            <Image
-              source={{ uri: `data:${data.logo.mimeType};base64,${data.logo.base64}` }}
-              style={styles.sigLogoThumb}
-              resizeMode="contain"
-            />
-            <Pressable onPress={onRemoveLogo} style={styles.sigLogoBtn} accessibilityRole="button">
-              <Text style={styles.sigLogoBtnText}>Fjern</Text>
-            </Pressable>
-          </>
-        ) : (
-          <Pressable
-            onPress={onPickLogo}
-            disabled={pickerBusy}
-            style={[styles.sigLogoBtn, pickerBusy && { opacity: 0.5 }]}
-            accessibilityRole="button"
-          >
-            <Text style={styles.sigLogoBtnText}>{pickerBusy ? 'Indlæser…' : 'Vælg billede'}</Text>
+          <Text style={styles.sigFieldLabel}>Logo</Text>
+          <View style={styles.sigLogoRow}>
+            {data.logo ? (
+              <>
+                <Image
+                  source={{ uri: `data:${data.logo.mimeType};base64,${data.logo.base64}` }}
+                  style={styles.sigLogoThumb}
+                  resizeMode="contain"
+                />
+                <Pressable onPress={onRemoveLogo} style={styles.sigLogoBtn} accessibilityRole="button">
+                  <Text style={styles.sigLogoBtnText}>Fjern</Text>
+                </Pressable>
+              </>
+            ) : (
+              <Pressable
+                onPress={onPickLogo}
+                disabled={pickerBusy}
+                style={[styles.sigLogoBtn, pickerBusy && { opacity: 0.5 }]}
+                accessibilityRole="button"
+              >
+                <Text style={styles.sigLogoBtnText}>{pickerBusy ? 'Indlæser…' : 'Vælg billede'}</Text>
+              </Pressable>
+            )}
+          </View>
+          {pickerError && <Text style={styles.sigError}>{pickerError}</Text>}
+
+          <Text style={[styles.sigFieldLabel, { marginTop: 24 }]}>Forhåndsvisning</Text>
+          <View style={styles.sigPreviewCard}>
+            {rendered ? <SignaturePreview data={data} /> : <Text style={styles.sigPreviewEmpty}>Udfyld felterne ovenfor for at se en forhåndsvisning.</Text>}
+          </View>
+        </>
+      ) : (
+        <View style={styles.sigImportedPreviewWrap}>
+          <View style={styles.sigImportedCard}>
+            <Text style={styles.sigImportedCardTitle}>Importeret signatur</Text>
+            <Text style={styles.sigImportedCardSub}>
+              {`Importeret ${formatImportedDate(data.importedAt)}`}
+            </Text>
+            <Text style={styles.sigImportedCardHint}>
+              Send en test-mail til dig selv for at se, hvordan den ser ud.
+            </Text>
+          </View>
+          <Pressable onPress={onSwitchToManual} style={styles.sigSwitchBtn} accessibilityRole="button">
+            <Text style={styles.sigSwitchBtnText}>Skift til manuel redigering</Text>
           </Pressable>
-        )}
-      </View>
-      {pickerError && <Text style={styles.sigError}>{pickerError}</Text>}
-
-      <Text style={[styles.sigFieldLabel, { marginTop: 24 }]}>Forhåndsvisning</Text>
-      <View style={styles.sigPreviewCard}>
-        {rendered ? <SignaturePreview data={data} /> : <Text style={styles.sigPreviewEmpty}>Udfyld felterne ovenfor for at se en forhåndsvisning.</Text>}
-      </View>
+        </View>
+      )}
     </Animated.View>
   );
 }
@@ -377,7 +429,7 @@ function SigField(props: {
   );
 }
 
-function SignaturePreview({ data }: { data: SignatureData }) {
+function SignaturePreview({ data }: { data: StructuredSignature }) {
   // Structural preview using RN components — not pixel-perfect against
   // every email client, but shows what fields are present.
   const headerParts = [data.name, data.title].filter(Boolean).join(' · ');
@@ -1608,6 +1660,46 @@ const styles = StyleSheet.create({
   sigPreviewEmpty: {
     color: colors.fg3,
     fontStyle: 'italic',
+  },
+  sigImportedPreviewWrap: {
+    marginTop: 16,
+  },
+  sigImportedCard: {
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    backgroundColor: colors.mist,
+  },
+  sigImportedCardTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.ink,
+  },
+  sigImportedCardSub: {
+    marginTop: 4,
+    fontSize: 13,
+    color: colors.fg2,
+  },
+  sigImportedCardHint: {
+    marginTop: 12,
+    fontSize: 12,
+    color: colors.fg3,
+    fontStyle: 'italic',
+  },
+  sigSwitchBtn: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: 'transparent',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    alignItems: 'center',
+  },
+  sigSwitchBtnText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.ink,
   },
   signatureBody: {
     fontFamily: fonts.ui,

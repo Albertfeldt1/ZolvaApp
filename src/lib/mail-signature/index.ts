@@ -5,6 +5,7 @@
 
 export type {
   SignatureData,
+  StructuredSignature,
   InlineImage,
   RenderedSignature,
   InlineAttachmentSpec,
@@ -17,10 +18,7 @@ export type { OutgoingBody } from './build-outgoing-body';
 export { pickAndCompressLogo, pickResultMessage } from './image';
 export type { PickResult } from './image';
 export {
-  pickAndExtractSignature,
+  pickAndImportSignature,
   importResultMessage,
 } from './import-from-screenshot';
-export type {
-  ImportResult,
-  ExtractedSignatureFields,
-} from './import-from-screenshot';
+export type { ImportResult } from './import-from-screenshot';
