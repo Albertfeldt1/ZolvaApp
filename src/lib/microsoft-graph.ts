@@ -203,9 +203,14 @@ async function graphFetch<T>(
 
 export async function listInboxMessages(top = 12): Promise<GraphMessage[]> {
   return tryWithRefresh('microsoft', async (token) => {
+    // Folder-scoped to /mailFolders/inbox/messages — /me/messages returns
+    // messages from across the entire mailbox (Inbox + Sent + Drafts + Junk).
+    // Active Outlook users have Sent items and already-read mail dominating
+    // the top of /me/messages, which crowded out their unread Inbox mail
+    // once the downstream `!isRead` filter ran. Matches Gmail's `q=in:inbox`.
     const data = await graphFetch<{ value: RawMessage[] }>(
       token,
-      `/me/messages?$top=${top}&$select=id,from,subject,bodyPreview,receivedDateTime,isRead&$orderby=receivedDateTime desc`,
+      `/me/mailFolders/inbox/messages?$top=${top}&$select=id,from,subject,bodyPreview,receivedDateTime,isRead&$orderby=receivedDateTime desc`,
     );
     return (data.value ?? []).map((m) => ({
       id: m.id,

@@ -726,6 +726,12 @@ export type MailProviderError = {
   code: string;
 };
 
+// Per-provider mail fetch ceiling. Higher than the visible "Venter" slice so
+// the downstream `!isRead` filter has headroom — active Outlook/Gmail users
+// often have many already-read items at the top of their inbox after reading
+// on another client, and a small window left them with zero unreads to show.
+const MAIL_FETCH_PER_PROVIDER = 50;
+
 function useMailItems(): {
   items: NormalizedMail[];
   loading: boolean;
@@ -759,7 +765,7 @@ function useMailItems(): {
       tasks.push({
         provider: 'google',
         run: () =>
-          listGmailMessages(12).then((msgs) =>
+          listGmailMessages(MAIL_FETCH_PER_PROVIDER).then((msgs) =>
             msgs.map((m) => ({
               id: m.id,
               provider: 'google' as const,
@@ -776,7 +782,7 @@ function useMailItems(): {
       tasks.push({
         provider: 'microsoft',
         run: () =>
-          listGraphMessages(12).then((msgs) =>
+          listGraphMessages(MAIL_FETCH_PER_PROVIDER).then((msgs) =>
             msgs.map((m) => ({
               id: m.id,
               provider: 'microsoft' as const,
@@ -793,7 +799,7 @@ function useMailItems(): {
       tasks.push({
         provider: 'icloud',
         run: () =>
-          listIcloudMessages(userId, 12).then((r) => {
+          listIcloudMessages(userId, MAIL_FETCH_PER_PROVIDER).then((r) => {
             if (!r.ok) {
               // markInvalid was already called inside icloud-mail.ts on auth-failed.
               throw new Error(`icloud:${r.error}`);
