@@ -10,6 +10,8 @@ export type {
   InlineImage,
   RenderedSignature,
   InlineAttachmentSpec,
+  SocialLink,
+  SocialType,
 } from './types';
 export { EMPTY_SIGNATURE } from './types';
 export { loadSignature, saveSignature, subscribeSignature } from './storage';

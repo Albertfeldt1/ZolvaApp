@@ -73,6 +73,8 @@ import {
   EMPTY_SIGNATURE,
   type SignatureData,
   type StructuredSignature,
+  type SocialLink,
+  type SocialType,
 } from '../lib/mail-signature';
 import { translateProviderError } from '../utils/danish';
 
@@ -230,6 +232,84 @@ function formatImportedDate(unixMs: number): string {
   }
 }
 
+const SOCIAL_OPTIONS: { value: SocialType; label: string }[] = [
+  { value: 'linkedin',  label: 'LinkedIn' },
+  { value: 'twitter',   label: 'Twitter' },
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'facebook',  label: 'Facebook' },
+  { value: 'tiktok',    label: 'TikTok' },
+  { value: 'youtube',   label: 'YouTube' },
+  { value: 'github',    label: 'GitHub' },
+  { value: 'other',     label: 'Andet' },
+];
+
+function SocialLinkRow(props: {
+  link: SocialLink;
+  onChange: (next: SocialLink) => void;
+  onRemove: () => void;
+}) {
+  const { link, onChange, onRemove } = props;
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const currentLabel =
+    SOCIAL_OPTIONS.find((o) => o.value === link.type)?.label ?? 'LinkedIn';
+
+  return (
+    <View style={styles.sigSocialRow}>
+      <Pressable
+        onPress={() => setPickerOpen((v) => !v)}
+        style={styles.sigSocialTypeBtn}
+        accessibilityRole="button"
+      >
+        <Text style={styles.sigSocialTypeBtnText}>{currentLabel}</Text>
+        <ChevronDown size={14} color={colors.fg2} />
+      </Pressable>
+      {pickerOpen && (
+        <View style={styles.sigSocialTypeMenu}>
+          {SOCIAL_OPTIONS.map((opt) => (
+            <Pressable
+              key={opt.value}
+              onPress={() => {
+                onChange({ ...link, type: opt.value });
+                setPickerOpen(false);
+              }}
+              style={styles.sigSocialTypeMenuItem}
+            >
+              <Text style={styles.sigSocialTypeMenuItemText}>{opt.label}</Text>
+              {opt.value === link.type && <Check size={14} color={colors.ink} />}
+            </Pressable>
+          ))}
+        </View>
+      )}
+      <TextInput
+        value={link.url}
+        onChangeText={(url) => onChange({ ...link, url })}
+        placeholder="https://..."
+        placeholderTextColor={colors.fg3}
+        style={styles.sigSocialUrlInput}
+        autoCapitalize="none"
+        autoCorrect={false}
+        keyboardType="url"
+      />
+      {link.type === 'other' && (
+        <TextInput
+          value={link.label ?? ''}
+          onChangeText={(label) => onChange({ ...link, label })}
+          placeholder="Visningsnavn"
+          placeholderTextColor={colors.fg3}
+          style={styles.sigSocialLabelInput}
+        />
+      )}
+      <Pressable
+        onPress={onRemove}
+        style={styles.sigSocialRemoveBtn}
+        accessibilityRole="button"
+      >
+        <Text style={styles.sigSocialRemoveBtnText}>×</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 // Manual mail signature — structured form with optional logo. Renders
 // as HTML in Outlook send paths (and iCloud SMTP when that lands).
 // Gmail still uses the auto-fetched server signature.
@@ -327,7 +407,53 @@ function MailSignatureSection() {
     );
   };
 
+  const addSocial = () => {
+    setData((prev) => {
+      const next: SignatureData = {
+        ...prev,
+        socials: [...prev.socials, { type: 'linkedin', url: '' }],
+      };
+      void saveSignature(next);
+      return next;
+    });
+  };
+
+  const updateSocialAt = (idx: number, link: SocialLink) => {
+    setData((prev) => {
+      const nextSocials = prev.socials.map((s, i) => (i === idx ? link : s));
+      const next: SignatureData = { ...prev, socials: nextSocials };
+      void saveSignature(next);
+      return next;
+    });
+  };
+
+  const removeSocialAt = (idx: number) => {
+    setData((prev) => {
+      const nextSocials = prev.socials.filter((_, i) => i !== idx);
+      const next: SignatureData = { ...prev, socials: nextSocials };
+      void saveSignature(next);
+      return next;
+    });
+  };
+
   const rendered = data.kind === 'structured' ? renderSignature(data) : null;
+
+  const socialsBlock = (
+    <>
+      <Text style={[styles.sigFieldLabel, { marginTop: 16 }]}>Sociale medier</Text>
+      {data.socials.map((link, idx) => (
+        <SocialLinkRow
+          key={idx}
+          link={link}
+          onChange={(next) => updateSocialAt(idx, next)}
+          onRemove={() => removeSocialAt(idx)}
+        />
+      ))}
+      <Pressable onPress={addSocial} style={styles.sigSocialAddBtn} accessibilityRole="button">
+        <Text style={styles.sigSocialAddBtnText}>+ tilføj sociale medier</Text>
+      </Pressable>
+    </>
+  );
 
   return (
     <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
@@ -389,6 +515,8 @@ function MailSignatureSection() {
           </View>
           {pickerError && <Text style={styles.sigError}>{pickerError}</Text>}
 
+          {socialsBlock}
+
           <Text style={[styles.sigFieldLabel, { marginTop: 24 }]}>Forhåndsvisning</Text>
           <View style={styles.sigPreviewCard}>
             {rendered ? <SignaturePreview data={data} /> : <Text style={styles.sigPreviewEmpty}>Udfyld felterne ovenfor for at se en forhåndsvisning.</Text>}
@@ -409,6 +537,7 @@ function MailSignatureSection() {
           <Text style={styles.sigImportedCardSub}>
             {`Importeret ${formatImportedDate(data.importedAt)}`}
           </Text>
+          {socialsBlock}
           <Pressable onPress={onSwitchToManual} style={styles.sigSwitchBtn} accessibilityRole="button">
             <Text style={styles.sigSwitchBtnText}>Skift til manuel redigering</Text>
           </Pressable>
@@ -1713,6 +1842,100 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: colors.ink,
+  },
+  sigSocialRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    flexWrap: 'wrap',
+  },
+  sigSocialTypeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    backgroundColor: colors.mist,
+  },
+  sigSocialTypeBtnText: {
+    fontSize: 13,
+    color: colors.ink,
+    fontWeight: '500',
+  },
+  sigSocialTypeMenu: {
+    width: '100%',
+    marginTop: 4,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  sigSocialTypeMenuItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  sigSocialTypeMenuItemText: {
+    fontSize: 14,
+    color: colors.ink,
+  },
+  sigSocialUrlInput: {
+    flex: 1,
+    minWidth: 140,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    backgroundColor: '#fff',
+    fontSize: 13,
+    color: colors.ink,
+  },
+  sigSocialLabelInput: {
+    width: 120,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    backgroundColor: '#fff',
+    fontSize: 13,
+    color: colors.ink,
+  },
+  sigSocialRemoveBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.mist,
+  },
+  sigSocialRemoveBtnText: {
+    fontSize: 18,
+    color: colors.fg3,
+    fontWeight: '300',
+  },
+  sigSocialAddBtn: {
+    marginTop: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    borderStyle: 'dashed',
+    backgroundColor: 'transparent',
+  },
+  sigSocialAddBtnText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.fg2,
   },
   signatureBody: {
     fontFamily: fonts.ui,
