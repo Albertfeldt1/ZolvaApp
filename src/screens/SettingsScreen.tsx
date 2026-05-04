@@ -35,8 +35,6 @@ import Animated, {
   FadeInDown,
   FadeOut,
   LinearTransition,
-  ZoomIn,
-  ZoomOut,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -429,25 +427,23 @@ function SocialTypeWheel(props: {
   );
 }
 
-function WordChip(props: { word: string; selected: boolean; index: number; onPress: () => void }) {
-  const { word, selected, index, onPress } = props;
+function WordChip(props: { word: string; selected: boolean; onPress: () => void }) {
+  const { word, selected, onPress } = props;
   const press = useSharedValue(1);
   const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: press.value }] }));
   return (
-    <Animated.View entering={ZoomIn.delay(30 + index * 24).springify().damping(13).stiffness(170)} exiting={ZoomOut.duration(120)}>
-      <AnimatedPressable
-        onPress={onPress}
-        onPressIn={() => { press.value = withSpring(0.92, { damping: 14, stiffness: 320 }); }}
-        onPressOut={() => { press.value = withSpring(1, { damping: 14, stiffness: 320 }); }}
-        style={[styles.sigBindWordChip, selected && styles.sigBindWordChipSelected, pressStyle]}
-        accessibilityRole="button"
-        accessibilityLabel={`Bind til ord ${word}`}
-      >
-        <Text style={[styles.sigBindWordChipText, selected && styles.sigBindWordChipTextSelected]} numberOfLines={1}>
-          {word}
-        </Text>
-      </AnimatedPressable>
-    </Animated.View>
+    <AnimatedPressable
+      onPress={onPress}
+      onPressIn={() => { press.value = withSpring(0.92, { damping: 14, stiffness: 320 }); }}
+      onPressOut={() => { press.value = withSpring(1, { damping: 14, stiffness: 320 }); }}
+      style={[styles.sigBindWordChip, selected && styles.sigBindWordChipSelected, pressStyle]}
+      accessibilityRole="button"
+      accessibilityLabel={`Bind til ord ${word}`}
+    >
+      <Text style={[styles.sigBindWordChipText, selected && styles.sigBindWordChipTextSelected]} numberOfLines={1}>
+        {word}
+      </Text>
+    </AnimatedPressable>
   );
 }
 
@@ -456,32 +452,29 @@ function ImageBindOption(props: {
   description: string;
   thumbnail?: InlineImage;
   selected: boolean;
-  index: number;
   onPress: () => void;
 }) {
-  const { description, thumbnail, selected, index, onPress } = props;
+  const { description, thumbnail, selected, onPress } = props;
   return (
-    <Animated.View entering={ZoomIn.delay(50 + index * 30).springify().damping(13).stiffness(170)} exiting={ZoomOut.duration(120)}>
-      <Pressable
-        onPress={onPress}
-        style={[styles.sigBindImageRow, selected && styles.sigBindImageRowSelected]}
-        accessibilityRole="button"
-      >
-        <View style={styles.sigBindImageThumb}>
-          {thumbnail ? (
-            <Image
-              source={{ uri: `data:${thumbnail.mimeType};base64,${thumbnail.base64}` }}
-              style={styles.sigBindImageThumbImg}
-              resizeMode="contain"
-            />
-          ) : (
-            <ImageIcon size={18} color={colors.fg3} strokeWidth={2} />
-          )}
-        </View>
-        <Text style={styles.sigBindImageDesc} numberOfLines={1}>{description}</Text>
-        {selected && <Check size={16} color={colors.ink} strokeWidth={2.5} />}
-      </Pressable>
-    </Animated.View>
+    <Pressable
+      onPress={onPress}
+      style={[styles.sigBindImageRow, selected && styles.sigBindImageRowSelected]}
+      accessibilityRole="button"
+    >
+      <View style={styles.sigBindImageThumb}>
+        {thumbnail ? (
+          <Image
+            source={{ uri: `data:${thumbnail.mimeType};base64,${thumbnail.base64}` }}
+            style={styles.sigBindImageThumbImg}
+            resizeMode="contain"
+          />
+        ) : (
+          <ImageIcon size={18} color={colors.fg3} strokeWidth={2} />
+        )}
+      </View>
+      <Text style={styles.sigBindImageDesc} numberOfLines={1}>{description}</Text>
+      {selected && <Check size={16} color={colors.ink} strokeWidth={2.5} />}
+    </Pressable>
   );
 }
 
@@ -505,12 +498,14 @@ function SocialBindPicker(props: {
   const isVisSeparat = target == null;
 
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
-      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="Luk Bind til-vælger" />
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="Luk Bind til-vælger">
+        <BlurView intensity={60} tint="light" style={StyleSheet.absoluteFill} />
+      </Pressable>
       <View style={styles.sigBindFloatWrap} pointerEvents="box-none">
         <Animated.View
-          entering={ZoomIn.springify().damping(15).stiffness(190)}
-          exiting={ZoomOut.duration(140)}
+          entering={FadeIn.duration(180)}
+          exiting={FadeOut.duration(140)}
           style={styles.sigBindFloat}
         >
           <Text style={styles.sigBindSheetTitle}>Bind til element</Text>
@@ -518,18 +513,16 @@ function SocialBindPicker(props: {
 
           <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 4 }}>
             {/* Unbind option — distinct full-width pill with link-off icon */}
-            <Animated.View entering={ZoomIn.delay(10).springify().damping(13).stiffness(170)} exiting={ZoomOut.duration(120)}>
-              <Pressable
-                onPress={() => handleSelect(undefined)}
-                style={[styles.sigBindUnbindPill, isVisSeparat && styles.sigBindUnbindPillSelected]}
-                accessibilityRole="button"
-              >
-                <Link2Off size={15} color={isVisSeparat ? '#fff' : colors.fg2} strokeWidth={2.2} />
-                <Text style={[styles.sigBindUnbindPillText, isVisSeparat && styles.sigBindUnbindPillTextSelected]}>
-                  Vis som separat link
-                </Text>
-              </Pressable>
-            </Animated.View>
+            <Pressable
+              onPress={() => handleSelect(undefined)}
+              style={[styles.sigBindUnbindPill, isVisSeparat && styles.sigBindUnbindPillSelected]}
+              accessibilityRole="button"
+            >
+              <Link2Off size={15} color={isVisSeparat ? '#fff' : colors.fg2} strokeWidth={2.2} />
+              <Text style={[styles.sigBindUnbindPillText, isVisSeparat && styles.sigBindUnbindPillTextSelected]}>
+                Vis som separat link
+              </Text>
+            </Pressable>
 
             {isEmpty ? (
               <View style={styles.sigBindEmptyState}>
@@ -545,12 +538,11 @@ function SocialBindPicker(props: {
                   <>
                     <Text style={styles.sigBindSectionLabel}>ORD I SIGNATUREN</Text>
                     <View style={styles.sigBindWordWrap}>
-                      {targets.words.map((word, i) => (
+                      {targets.words.map((word) => (
                         <WordChip
                           key={word}
                           word={word}
                           selected={target?.kind === 'word' && target.text === word}
-                          index={i}
                           onPress={() => handleSelect({ kind: 'word', text: word })}
                         />
                       ))}
@@ -560,14 +552,13 @@ function SocialBindPicker(props: {
                 {targets.images.length > 0 && (
                   <>
                     <Text style={[styles.sigBindSectionLabel, { marginTop: 18 }]}>BILLEDER</Text>
-                    {targets.images.map((img, i) => (
+                    {targets.images.map((img) => (
                       <ImageBindOption
                         key={img.src}
                         src={img.src}
                         description={img.description}
                         thumbnail={imageThumbnails[img.src]}
                         selected={target?.kind === 'image' && target.src === img.src}
-                        index={i}
                         onPress={() => handleSelect({ kind: 'image', src: img.src })}
                       />
                     ))}
