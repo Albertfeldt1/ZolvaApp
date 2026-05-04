@@ -2,7 +2,14 @@
 // for the signed-in Microsoft account.
 
 import { ProviderAuthError, tryWithRefresh } from './auth';
-import { loadManualSignature } from './mail-signature';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import { buildOutgoingBody } from './mail-signature';
+
+// TEMPORARY shim: kept until Task 8 wires sendMail/createDraft/replyToMessage
+// to buildOutgoingBody. Do not consume buildOutgoingBody yet — Task 8 does that.
+async function loadManualSignature(): Promise<string | null> {
+  return null;
+}
 import { fetchWithTimeout } from './network-errors';
 
 const BASE = 'https://graph.microsoft.com/v1.0';

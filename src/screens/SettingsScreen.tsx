@@ -61,9 +61,10 @@ import { clearCredential, loadCredential } from '../lib/icloud-credentials';
 import { clearDiscoveryCacheFor } from '../lib/icloud-calendar';
 import { clearBinding as clearIcloudBinding } from '../lib/icloud-mail';
 import {
-  loadManualSignature,
-  saveManualSignature,
-  subscribeManualSignature,
+  loadSignature,
+  saveSignature,
+  subscribeSignature,
+  EMPTY_SIGNATURE,
 } from '../lib/mail-signature';
 import { translateProviderError } from '../utils/danish';
 
@@ -134,13 +135,13 @@ function MailSignatureSection() {
 
   useEffect(() => {
     let cancelled = false;
-    void loadManualSignature().then((s) => {
+    void loadSignature().then((s) => {
       if (cancelled) return;
-      setValue(s ?? '');
+      setValue(s?.customLines ?? '');
       setHydrated(true);
     });
-    const unsub = subscribeManualSignature((s) => {
-      if (!cancelled) setValue(s ?? '');
+    const unsub = subscribeSignature((s) => {
+      if (!cancelled) setValue(s?.customLines ?? '');
     });
     return () => {
       cancelled = true;
@@ -150,7 +151,7 @@ function MailSignatureSection() {
 
   const commit = () => {
     if (!hydrated) return;
-    void saveManualSignature(value);
+    void saveSignature({ ...EMPTY_SIGNATURE, customLines: value });
   };
 
   return (
