@@ -175,7 +175,18 @@ function wrapWord(
 ): string | null {
   const found = findFirstWordMatch(html, word);
   if (!found) return null;
-  const newOpenTag = `<a href="${escapeAttr(href)}" style="color:${color};text-decoration:underline">`;
+
+  // Single plain words ("her", "Albert") get explicit link styling so they
+  // visually read as a hyperlink in plain body text. Phrases — anything
+  // with whitespace or non-word punctuation — are usually wrapping styled
+  // block content (CTA buttons), so we emit a bare <a href> and let the
+  // inner element's existing styling propagate. This keeps "Find me on
+  // Facebook" looking like a button instead of becoming a blue underlined
+  // link inside the button.
+  const isSimpleWord = /^[A-Za-z0-9_]+$/.test(word);
+  const newOpenTag = isSimpleWord
+    ? `<a href="${escapeAttr(href)}" style="color:${color};text-decoration:underline">`
+    : `<a href="${escapeAttr(href)}">`;
 
   if (found.inAnchor) {
     // Replace the existing <a ...> opening tag with our fresh one. Inner
