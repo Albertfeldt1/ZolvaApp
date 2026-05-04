@@ -174,6 +174,22 @@ async function generateOneBrief(
   kind: 'morning' | 'midday' | 'evening',
   timezone: string,
 ): Promise<string> {
+  // Memory toggle gate. The brief quotes facts and mail subjects, so when
+  // the user has memory off we must skip composition entirely — not just
+  // pass empty arrays through (which would still burn a Claude call to
+  // produce a content-free brief). Mirrors src/lib/profile.ts:2-3.
+  const { data: profile, error: profileErr } = await client
+    .from('user_profiles')
+    .select('memory_enabled')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (profileErr) {
+    console.warn('[daily-brief] memory_enabled read failed', profileErr);
+    // Fail-open to match the timezone-read pattern in fetchZones; a
+    // transient profile read error shouldn't drop briefs for everyone.
+  }
+  if (profile?.memory_enabled === false) return 'skipped-memory-off';
+
   const today = new Date().toISOString().slice(0, 10);
   const { data: existing } = await client
     .from('briefs')
