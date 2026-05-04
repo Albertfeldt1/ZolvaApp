@@ -2,15 +2,29 @@
 // for the signed-in Microsoft account.
 
 import { ProviderAuthError, tryWithRefresh } from './auth';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { buildOutgoingBody } from './mail-signature';
-
-// TEMPORARY shim: kept until Task 8 wires sendMail/createDraft/replyToMessage
-// to buildOutgoingBody. Do not consume buildOutgoingBody yet — Task 8 does that.
-async function loadManualSignature(): Promise<string | null> {
-  return null;
-}
+import type { InlineAttachmentSpec, OutgoingBody } from './mail-signature';
 import { fetchWithTimeout } from './network-errors';
+
+type GraphFileAttachment = {
+  '@odata.type': '#microsoft.graph.fileAttachment';
+  name: string;
+  contentType: string;
+  contentBytes: string;
+  isInline: boolean;
+  contentId: string;
+};
+
+function toGraphAttachments(specs: InlineAttachmentSpec[]): GraphFileAttachment[] {
+  return specs.map((s) => ({
+    '@odata.type': '#microsoft.graph.fileAttachment',
+    name: s.filename,
+    contentType: s.mimeType,
+    contentBytes: s.contentBytes,
+    isInline: true,
+    contentId: s.contentId,
+  }));
+}
 
 const BASE = 'https://graph.microsoft.com/v1.0';
 
@@ -233,7 +247,7 @@ export async function getMessageBody(id: string): Promise<GraphMessageBody> {
 
 export async function replyToMessage(id: string, body: string): Promise<void> {
   return tryWithRefresh('microsoft', async (token) => {
-    const signed = await appendManualSignature(body);
+    const signed = body;
     await graphFetch<void>(token, `/me/messages/${id}/reply`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -257,79 +271,69 @@ function buildRecipients(addrs: string[]): Array<{ emailAddress: { address: stri
   return addrs.map((a) => ({ emailAddress: { address: a } }));
 }
 
-// Creates an Outlook draft. For new mail this is POST /me/messages; for
-// replies we use createReplyDraft which preserves threading + quoted history.
-// Manual signature (set in Settings) gets appended to the body.
 export async function createDraft(input: GraphComposeInput): Promise<{ id: string }> {
   return tryWithRefresh('microsoft', async (token) => {
-    const signedBody = await appendManualSignature(input.body);
+    const built: OutgoingBody = await buildOutgoingBody(input.body);
+    const attachments = toGraphAttachments(built.attachments);
+
     if (input.replyToId) {
+      // Reply draft path — Task 9 will switch this to the createReply
+      // dance for HTML+attachments. Until then we keep the legacy text
+      // path so this task stays minimal.
       const draft = await graphFetch<{ id: string }>(
         token,
         `/me/messages/${input.replyToId}/createReplyDraft`,
         { method: 'POST' },
       );
-      // Patch the draft with the user's body + signature. Outlook keeps the
-      // quoted history below.
       await graphFetch<void>(token, `/me/messages/${draft.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          body: { contentType: 'text', content: signedBody },
+          body: { contentType: 'text', content: input.body },
         }),
       });
       return { id: draft.id };
     }
+
     const data = await graphFetch<{ id: string }>(token, `/me/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         subject: input.subject,
-        body: { contentType: 'text', content: signedBody },
+        body: { contentType: built.contentType, content: built.content },
         toRecipients: buildRecipients(input.to),
         ccRecipients: input.cc && input.cc.length > 0 ? buildRecipients(input.cc) : undefined,
+        attachments: attachments.length > 0 ? attachments : undefined,
       }),
     });
     return { id: data.id };
   });
 }
 
-// Sends a fresh email immediately (not via the existing /reply endpoint).
-// For replies, use replyToMessage so the original is threaded server-side.
 export async function sendMail(input: GraphComposeInput): Promise<void> {
   return tryWithRefresh('microsoft', async (token) => {
-    const signedBody = await appendManualSignature(input.body);
     if (input.replyToId) {
-      // Not exposed via /sendMail — use the reply endpoint instead. Caller
-      // typically routes through replyToMessage; this branch is just defensive.
-      await graphFetch<void>(token, `/me/messages/${input.replyToId}/reply`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ comment: signedBody }),
-      });
-      return;
+      // Defensive: route to replyToMessage so the rich-signature reply
+      // path (Task 10) handles inline attachments correctly.
+      return replyToMessage(input.replyToId, input.body);
     }
+    const built: OutgoingBody = await buildOutgoingBody(input.body);
+    const attachments = toGraphAttachments(built.attachments);
     await graphFetch<void>(token, `/me/sendMail`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: {
           subject: input.subject,
-          body: { contentType: 'text', content: signedBody },
+          body: { contentType: built.contentType, content: built.content },
           toRecipients: buildRecipients(input.to),
           ccRecipients: input.cc && input.cc.length > 0 ? buildRecipients(input.cc) : undefined,
+          attachments: attachments.length > 0 ? attachments : undefined,
         },
         saveToSentItems: true,
       }),
     });
   });
-}
-
-async function appendManualSignature(body: string): Promise<string> {
-  const sig = await loadManualSignature();
-  if (!sig) return body;
-  const trimmed = body.replace(/\s+$/, '');
-  return `${trimmed}\n\n${sig}\n`;
 }
 
 export async function archiveMessage(id: string): Promise<void> {
