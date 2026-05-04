@@ -245,14 +245,46 @@ export async function getMessageBody(id: string): Promise<GraphMessageBody> {
   });
 }
 
+// Sends an immediate reply. For users with no signature configured this
+// stays a single API call (POST /reply with `comment`). For users with
+// a rich signature we createReply → PATCH HTML body → POST inline
+// attachments → POST send. 4 round-trips when a signature is configured;
+// 1 when it isn't. Acceptable — replies aren't latency-critical and the
+// /reply endpoint can't carry inline attachments.
 export async function replyToMessage(id: string, body: string): Promise<void> {
   return tryWithRefresh('microsoft', async (token) => {
-    const signed = body;
-    await graphFetch<void>(token, `/me/messages/${id}/reply`, {
-      method: 'POST',
+    const built: OutgoingBody = await buildOutgoingBody(body);
+
+    if (built.contentType === 'text' && built.attachments.length === 0) {
+      await graphFetch<void>(token, `/me/messages/${id}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment: built.content }),
+      });
+      return;
+    }
+
+    const draft = await graphFetch<{ id: string }>(
+      token,
+      `/me/messages/${id}/createReply`,
+      { method: 'POST' },
+    );
+    await graphFetch<void>(token, `/me/messages/${draft.id}`, {
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ comment: signed }),
+      body: JSON.stringify({
+        body: { contentType: built.contentType, content: built.content },
+      }),
     });
+    const attachments = toGraphAttachments(built.attachments);
+    for (const att of attachments) {
+      await graphFetch<void>(token, `/me/messages/${draft.id}/attachments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(att),
+      });
+    }
+    await graphFetch<void>(token, `/me/messages/${draft.id}/send`, { method: 'POST' });
   });
 }
 
