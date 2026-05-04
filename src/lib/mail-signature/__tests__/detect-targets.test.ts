@@ -282,6 +282,15 @@ describe('detectImportedTargets — button detection', () => {
     expect(result.buttons).toEqual([]);
     expect(result.glyphs).toContain('f');
   });
+
+  it('skips 2-char brand-mark stand-ins like "in", "ig", "fb"', () => {
+    const html =
+      '<a style="background:#0a66c2;color:#fff;padding:6px">in</a>' +
+      '<a style="background:#e4405f;color:#fff;padding:6px">ig</a>' +
+      `<a style="background:#0a66c2;color:#fff;padding:10px">Let's connect!</a>`;
+    const result = detectImportedTargets(html);
+    expect(result.buttons).toEqual([{ text: `Let's connect!`, bgColor: '#0a66c2' }]);
+  });
 });
 
 describe('detectImportedTargets — combined HTML', () => {

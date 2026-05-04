@@ -233,9 +233,12 @@ export function detectImportedTargets(html: unknown): DetectedTargets {
     // Extract button text (strip nested tags, normalize whitespace).
     const text = inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     if (!text) continue;
-    // Single-char tokens already live in the GLYPHS section — skip here so
-    // they don't appear twice.
-    if (text.length < 2) continue;
+    // Drop 1-char tokens (already in GLYPHS) and 2-char brand-mark stand-ins
+    // ("in" for LinkedIn, "ig" for Instagram, "fb" for Facebook, "yt" for
+    // YouTube, etc.). Those represent social icons whose URLs belong in the
+    // socials array, not as standalone bindable buttons. Real CTA buttons in
+    // signatures are at least three characters ("Læs", "Køb", "Find me…").
+    if (text.length < 3) continue;
     // Reject runs longer than 80 chars: those are usually entire signature
     // containers with a faint background, not actual buttons.
     if (text.length > 80) continue;
