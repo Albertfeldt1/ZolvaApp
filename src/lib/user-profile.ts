@@ -22,3 +22,22 @@ export function syncUserProfile(userId: string): void {
       }
     });
 }
+
+// Mirror the local `memory-enabled` privacy toggle to user_profiles so cron
+// edge functions (daily-brief, fact-decay-warning) can short-circuit when
+// the user has memory turned off. Fire-and-forget — a failure must not
+// block the local toggle, since the server gate is a backstop, not the
+// primary control.
+export function syncMemoryEnabled(userId: string, enabled: boolean): void {
+  void supabase
+    .from('user_profiles')
+    .upsert(
+      { user_id: userId, memory_enabled: enabled, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' },
+    )
+    .then(({ error }) => {
+      if (error && __DEV__) {
+        console.warn('[user-profile] memory_enabled sync failed:', error.message);
+      }
+    });
+}

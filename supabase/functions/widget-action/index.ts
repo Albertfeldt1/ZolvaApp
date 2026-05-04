@@ -85,15 +85,10 @@ export async function workerHandler(req: Request): Promise<Response> {
   const token = auth.startsWith('Bearer ') ? auth.slice('Bearer '.length) : null;
 
   let userId: string;
-  const testUserId = Deno.env.get('WIDGET_ACTION_TEST_USER_ID');
-  if (testUserId) {
-    userId = testUserId;
-  } else {
-    try {
-      userId = (await verifyJwt(token)).userId;
-    } catch {
-      return json(401, loggedOut());
-    }
+  try {
+    userId = (await verifyJwt(token)).userId;
+  } catch {
+    return json(401, loggedOut());
   }
 
   const body = (await req.json().catch(() => ({}))) as WidgetActionRequest;

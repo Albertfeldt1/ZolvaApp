@@ -62,8 +62,16 @@ serve(async (req) => {
   }
   const due = (dueRaw ?? []) as FactRow[];
 
+  // Memory toggle gate. Skip users who have memory turned off — they
+  // shouldn't receive notifications about facts they've asked us to
+  // forget. Filter (don't stamp decay_warning_sent_at) so the warning
+  // can still fire if they re-enable memory before the fact decays.
+  const candidateUserIds = Array.from(new Set(due.map((f) => f.user_id)));
+  const disabledUserIds = await loadMemoryDisabledUserIds(svc, candidateUserIds);
+  const filtered = due.filter((f) => !disabledUserIds.has(f.user_id));
+
   let warned = 0;
-  for (const fact of due) {
+  for (const fact of filtered) {
     const ok = await pushDecayWarning(svc, fact);
     if (ok) warned += 1;
     // Stamp regardless of push success: a failed Expo deliver shouldn't
@@ -87,6 +95,23 @@ serve(async (req) => {
 
   return json({ ok: true, candidates: due.length, warned, purged: purged ?? 0 });
 });
+
+async function loadMemoryDisabledUserIds(
+  svc: SupabaseClient,
+  userIds: string[],
+): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set();
+  const { data, error } = await svc
+    .from('user_profiles')
+    .select('user_id')
+    .in('user_id', userIds)
+    .eq('memory_enabled', false);
+  if (error) {
+    console.warn('[fact-decay-warning] memory_enabled lookup failed:', error.message);
+    return new Set(); // fail-open, same posture as daily-brief
+  }
+  return new Set((data ?? []).map((r) => (r as { user_id: string }).user_id));
+}
 
 async function pushDecayWarning(svc: SupabaseClient, fact: FactRow): Promise<boolean> {
   const { data: tokens, error } = await svc

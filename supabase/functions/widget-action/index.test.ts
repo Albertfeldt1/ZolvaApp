@@ -87,7 +87,6 @@ function profileResp(work: null | { provider: 'google' | 'microsoft'; id: string
 
 // --- environment overrides for tests (test-only bypass for JWT) ---
 
-Deno.env.set('WIDGET_ACTION_TEST_USER_ID', '28c51177-aaaa-bbbb-cccc-ddddeeeeffff');
 Deno.env.set('SUPABASE_URL', 'https://sjkhfkatmeqtsrysixop.supabase.co');
 Deno.env.set('SUPABASE_SERVICE_ROLE_KEY', 'fake-service-role');
 Deno.env.set('ANTHROPIC_API_KEY', 'fake-anthropic');
@@ -96,8 +95,6 @@ Deno.env.set('ANTHROPIC_API_KEY', 'fake-anthropic');
 
 Deno.test('rejects missing Authorization header → 401 + logged out snippet', async () => {
   // Temporarily unset the test-user override so the JWT path actually runs.
-  const prev = Deno.env.get('WIDGET_ACTION_TEST_USER_ID');
-  Deno.env.delete('WIDGET_ACTION_TEST_USER_ID');
   try {
     const res = await workerHandler(
       new Request('http://localhost/widget-action', {
@@ -111,7 +108,6 @@ Deno.test('rejects missing Authorization header → 401 + logged out snippet', a
     assertEquals(body.snippet.mood, 'worried');
     assertEquals(body.snippet.deepLink, 'zolva://settings');
   } finally {
-    if (prev) Deno.env.set('WIDGET_ACTION_TEST_USER_ID', prev);
   }
 });
 

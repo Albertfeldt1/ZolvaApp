@@ -6,7 +6,7 @@ import { writeSnapshotFromSources } from './widget-bridge';
 
 export type Brief = {
   id: string;
-  kind: 'morning' | 'evening';
+  kind: 'morning' | 'midday' | 'evening';
   headline: string;
   body: string[];
   weather: { tempC: number; highC: number; lowC: number; conditionLabel: string } | null;
@@ -18,7 +18,7 @@ export type Brief = {
 function rowToBrief(r: Record<string, unknown>): Brief {
   return {
     id: r.id as string,
-    kind: r.kind as 'morning' | 'evening',
+    kind: r.kind as 'morning' | 'midday' | 'evening',
     headline: r.headline as string,
     body: Array.isArray(r.body) ? (r.body as string[]) : [],
     weather: (r.weather as Brief['weather']) ?? null,
@@ -97,7 +97,7 @@ export function useTodayBrief(): {
 }
 
 export function useBriefHistory(
-  kind: 'morning' | 'evening',
+  kind: 'morning' | 'midday' | 'evening',
   limit = 30,
 ): { items: Brief[]; loading: boolean; refresh: () => Promise<void> } {
   const { user } = useAuth();

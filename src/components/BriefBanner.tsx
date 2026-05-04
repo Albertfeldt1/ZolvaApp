@@ -23,7 +23,7 @@ export function BriefBanner({ brief, onOpen, onDismiss }: Props) {
     >
       <View style={styles.headerRow}>
         <Text style={styles.eyebrow}>
-          {brief.kind === 'morning' ? 'Morgenbrief' : 'Aftenbrief'}
+          {brief.kind === 'morning' ? 'Morgenbrief' : brief.kind === 'midday' ? 'Middagsbrief' : 'Aftenbrief'}
         </Text>
         <Pressable
           onPress={(e) => {
