@@ -230,11 +230,7 @@ export async function completeWithTool<T>(opts: {
   attachProfile?: boolean;
   model?: string;
 }): Promise<T> {
-  // Call through the module's own exports so jest.spyOn(claude, 'completeRaw')
-  // intercepts the call in tests (CJS live-export binding).
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
-  const self: typeof import('./claude') = require('./claude');
-  const result = await self.completeRaw({
+  const result = await completeRaw({
     system: opts.system,
     messages: opts.messages,
     maxTokens: opts.maxTokens,
