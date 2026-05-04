@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { EmptyState } from '../components/EmptyState';
 import { FactRow } from '../components/FactRow';
+import { LiquidTabSwitcher } from '../components/LiquidTabSwitcher';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { Stone } from '../components/Stone';
 import { TopRightActions } from '../components/TopRightActions';
@@ -12,6 +13,7 @@ import { isPendingAndDueOrUpcoming } from '../lib/reminders';
 import { deleteAllChatHistory, deleteAllFacts, deleteAllMailEvents, deleteFact, listFacts, listRecentChatMessages, subscribeFactsChanged } from '../lib/profile-store';
 import { migrateLocalChatIfNeeded } from '../lib/chat-sync';
 import { triggerBackfillRerun } from '../lib/onboarding-backfill';
+import { syncMemoryEnabled } from '../lib/user-profile';
 import { useAuth } from '../lib/auth';
 import type { ChatMessageRow, Fact, Note, NoteCategory, Reminder } from '../lib/types';
 import { colors, fonts } from '../theme';
@@ -35,11 +37,11 @@ const CATEGORY_TONE: Record<NoteCategory, { bg: string; fg: string }> = {
 
 type MemoryTab = 'noter' | 'fakta' | 'samtaler';
 
-const TAB_LABELS: Record<MemoryTab, string> = {
-  noter: 'Noter',
-  fakta: 'Fakta',
-  samtaler: 'Samtaler',
-};
+const MEMORY_TABS: ReadonlyArray<{ id: MemoryTab; label: string }> = [
+  { id: 'noter', label: 'Noter' },
+  { id: 'fakta', label: 'Fakta' },
+  { id: 'samtaler', label: 'Samtaler' },
+];
 
 function startOfToday(now: Date): Date {
   const d = new Date(now);
@@ -102,6 +104,7 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
   const toggleMemory = async () => {
     const next = !memoryEnabled;
     await setPrivacyFlag('memory-enabled', next);
+    if (userId) syncMemoryEnabled(userId, next);
     if (next && userId) void migrateLocalChatIfNeeded(userId);
     setPrivacyVersion((v) => v + 1);
   };
@@ -225,16 +228,12 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
         </View>
       </View>
 
-      {/* Tab row */}
-      <View style={styles.tabRow}>
-        {(['noter', 'fakta', 'samtaler'] as const).map((t) => (
-          <Pressable key={t} onPress={() => setTab(t)} style={[styles.tab, tab === t && styles.tabActive]}>
-            <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>
-              {TAB_LABELS[t]}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+      {/* Tab row — liquid glass capsule with springy active pill, swipe-to-switch */}
+      <LiquidTabSwitcher
+        tabs={MEMORY_TABS}
+        active={tab}
+        onChange={setTab}
+      />
 
       {/* ── Fakta tab ── */}
       {tab === 'fakta' && (
@@ -626,37 +625,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.fg4,
     marginHorizontal: 6,
     alignSelf: 'center',
-  },
-
-  // ── Tab row ──────────────────────────────────────────────────────────────
-  tabRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 4,
-    gap: 4,
-    backgroundColor: colors.paper,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
-  },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  tabActive: {
-    backgroundColor: colors.sageSoft,
-  },
-  tabText: {
-    fontFamily: fonts.uiSemi,
-    fontSize: 12,
-    letterSpacing: 0.4,
-    color: colors.fg3,
-    textTransform: 'uppercase',
-  },
-  tabTextActive: {
-    color: colors.sageDeep,
   },
 
   // ── Kill-switch ───────────────────────────────────────────────────────────

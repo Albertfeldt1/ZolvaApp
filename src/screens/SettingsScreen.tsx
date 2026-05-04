@@ -5,7 +5,7 @@
 // email the contact address and Zolva responds within 30 days. When/if a real
 // JSON export is built (Edge Function + Resend), re-add a button here and grep
 // for this marker to update the handoff.
-import { Check, ChevronLeft } from 'lucide-react-native';
+import { Check, ChevronDown, ChevronLeft } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
@@ -33,7 +33,6 @@ import Animated, {
   FadeIn,
   FadeOut,
   LinearTransition,
-  interpolateColor,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -41,6 +40,7 @@ import Animated, {
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 import { makeRedirectUri } from 'expo-auth-session';
+import { LiquidToggle } from '../components/LiquidToggle';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { Stone } from '../components/Stone';
 import { TopRightActions } from '../components/TopRightActions';
@@ -101,6 +101,71 @@ function getPrivacyPolicyUrl(): string | null {
 const ROW_TRANSITION = LinearTransition.duration(220);
 const OPTIONS_ENTER = FadeIn.duration(180);
 const OPTIONS_EXIT = FadeOut.duration(140);
+const COLLAPSE_EASING = Easing.bezier(0.22, 1, 0.36, 1);
+// Slower than ROW_TRANSITION so the height interpolation has time to push the
+// next section down before the body becomes visible — without it, the body
+// renders at full size for a frame and overlaps the section below.
+const COLLAPSE_TRANSITION = LinearTransition.duration(320);
+const COLLAPSE_BODY_ENTER = FadeIn.duration(260).delay(60);
+const COLLAPSE_BODY_EXIT = FadeOut.duration(140);
+
+function CollapsibleSection({
+  title,
+  defaultOpen = false,
+  paddingTop,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  paddingTop?: number;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const rotation = useSharedValue(open ? 1 : 0);
+
+  useEffect(() => {
+    rotation.value = withTiming(open ? 1 : 0, { duration: 260, easing: COLLAPSE_EASING });
+  }, [open, rotation]);
+
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value * 180}deg` }],
+  }));
+
+  return (
+    <Animated.View
+      layout={COLLAPSE_TRANSITION}
+      style={[
+        styles.section,
+        // overflow: hidden clips the body during the height transition so it
+        // can't bleed into the section below mid-animation.
+        styles.sectionClip,
+        paddingTop != null ? { paddingTop } : null,
+      ]}
+    >
+      <Pressable
+        onPress={() => setOpen((o) => !o)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        style={styles.collapseHeader}
+        hitSlop={6}
+      >
+        <Text style={styles.sectionTitle}>{title}</Text>
+        <Animated.View style={chevronStyle}>
+          <ChevronDown size={20} color={colors.ink} strokeWidth={2.2} />
+        </Animated.View>
+      </Pressable>
+      <View style={styles.inkRule} />
+      {open ? (
+        <Animated.View
+          entering={COLLAPSE_BODY_ENTER}
+          exiting={COLLAPSE_BODY_EXIT}
+        >
+          {children}
+        </Animated.View>
+      ) : null}
+    </Animated.View>
+  );
+}
 
 const LOGOS: Record<string, ImageSourcePropType> = {
   'google-calendar.png': require('../../assets/logos/google-calendar.png'),
@@ -109,7 +174,16 @@ const LOGOS: Record<string, ImageSourcePropType> = {
   'outlook-calendar.png': require('../../assets/logos/outlook-calendar.png'),
   'outlook-mail.png': require('../../assets/logos/outlook-mail.png'),
   'icloud.png': require('../../assets/logos/icloud.png'),
+  'slack.png': require('../../assets/logos/slack.png'),
+  'notion.png': require('../../assets/logos/notion.png'),
 };
+
+// Placeholder integrations shown greyed out under "Forbundet" — no auth or
+// status yet, so they live outside the Connection type / useConnections store.
+const COMING_SOON_INTEGRATIONS: { key: string; title: string; sub: string; logo: string }[] = [
+  { key: 'slack', title: 'Slack', sub: 'Beskeder og kanaler', logo: 'slack.png' },
+  { key: 'notion', title: 'Notion', sub: 'Noter og dokumenter', logo: 'notion.png' },
+];
 
 const STATUS_LABEL: Record<IntegrationStatus, string> = {
   connected: 'Forbundet',
@@ -472,9 +546,7 @@ export function SettingsScreen({
               </View>
             </View>
 
-            <Animated.View layout={ROW_TRANSITION} style={styles.section}>
-              <Text style={styles.sectionTitle}>Sådan arbejder jeg</Text>
-              <View style={styles.inkRule} />
+            <CollapsibleSection title="Sådan arbejder jeg">
               {workRows.map((r) =>
                 r.id === 'morning-brief' && briefVariant === 'icloud-only' ? (
                   <View key={r.id} style={styles.disabledPrefRow}>
@@ -503,11 +575,9 @@ export function SettingsScreen({
                   />
                 ),
               )}
-            </Animated.View>
+            </CollapsibleSection>
 
-            <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
-              <Text style={styles.sectionTitle}>Forbundet</Text>
-              <View style={styles.inkRule} />
+            <CollapsibleSection title="Forbundet" paddingTop={28}>
               {allConnections.map((c, i) => {
                 const pillStyle =
                   c.status === 'connected' ? styles.statusSage :
@@ -571,13 +641,25 @@ export function SettingsScreen({
                   </Pressable>
                 );
               })}
-            </Animated.View>
+              {COMING_SOON_INTEGRATIONS.map((c) => (
+                <View key={c.key} style={[styles.connRow, styles.connBorder, styles.connRowComingSoon]}>
+                  <View style={styles.logoBox}>
+                    <Image source={LOGOS[c.logo]} style={styles.logo} resizeMode="contain" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.connTitle}>{c.title}</Text>
+                    <Text style={styles.connSub}>{c.sub}</Text>
+                  </View>
+                  <View style={[styles.statusPill, styles.statusNeutral]}>
+                    <Text style={[styles.statusText, styles.statusTextNeutral]}>Kommer snart</Text>
+                  </View>
+                </View>
+              ))}
+            </CollapsibleSection>
 
             <StemmestyringSection hasIcloud={hasIcloud} />
 
-            <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
-              <Text style={styles.sectionTitle}>Abonnement</Text>
-              <View style={styles.inkRule} />
+            <CollapsibleSection title="Abonnement" paddingTop={28}>
               {subscription ? (
                 <View style={styles.planRow}>
                   <Text style={styles.planPrice}>
@@ -602,7 +684,7 @@ export function SettingsScreen({
                   <Text style={styles.btnInkText}>{subscription ? 'Skift plan' : 'Vælg plan'}</Text>
                 </Pressable>
               </View>
-            </Animated.View>
+            </CollapsibleSection>
 
             <Animated.View layout={ROW_TRANSITION} style={styles.dark}>
               <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
@@ -824,20 +906,16 @@ function StemmestyringSection({ hasIcloud }: { hasIcloud: boolean }) {
 
   if (!hasAnyProvider) {
     return (
-      <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
-        <Text style={styles.sectionTitle}>Stemmestyring</Text>
-        <View style={styles.inkRule} />
+      <CollapsibleSection title="Stemmestyring" paddingTop={28}>
         <Text style={styles.sectionBody}>
           Forbind Google, Outlook eller iCloud for at sætte møder med Siri.
         </Text>
-      </Animated.View>
+      </CollapsibleSection>
     );
   }
 
   return (
-    <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
-      <Text style={styles.sectionTitle}>Stemmestyring (Voice)</Text>
-      <View style={styles.inkRule} />
+    <CollapsibleSection title="Stemmestyring (Voice)" paddingTop={28}>
       <Text style={styles.sectionBody}>
         Når du beder Siri "bed Zolva om at sætte et møde", lander mødet i den
         kalender du vælger her. Sig "i min arbejdskalender" for at tilsidesætte.
@@ -904,7 +982,7 @@ function StemmestyringSection({ hasIcloud }: { hasIcloud: boolean }) {
           )}
         </SafeAreaView>
       </Modal>
-    </Animated.View>
+    </CollapsibleSection>
   );
 }
 
@@ -1191,51 +1269,24 @@ function WorkPreferenceRow({
   );
 }
 
-const TOGGLE_EASING = Easing.bezier(0.22, 1, 0.36, 1);
-const TOGGLE_DURATION = 220;
-const TOGGLE_THUMB_TRAVEL = 16; // track 38 - padding 4 - thumb 18
-
 function ToggleRow({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
-  const progress = useSharedValue(on ? 1 : 0);
-
-  useEffect(() => {
-    progress.value = withTiming(on ? 1 : 0, {
-      duration: TOGGLE_DURATION,
-      easing: TOGGLE_EASING,
-    });
-  }, [on, progress]);
-
-  const trackStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(
-      progress.value,
-      [0, 1],
-      [colors.paperOn20, colors.sage],
-    ),
-  }));
-  const thumbStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: progress.value * TOGGLE_THUMB_TRAVEL }],
-  }));
-
   return (
     <View style={styles.toggleRow}>
       <Text style={styles.toggleLabel}>{label}</Text>
-      <Pressable
-        onPress={onPress}
-        accessibilityRole="switch"
-        accessibilityState={{ checked: on }}
-        style={({ pressed }) => [styles.toggleTrack, pressed && styles.toggleTrackPressed]}
-      >
-        <Animated.View
-          style={[StyleSheet.absoluteFill, styles.toggleTrackFill, trackStyle]}
-          pointerEvents="none"
-        />
-        <Animated.View style={[styles.toggleThumb, thumbStyle]} />
-      </Pressable>
+      <LiquidToggle
+        value={on}
+        onChange={onPress}
+        width={38}
+        height={22}
+        padding={2}
+        // On-tint: vivid sage at high opacity. Lower opacity through the
+        // glass blur read as olive/grey; this stays readable as green.
+        tintOff="rgba(246,241,232,0.18)"
+        tintOn="rgba(115,170,95,0.92)"
+      />
     </View>
   );
 }
-
-const NT_THUMB_TRAVEL = 18; // track 46 - padding 6 - thumb 22
 
 function NotificationToggleRow({
   label,
@@ -1246,26 +1297,6 @@ function NotificationToggleRow({
   value: boolean;
   onChange: (next: boolean) => void;
 }) {
-  const progress = useSharedValue(value ? 1 : 0);
-
-  useEffect(() => {
-    progress.value = withTiming(value ? 1 : 0, {
-      duration: TOGGLE_DURATION,
-      easing: TOGGLE_EASING,
-    });
-  }, [value, progress]);
-
-  const trackStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(
-      progress.value,
-      [0, 1],
-      [colors.mist, colors.sageDeep],
-    ),
-  }));
-  const thumbStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: progress.value * NT_THUMB_TRAVEL }],
-  }));
-
   return (
     <Pressable
       style={styles.ntRow}
@@ -1274,13 +1305,15 @@ function NotificationToggleRow({
       accessibilityState={{ checked: value }}
     >
       <Text style={styles.ntLabel}>{label}</Text>
-      <View style={styles.ntTrack}>
-        <Animated.View
-          style={[StyleSheet.absoluteFill, styles.ntTrackFill, trackStyle]}
-          pointerEvents="none"
-        />
-        <Animated.View style={[styles.ntThumb, thumbStyle]} />
-      </View>
+      <LiquidToggle
+        value={value}
+        onChange={onChange}
+        width={46}
+        height={28}
+        padding={3}
+        tintOff="rgba(140,133,120,0.20)"
+        tintOn="rgba(115,170,95,0.92)"
+      />
     </Pressable>
   );
 }
@@ -1468,6 +1501,8 @@ const styles = StyleSheet.create({
   },
 
   section: { paddingHorizontal: 20, paddingTop: 24 },
+  sectionClip: { overflow: 'hidden' },
+  collapseHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionTitle: { fontFamily: fonts.display, fontSize: 22, letterSpacing: -0.44, color: colors.ink },
   inkRule: { height: 1, backgroundColor: colors.ink, marginTop: 4 },
   emptyText: {
@@ -1526,6 +1561,7 @@ const styles = StyleSheet.create({
   },
   connBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   connRowPressed: { opacity: 0.55 },
+  connRowComingSoon: { opacity: 0.45 },
   connectPill: {
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -1582,14 +1618,6 @@ const styles = StyleSheet.create({
 
   toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   toggleLabel: { flex: 1, fontFamily: fonts.ui, fontSize: 13.5, color: 'rgba(246,241,232,0.9)' },
-  toggleTrack: {
-    width: 38, height: 22, borderRadius: 999, padding: 2,
-    flexDirection: 'row', alignItems: 'center',
-    overflow: 'hidden',
-  },
-  toggleTrackFill: { borderRadius: 999 },
-  toggleTrackPressed: { opacity: 0.7 },
-  toggleThumb: { width: 18, height: 18, borderRadius: 999, backgroundColor: colors.paper },
 
   accountRow: {
     flexDirection: 'row',
@@ -1625,33 +1653,18 @@ const styles = StyleSheet.create({
     color: colors.warningInk,
   },
 
-  // Notification toggles (light-background rows, separate from the dark ToggleRow above)
+  // Notification toggles (light-background rows, separate from the dark ToggleRow above).
+  // No horizontal padding — the parent section already insets by 20, matching the
+  // privacy card's inset so labels/toggles share a vertical column across sections.
   ntRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: colors.paper,
-    borderRadius: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.line,
   },
   ntLabel: { fontSize: 15, color: colors.ink, fontFamily: fonts.ui, flex: 1 },
-  ntTrack: {
-    width: 46,
-    height: 28,
-    borderRadius: 14,
-    padding: 3,
-    overflow: 'hidden',
-  },
-  ntTrackFill: { borderRadius: 14 },
-  ntThumb: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: colors.paper,
-  },
   permissionBanner: {
     padding: 12,
     backgroundColor: colors.clay,

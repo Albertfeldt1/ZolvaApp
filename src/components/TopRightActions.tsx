@@ -1,4 +1,4 @@
-import { Bell, Settings } from 'lucide-react-native';
+import { Bell, PackageOpen, Settings } from 'lucide-react-native';
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useUnreadNotificationCount } from '../lib/hooks';
@@ -7,12 +7,24 @@ import { colors } from '../theme';
 type Props = {
   onOpenNotifications: () => void;
   onOpenSettings?: () => void;
+  onOpenArchive?: () => void;
 };
 
-export function TopRightActions({ onOpenNotifications, onOpenSettings }: Props) {
+export function TopRightActions({ onOpenNotifications, onOpenSettings, onOpenArchive }: Props) {
   const unread = useUnreadNotificationCount();
   return (
     <View style={styles.row}>
+      {onOpenArchive && (
+        <Pressable
+          onPress={onOpenArchive}
+          style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Åbn arkiv"
+        >
+          <PackageOpen size={16} color={colors.ink} strokeWidth={1.75} />
+        </Pressable>
+      )}
       <Pressable
         onPress={onOpenNotifications}
         style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}

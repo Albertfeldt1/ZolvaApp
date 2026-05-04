@@ -1,7 +1,6 @@
-import { isGlassEffectAPIAvailable, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { Bookmark, Calendar, Mail, Sun } from 'lucide-react-native';
 import React, { createContext, useContext } from 'react';
-import { Platform } from 'react-native';
+import { liquidGlassReady } from '../lib/liquid-glass';
 import { ClassicTabBar } from './ClassicTabBar';
 import { LiquidTabBar } from './LiquidTabBar';
 
@@ -31,18 +30,6 @@ export type PhoneChromeProps = {
   showAsk?: boolean;
   darkBg?: boolean;
 };
-
-// isGlassEffectAPIAvailable guards iOS 26 beta builds that ship the
-// component without the underlying API (expo issue #40911).
-// isLiquidGlassAvailable checks component availability only — it does
-// NOT check Reduce Transparency. UIKit's UIGlassEffectView degrades
-// natively under Reduce Transparency to a translucent solid fill, the
-// same way Apple's first-party apps do, so we let the OS handle that
-// case instead of forcing the fallback.
-const liquidGlassReady =
-  Platform.OS === 'ios' &&
-  isGlassEffectAPIAvailable() &&
-  isLiquidGlassAvailable();
 
 export function PhoneChrome(props: PhoneChromeProps) {
   return liquidGlassReady ? <LiquidTabBar {...props} /> : <ClassicTabBar {...props} />;

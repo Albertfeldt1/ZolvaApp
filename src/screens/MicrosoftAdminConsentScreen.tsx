@@ -112,7 +112,11 @@ export function MicrosoftAdminConsentScreen({ prefilledEmail, onCancel }: Props)
       'Du kan se og godkende anmodningen her:',
       linkUrl,
       '',
-      'Mere information om Zolva: https://zolva.io',
+      'Til vurdering af appen:',
+      '• Databehandleraftale (GDPR art. 28): https://albertfeldt1.github.io/ZolvaApp/dpa-da.html',
+      '• Privatlivspolitik: https://albertfeldt1.github.io/ZolvaApp/privacy-policy-da.html',
+      '• Vilkår for brug: https://albertfeldt1.github.io/ZolvaApp/terms-da.html',
+      '• Mere om Zolva: https://zolva.io',
       '',
       'Tak.',
     ];

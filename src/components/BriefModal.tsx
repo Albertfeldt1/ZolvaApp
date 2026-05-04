@@ -34,7 +34,7 @@ export function BriefModal({ brief, visible, onClose }: Props) {
           <View style={styles.topBar}>
             <View style={styles.eyebrowWrap}>
               <Text style={styles.eyebrow}>
-                {brief?.kind === 'morning' ? 'Morgenbrief' : 'Aftenbrief'}
+                {brief?.kind === 'morning' ? 'Morgenbrief' : brief?.kind === 'midday' ? 'Middagsbrief' : 'Aftenbrief'}
               </Text>
               {weatherLine && <Text style={styles.weather}>{weatherLine}</Text>}
             </View>

@@ -1,4 +1,4 @@
-import { Moon, Sun, X } from 'lucide-react-native';
+import { Moon, Sun, Sunrise, X } from 'lucide-react-native';
 import React from 'react';
 import {
   Modal,
@@ -12,8 +12,10 @@ import type { Brief } from '../lib/briefs';
 import { useBriefHistory } from '../lib/briefs';
 import { colors, fonts } from '../theme';
 
+type BriefKind = 'morning' | 'midday' | 'evening';
+
 type Props = {
-  kind: 'morning' | 'evening' | null;
+  kind: BriefKind | null;
   onClose: () => void;
   onSelect: (brief: Brief) => void;
 };
@@ -38,15 +40,21 @@ function BriefHistoryContent({
   onClose,
   onSelect,
 }: {
-  kind: 'morning' | 'evening';
+  kind: BriefKind;
   onClose: () => void;
   onSelect: (brief: Brief) => void;
 }) {
   const { items, loading } = useBriefHistory(kind);
-  const Icon = kind === 'evening' ? Moon : Sun;
-  const title = kind === 'evening' ? 'Aftenbriefs' : 'Morgenbriefs';
+  const Icon = kind === 'evening' ? Moon : kind === 'midday' ? Sun : Sunrise;
+  const title =
+    kind === 'evening' ? 'Aftenbriefs' :
+    kind === 'midday' ? 'Middagsbriefs' :
+    'Morgenbriefs';
   const today = new Date();
-  const emptyLabel = kind === 'evening' ? 'aftenbriefs' : 'morgenbriefs';
+  const emptyLabel =
+    kind === 'evening' ? 'aftenbriefs' :
+    kind === 'midday' ? 'middagsbriefs' :
+    'morgenbriefs';
 
   return (
     <Pressable style={styles.backdrop} onPress={onClose}>

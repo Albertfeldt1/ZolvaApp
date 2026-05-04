@@ -1,5 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ChevronRight, PackageOpen, X } from 'lucide-react-native';
+import { ChevronRight } from 'lucide-react-native';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   AppState,
@@ -24,7 +23,7 @@ import { formatClock, formatToday } from '../lib/date';
 import { useHasProvider, useInboxCleared, useInboxWaiting } from '../lib/hooks';
 import type { MailProviderError } from '../lib/hooks';
 import type { InboxMail, MailProvider } from '../lib/types';
-import { colors, fonts, shadows } from '../theme';
+import { colors, fonts } from '../theme';
 import { translateProviderError } from '../utils/danish';
 
 const PROVIDER_LOGOS: Record<MailProvider, ReturnType<typeof require>> = {
@@ -32,9 +31,6 @@ const PROVIDER_LOGOS: Record<MailProvider, ReturnType<typeof require>> = {
   microsoft: require('../../assets/logos/outlook-mail.png'),
   icloud: require('../../assets/logos/apple.png'),
 };
-
-const ARCHIVE_HINT_KEY = 'zolva.inbox.archive-fab-hint-shown';
-const HINT_AUTOHIDE_MS = 5000;
 
 function providerFailureCopy(e: MailProviderError): string {
   if (e.provider === 'icloud') {
@@ -119,7 +115,6 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
   }, [userId]);
 
   const [archiveOpen, setArchiveOpen] = useState(false);
-  const [hintVisible, setHintVisible] = useState(false);
 
   // Inbox no longer has a dark section, so the chrome pill should always be
   // in its light mode when this screen mounts. Report once on mount and clear
@@ -129,28 +124,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
     return () => onOverDarkChange?.(false);
   }, [onOverDarkChange]);
 
-  // First-launch tooltip pointing at the archive FAB. Non-blocking: reads the
-  // flag after mount, shows for 5s, marks flag on show so we only ever nag once.
-  useEffect(() => {
-    let cancelled = false;
-    AsyncStorage.getItem(ARCHIVE_HINT_KEY).then((raw) => {
-      if (cancelled || raw) return;
-      setHintVisible(true);
-      AsyncStorage.setItem(ARCHIVE_HINT_KEY, '1').catch(() => {});
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    if (!hintVisible) return;
-    const t = setTimeout(() => setHintVisible(false), HINT_AUTOHIDE_MS);
-    return () => clearTimeout(t);
-  }, [hintVisible]);
-
-  const openArchive = () => {
-    setHintVisible(false);
-    setArchiveOpen(true);
-  };
+  const openArchive = () => setArchiveOpen(true);
 
   return (
     <View style={styles.flex}>
@@ -165,6 +139,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
             <TopRightActions
               onOpenNotifications={onOpenNotifications}
               onOpenSettings={onGoToSettings}
+              onOpenArchive={openArchive}
             />
           </View>
           <Text style={styles.heroH1}>Indbakke</Text>
@@ -315,35 +290,6 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
         </View>
       </ScrollView>
 
-      <View
-        pointerEvents="box-none"
-        style={[styles.fabWrap, { bottom: chromeBottom + 14 }]}
-      >
-        {hintVisible && (
-          <Pressable
-            onPress={() => setHintVisible(false)}
-            style={styles.hintBubble}
-            accessibilityRole="button"
-            accessibilityLabel="Luk hint"
-          >
-            <Text style={styles.hintText}>Arkiverede mails findes her nu</Text>
-            <View style={styles.hintClose}>
-              <X size={12} color={colors.paperOn75} strokeWidth={2} />
-            </View>
-            <View style={styles.hintTail} />
-          </Pressable>
-        )}
-        <Pressable
-          onPress={openArchive}
-          style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
-          accessibilityRole="button"
-          accessibilityLabel="Åbn arkiv"
-          hitSlop={8}
-        >
-          <PackageOpen size={20} color={colors.paper} strokeWidth={1.75} />
-        </Pressable>
-      </View>
-
       <ArchiveModal
         visible={archiveOpen}
         onClose={() => setArchiveOpen(false)}
@@ -445,55 +391,4 @@ const styles = StyleSheet.create({
   draft: { marginTop: 8, flexDirection: 'row', gap: 8, alignItems: 'center' },
   draftText: { flex: 1, fontFamily: 'Inter_500Medium_Italic', fontSize: 12.5, color: colors.fg2 },
 
-  fabWrap: {
-    position: 'absolute',
-    right: 20,
-    alignItems: 'flex-end',
-    gap: 10,
-  },
-  fab: {
-    width: 48,
-    height: 48,
-    borderRadius: 999,
-    backgroundColor: colors.sage,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...shadows.fab,
-  },
-  fabPressed: { opacity: 0.88 },
-  hintBubble: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingLeft: 14,
-    paddingRight: 10,
-    borderRadius: 14,
-    backgroundColor: colors.ink,
-    maxWidth: 260,
-    ...shadows.fab,
-  },
-  hintText: {
-    fontFamily: fonts.uiSemi,
-    fontSize: 12.5,
-    color: colors.paper,
-    flexShrink: 1,
-  },
-  hintClose: {
-    width: 20,
-    height: 20,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(246,241,232,0.14)',
-  },
-  hintTail: {
-    position: 'absolute',
-    right: 14,
-    bottom: -5,
-    width: 10,
-    height: 10,
-    backgroundColor: colors.ink,
-    transform: [{ rotate: '45deg' }],
-  },
 });

@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   NativeScrollEvent,
   NativeSyntheticEvent,
+  PanResponder,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,15 +11,32 @@ import {
   View,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { GlassView } from 'expo-glass-effect';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { Skeleton } from '../components/Skeleton';
 import { TopRightActions } from '../components/TopRightActions';
 import { formatToday, weekStrip, type WeekStripDay } from '../lib/date';
 import { useDaySchedule, useHasProvider } from '../lib/hooks';
+import { liquidGlassReady } from '../lib/liquid-glass';
 import type { CalendarSlot } from '../lib/types';
 import { colors, fonts } from '../theme';
 import { translateProviderError } from '../utils/danish';
+
+const AnimatedGlassView = Animated.createAnimatedComponent(GlassView);
+// Same physics as LiquidTabBar / LiquidTabSwitcher so all springy pills feel
+// like one system.
+const DAY_PILL_SPRING = { damping: 22, stiffness: 260, mass: 1 };
+// Belt geometry: explicit height so the active pill renders at the same height
+// as the cells (using top:0/bottom:0 left the pill rendering taller than the
+// row visually). The belt is a single capsule that holds all 7 days.
+const BELT_HEIGHT = 56;
+const BELT_INSET = 4;
 
 type EventTone = NonNullable<CalendarSlot['event']>['tone'];
 const toneColor = (t: EventTone) =>
@@ -149,6 +168,40 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
     setSelectedDate(d);
   };
 
+  // Horizontal swipe on the body advances the selected day by one. If the new
+  // day falls outside the currently visible week, page the strip to match.
+  const advanceDay = (dir: 1 | -1) => {
+    const next = addDays(selectedDate, dir);
+    if (Platform.OS === 'ios') Haptics.selectionAsync().catch(() => {});
+    setSelectedDate(next);
+    const inVisible = weeks[pageIndex]?.some((d) => sameDay(d.date, next));
+    if (!inVisible) {
+      const targetIdx = weeks.findIndex((w) => w.some((d) => sameDay(d.date, next)));
+      if (targetIdx >= 0 && pageWidth > 0) {
+        weekScrollRef.current?.scrollTo({ x: targetIdx * pageWidth, animated: true });
+        setPageIndex(targetIdx);
+      }
+    }
+  };
+
+  const dayPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        // Don't claim on touch start — let taps and vertical scroll work.
+        onStartShouldSetPanResponder: () => false,
+        // Only claim when horizontal motion clearly dominates.
+        onMoveShouldSetPanResponder: (_, g) =>
+          Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+        onPanResponderRelease: (_, g) => {
+          if (Math.abs(g.dx) < 50) return;
+          advanceDay(g.dx < 0 ? 1 : -1);
+        },
+        onPanResponderTerminationRequest: () => false,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedDate, pageIndex, pageWidth, weeks],
+  );
+
   const jumpToToday = () => {
     Haptics.selectionAsync();
     setSelectedDate(today);
@@ -196,47 +249,19 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
               scrollEventThrottle={16}
             >
               {weeks.map((week, wi) => (
-                <View key={wi} style={[styles.weekPage, { width: pageWidth }]}>
-                  {week.map((d, di) => (
-                    <Pressable
-                      key={di}
-                      onPress={() => selectDay(d.date)}
-                      style={({ pressed }) => [
-                        styles.dayCell,
-                        d.isSelected && styles.dayCellSelected,
-                        d.isToday && !d.isSelected && styles.dayCellToday,
-                        pressed && !d.isSelected && styles.dayCellPressed,
-                      ]}
-                      hitSlop={4}
-                    >
-                      <Text
-                        style={[
-                          styles.dayLetter,
-                          d.isSelected && styles.dayLetterSelected,
-                          d.isToday && !d.isSelected && styles.dayLetterToday,
-                        ]}
-                      >
-                        {d.letter}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.dayNum,
-                          d.isSelected && styles.dayNumSelected,
-                          d.isToday && !d.isSelected && styles.dayNumToday,
-                        ]}
-                      >
-                        {d.num}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
+                <WeekPage
+                  key={wi}
+                  week={week}
+                  width={pageWidth}
+                  onSelect={(date) => selectDay(date)}
+                />
               ))}
             </ScrollView>
           )}
         </View>
       </View>
 
-      <View style={styles.list}>
+      <View style={styles.list} {...dayPanResponder.panHandlers}>
         <Text style={styles.sectionTitle}>
           {isSelectedToday ? 'I dag' : selectedInfo.dayHeadline}
         </Text>
@@ -322,6 +347,116 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
   );
 }
 
+function WeekPage({
+  week,
+  width,
+  onSelect,
+}: {
+  week: WeekStripDay[];
+  width: number;
+  onSelect: (date: Date) => void;
+}) {
+  const selectedIdx = week.findIndex((d) => d.isSelected);
+  // Belt is a single capsule across the row; cells share its width equally
+  // minus the inset on each side that the pill respects.
+  const innerWidth = width - BELT_INSET * 2;
+  const cellWidth = innerWidth / week.length;
+  const pillX = useSharedValue(0);
+
+  React.useEffect(() => {
+    if (selectedIdx < 0) return;
+    // Pill is absolute-positioned INSIDE the belt's padded content area, so
+    // left: 0 already sits at BELT_INSET from the belt's outer edge — no need
+    // to add the inset here.
+    const target = selectedIdx * cellWidth;
+    if (pillX.value === 0 && target > 0) {
+      // First measurement: snap so the pill appears under the already-selected
+      // day instead of springing in from the left edge.
+      pillX.value = target;
+    } else {
+      pillX.value = withSpring(target, DAY_PILL_SPRING);
+    }
+  }, [selectedIdx, cellWidth, pillX]);
+
+  const pillStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: pillX.value }],
+    width: cellWidth,
+  }));
+
+  const cells = (
+    <View style={styles.weekRow}>
+      {week.map((d, di) => (
+        <Pressable
+          key={di}
+          onPress={() => onSelect(d.date)}
+          style={({ pressed }) => [
+            styles.dayCell,
+            { width: cellWidth },
+            pressed && !d.isSelected && styles.dayCellPressed,
+          ]}
+          hitSlop={4}
+        >
+          <Text
+            style={[
+              styles.dayLetter,
+              d.isSelected && styles.dayLetterSelected,
+              d.isToday && !d.isSelected && styles.dayLetterToday,
+            ]}
+          >
+            {d.letter}
+          </Text>
+          <Text
+            style={[
+              styles.dayNum,
+              d.isSelected && styles.dayNumSelected,
+              d.isToday && !d.isSelected && styles.dayNumToday,
+            ]}
+          >
+            {d.num}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+
+  // Pill is rendered BEFORE the cells so cells sit on top in z-order — the
+  // selected day's paper-coloured text reads against the dark pill instead of
+  // being covered by it.
+  if (liquidGlassReady) {
+    return (
+      <View style={[styles.weekPage, { width }]}>
+        <GlassView glassEffectStyle="regular" colorScheme="auto" style={styles.belt}>
+          {selectedIdx >= 0 && (
+            <AnimatedGlassView
+              glassEffectStyle="clear"
+              isInteractive
+              tintColor="rgba(26,30,28,0.32)"
+              colorScheme="auto"
+              style={[styles.dayPill, pillStyle]}
+              pointerEvents="none"
+            />
+          )}
+          {cells}
+        </GlassView>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.weekPage, { width }]}>
+      <View style={[styles.belt, styles.beltFallback]}>
+        {selectedIdx >= 0 && (
+          <Animated.View
+            style={[styles.dayPill, styles.dayPillFallback, pillStyle]}
+            pointerEvents="none"
+          />
+        )}
+        {cells}
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   scroll: { flexGrow: 1, backgroundColor: colors.paper },
 
@@ -358,22 +493,46 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   weekPage: {
+    position: 'relative',
+    height: BELT_HEIGHT,
+    justifyContent: 'center',
+  },
+  // The "belt" — single rounded-rectangle wrapping all 7 days. Glass version
+  // uses GlassView regular for the iOS 26 frosted look; fallback is a subtle
+  // sage-tinted background so the active pill still reads against it.
+  belt: {
+    height: BELT_HEIGHT,
+    borderRadius: 16,
+    overflow: 'hidden',
+    paddingHorizontal: BELT_INSET,
+  },
+  beltFallback: {
+    backgroundColor: 'rgba(255,255,255,0.45)',
+  },
+  weekRow: {
+    flex: 1,
     flexDirection: 'row',
-    gap: 6,
-    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   dayCell: {
-    flex: 1,
+    height: BELT_HEIGHT - BELT_INSET * 2,
     alignItems: 'center',
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  dayCellSelected: { backgroundColor: colors.ink },
-  dayCellToday: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.ink,
+    justifyContent: 'center',
   },
   dayCellPressed: { opacity: 0.55 },
+  // Active-day pill — springs between days inside the belt. Glass version
+  // uses a clear glass with a dark tint so paper-coloured selected text stays
+  // legible against it; fallback is the original solid ink fill.
+  dayPill: {
+    position: 'absolute',
+    left: 0,
+    top: BELT_INSET,
+    height: BELT_HEIGHT - BELT_INSET * 2,
+    borderRadius: 12,
+  },
+  dayPillFallback: {
+    backgroundColor: colors.ink,
+  },
   dayLetter: {
     fontFamily: fonts.mono, fontSize: 10,
     letterSpacing: 0.5, color: colors.ink, opacity: 0.7,

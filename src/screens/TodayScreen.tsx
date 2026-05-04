@@ -1,4 +1,4 @@
-import { Bookmark, ChevronRight, Moon, Sun, X } from 'lucide-react-native';
+import { Bookmark, ChevronRight, Moon, Sun, Sunrise, X } from 'lucide-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -121,7 +121,7 @@ export function TodayScreen({
   const { data: pendingFacts, accept: acceptFact, reject: rejectFactHook } = usePendingFacts();
   const { brief, markRead: markBriefRead } = useTodayBrief();
   const [viewingBrief, setViewingBrief] = useState<Brief | null>(null);
-  const [historyKind, setHistoryKind] = useState<'morning' | 'evening' | null>(null);
+  const [historyKind, setHistoryKind] = useState<'morning' | 'midday' | 'evening' | null>(null);
   const [observationHistoryOpen, setObservationHistoryOpen] = useState(false);
 
   // Notification taps: App.tsx bumps briefOpenTrigger — we open the modal
@@ -378,8 +378,19 @@ export function TodayScreen({
           accessibilityRole="button"
           accessibilityLabel="Tidligere morgenbriefs"
         >
-          <Sun size={14} color={colors.sageDeep} strokeWidth={1.75} />
+          <Sunrise size={14} color={colors.sageDeep} strokeWidth={1.75} />
           <Text style={styles.briefHistoryLabel}>Morgen</Text>
+        </Pressable>
+        <View style={styles.briefHistoryDot} />
+        <Pressable
+          onPress={() => setHistoryKind('midday')}
+          style={styles.briefHistoryBtn}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Tidligere middagsbriefs"
+        >
+          <Sun size={14} color={colors.sageDeep} strokeWidth={1.75} />
+          <Text style={styles.briefHistoryLabel}>Middag</Text>
         </Pressable>
         <View style={styles.briefHistoryDot} />
         <Pressable
