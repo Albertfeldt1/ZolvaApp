@@ -273,6 +273,52 @@ export function stripIconStandIns(html: string): string {
   return curr;
 }
 
+// Replace contact-line emoji (Claude keeps reverting to them despite the
+// prompt) with deterministic styled-circle spans. Two passes:
+//   1. If an emoji sits alone inside an existing styled span/td/div, swap
+//      just the emoji content for the matching letter — keep the circle's
+//      color/styling Claude already chose.
+//   2. Any standalone emoji left in body text gets wrapped in our own
+//      uniform styled-circle span (dark navy default).
+const CONTACT_EMOJI_TO_LETTER: Record<string, string> = {
+  '☎': 'T', '☎️': 'T', '\u{1F4DE}': 'T', '\u{1F4F1}': 'T',
+  '✉': '@', '✉️': '@', '\u{1F4E7}': '@', '\u{1F4E8}': '@', '\u{1F4E9}': '@',
+  '\u{1F310}': 'W', '\u{1F30D}': 'W', '\u{1F30E}': 'W', '\u{1F30F}': 'W',
+  '\u{1F4CD}': 'P', '\u{1F4CC}': 'P',
+  '\u{1F517}': 'L',
+};
+
+const DEFAULT_CONTACT_ICON_COLOR = '#1c2e3a';
+
+function styledCircleSpan(letter: string, color: string): string {
+  return `<span style="display:inline-block;width:20px;height:20px;line-height:20px;border-radius:50%;background:${color};color:#fff;text-align:center;font-family:Arial;font-size:11px;font-weight:bold;vertical-align:middle">${letter}</span>`;
+}
+
+export function replaceContactEmoji(html: string, fallbackColor = DEFAULT_CONTACT_ICON_COLOR): string {
+  // Pass 1: emoji inside an existing styled wrapper → swap inner content
+  // only, keeping Claude's chosen circle styling.
+  let out = html;
+  const styledRe = /<(span|td|div)\b([^>]*style\s*=\s*"[^"]*"[^>]*)>([\s\S]*?)<\/\1>/gi;
+  out = out.replace(styledRe, (match, _tag, _attrs, inner: string) => {
+    const trimmed = inner.trim();
+    const letter = CONTACT_EMOJI_TO_LETTER[trimmed];
+    if (letter) {
+      return match.replace(inner, letter);
+    }
+    return match;
+  });
+
+  // Pass 2: any standalone emoji left in body text → wrap in our own
+  // uniform styled circle. Sorted longer-first so 2-codepoint variants
+  // (☎️) match before their 1-codepoint base (☎).
+  const emojis = Object.keys(CONTACT_EMOJI_TO_LETTER).sort((a, b) => b.length - a.length);
+  for (const emoji of emojis) {
+    const letter = CONTACT_EMOJI_TO_LETTER[emoji];
+    out = out.split(emoji).join(styledCircleSpan(letter, fallbackColor));
+  }
+  return out;
+}
+
 // Force any element with `border-radius:50%` (an attempted circular icon)
 // to also have explicit equal width and height + matching line-height so
 // it renders as a true circle. Claude often emits padding-based sizing
@@ -311,11 +357,18 @@ export function enforceCircularContactIcons(html: string): string {
 }
 
 function stripEmptyStyledOnce(html: string): string {
-  // table and tr included: empty table/row containers left behind after
-  // their inner styled cells are stripped should also go.
-  const re = /<(a|td|tr|table|div|span)\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi;
+  // table/tr/p included so empty wrappers, paragraphs, and rows left
+  // behind after their styled cells are stripped also go.
+  const re = /<(a|td|tr|table|div|span|p)\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi;
   return html.replace(re, (match, tag: string, attrs: string, inner: string) => {
-    const text = inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    // Normalize: strip nested tags, collapse all whitespace incl.
+    // non-breaking space, then trim. Some authors use &nbsp; or
+    // whitespace-only content to keep an "empty" element visible.
+    const text = inner
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;| |&zwnj;|‌|&zwj;|‍/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
     if (text.length !== 0) return match;
     if (/<img\b/i.test(inner)) return match;
     // For <tr>/<table>, drop if empty even without a colored background —
@@ -422,7 +475,8 @@ export async function pickAndImportSignature(): Promise<ImportResult> {
 
   const sanitized = sanitizeSignatureHtml(parsed.value.html);
   const stripped = stripIconStandIns(sanitized);
-  const cleaned = enforceCircularContactIcons(stripped);
+  const circled = enforceCircularContactIcons(stripped);
+  const cleaned = replaceContactEmoji(circled);
   if (!cleaned) {
     try { await FileSystem.deleteAsync(resizedUri, { idempotent: true }); } catch {}
     return { ok: false, reason: 'no-data' };
