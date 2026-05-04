@@ -162,6 +162,7 @@ export async function pickAndExtractSignature(): Promise<ImportResult> {
         },
       ],
       schemaHint: SCHEMA_HINT,
+      attachProfile: false,
     });
   } catch (err) {
     return mapClaudeError(err);
