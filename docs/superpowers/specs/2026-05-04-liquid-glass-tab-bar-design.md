@@ -117,7 +117,7 @@ export function PhoneChrome(props: Props) {
 - **Active pill `glassEffectStyle="clear"` + ink tint** — `clear` material with a low-opacity ink tint gives the active tab a "lit-up" feel that reads as selection without competing with the bar's regular material. `pointerEvents="none"` so the pill doesn't intercept the Pressable's tap.
 - **FAB inside the container as `GlassView`** — user chose option A. The FAB and bar morph as one shape when close, which is the defining Liquid Glass moment.
 - **FAB `tintColor="rgba(26,30,28,0.55)"`** — keeps the ink-colored CTA identity from the current design, but as a tint over glass instead of a flat fill. High enough opacity that "Spørg Zolva" stays high-contrast.
-- **`isInteractive` on FAB and active pill only** — these are the elements that should react to touch with the native glass press animation. Inactive tabs use plain `Pressable` (no per-tab glass).
+- **`isInteractive` on FAB only** — the FAB is the only element the user taps directly. The active pill is purely decorative (`pointerEvents="none"`); the surrounding `Pressable` owns its tap and animation, so adding `isInteractive` to the pill would risk a competing UIKit press animation. Inactive tabs use plain `Pressable` (no per-tab glass).
 - **`colorScheme="auto"`** — the only `darkBg` consumer today is the chat screen background. UIKit's auto adaptation handles this correctly because `regular` glass already darkens appropriately under dark content.
 
 ## Color & typography

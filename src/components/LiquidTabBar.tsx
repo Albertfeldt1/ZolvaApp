@@ -13,6 +13,8 @@ type Props = {
   darkBg?: boolean;
 };
 
+// darkBg is accepted for API-shape parity with ClassicTabBar but intentionally
+// unused — UIKit's colorScheme="auto" handles dark/light adaptation natively.
 export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: Props) {
   return (
     <View style={styles.wrap}>
@@ -45,7 +47,6 @@ export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: P
                   {isActive && (
                     <GlassView
                       glassEffectStyle="clear"
-                      isInteractive
                       tintColor="rgba(26,30,28,0.18)"
                       colorScheme="auto"
                       style={styles.activePill}
