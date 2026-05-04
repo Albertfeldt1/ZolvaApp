@@ -240,7 +240,11 @@ function buildPreviewHtml(sig: {
     combined = combined.replaceAll('cid:zolva-sig', cidDataUrl);
   }
 
-  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:transparent;}img{max-width:100%;height:auto;}</style></head><body>${combined}</body></html>`;
+  // Render the signature at a fixed 600 px logical width so wide CTA buttons
+  // don't reflow into a squished multi-line shape inside the narrow preview
+  // pane. The WebView scales the 600 px page down to fit its actual width,
+  // giving a true "thumbnail" of how the email looks at email-client width.
+  return `<!doctype html><html><head><meta name="viewport" content="width=600,initial-scale=0.55,user-scalable=no"><style>html,body{margin:0;padding:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:transparent;}img{max-width:100%;height:auto;}</style></head><body>${combined}</body></html>`;
 }
 
 function formatImportedDate(unixMs: number): string {
@@ -539,7 +543,11 @@ function SocialBindPicker(props: {
   onClose: () => void;
 }) {
   const { visible, target, targets, imageThumbnails, onSelect, onClose } = props;
-  const isEmpty = targets.words.length === 0 && targets.glyphs.length === 0 && targets.images.length === 0;
+  const isEmpty =
+    targets.words.length === 0 &&
+    targets.glyphs.length === 0 &&
+    targets.buttons.length === 0 &&
+    targets.images.length === 0;
 
   const handleSelect = (next: LinkTarget | undefined) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -589,9 +597,41 @@ function SocialBindPicker(props: {
               </View>
             ) : (
               <>
+                {targets.buttons.length > 0 && (
+                  <>
+                    <Text style={styles.sigBindSectionLabel}>KNAPPER</Text>
+                    <View style={styles.sigBindButtonsCol}>
+                      {targets.buttons.map((btn) => {
+                        const selected = target?.kind === 'word' && target.text === btn.text;
+                        return (
+                          <Pressable
+                            key={btn.text}
+                            onPress={() => handleSelect({ kind: 'word', text: btn.text })}
+                            style={[styles.sigBindButtonRow, selected && styles.sigBindButtonRowSelected]}
+                            accessibilityRole="button"
+                          >
+                            <View
+                              style={[
+                                styles.sigBindButtonChip,
+                                { backgroundColor: btn.bgColor },
+                              ]}
+                            >
+                              <Text style={styles.sigBindButtonChipText} numberOfLines={1}>
+                                {btn.text}
+                              </Text>
+                            </View>
+                            {selected && <Check size={16} color={colors.ink} strokeWidth={2.5} />}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </>
+                )}
                 {targets.words.length > 0 && (
                   <>
-                    <Text style={styles.sigBindSectionLabel}>ORD I SIGNATUREN</Text>
+                    <Text style={[styles.sigBindSectionLabel, targets.buttons.length > 0 && { marginTop: 18 }]}>
+                      ORD I SIGNATUREN
+                    </Text>
                     <View style={styles.sigBindWordWrap}>
                       {targets.words.map((word) => (
                         <WordChip
@@ -947,7 +987,7 @@ function MailSignatureSection() {
   const rendered = data.kind === 'structured' ? renderSignature(data) : null;
 
   const importedTargets = useMemo(
-    () => (data.kind === 'imported' ? detectImportedTargets(data.html) : { words: [], glyphs: [], images: [] }),
+    () => (data.kind === 'imported' ? detectImportedTargets(data.html) : { words: [], glyphs: [], buttons: [], images: [] }),
     [data],
   );
 
@@ -2663,6 +2703,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+  },
+  sigBindButtonsCol: {
+    flexDirection: 'column',
+    gap: 8,
+  },
+  sigBindButtonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    borderRadius: 12,
+    backgroundColor: '#f4f4f5',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  sigBindButtonRowSelected: {
+    backgroundColor: '#eef0f3',
+    borderColor: colors.ink,
+  },
+  sigBindButtonChip: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sigBindButtonChipText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: -0.1,
   },
   sigBindWordChip: {
     paddingVertical: 7,

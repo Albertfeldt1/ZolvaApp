@@ -26,6 +26,14 @@ export type DetectedTargets = {
    * categorizes them differently.
    */
   glyphs: string[];
+  /**
+   * Styled CTA buttons — <a> elements whose inline style includes a
+   * background color (e.g. the "Find me on Facebook" / "Let's connect!"
+   * boxes Claude reproduces). Each entry has the button's visible text
+   * label and the background color so the picker can render a tiny
+   * preview chip. Bindable as the same target.kind as a phrase.
+   */
+  buttons: { text: string; bgColor: string }[];
   /** Each unique <img src=...>; description is alt if present, else 'Billede'. */
   images: { src: string; description: string }[];
 };
@@ -51,7 +59,7 @@ function getAttr(attrs: string, name: string): string | undefined {
  */
 export function detectImportedTargets(html: unknown): DetectedTargets {
   if (typeof html !== 'string' || html.length === 0) {
-    return { words: [], glyphs: [], images: [] };
+    return { words: [], glyphs: [], buttons: [], images: [] };
   }
 
   // ── Pass 1: extract images ───────────────────────────────────────────────
@@ -186,7 +194,42 @@ export function detectImportedTargets(html: unknown): DetectedTargets {
   words.sort((a, b) => b.length - a.length);
   glyphs.sort((a, b) => b.length - a.length);
 
-  return { words: words.slice(0, 50), glyphs: glyphs.slice(0, 30), images };
+  // ── Pass 4: detect styled-button anchors ─────────────────────────────────
+  // Any <a ...style="...background[:-color]:...colored...">...text...</a>
+  // is treated as a CTA button candidate. Used by the picker to render a
+  // dedicated "KNAPPER" section so users can bind the whole button.
+  const buttons: { text: string; bgColor: string }[] = [];
+  const seenBtnText = new Set<string>();
+  const aRe = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
+  for (const am of html.matchAll(aRe)) {
+    const attrs = am[1];
+    const inner = am[2];
+    const styleAttr = getAttr(attrs, 'style');
+    if (!styleAttr) continue;
+    const bgMatch = styleAttr.match(/background(?:-color)?\s*:\s*([^;]+)/i);
+    if (!bgMatch) continue;
+    const bgValue = bgMatch[1].trim();
+    // Reject transparent / pure-white / "none" so we don't pick up
+    // every <a> that has a no-op background reset.
+    if (!bgValue) continue;
+    if (/^(transparent|none|inherit|initial|unset)$/i.test(bgValue)) continue;
+    if (/^(#fff(fff)?|white|rgb\(\s*255\s*,\s*255\s*,\s*255\s*\)|rgba\(\s*255\s*,\s*255\s*,\s*255\s*,\s*1?\.?0*\s*\))$/i.test(bgValue)) continue;
+    // Extract button text (strip nested tags, normalize whitespace).
+    const text = inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const lower = text.toLowerCase();
+    if (seenBtnText.has(lower)) continue;
+    seenBtnText.add(lower);
+    buttons.push({ text, bgColor: bgValue });
+    if (buttons.length >= 12) break;
+  }
+
+  return {
+    words: words.slice(0, 50),
+    glyphs: glyphs.slice(0, 30),
+    buttons,
+    images,
+  };
 }
 
 /**

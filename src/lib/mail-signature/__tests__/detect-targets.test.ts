@@ -2,7 +2,7 @@
 import { detectImportedTargets } from '../detect-targets';
 
 describe('detectImportedTargets — invalid / empty input', () => {
-  const empty = { words: [], glyphs: [], images: [] };
+  const empty = { words: [], glyphs: [], buttons: [], images: [] };
   it('returns empty arrays for empty string', () => {
     expect(detectImportedTargets('')).toEqual(empty);
   });
@@ -205,6 +205,49 @@ describe('detectImportedTargets — image extraction', () => {
     const result = detectImportedTargets('<img alt="No src here">');
     // No valid src — nothing added
     expect(result.images).toEqual([]);
+  });
+});
+
+describe('detectImportedTargets — button detection', () => {
+  it('extracts <a> elements with a colored background as buttons', () => {
+    const html =
+      '<a href="#" style="background:#1877f2;padding:10px;color:#fff">Find me on Facebook</a>' +
+      '<a href="#" style="background-color:#4a90b8;padding:10px;color:#fff">Let\'s connect!</a>';
+    const result = detectImportedTargets(html);
+    expect(result.buttons).toEqual([
+      { text: 'Find me on Facebook', bgColor: '#1877f2' },
+      { text: "Let's connect!", bgColor: '#4a90b8' },
+    ]);
+  });
+
+  it('skips <a> with transparent/white/none backgrounds', () => {
+    const html =
+      '<a href="#" style="background:transparent">x</a>' +
+      '<a href="#" style="background:#ffffff">y</a>' +
+      '<a href="#" style="background:none">z</a>' +
+      '<a href="#" style="background:white">w</a>';
+    const result = detectImportedTargets(html);
+    expect(result.buttons).toEqual([]);
+  });
+
+  it('skips <a> with no style attribute', () => {
+    const html = '<a href="#">just a link</a>';
+    const result = detectImportedTargets(html);
+    expect(result.buttons).toEqual([]);
+  });
+
+  it('strips nested tags from the button text', () => {
+    const html = '<a href="#" style="background:#000"><b>Bold</b> button</a>';
+    const result = detectImportedTargets(html);
+    expect(result.buttons).toEqual([{ text: 'Bold button', bgColor: '#000' }]);
+  });
+
+  it('dedupes buttons by text', () => {
+    const html =
+      '<a href="#" style="background:#000">Click me</a>' +
+      '<a href="#" style="background:#fff000">Click me</a>';
+    const result = detectImportedTargets(html);
+    expect(result.buttons).toEqual([{ text: 'Click me', bgColor: '#000' }]);
   });
 });
 
