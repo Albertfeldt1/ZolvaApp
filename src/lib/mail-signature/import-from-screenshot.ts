@@ -53,9 +53,13 @@ Social-media icons and link icons:
 - If no social-media or link icons are visible, return socials: [].
 
 Inline icon markers (the small ones next to phone/email/website/address lines):
-- These ARE part of the signature's design — reproduce them as small filled colored circles using inline styling: <span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:#XXXXXX;vertical-align:middle;text-align:center;color:#fff;font:10px Arial">X</span> or a one-cell <table> with a colored bgcolor.
+- These ARE part of the signature's design — reproduce them as small filled colored circles using THIS EXACT inline-styled span template (substitute the brand color and the glyph):
+
+  <span style="display:inline-block;width:20px;height:20px;line-height:20px;border-radius:50%;background:#XXXXXX;color:#fff;text-align:center;font-family:Arial;font-size:11px;font-weight:bold;vertical-align:middle">X</span>
+
+  Width and height MUST be equal and EXPLICIT pixel values (do NOT rely on padding to size the shape — padding-based sizing produces ovals, not circles). Always include line-height equal to height so the glyph is vertically centered.
 - Inside the circle, use a SIMPLE TEXT GLYPH — a bold letter (T for telephone, @ for email, W for web, P or • for address) OR a Unicode geometric character (●, ◉, ☎, ✉ if you must). DO NOT use emoji (📞, ✉, 🌐, 📍, 📧, 🔗) — they render as full-color cartoon emoji which looks unprofessional in a corporate signature.
-- Keep them on the SAME line as the phone number / email / URL / address that follows.
+- Keep them on the SAME line as the phone number / email / URL / address that follows. After the closing </span>, leave a single space before the contact text.
 
 Divider lines and underline accents (REQUIRED if visible in source):
 - If you see a horizontal line under the name, between sections, or at the bottom of the signature, emit it. Use <hr style="border:none;border-top:1px solid #cccccc;margin:8px 0"> for full-width dividers, or <div style="border-bottom:2px solid #1c2e3a;width:80px;padding-bottom:4px"></div> for shorter accent underlines under a name/title.
@@ -269,6 +273,43 @@ export function stripIconStandIns(html: string): string {
   return curr;
 }
 
+// Force any element with `border-radius:50%` (an attempted circular icon)
+// to also have explicit equal width and height + matching line-height so
+// it renders as a true circle. Claude often emits padding-based sizing
+// which produces ovals; this pass repairs them post-import.
+export function enforceCircularContactIcons(html: string): string {
+  const re = /<(span|td|div|a)\b([^>]*style\s*=\s*"[^"]*border-radius\s*:\s*50%[^"]*"[^>]*)>/gi;
+  return html.replace(re, (match, tag: string, attrsAndOpen: string) => {
+    // Extract the style attribute
+    const styleMatch = attrsAndOpen.match(/style\s*=\s*"([^"]*)"/i);
+    if (!styleMatch) return match;
+    let style = styleMatch[1];
+
+    // If width and height are already explicit and equal, leave alone.
+    const wMatch = style.match(/(?:^|;)\s*width\s*:\s*(\d+)px/i);
+    const hMatch = style.match(/(?:^|;)\s*height\s*:\s*(\d+)px/i);
+    if (wMatch && hMatch && wMatch[1] === hMatch[1]) {
+      // Ensure line-height matches height for vertical centering.
+      if (!/line-height\s*:/i.test(style)) {
+        style += `;line-height:${hMatch[1]}px`;
+      }
+    } else {
+      // Drop any conflicting size declarations and inject 20×20.
+      style = style
+        .replace(/(?:^|;)\s*width\s*:[^;]*;?/gi, ';')
+        .replace(/(?:^|;)\s*height\s*:[^;]*;?/gi, ';')
+        .replace(/(?:^|;)\s*line-height\s*:[^;]*;?/gi, ';')
+        .replace(/(?:^|;)\s*padding\s*:[^;]*;?/gi, ';')
+        .replace(/(?:^|;)\s*display\s*:[^;]*;?/gi, ';');
+      style = `display:inline-block;width:20px;height:20px;line-height:20px;text-align:center;vertical-align:middle;${style}`;
+      // Collapse any double semicolons left over.
+      style = style.replace(/;{2,}/g, ';').replace(/^;|;$/g, '');
+    }
+
+    return match.replace(/style\s*=\s*"[^"]*"/i, `style="${style}"`);
+  });
+}
+
 function stripEmptyStyledOnce(html: string): string {
   // table and tr included: empty table/row containers left behind after
   // their inner styled cells are stripped should also go.
@@ -380,7 +421,8 @@ export async function pickAndImportSignature(): Promise<ImportResult> {
   }
 
   const sanitized = sanitizeSignatureHtml(parsed.value.html);
-  const cleaned = stripIconStandIns(sanitized);
+  const stripped = stripIconStandIns(sanitized);
+  const cleaned = enforceCircularContactIcons(stripped);
   if (!cleaned) {
     try { await FileSystem.deleteAsync(resizedUri, { idempotent: true }); } catch {}
     return { ok: false, reason: 'no-data' };
