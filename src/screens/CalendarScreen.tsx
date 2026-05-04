@@ -363,12 +363,17 @@ function WeekPage({
   const cellWidth = innerWidth / week.length;
   const pillX = useSharedValue(0);
 
+  // Inset the outline a few px from each cell edge so the bordered pill hugs
+  // the day text instead of touching the next cell — also makes any X
+  // misalignment obvious instead of hidden by edge-to-edge contact.
+  const PILL_HUG = 6;
+
   React.useEffect(() => {
     if (selectedIdx < 0) return;
     // Pill is absolute-positioned INSIDE the belt's padded content area, so
     // left: 0 already sits at BELT_INSET from the belt's outer edge — no need
     // to add the inset here.
-    const target = selectedIdx * cellWidth;
+    const target = selectedIdx * cellWidth + PILL_HUG;
     if (pillX.value === 0 && target > 0) {
       // First measurement: snap so the pill appears under the already-selected
       // day instead of springing in from the left edge.
@@ -380,7 +385,7 @@ function WeekPage({
 
   const pillStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: pillX.value }],
-    width: cellWidth,
+    width: Math.max(0, cellWidth - PILL_HUG * 2),
   }));
 
   const cells = (
@@ -419,23 +424,21 @@ function WeekPage({
     </View>
   );
 
-  // Pill is rendered BEFORE the cells so cells sit on top in z-order — the
-  // selected day's paper-coloured text reads against the dark pill instead of
-  // being covered by it.
+  // Active-day indicator is now a thin ink-bordered outline (no fill), so
+  // the day's text reads in its normal ink colour against the belt — same
+  // pattern in glass and fallback paths.
+  const activeBorder = selectedIdx >= 0 && (
+    <Animated.View
+      style={[styles.dayPill, pillStyle]}
+      pointerEvents="none"
+    />
+  );
+
   if (liquidGlassReady) {
     return (
       <View style={[styles.weekPage, { width }]}>
         <GlassView glassEffectStyle="regular" colorScheme="auto" style={styles.belt}>
-          {selectedIdx >= 0 && (
-            <AnimatedGlassView
-              glassEffectStyle="clear"
-              isInteractive
-              tintColor="rgba(26,30,28,0.32)"
-              colorScheme="auto"
-              style={[styles.dayPill, pillStyle]}
-              pointerEvents="none"
-            />
-          )}
+          {activeBorder}
           {cells}
         </GlassView>
       </View>
@@ -445,12 +448,7 @@ function WeekPage({
   return (
     <View style={[styles.weekPage, { width }]}>
       <View style={[styles.belt, styles.beltFallback]}>
-        {selectedIdx >= 0 && (
-          <Animated.View
-            style={[styles.dayPill, styles.dayPillFallback, pillStyle]}
-            pointerEvents="none"
-          />
-        )}
+        {activeBorder}
         {cells}
       </View>
     </View>
@@ -520,29 +518,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   dayCellPressed: { opacity: 0.55 },
-  // Active-day pill — springs between days inside the belt. Glass version
-  // uses a clear glass with a dark tint so paper-coloured selected text stays
-  // legible against it; fallback is the original solid ink fill.
+  // Active-day outline — springs between days inside the belt. No fill;
+  // just a thin ink border that frames the selected cell. The cell's text
+  // keeps its normal ink colour and reads through the empty interior.
   dayPill: {
     position: 'absolute',
     left: 0,
     top: BELT_INSET,
     height: BELT_HEIGHT - BELT_INSET * 2,
     borderRadius: 12,
-  },
-  dayPillFallback: {
-    backgroundColor: colors.ink,
+    borderWidth: 1.5,
+    borderColor: colors.ink,
   },
   dayLetter: {
     fontFamily: fonts.mono, fontSize: 10,
     letterSpacing: 0.5, color: colors.ink, opacity: 0.7,
   },
-  dayLetterSelected: { color: colors.paper, opacity: 0.8 },
+  dayLetterSelected: { color: colors.ink, opacity: 1 },
   dayLetterToday: { opacity: 1 },
   dayNum: {
     marginTop: 2, fontFamily: fonts.display, fontSize: 20, lineHeight: 24, color: colors.ink,
   },
-  dayNumSelected: { color: colors.paper },
+  dayNumSelected: { color: colors.ink },
   dayNumToday: { color: colors.ink },
 
   list: { paddingHorizontal: 20, paddingTop: 32 },
