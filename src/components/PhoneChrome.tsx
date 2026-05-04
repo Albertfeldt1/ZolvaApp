@@ -34,9 +34,11 @@ export type PhoneChromeProps = {
 
 // isGlassEffectAPIAvailable guards iOS 26 beta builds that ship the
 // component without the underlying API (expo issue #40911).
-// isLiquidGlassAvailable also returns false when the user has Reduce
-// Transparency on in Accessibility settings — we honor that and fall
-// back to ClassicTabBar.
+// isLiquidGlassAvailable checks component availability only — it does
+// NOT check Reduce Transparency. UIKit's UIGlassEffectView degrades
+// natively under Reduce Transparency to a translucent solid fill, the
+// same way Apple's first-party apps do, so we let the OS handle that
+// case instead of forcing the fallback.
 const liquidGlassReady =
   Platform.OS === 'ios' &&
   isGlassEffectAPIAvailable() &&

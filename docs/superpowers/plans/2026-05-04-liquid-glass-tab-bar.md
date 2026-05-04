@@ -442,9 +442,11 @@ export type PhoneChromeProps = {
 
 // isGlassEffectAPIAvailable guards iOS 26 beta builds that ship the
 // component without the underlying API (expo issue #40911).
-// isLiquidGlassAvailable also returns false when the user has Reduce
-// Transparency on in Accessibility settings — we honor that and fall
-// back to ClassicTabBar.
+// isLiquidGlassAvailable checks component availability only — it does
+// NOT check Reduce Transparency. UIKit's UIGlassEffectView degrades
+// natively under Reduce Transparency to a translucent solid fill, the
+// same way Apple's first-party apps do, so we let the OS handle that
+// case instead of forcing the fallback.
 const liquidGlassReady =
   Platform.OS === 'ios' &&
   isGlassEffectAPIAvailable() &&
@@ -469,7 +471,8 @@ git commit -m "feat(tab-bar): wire PhoneChrome to pick LiquidTabBar on iOS 26+
 PhoneChrome now detects Liquid Glass capability at module load
 (both isGlassEffectAPIAvailable and isLiquidGlassAvailable) and
 delegates to LiquidTabBar on iOS 26+, ClassicTabBar everywhere
-else (iOS < 26, Android, Reduce Transparency on)."
+else (iOS < 26, Android). Reduce Transparency is handled by UIKit's
+native degradation, not by our chooser."
 ```
 
 ---
@@ -501,7 +504,7 @@ Boot an Android emulator. Confirm `ClassicTabBar` renders, no errors.
 
 - [ ] **Step 4: Reduce Transparency on (iOS 26)**
 
-On the iOS 26 device: Settings → Accessibility → Display & Text Size → Reduce Transparency → On. Re-launch the app (the capability check is module-load, so a JS reload is enough — shake device → Reload). Confirm `ClassicTabBar` renders (because `isLiquidGlassAvailable()` returns false). Turn it back off and reload — `LiquidTabBar` should be back.
+On the iOS 26 device: Settings → Accessibility → Display & Text Size → Reduce Transparency → On. Our chooser does NOT branch on this — `isLiquidGlassAvailable()` only checks component availability, not the accessibility setting. UIKit degrades `UIGlassEffectView` natively to a translucent solid fill (same as Apple's first-party apps). Open the app and confirm the bar still reads well in this degraded mode. Turn it back off — the full Liquid Glass material returns. If the degraded look is unacceptable, follow-up: subscribe to `AccessibilityInfo.reduceTransparencyChanged` and force `ClassicTabBar` when the setting is on.
 
 - [ ] **Step 5: Dark mode**
 
@@ -525,7 +528,7 @@ If everything passes, no further commits. If any step fails or surfaces a contra
 - Architecture (chooser pattern, capability detection, `LiquidTabBar` structure) → Tasks 1, 2, 3.
 - `GlassContainer spacing={20}`, `regular` bar, `clear` active pill, FAB inside container with ink tint → Task 2.
 - `colorScheme="auto"` + chat-screen contrast risk → Task 4 Step 6.
-- Reduce Transparency handling → Task 4 Step 4.
+- Reduce Transparency handling → Task 4 Step 4 (verifies UIKit's native degradation, not an explicit guard in our chooser).
 - iOS 26 beta crash guard via `isGlassEffectAPIAvailable()` → Task 3.
 - Layout dimensions preserved (so `useChromeInsets` math stays valid) → Task 2 styles match Task 1 styles.
 - All callers in `App.tsx` unchanged → Task 1 Step 2 + Task 3 Step 1 keep `PhoneChrome`, `TabId`, `ChromeInsetsContext`, `useChromeInsets` exported from the same path with the same shape; `TABS` is newly exported but no existing caller needed it.

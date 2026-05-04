@@ -50,7 +50,7 @@ import { isLiquidGlassAvailable, isGlassEffectAPIAvailable } from 'expo-glass-ef
 const liquidGlassReady =
   Platform.OS === 'ios' &&
   isGlassEffectAPIAvailable() &&  // guards iOS 26 beta crash (expo issue #40911)
-  isLiquidGlassAvailable();        // also returns false when Reduce Transparency is on
+  isLiquidGlassAvailable();        // checks component availability (NOT Reduce Transparency)
 ```
 
 Computed once at module load — these are sync native checks, no React state needed. The chooser branches on this constant:
@@ -149,7 +149,7 @@ This is presentation-only; no logic to unit-test. Verification is visual on a de
 1. **iOS 26 device or simulator** — confirm `LiquidTabBar` renders, FAB and bar morph when scrolling content moves under them, active-tab pill appears on selection, tap animations feel native.
 2. **iOS < 26 simulator** — confirm `ClassicTabBar` renders (current look), no `GlassView` errors in console.
 3. **Android** — confirm `ClassicTabBar` renders.
-4. **Reduce Transparency on (iOS 26)** — `isLiquidGlassAvailable()` returns false, `ClassicTabBar` renders. Verify in Settings → Accessibility → Display & Text Size.
+4. **Reduce Transparency on (iOS 26)** — our chooser does NOT branch on this; UIKit degrades `UIGlassEffectView` natively to a translucent solid fill (matches Apple's first-party apps). Verify in Settings → Accessibility → Display & Text Size that the resulting bar still reads well. If it doesn't, follow-up: subscribe to `AccessibilityInfo.reduceTransparencyChanged` and force `ClassicTabBar` when the setting is on.
 5. **Dark / light system theme** — switch system appearance, confirm both branches adapt.
 6. **All five tab targets** — today, inbox, calendar, memory, settings — open each, confirm bar reads well over each background.
 7. **Chat screen** — uses `darkBg=true` today. On Liquid branch, confirm `colorScheme="auto"` glass still reads well over the dark chat background. If contrast is poor, fall back to `colorScheme="dark"` for the chat-screen invocation.
