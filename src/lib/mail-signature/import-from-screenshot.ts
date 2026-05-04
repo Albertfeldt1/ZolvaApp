@@ -62,7 +62,11 @@ Decorative elements:
 Return your output via the import_signature tool with three fields:
 - html: the Outlook-safe HTML (typically wrapped in a <table>)
 - plaintext: a plain-text version of the signature for multipart/alt
-- logoBox: if a company logo or person photo is visible, an object { x, y, w, h } in pixel coordinates of the image you were shown (where (0,0) is the top-left). Be GENEROUS with the bounding box — include a comfortable margin around the logo on every side so the edges aren't clipped. If multiple icons or images are visible, choose the most prominent / largest one (typically the main company logo or person photo, NOT small social-media icons). If no logo or photo is visible, null.
+- logoBox: if a company logo or person photo is visible, an object { x, y, w, h } in pixel coordinates of the image you were shown (where (0,0) is the top-left).
+  · Be VERY GENEROUS with the bounding box — include a comfortable margin around the logo on every side so the edges aren't clipped.
+  · If a logo SYMBOL appears with a company NAME / wordmark / tagline next to it (left, right, above, or below) as a unit, BOX BOTH TOGETHER — the box must include the full wordmark text, not just the iconography. A logo "Logox" with an octagon glyph + "Logox" text + tagline is one bounding box covering all three.
+  · If multiple icons or images are visible, choose the most prominent / largest one (typically the main company logo or person photo, NOT small social-media icons or tiny inline contact-line markers).
+  · If no logo or photo is visible, null.
 
 If the screenshot doesn't appear to contain an email signature (e.g. it's a generic email body or unrelated content), return html: "", plaintext: "" and logoBox: null.`;
 
@@ -199,13 +203,13 @@ async function cropLogo(
   imgH: number,
   box: { x: number; y: number; w: number; h: number },
 ): Promise<InlineImage | null> {
-  // Vision models are imprecise at exact pixel coordinates; add ~10%
-  // padding (min 6 px) on each side and clamp to the image so a slightly
+  // Vision models are imprecise at exact pixel coordinates; add ~15%
+  // padding (min 8 px) on each side and clamp to the image so a slightly
   // off bbox doesn't clip the logo's edges. Padding includes some
   // surrounding whitespace from the source screenshot, which generally
   // looks fine since signatures live on a paper-colored background.
-  const padX = Math.max(6, Math.round(box.w * 0.1));
-  const padY = Math.max(6, Math.round(box.h * 0.1));
+  const padX = Math.max(8, Math.round(box.w * 0.15));
+  const padY = Math.max(8, Math.round(box.h * 0.15));
   const x = Math.max(0, Math.round(box.x - padX));
   const y = Math.max(0, Math.round(box.y - padY));
   const w = Math.min(imgW - x, Math.round(box.w + 2 * padX));
