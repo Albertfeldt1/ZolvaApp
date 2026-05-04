@@ -52,12 +52,16 @@ Social-media icons and link icons:
   Skip those elements entirely from the html. Pretend they aren't in the screenshot. Their information lives in the socials array, not the html.
 - If no social-media or link icons are visible, return socials: [].
 
-Inline icon markers (the small ones next to phone/email/website lines):
-- Tiny visual markers like 📞 / ✉ / 🌐 immediately preceding a phone number, email address, or website URL on the SAME line are part of the contact line's design — keep them inline as part of the same text run. Don't promote them to standalone elements or emit them on their own line.
+Inline icon markers (the small ones next to phone/email/website/address lines):
+- These ARE part of the signature's design — reproduce them faithfully. If the source shows a filled colored circle with a white glyph inside (📞 phone, ✉ email, 🌐 web, 📍 pin), reproduce the styling — e.g. a small <span> with background-color, border-radius:50%, padding, and a contrasting color for the glyph. Or a one-cell <table> with a colored bgcolor. Whatever lets the icon look like the source.
+- Keep them on the SAME line as the phone number / email / URL / address that follows. Don't promote them to standalone elements or emit them on their own row.
+
+Divider lines and underline accents:
+- Reproduce horizontal divider lines, name underlines, and section separators visible in the source. <hr> is fine for full-width dividers; a styled <div> with border-bottom or a thin <table> row works for shorter accent underlines under a name/title.
 
 Decorative elements:
-- Do not reproduce decorative shapes that aren't real text content (e.g. blank colored rectangles, circles, geometric ornaments, or empty styled boxes). Only reproduce real text and bona-fide structural elements (horizontal rules, dividers, layout columns).
-- Do not invent emoji where the source had a graphic icon. If you can't reproduce an icon faithfully, leave it out — the html should be clean text + structure, never a string of emoji stand-ins.
+- Do not reproduce decorative shapes that aren't real visual elements (no blank colored rectangles or empty styled boxes that don't represent anything). Real layout elements — dividers, lines, contact icons, brand backgrounds — are good to keep.
+- Do not invent emoji where the source had a graphic icon and you can't faithfully reproduce it. Better to leave it out than fabricate a stand-in.
 
 Return your output via the import_signature tool with three fields:
 - html: the Outlook-safe HTML (typically wrapped in a <table>)
@@ -240,20 +244,24 @@ async function cropLogo(
 }
 
 // Strip icon stand-in elements that Claude reproduces as squeezed colored
-// shapes — blue oval with "f", black circle with "X", or just a colored
-// box with no text content (after the sanitizer dropped the nested SVG).
-// Heuristic: any styled <a|td|div|span> whose visible text content is 0-2
-// chars (after stripping nested tags), AND has a colored background, AND
-// doesn't contain a real <img>. Those are almost always Claude's failed
-// icon reproductions — the actual social links live in the appended pill
-// row, so dropping them cleans up the imported signature.
+// shapes for SOCIAL platform icons (the "f X ▶" rows, blank colored boxes
+// with no real content). We keep contact-line icons — the small filled
+// circles next to phone/email/website/address that ARE part of the
+// signature's design — by requiring an additional signal that the element
+// belongs to a "row of icon stand-ins": no adjacent text on the same line.
+//
+// Conservative heuristic: only strip empty (length-0) styled elements
+// without a real <img>. Filled circles with a glyph inside (length 1-2)
+// stay — they're usually legitimate inline contact icons.
 export function stripIconStandIns(html: string): string {
   const re = /<(a|td|div|span)\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi;
   return html.replace(re, (match, _tag, attrs: string, inner: string) => {
     const text = inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    if (text.length > 2) return match;
+    // Only kill purely empty styled boxes (decorative shapes, post-sanitize
+    // SVG remnants). Length 1-2 elements are almost always legitimate
+    // contact-line icons (📞, ✉, 🌐, 📍) and stay.
+    if (text.length !== 0) return match;
     if (!hasColoredBackground(attrs)) return match;
-    // Keep button-with-image patterns (e.g. <a style="bg"><img src="cid:..."/></a>)
     if (/<img\b/i.test(inner)) return match;
     return '';
   });

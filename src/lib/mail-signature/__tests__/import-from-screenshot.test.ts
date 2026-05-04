@@ -158,54 +158,39 @@ describe('importResultMessage', () => {
 });
 
 describe('stripIconStandIns', () => {
-  it('removes 1-2 char styled <a> elements (squeezed icon stand-ins)', () => {
+  it('keeps 1-2 char styled elements (legitimate contact-line icons stay)', () => {
     const html = '<p>Hello</p><a style="background:#1877f2;padding:6px;color:#fff">f</a>';
     const out = stripIconStandIns(html);
+    expect(out).toContain('background:#1877f2');
+    expect(out).toContain('>f<');
+  });
+
+  it('keeps inline contact-line icons with single-char content', () => {
+    const html = '<span style="background:#0a66c2">📞</span> +45 12 34 56 78';
+    const out = stripIconStandIns(html);
+    expect(out).toContain('📞');
+    expect(out).toContain('background:#0a66c2');
+  });
+
+  it('strips empty styled elements (decorative shapes, SVG remnants)', () => {
+    const html = '<p>before</p><div style="background:#1877f2;width:30px;height:30px;border-radius:50%"></div><p>after</p>';
+    const out = stripIconStandIns(html);
     expect(out).not.toContain('background:#1877f2');
-    expect(out).not.toContain('>f<');
-    expect(out).toContain('Hello');
-  });
-
-  it('removes 1-2 char styled <td> with bgcolor', () => {
-    const html = '<table><tr><td bgcolor="#000">X</td></tr></table>';
-    const out = stripIconStandIns(html);
-    expect(out).not.toContain('X</td>');
-  });
-
-  it('removes <span style="background:..."> with single-char content', () => {
-    const html = 'before <span style="background:red">▶</span> after';
-    const out = stripIconStandIns(html);
-    expect(out).not.toContain('▶');
     expect(out).toContain('before');
     expect(out).toContain('after');
   });
 
-  it('keeps elements without a colored background even when text is short', () => {
-    const html = '<p>X</p><span>Y</span>';
+  it('keeps elements without a colored background even when empty', () => {
+    const html = '<p>X</p><span></span>';
     const out = stripIconStandIns(html);
     expect(out).toContain('<p>X</p>');
-    expect(out).toContain('<span>Y</span>');
+    expect(out).toContain('<span></span>');
   });
 
   it('keeps styled elements with longer text content', () => {
     const html = '<a style="background:#1877f2">Find me on Facebook</a>';
     const out = stripIconStandIns(html);
     expect(out).toContain('Find me on Facebook');
-  });
-
-  it('treats white / transparent backgrounds as no background', () => {
-    const html = '<a style="background:white">f</a><div style="background:transparent">X</div>';
-    const out = stripIconStandIns(html);
-    expect(out).toContain('>f</a>');
-    expect(out).toContain('>X</div>');
-  });
-
-  it('strips empty styled elements (Claude renders pure shapes with no text content)', () => {
-    const html = '<p>before</p><div style="background:#1877f2;width:30px;height:30px;border-radius:50%"></div><p>after</p>';
-    const out = stripIconStandIns(html);
-    expect(out).not.toContain('background:#1877f2');
-    expect(out).toContain('before');
-    expect(out).toContain('after');
   });
 
   it('keeps a styled element that wraps a real <img> (button-with-icon pattern)', () => {
