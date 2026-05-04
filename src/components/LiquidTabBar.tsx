@@ -24,9 +24,13 @@ const AnimatedGlassView = Animated.createAnimatedComponent(GlassView);
 // settles cleanly without overshoot looking spongy. Roughly Apple's
 // UISpringTimingParameters defaults for the system pill.
 const PILL_SPRING = { damping: 22, stiffness: 260, mass: 1 };
-// Apple's iOS 26 pill hugs icon+label tightly; 16pt inset on each side
-// of the tab cell gives roughly the right ratio for our 4-tab layout.
-const PILL_INSET = 16;
+// Horizontal inset of the pill within its tab cell. 10pt each side
+// gives a snug hug around the icon+label without letting labels like
+// "Indbakke" or "Kalender" clip.
+const PILL_INSET = 10;
+// How far the pill extends above and below the bar. Apple's iOS 26
+// pill bumps out of the bar's vertical extent — the lens "bubble" feel.
+const PILL_OVERHANG = 4;
 
 // darkBg is accepted for API-shape parity with ClassicTabBar but intentionally
 // unused — UIKit's colorScheme="auto" handles dark/light adaptation natively.
@@ -75,37 +79,42 @@ export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: P
             </Pressable>
           </GlassView>
         )}
-        <GlassView
-          glassEffectStyle="clear"
-          colorScheme="auto"
-          style={styles.bar}
-        >
-          <View
-            style={styles.tabsRow}
-            onLayout={(e) => setRowWidth(e.nativeEvent.layout.width)}
+        {/* barAnchor is a regular View (no overflow:hidden) so the pill,
+            which lives as a sibling of the bar, can protrude above and
+            below the bar's vertical bounds — the iconic iOS 26 lens look. */}
+        <View style={styles.barAnchor}>
+          <GlassView
+            glassEffectStyle="regular"
+            colorScheme="auto"
+            style={styles.bar}
           >
-            {rowWidth > 0 && (
-              <AnimatedGlassView
-                glassEffectStyle="clear"
-                isInteractive
-                tintColor="rgba(26,30,28,0.18)"
-                colorScheme="auto"
-                style={[styles.activePill, pillStyle]}
-                pointerEvents="none"
-              />
-            )}
-            {TABS.map(({ id, label, Icon }) => {
-              const isActive = active === id;
-              const color = isActive ? colors.ink : colors.stone;
-              return (
-                <Pressable key={id} style={styles.tab} onPress={() => onChange(id)}>
-                  <Icon size={20} color={color} strokeWidth={isActive ? 2.2 : 1.75} />
-                  <Text style={[styles.tabLabel, { color }]}>{label}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </GlassView>
+            <View
+              style={styles.tabsRow}
+              onLayout={(e) => setRowWidth(e.nativeEvent.layout.width)}
+            >
+              {TABS.map(({ id, label, Icon }) => {
+                const isActive = active === id;
+                const color = isActive ? colors.ink : colors.stone;
+                return (
+                  <Pressable key={id} style={styles.tab} onPress={() => onChange(id)}>
+                    <Icon size={20} color={color} strokeWidth={isActive ? 2.2 : 1.75} />
+                    <Text style={[styles.tabLabel, { color }]}>{label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </GlassView>
+          {rowWidth > 0 && (
+            <AnimatedGlassView
+              glassEffectStyle="clear"
+              isInteractive
+              tintColor="rgba(26,30,28,0.18)"
+              colorScheme="auto"
+              style={[styles.activePill, pillStyle]}
+              pointerEvents="none"
+            />
+          )}
+        </View>
       </GlassContainer>
     </View>
   );
@@ -130,9 +139,14 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   fabText: { fontFamily: fonts.uiSemi, fontSize: 13.5, color: colors.paper },
-  bar: {
+  // Margins live on the anchor (not on the bar GlassView) so the pill
+  // sibling can absolute-position relative to a coordinate space that
+  // matches the bar's footprint.
+  barAnchor: {
     marginHorizontal: 20,
     marginBottom: Platform.OS === 'ios' ? 24 : 14,
+  },
+  bar: {
     borderRadius: 24,
     overflow: 'hidden',
   },
@@ -148,12 +162,13 @@ const styles = StyleSheet.create({
     gap: 2,
     paddingHorizontal: 4,
   },
-  // Single shared pill, absolutely positioned within tabsRow. translateX
-  // and width are driven by the spring above; left: 0 is just the base.
+  // Pill is a sibling of the bar, absolute-positioned within barAnchor.
+  // Negative top/bottom let it extend beyond the bar's edges (protrusion).
+  // translateX and width are driven by the spring above; left: 0 is base.
   activePill: {
     position: 'absolute',
-    top: 0,
-    bottom: 0,
+    top: -PILL_OVERHANG,
+    bottom: -PILL_OVERHANG,
     left: 0,
     borderRadius: 999,
   },
