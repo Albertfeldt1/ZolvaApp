@@ -178,6 +178,21 @@ export const SOCIAL_COLORS: Record<SocialType, string> = {
   other:     '#1a1a1a',
 };
 
+// Light-tinted pill backgrounds for the appended socials row. ~12% opacity
+// of the brand color, hand-picked to read clearly on a paper background
+// without overwhelming the rest of the signature.
+const SOCIAL_TINTS: Record<SocialType, string> = {
+  linkedin:  '#e3eef9',
+  twitter:   '#eef6fc',
+  instagram: '#fce7ec',
+  facebook:  '#e3edfa',
+  tiktok:    '#ececec',
+  youtube:   '#fde6e6',
+  github:    '#ececec',
+  website:   '#ececec',
+  other:     '#ececec',
+};
+
 function urlHost(url: string): string {
   // Light parse — sufficient for label fallback. Doesn't need to be perfect.
   const m = url.match(/^https?:\/\/([^/]+)/i);
@@ -213,11 +228,16 @@ export function renderSocials(socials: SocialLink[]): string {
   const linkHtml = items
     .map((s) => {
       const color = SOCIAL_COLORS[s.type];
+      const tint = SOCIAL_TINTS[s.type];
       const name = escapeHtml(socialDisplayName(s));
       const href = escapeHtml(normalizeHref(s.url));
-      return `<a href="${href}" style="color:${color};text-decoration:none">${name}</a>`;
+      // Tinted-background pill. Inline-block + margin-right gives a wrapping
+      // row of buttons instead of a middot-separated text strip. Outlook
+      // desktop on Windows falls back to inline rendering (no padding/bg)
+      // but the text + color stay readable.
+      return `<a href="${href}" style="display:inline-block;padding:5px 12px;margin:0 6px 6px 0;border-radius:14px;background:${tint};color:${color};text-decoration:none;font-weight:600;font-size:12px">${name}</a>`;
     })
-    .join('<span style="color:#888"> · </span>');
+    .join('');
 
-  return `<div style="font:13px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1a1a;margin-top:6px">${linkHtml}</div>`;
+  return `<div style="font:13px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1a1a;margin-top:8px">${linkHtml}</div>`;
 }

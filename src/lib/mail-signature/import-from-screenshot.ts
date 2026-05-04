@@ -43,8 +43,15 @@ Reproduce the screenshot's visible content as faithfully as possible: text conte
 
 Social-media icons and link icons:
 - If the screenshot contains social-media link icons (LinkedIn, Twitter/X, Instagram, Facebook, TikTok, YouTube, GitHub) or generic website/link icons (globe, "www", a personal/company URL displayed as a clickable element), extract them as a "socials" array. Each entry has a "type" (one of: linkedin, twitter, instagram, facebook, tiktok, youtube, github, website, other) and a "url". Use "website" for generic homepage/portfolio/company URLs that aren't a known platform. Use "other" with a "label" field for non-website platforms not in this list (e.g. Bluesky, Mastodon, Threads).
-- IMPORTANT: Do NOT include these icon links in the html output. We render the social row separately. The html should not have any <a> tags wrapping social-media icons or icon-replacements for them.
+- IMPORTANT: Do NOT include these icon links in the html output. We render the social row separately. The html must not contain ANY of:
+  · <a> tags wrapping social-media icons
+  · placeholder shapes/letters meant to look like brand icons (no blue ovals, colored squares, single-letter monograms, etc.)
+  · any decorative reproduction of icon-only elements that don't have visible text
+  Skip those elements entirely. Pretend they aren't in the screenshot.
 - If no social-media or link icons are visible, return socials: [].
+
+Decorative elements:
+- Do not reproduce decorative shapes that aren't real text content (e.g. blank colored rectangles, circles, or geometric ornaments). Only reproduce text and bona-fide structural elements (lines, dividers, layout columns).
 
 Return your output via the import_signature tool with three fields:
 - html: the Outlook-safe HTML (typically wrapped in a <table>)

@@ -123,17 +123,22 @@ describe('renderSocials', () => {
     expect(out).toContain('href="https://linkedin.com/in/albert"');
     expect(out).toContain('<div');
     expect(out).toContain('</div>');
-    expect(out).not.toContain(' · ');  // no separator for a single link
+    // Each social is rendered as a tinted-background pill (display:inline-block)
+    expect(out).toContain('display:inline-block');
+    expect(out).toContain('border-radius:14px');
   });
 
-  it('joins multiple socials with middot separator', () => {
+  it('renders multiple socials as separate pills (no text separator)', () => {
     const out = renderSocials([
       { type: 'linkedin', url: 'https://linkedin.com/in/albert' },
       { type: 'github', url: 'https://github.com/albert' },
     ]);
     expect(out).toContain('LinkedIn');
     expect(out).toContain('GitHub');
-    expect(out).toContain(' · ');
+    // Two anchor pills, no middot separator span between them
+    const anchorMatches = out.match(/<a /g) ?? [];
+    expect(anchorMatches.length).toBe(2);
+    expect(out).not.toContain(' · ');
   });
 
   it('uses label when type is "other" and label is set', () => {
