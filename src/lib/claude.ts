@@ -216,11 +216,26 @@ export async function completeJson<T>(opts: CompleteOptions & { schemaHint: stri
   }
 }
 
+// Parse a ClaudeCompletion looking for a single tool_use matching the named
+// tool, returning its input. Pure — no I/O. Throws on missing or wrong tool.
+export function parseToolUseResult<T>(result: ClaudeCompletion, toolName: string): T {
+  if (result.toolUses.length === 0) {
+    throw new Error(`completeWithTool: no tool_use in response (stop_reason=${result.stopReason})`);
+  }
+  const match = result.toolUses.find((u) => u.name === toolName);
+  if (!match) {
+    throw new Error(
+      `completeWithTool: wrong tool invoked (got ${result.toolUses[0].name}, expected ${toolName})`,
+    );
+  }
+  return match.input as T;
+}
+
 // Force a single tool_use response and return its parsed input. Use this
 // instead of completeJson when the caller wants a guaranteed structured
-// shape (Anthropic's tool-use is more reliable than JSON-mode for vision +
-// extraction tasks). Throws on missing or wrong tool_use — callers should
-// route the error through mapClaudeError to surface 'parse-failed'.
+// shape (Anthropic's tool-use is more reliable than JSON-mode for vision
+// + extraction tasks). Throws on missing or wrong tool_use — callers
+// should route the error through mapClaudeError to surface 'parse-failed'.
 export async function completeWithTool<T>(opts: {
   system: CompleteOptions['system'];
   messages: ClaudeMessage[];
@@ -239,15 +254,5 @@ export async function completeWithTool<T>(opts: {
     attachProfile: opts.attachProfile,
     model: opts.model,
   });
-
-  if (result.toolUses.length === 0) {
-    throw new Error(`completeWithTool: no tool_use in response (stop_reason=${result.stopReason})`);
-  }
-  const match = result.toolUses.find((u) => u.name === opts.tool.name);
-  if (!match) {
-    throw new Error(
-      `completeWithTool: wrong tool invoked (got ${result.toolUses[0].name}, expected ${opts.tool.name})`,
-    );
-  }
-  return match.input as T;
+  return parseToolUseResult<T>(result, opts.tool.name);
 }
