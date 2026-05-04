@@ -177,4 +177,93 @@ describe('buildOutgoingBody — socials integration', () => {
     expect(out.content).toContain('Hi');
     expect(out.content).toContain('GitHub');
   });
+
+  it('imported with ONE bound social (target word) → word wrapped inline, no separate pill', async () => {
+    const sig: SignatureData = {
+      kind: 'imported',
+      html: '<table><tr><td>Se mere her for info</td></tr></table>',
+      plaintext: 'Se mere her for info',
+      image: null,
+      importedAt: 1700000000000,
+      socials: [
+        {
+          type: 'website',
+          url: 'https://example.com',
+          target: { kind: 'word', text: 'her' },
+        },
+      ],
+    };
+    await saveSignature('user-1', sig);
+    const out = await buildOutgoingBody('Hello');
+    expect(out.contentType).toBe('html');
+    // The word "her" must be wrapped with the URL
+    expect(out.content).toContain('<a href="https://example.com"');
+    expect(out.content).toContain('>her</a>');
+    // No separate socials pill row (no unbound socials)
+    // The socials row div has a specific style — should not be present
+    expect(out.content).not.toContain('text-decoration:none">');
+  });
+
+  it('imported with mixed bound + unbound → binding applied AND separate row for unbound', async () => {
+    const sig: SignatureData = {
+      kind: 'imported',
+      html: '<p>Connect her or via socials</p>',
+      plaintext: 'Connect her or via socials',
+      image: null,
+      importedAt: 1700000000000,
+      socials: [
+        {
+          type: 'linkedin',
+          url: 'https://linkedin.com/in/albert',
+          target: { kind: 'word', text: 'her' },
+        },
+        {
+          type: 'github',
+          url: 'https://github.com/albert',
+          // no target — unbound
+        },
+      ],
+    };
+    await saveSignature('user-1', sig);
+    const out = await buildOutgoingBody('Hello');
+    expect(out.contentType).toBe('html');
+    // Bound word wrapped
+    expect(out.content).toContain('<a href="https://linkedin.com/in/albert"');
+    expect(out.content).toContain('>her</a>');
+    // Unbound social rendered as separate pill
+    expect(out.content).toContain('GitHub');
+    expect(out.content).toContain('href="https://github.com/albert"');
+  });
+
+  it('structured with bound social (target set) → binding ignored, social renders as separate pill', async () => {
+    const sig: SignatureData = {
+      kind: 'structured',
+      name: 'Albert',
+      title: '',
+      company: '',
+      phone: '',
+      email: '',
+      website: '',
+      customLines: '',
+      logo: null,
+      socials: [
+        {
+          type: 'linkedin',
+          url: 'https://linkedin.com/in/albert',
+          // target set, but structured mode ignores it
+          target: { kind: 'word', text: 'Albert' },
+        },
+      ],
+    };
+    await saveSignature('user-1', sig);
+    const out = await buildOutgoingBody('Hello');
+    expect(out.contentType).toBe('html');
+    // The social must still appear as a separate pill (not bound into the signature)
+    expect(out.content).toContain('LinkedIn');
+    expect(out.content).toContain('href="https://linkedin.com/in/albert"');
+    // The text "Albert" in the signature should NOT be wrapped as a link
+    // (it appears in the structured sig as <strong>Albert</strong>)
+    expect(out.content).toContain('<strong>Albert</strong>');
+    expect(out.content).not.toMatch(/<a[^>]*>Albert<\/a>/);
+  });
 });

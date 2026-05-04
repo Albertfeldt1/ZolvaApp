@@ -166,7 +166,7 @@ const SOCIAL_LABELS: Record<SocialType, string> = {
   other:     '',  // falls back to label || URL host
 };
 
-const SOCIAL_COLORS: Record<SocialType, string> = {
+export const SOCIAL_COLORS: Record<SocialType, string> = {
   linkedin:  '#0a66c2',
   twitter:   '#1da1f2',
   instagram: '#e4405f',
@@ -187,10 +187,12 @@ function urlHost(url: string): string {
 // Prepend https:// to URLs that omit a scheme so the resulting <a href>
 // is absolute. mailto: and tel: are pass-through. Empty/whitespace input
 // returns '' so the caller can drop the link entirely.
-function normalizeHref(url: string): string {
+// Dangerous explicit schemes (e.g. javascript:) return '' so callers can skip.
+export function normalizeHref(url: string): string {
   const trimmed = url.trim();
   if (!trimmed) return '';
   if (/^(https?:\/\/|mailto:|tel:)/i.test(trimmed)) return trimmed;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return ''; // explicit unsafe scheme like javascript:
   return `https://${trimmed}`;
 }
 

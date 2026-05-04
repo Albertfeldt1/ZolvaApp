@@ -4,9 +4,10 @@
 // 'structured' goes through the existing template.ts pipeline, 'imported'
 // uses the pre-sanitized html directly.
 
+import { applyBoundTargets } from './apply-bound-targets';
 import { loadSignature } from './storage';
 import { bodyToParagraphs, renderImported, renderSignature, renderSocials } from './template';
-import type { InlineAttachmentSpec, RenderedSignature } from './types';
+import type { InlineAttachmentSpec, RenderedSignature, SocialLink } from './types';
 
 export type OutgoingBody = {
   contentType: 'text' | 'html';
@@ -25,8 +26,20 @@ export async function buildOutgoingBody(rawBody: string): Promise<OutgoingBody> 
     return { contentType: 'text', content: rawBody, attachments: [] };
   }
 
-  const socialsHtml = data ? renderSocials(data.socials) : '';
-  const fullSignatureHtml = rendered.html + socialsHtml;
+  // data is guaranteed non-null here: rendered is only set when data is truthy.
+  const sigData = data!;
+  let signatureHtml: string;
+  let socialsForRow: SocialLink[];
+  if (sigData.kind === 'imported') {
+    const applied = applyBoundTargets({ html: rendered.html, socials: sigData.socials });
+    signatureHtml = applied.html;
+    socialsForRow = applied.unbound;
+  } else {
+    // structured: target is ignored — socials always render as separate pills
+    signatureHtml = rendered.html;
+    socialsForRow = sigData.socials;
+  }
+  const fullSignatureHtml = signatureHtml + renderSocials(socialsForRow);
 
   const bodyHtml = bodyToParagraphs(rawBody);
   const content = `${bodyHtml}${fullSignatureHtml}`;
