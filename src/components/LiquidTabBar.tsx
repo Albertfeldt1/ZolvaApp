@@ -141,19 +141,25 @@ const styles = StyleSheet.create({
   fabText: { fontFamily: fonts.uiSemi, fontSize: 13.5, color: colors.paper },
   // Margins live on the anchor (not on the bar GlassView) so the pill
   // sibling can absolute-position relative to a coordinate space that
-  // matches the bar's footprint.
+  // matches the bar's footprint. Wider horizontal margins (vs the
+  // previous 20pt) match Apple's iOS 26 reference where the bar floats
+  // as a narrower pill, not a near-edge-to-edge surface.
   barAnchor: {
-    marginHorizontal: 20,
+    marginHorizontal: 48,
     marginBottom: Platform.OS === 'ios' ? 24 : 14,
   },
+  // Fully pill-shaped bar (capsule). With 999 borderRadius, the corner
+  // matches the active-pill's own 999 — both read as proper capsules.
   bar: {
-    borderRadius: 24,
+    borderRadius: 999,
     overflow: 'hidden',
   },
+  // Thicker vertical padding so the bar reads as a substantial floating
+  // capsule rather than a flat strip. Matches Apple's reference height.
   tabsRow: {
     flexDirection: 'row',
-    paddingTop: 6,
-    paddingBottom: 6,
+    paddingTop: 12,
+    paddingBottom: 12,
   },
   tab: {
     flex: 1,
