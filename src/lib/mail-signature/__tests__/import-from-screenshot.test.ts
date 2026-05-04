@@ -199,4 +199,20 @@ describe('stripIconStandIns', () => {
     expect(out).toContain('cid:zolva-sig');
     expect(out).toContain('background:#000');
   });
+
+  it('iteratively cleans empty wrappers — strips inner cells then the empty row/table', () => {
+    const html = '<table style="background:#1c2e3a"><tr><td style="background:#1c2e3a"></td><td style="background:#1c2e3a"></td></tr></table>';
+    const out = stripIconStandIns(html);
+    // Inner empty styled <td>s gone first, then empty <tr>, then empty <table>
+    expect(out).not.toContain('table');
+    expect(out).not.toContain('background:#1c2e3a');
+  });
+
+  it('drops empty <tr> / <table> even without a colored background', () => {
+    const html = '<table><tr></tr></table><p>after</p>';
+    const out = stripIconStandIns(html);
+    expect(out).not.toContain('<table>');
+    expect(out).not.toContain('<tr>');
+    expect(out).toContain('after');
+  });
 });

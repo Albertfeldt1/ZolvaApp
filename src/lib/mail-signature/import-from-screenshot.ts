@@ -207,13 +207,15 @@ async function cropLogo(
   imgH: number,
   box: { x: number; y: number; w: number; h: number },
 ): Promise<InlineImage | null> {
-  // Vision models are imprecise at exact pixel coordinates; add ~15%
-  // padding (min 8 px) on each side and clamp to the image so a slightly
-  // off bbox doesn't clip the logo's edges. Padding includes some
-  // surrounding whitespace from the source screenshot, which generally
-  // looks fine since signatures live on a paper-colored background.
-  const padX = Math.max(8, Math.round(box.w * 0.15));
-  const padY = Math.max(8, Math.round(box.h * 0.15));
+  // Vision models are imprecise at exact pixel coordinates AND tend to
+  // box just the iconography while a wordmark sits right next to it.
+  // Pad horizontally by 35% (min 16 px) to capture adjacent wordmarks,
+  // and 18% vertically (min 10 px) for clean top/bottom edges. Clamps
+  // to image bounds so the crop never overruns. Generous padding picks
+  // up some whitespace from the screenshot — fine since signatures
+  // typically live on a paper-colored background.
+  const padX = Math.max(16, Math.round(box.w * 0.35));
+  const padY = Math.max(10, Math.round(box.h * 0.18));
   const x = Math.max(0, Math.round(box.x - padX));
   const y = Math.max(0, Math.round(box.y - padY));
   const w = Math.min(imgW - x, Math.round(box.w + 2 * padX));
@@ -243,26 +245,42 @@ async function cropLogo(
   }
 }
 
-// Strip icon stand-in elements that Claude reproduces as squeezed colored
-// shapes for SOCIAL platform icons (the "f X ▶" rows, blank colored boxes
-// with no real content). We keep contact-line icons — the small filled
-// circles next to phone/email/website/address that ARE part of the
-// signature's design — by requiring an additional signal that the element
-// belongs to a "row of icon stand-ins": no adjacent text on the same line.
+// Strip empty styled containers — decorative shapes, post-sanitize SVG
+// remnants, and the empty wrapper bars left behind when social-icon
+// children get sanitized out. Keeps contact-line icons (small filled
+// circles with a glyph inside) since their length-1-2 content survives
+// the empty-only rule.
 //
-// Conservative heuristic: only strip empty (length-0) styled elements
-// without a real <img>. Filled circles with a glyph inside (length 1-2)
-// stay — they're usually legitimate inline contact icons.
+// Iterates until stable: stripping inner empty elements may leave the
+// outer wrapper empty in turn (e.g. <table><tr><td bg></td></tr></table>
+// → <table><tr></tr></table> → empty table). Each pass walks more
+// element types (tr/table) than the per-pass regex would normally cover.
 export function stripIconStandIns(html: string): string {
-  const re = /<(a|td|div|span)\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi;
-  return html.replace(re, (match, _tag, attrs: string, inner: string) => {
+  let prev = html;
+  let curr = stripEmptyStyledOnce(html);
+  // Bound iteration to a few passes; pathological inputs shouldn't loop.
+  let safety = 6;
+  while (curr !== prev && safety-- > 0) {
+    prev = curr;
+    curr = stripEmptyStyledOnce(curr);
+  }
+  return curr;
+}
+
+function stripEmptyStyledOnce(html: string): string {
+  // table and tr included: empty table/row containers left behind after
+  // their inner styled cells are stripped should also go.
+  const re = /<(a|td|tr|table|div|span)\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi;
+  return html.replace(re, (match, tag: string, attrs: string, inner: string) => {
     const text = inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    // Only kill purely empty styled boxes (decorative shapes, post-sanitize
-    // SVG remnants). Length 1-2 elements are almost always legitimate
-    // contact-line icons (📞, ✉, 🌐, 📍) and stay.
     if (text.length !== 0) return match;
-    if (!hasColoredBackground(attrs)) return match;
     if (/<img\b/i.test(inner)) return match;
+    // For <tr>/<table>, drop if empty even without a colored background —
+    // they have no semantic value once their cells are gone.
+    if (tag.toLowerCase() === 'tr' || tag.toLowerCase() === 'table') {
+      return '';
+    }
+    if (!hasColoredBackground(attrs)) return match;
     return '';
   });
 }
