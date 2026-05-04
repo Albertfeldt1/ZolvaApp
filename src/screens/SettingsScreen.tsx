@@ -66,6 +66,8 @@ import {
   subscribeSignature,
   pickAndCompressLogo,
   pickResultMessage,
+  pickAndExtractSignature,
+  importResultMessage,
   renderSignature,
   EMPTY_SIGNATURE,
   type SignatureData,
@@ -211,6 +213,8 @@ function MailSignatureSection() {
   const [hydrated, setHydrated] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [pickerBusy, setPickerBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
   const dataRef = useRef(data);
   useEffect(() => { dataRef.current = data; }, [data]);
 
@@ -256,6 +260,26 @@ function MailSignatureSection() {
     void saveSignature(next);
   };
 
+  const onImportFromScreenshot = async () => {
+    setImportError(null);
+    setImporting(true);
+    const result = await pickAndExtractSignature();
+    setImporting(false);
+    if (!result.ok) {
+      const msg = importResultMessage(result);
+      if (msg) setImportError(msg);
+      return;
+    }
+    // Preserve the user's existing logo (extraction never touches it).
+    const next: SignatureData = {
+      ...EMPTY_SIGNATURE,
+      ...result.data,
+      logo: dataRef.current.logo,
+    };
+    setData(next);
+    void saveSignature(next);
+  };
+
   const rendered = renderSignature(data);
 
   return (
@@ -266,6 +290,21 @@ function MailSignatureSection() {
         Bruges ved mails sendt fra Outlook (og iCloud, når mail-afsendelse fra Zolva er tilføjet senere).
         Gmail bruger den signatur, du allerede har sat op i Gmail-indstillingerne.
       </Text>
+
+      <Pressable
+        onPress={onImportFromScreenshot}
+        disabled={importing}
+        style={[styles.sigImportBtn, importing && { opacity: 0.5 }]}
+        accessibilityRole="button"
+      >
+        <Text style={styles.sigImportBtnTitle}>
+          {importing ? 'Læser signatur…' : '📷 Importér fra screenshot'}
+        </Text>
+        <Text style={styles.sigImportBtnSub}>
+          Lad Zolva udfylde felterne fra et billede af din nuværende signatur.
+        </Text>
+      </Pressable>
+      {importError && <Text style={styles.sigError}>{importError}</Text>}
 
       <SigField label="Navn"        value={data.name}        onChange={(v) => update({ name: v })}        onBlur={commit} editable={hydrated} />
       <SigField label="Titel"       value={data.title}       onChange={(v) => update({ title: v })}       onBlur={commit} editable={hydrated} />
@@ -1535,6 +1574,24 @@ const styles = StyleSheet.create({
   sigLogoBtnText: {
     color: colors.paper,
     fontWeight: '500',
+  },
+  sigImportBtn: {
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: colors.mist,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+  },
+  sigImportBtnTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.ink,
+  },
+  sigImportBtnSub: {
+    marginTop: 4,
+    fontSize: 12,
+    color: colors.fg3,
   },
   sigError: {
     marginTop: 8,
