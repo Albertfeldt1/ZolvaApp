@@ -176,4 +176,32 @@ describe('renderSocials', () => {
     ]);
     expect(out).toBe('');
   });
+
+  it('prepends https:// to URLs that omit a scheme', () => {
+    const out = renderSocials([
+      { type: 'linkedin', url: 'linkedin.com/in/albert' },
+    ]);
+    expect(out).toContain('href="https://linkedin.com/in/albert"');
+    expect(out).not.toContain('href="linkedin.com/in/albert"');
+  });
+
+  it('preserves existing https/http schemes', () => {
+    const httpsOut = renderSocials([
+      { type: 'github', url: 'https://github.com/albert' },
+    ]);
+    expect(httpsOut).toContain('href="https://github.com/albert"');
+
+    const httpOut = renderSocials([
+      { type: 'github', url: 'http://github.com/albert' },
+    ]);
+    expect(httpOut).toContain('href="http://github.com/albert"');
+    expect(httpOut).not.toContain('href="https://http://');
+  });
+
+  it('trims whitespace before normalizing', () => {
+    const out = renderSocials([
+      { type: 'website', url: '  zolva.io  ' },
+    ]);
+    expect(out).toContain('href="https://zolva.io"');
+  });
 });

@@ -134,6 +134,16 @@ function urlHost(url: string): string {
   return m ? m[1] : url;
 }
 
+// Prepend https:// to URLs that omit a scheme so the resulting <a href>
+// is absolute. mailto: and tel: are pass-through. Empty/whitespace input
+// returns '' so the caller can drop the link entirely.
+function normalizeHref(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+  if (/^(https?:\/\/|mailto:|tel:)/i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
 function socialDisplayName(link: SocialLink): string {
   if (link.type === 'website') {
     return link.label && link.label.trim() ? link.label : urlHost(link.url);
@@ -152,7 +162,7 @@ export function renderSocials(socials: SocialLink[]): string {
     .map((s) => {
       const color = SOCIAL_COLORS[s.type];
       const name = escapeHtml(socialDisplayName(s));
-      const href = escapeHtml(s.url);
+      const href = escapeHtml(normalizeHref(s.url));
       return `<a href="${href}" style="color:${color};text-decoration:none">${name}</a>`;
     })
     .join('<span style="color:#888"> · </span>');
