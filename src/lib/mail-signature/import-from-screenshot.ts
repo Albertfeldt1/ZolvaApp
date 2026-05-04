@@ -291,12 +291,19 @@ const CONTACT_EMOJI_TO_LETTER: Record<string, string> = {
 const DEFAULT_CONTACT_ICON_COLOR = '#1c2e3a';
 
 function styledCircleSpan(letter: string, color: string): string {
-  // background-color (not the `background` shorthand) renders more
-  // reliably across HTML engines — some WebKit/WebView builds reject
-  // the shorthand when given a bare hex value. Padding-based sizing
-  // works in every email client; explicit width/height occasionally
-  // gets ignored on inline-displayed <span>.
-  return `<span style="background-color:${color};color:#ffffff;border-radius:50%;padding:3px 7px;font-family:Arial,sans-serif;font-size:11px;font-weight:bold;margin-right:6px">${letter}</span>`;
+  // Belt-and-suspenders styling so the circle renders across iOS WebView,
+  // Outlook desktop, Gmail, and Apple Mail:
+  //   - display:inline-block ensures the <span> gets a real box for
+  //     border-radius / width / height to apply (border-radius has no
+  //     effect on default-display:inline elements).
+  //   - explicit width/height/line-height for engines that honor them
+  //     (most modern WebKit + Apple Mail).
+  //   - background-color (not the `background` shorthand) so engines
+  //     that reject `background:#hex` as an invalid image URL still
+  //     paint the fill.
+  //   - vertical-align:middle so the circle sits on the same baseline
+  //     as the contact text that follows.
+  return `<span style="display:inline-block;width:20px;height:20px;line-height:20px;background-color:${color};color:#ffffff;border-radius:50%;text-align:center;font-family:Arial,sans-serif;font-size:11px;font-weight:bold;vertical-align:middle;margin-right:6px">${letter}</span>`;
 }
 
 export function replaceContactEmoji(html: string, fallbackColor = DEFAULT_CONTACT_ICON_COLOR): string {
