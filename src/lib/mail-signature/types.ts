@@ -1,27 +1,43 @@
 // src/lib/mail-signature/types.ts
 //
-// Data shapes for the rich mail signature feature. SignatureData is the
-// form state persisted to AsyncStorage. RenderedSignature is what the
-// pure renderSignature() returns — html + plaintext + optional inline
-// image. InlineAttachmentSpec is the wire-format the provider-agnostic
-// build-outgoing-body helper hands to send paths (Outlook today, iCloud
-// SMTP later).
+// Data shapes for the rich mail signature feature.
+//
+// SignatureData is a discriminated union of two modes:
+//   - 'structured' — name/title/company/etc. + optional logo (the original
+//     rich-mail-signature feature). Renders via template.ts.
+//   - 'imported'   — sanitized Outlook-safe HTML + plaintext + optional
+//     cropped logo, produced by the screenshot-import flow. Renders by
+//     using its `html` directly.
+//
+// The `kind` field tags each entry. Migration on read defaults legacy
+// entries (no `kind` field) to 'structured' — see storage.ts.
 
-export type SignatureData = {
+export type StructuredSignature = {
+  kind: 'structured';
   name: string;
   title: string;
   company: string;
   phone: string;
   email: string;
   website: string;
-  customLines: string;          // multiline freeform; also receives migrated plaintext
+  customLines: string;
   logo: InlineImage | null;
 };
 
+export type ImportedSignature = {
+  kind: 'imported';
+  html: string;
+  plaintext: string;
+  image: InlineImage | null;
+  importedAt: number;
+};
+
+export type SignatureData = StructuredSignature | ImportedSignature;
+
 export type InlineImage = {
-  base64: string;               // raw base64, no data URI prefix
+  base64: string;
   mimeType: 'image/png' | 'image/jpeg';
-  width: number;                // pixels — used for the <img> attribute, not for further compression
+  width: number;
   height: number;
 };
 
@@ -32,13 +48,14 @@ export type RenderedSignature = {
 };
 
 export type InlineAttachmentSpec = {
-  filename: string;             // 'signature.png' | 'signature.jpg'
+  filename: string;
   mimeType: string;
-  contentBytes: string;         // base64
-  contentId: string;            // matches the cid: in the HTML
+  contentBytes: string;
+  contentId: string;
 };
 
-export const EMPTY_SIGNATURE: SignatureData = {
+export const EMPTY_SIGNATURE: StructuredSignature = {
+  kind: 'structured',
   name: '',
   title: '',
   company: '',
