@@ -277,9 +277,6 @@ export async function createDraft(input: GraphComposeInput): Promise<{ id: strin
     const attachments = toGraphAttachments(built.attachments);
 
     if (input.replyToId) {
-      // Reply draft path — Task 9 will switch this to the createReply
-      // dance for HTML+attachments. Until then we keep the legacy text
-      // path so this task stays minimal.
       const draft = await graphFetch<{ id: string }>(
         token,
         `/me/messages/${input.replyToId}/createReplyDraft`,
@@ -289,9 +286,16 @@ export async function createDraft(input: GraphComposeInput): Promise<{ id: strin
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          body: { contentType: 'text', content: input.body },
+          body: { contentType: built.contentType, content: built.content },
         }),
       });
+      for (const att of attachments) {
+        await graphFetch<void>(token, `/me/messages/${draft.id}/attachments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(att),
+        });
+      }
       return { id: draft.id };
     }
 
