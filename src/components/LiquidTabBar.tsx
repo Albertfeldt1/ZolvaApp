@@ -24,7 +24,9 @@ const AnimatedGlassView = Animated.createAnimatedComponent(GlassView);
 // settles cleanly without overshoot looking spongy. Roughly Apple's
 // UISpringTimingParameters defaults for the system pill.
 const PILL_SPRING = { damping: 22, stiffness: 260, mass: 1 };
-const PILL_INSET = 8;
+// Apple's iOS 26 pill hugs icon+label tightly; 16pt inset on each side
+// of the tab cell gives roughly the right ratio for our 4-tab layout.
+const PILL_INSET = 16;
 
 // darkBg is accepted for API-shape parity with ClassicTabBar but intentionally
 // unused — UIKit's colorScheme="auto" handles dark/light adaptation natively.
@@ -74,7 +76,7 @@ export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: P
           </GlassView>
         )}
         <GlassView
-          glassEffectStyle="regular"
+          glassEffectStyle="clear"
           colorScheme="auto"
           style={styles.bar}
         >
@@ -85,6 +87,7 @@ export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: P
             {rowWidth > 0 && (
               <AnimatedGlassView
                 glassEffectStyle="clear"
+                isInteractive
                 tintColor="rgba(26,30,28,0.18)"
                 colorScheme="auto"
                 style={[styles.activePill, pillStyle]}
@@ -135,8 +138,8 @@ const styles = StyleSheet.create({
   },
   tabsRow: {
     flexDirection: 'row',
-    paddingTop: 8,
-    paddingBottom: 8,
+    paddingTop: 6,
+    paddingBottom: 6,
   },
   tab: {
     flex: 1,
