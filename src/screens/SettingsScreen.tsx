@@ -5,7 +5,7 @@
 // email the contact address and Zolva responds within 30 days. When/if a real
 // JSON export is built (Edge Function + Resend), re-add a button here and grep
 // for this marker to update the handoff.
-import { Check, ChevronDown, ChevronLeft, Globe, Image as ImageIcon, Link2Off, Plus, X } from 'lucide-react-native';
+import { Check, ChevronDown, ChevronLeft, Globe, Image as ImageIcon, Link2Off, Plus, RefreshCw, X } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
@@ -84,6 +84,8 @@ import {
   type InlineImage,
 } from '../lib/mail-signature';
 import { detectImportedTargets, type DetectedTargets } from '../lib/mail-signature/detect-targets';
+import { applyBoundTargets } from '../lib/mail-signature/apply-bound-targets';
+import { renderSocials } from '../lib/mail-signature/template';
 import { translateProviderError } from '../utils/danish';
 
 import {
@@ -217,17 +219,28 @@ function useNotificationSettings(): NotificationSettings {
   return state;
 }
 
-function buildPreviewHtml(sig: { html: string; image: { base64: string; mimeType: 'image/png' | 'image/jpeg' } | null }): string {
+function buildPreviewHtml(sig: {
+  html: string;
+  image: { base64: string; mimeType: 'image/png' | 'image/jpeg' } | null;
+  socials: SocialLink[];
+}): string {
+  // Apply any bound targets to the imported html (mirror the buildOutgoingBody
+  // path) so the preview reflects what recipients will actually see — the
+  // socials with target.set become inline anchors in the html, and the
+  // remaining unbound socials get appended as a separate row.
+  const applied = applyBoundTargets({ html: sig.html, socials: sig.socials });
+  const socialsRow = renderSocials(applied.unbound);
+  let combined = applied.html + socialsRow;
+
   // Resolve cid:zolva-sig to a data URL so the WebView preview renders the
-  // logo without an external load. The outgoing-mail path keeps cid: as-is —
-  // this transformation is preview-only.
-  const cidDataUrl = sig.image
-    ? `data:${sig.image.mimeType};base64,${sig.image.base64}`
-    : '';
-  const html = sig.image
-    ? sig.html.replaceAll('cid:zolva-sig', cidDataUrl)
-    : sig.html;
-  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:transparent;}img{max-width:100%;height:auto;}</style></head><body>${html}</body></html>`;
+  // cropped logo without an external load. The outgoing-mail path keeps cid:
+  // as-is — this transformation is preview-only.
+  if (sig.image) {
+    const cidDataUrl = `data:${sig.image.mimeType};base64,${sig.image.base64}`;
+    combined = combined.replaceAll('cid:zolva-sig', cidDataUrl);
+  }
+
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:transparent;}img{max-width:100%;height:auto;}</style></head><body>${combined}</body></html>`;
 }
 
 function formatImportedDate(unixMs: number): string {
@@ -499,9 +512,12 @@ function SocialBindPicker(props: {
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="Luk Bind til-vælger">
-        <BlurView intensity={60} tint="light" style={StyleSheet.absoluteFill} />
-      </Pressable>
+      <Pressable
+        style={[StyleSheet.absoluteFill, { backgroundColor: colors.paperOn75 }]}
+        onPress={onClose}
+        accessibilityRole="button"
+        accessibilityLabel="Luk Bind til-vælger"
+      />
       <View style={styles.sigBindFloatWrap} pointerEvents="box-none">
         <Animated.View
           entering={FadeIn.duration(180)}
@@ -756,6 +772,7 @@ function MailSignatureSection() {
   const [pickerBusy, setPickerBusy] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [previewKey, setPreviewKey] = useState(0);
   const dataRef = useRef(data);
   useEffect(() => { dataRef.current = data; }, [data]);
 
@@ -973,6 +990,7 @@ function MailSignatureSection() {
           <Text style={[styles.sigFieldLabel, { marginTop: 0 }]}>Forhåndsvisning</Text>
           <View style={styles.sigImportedPreview}>
             <WebView
+              key={previewKey}
               originWhitelist={['*']}
               javaScriptEnabled={false}
               scrollEnabled={true}
@@ -980,6 +998,18 @@ function MailSignatureSection() {
               style={styles.sigImportedWebView}
             />
           </View>
+          <Pressable
+            onPress={() => {
+              void Haptics.selectionAsync();
+              setPreviewKey((k) => k + 1);
+            }}
+            style={styles.sigPreviewReloadBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Genindlæs forhåndsvisning"
+          >
+            <RefreshCw size={13} color={colors.fg2} strokeWidth={2.2} />
+            <Text style={styles.sigPreviewReloadText}>Genindlæs forhåndsvisning</Text>
+          </Pressable>
           <Text style={styles.sigImportedCardSub}>
             {`Importeret ${formatImportedDate(data.importedAt)}`}
           </Text>
@@ -2285,6 +2315,24 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 12,
     color: colors.fg3,
+  },
+  sigPreviewReloadBtn: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+    alignSelf: 'flex-start',
+  },
+  sigPreviewReloadText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.fg2,
+    letterSpacing: -0.1,
   },
   sigSwitchBtn: {
     marginTop: 14,
