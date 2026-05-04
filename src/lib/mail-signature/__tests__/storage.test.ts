@@ -1,7 +1,7 @@
 // src/lib/mail-signature/__tests__/storage.test.ts
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { loadSignature, saveSignature, __resetForTests } from '../storage';
-import { EMPTY_SIGNATURE } from '../types';
+import { loadSignature, saveSignature, __resetForTests, __setCurrentUserForTests } from '../storage';
+import { EMPTY_SIGNATURE, type SignatureData } from '../types';
 
 // Prevent the real auth module from pulling in supabase (and its env-var check)
 // at test-module import time. subscribeUserId is only used for runtime cache
@@ -69,8 +69,12 @@ describe('storage / migration', () => {
   it('isolates signatures per user', async () => {
     await saveSignature(UID, { ...EMPTY_SIGNATURE, name: 'A' });
     await saveSignature(OTHER_UID, { ...EMPTY_SIGNATURE, name: 'B' });
-    expect((await loadSignature(UID))?.name).toBe('A');
-    expect((await loadSignature(OTHER_UID))?.name).toBe('B');
+    const sigA = await loadSignature(UID);
+    const sigB = await loadSignature(OTHER_UID);
+    expect(sigA?.kind).toBe('structured');
+    expect(sigB?.kind).toBe('structured');
+    if (sigA?.kind === 'structured') expect(sigA.name).toBe('A');
+    if (sigB?.kind === 'structured') expect(sigB.name).toBe('B');
   });
 
   it('saveSignature persists JSON under the v2 per-user key', async () => {
@@ -80,5 +84,54 @@ describe('storage / migration', () => {
     const parsed = JSON.parse(raw!);
     expect(parsed.name).toBe('Albert');
     expect(parsed.title).toBe('CEO');
+  });
+
+  describe('loadSignature — discriminated-union migration', () => {
+    beforeEach(async () => {
+      __resetForTests();
+      __setCurrentUserForTests('uid-disc');
+      await AsyncStorage.clear();
+    });
+
+    it('legacy v2 entry without kind loads as structured', async () => {
+      await AsyncStorage.setItem(
+        'zolva.mail.signature.v2.uid-disc',
+        JSON.stringify({
+          name: 'Albert', title: '', company: '', phone: '', email: '',
+          website: '', customLines: '', logo: null,
+        }),
+      );
+      const sig = await loadSignature('uid-disc');
+      expect(sig).toEqual({
+        kind: 'structured',
+        name: 'Albert', title: '', company: '', phone: '', email: '',
+        website: '', customLines: '', logo: null,
+      });
+    });
+
+    it('imported signature round-trips through save/load', async () => {
+      const imported: SignatureData = {
+        kind: 'imported',
+        html: '<table><tr><td>Hi</td></tr></table>',
+        plaintext: 'Hi',
+        image: null,
+        importedAt: 1700000000000,
+      };
+      __setCurrentUserForTests('uid-disc');
+      await saveSignature(imported);
+      __resetForTests();
+      __setCurrentUserForTests('uid-disc');
+      const loaded = await loadSignature('uid-disc');
+      expect(loaded).toEqual(imported);
+    });
+
+    it('v1 plaintext migration produces a structured entry', async () => {
+      await AsyncStorage.setItem('zolva.mail.signature.uid-disc', 'Med venlig hilsen\nAlbert');
+      const sig = await loadSignature('uid-disc');
+      expect(sig?.kind).toBe('structured');
+      if (sig?.kind === 'structured') {
+        expect(sig.customLines).toBe('Med venlig hilsen\nAlbert');
+      }
+    });
   });
 });

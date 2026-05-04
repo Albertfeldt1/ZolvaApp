@@ -44,8 +44,18 @@ async function loadFromStorage(uid: string): Promise<SignatureData | null> {
   const v2Raw = await AsyncStorage.getItem(v2Key(uid));
   if (v2Raw !== null) {
     try {
-      const parsed = JSON.parse(v2Raw) as SignatureData;
-      return { ...EMPTY_SIGNATURE, ...parsed };
+      const parsed = JSON.parse(v2Raw) as Partial<SignatureData> & { kind?: 'structured' | 'imported' };
+      if (parsed.kind === 'imported') {
+        return {
+          kind: 'imported',
+          html: typeof parsed.html === 'string' ? parsed.html : '',
+          plaintext: typeof parsed.plaintext === 'string' ? parsed.plaintext : '',
+          image: parsed.image ?? null,
+          importedAt: typeof parsed.importedAt === 'number' ? parsed.importedAt : 0,
+        };
+      }
+      // 'structured' OR missing kind (legacy v2 from before this feature)
+      return { ...EMPTY_SIGNATURE, ...parsed, kind: 'structured' };
     } catch (err) {
       console.warn('[mail-signature] malformed v2 json, treating as no signature:', err);
       return null;
