@@ -20,9 +20,14 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system';
 import { ClaudeRateLimitError, ClaudeConfigError, completeWithTool } from '../claude';
 import { sanitizeSignatureHtml } from './sanitize';
-import type { ImportedSignature, InlineImage } from './types';
+import type { ImportedSignature, InlineImage, SocialLink, SocialType } from './types';
 
 const VISION_MAX_DIMENSION = 1024;
+
+const SOCIAL_TYPES: ReadonlyArray<SocialType> = [
+  'linkedin', 'twitter', 'instagram', 'facebook',
+  'tiktok', 'youtube', 'github', 'other',
+];
 const VISION_MAX_BASE64_LEN = 300_000;
 
 const SIGNATURE_IMPORT_SYSTEM_PROMPT = `You reproduce the visual design of an email signature from a screenshot, as Outlook-safe HTML.
@@ -36,6 +41,11 @@ CRITICAL constraints — output that violates these will be sanitized away:
 
 Reproduce the screenshot's visible content as faithfully as possible: text content, weights, italics, colors, alignment, dividers, and the visual structure (single line vs multi-line vs columns implemented as nested tables).
 
+Social-media icons:
+- If the screenshot contains social-media link icons (LinkedIn, Twitter/X, Instagram, Facebook, TikTok, YouTube, GitHub, or others), extract them as a "socials" array. Each entry has a "type" (one of: linkedin, twitter, instagram, facebook, tiktok, youtube, github, other) and a "url". Use "other" with a "label" field for platforms not in this list.
+- IMPORTANT: Do NOT include these icon links in the html output. We render the social row separately. The html should not have any <a> tags wrapping social-media icons or icon-replacements for them.
+- If no social-media icons are visible, return socials: [].
+
 Return your output via the import_signature tool with three fields:
 - html: the Outlook-safe HTML (typically wrapped in a <table>)
 - plaintext: a plain-text version of the signature for multipart/alt
@@ -45,7 +55,7 @@ If the screenshot doesn't appear to contain an email signature (e.g. it's a gene
 
 const IMPORT_TOOL = {
   name: 'import_signature',
-  description: 'Output the reproduced signature HTML, plaintext fallback, and optional logo bounding box.',
+  description: 'Output the reproduced signature HTML, plaintext fallback, optional logo bounding box, and any social-media link icons.',
   input_schema: {
     type: 'object',
     properties: {
@@ -65,6 +75,18 @@ const IMPORT_TOOL = {
             required: ['x', 'y', 'w', 'h'],
           },
         ],
+      },
+      socials: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            type: { type: 'string', enum: SOCIAL_TYPES as unknown as string[] },
+            url: { type: 'string' },
+            label: { type: 'string' },
+          },
+          required: ['type', 'url'],
+        },
       },
     },
     required: ['html', 'plaintext', 'logoBox'],
@@ -90,6 +112,7 @@ type ToolUseResult = {
   html: string;
   plaintext: string;
   logoBox: { x: number; y: number; w: number; h: number } | null;
+  socials: SocialLink[];
 };
 
 type ParseOk = { ok: true; value: ToolUseResult };
@@ -117,7 +140,22 @@ export function parseImportToolUse(input: unknown): ParseOk | ParseFail {
     }
     logoBox = { x: lb.x, y: lb.y, w: lb.w, h: lb.h };
   }
-  return { ok: true, value: { html: obj.html, plaintext: obj.plaintext, logoBox } };
+  let socials: SocialLink[] = [];
+  if (Array.isArray(obj.socials)) {
+    for (const item of obj.socials) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const it = item as Record<string, unknown>;
+      const type = it.type;
+      const url = it.url;
+      if (typeof type !== 'string') continue;
+      if (typeof url !== 'string') continue;
+      if (!(SOCIAL_TYPES as ReadonlyArray<string>).includes(type)) continue;
+      const link: SocialLink = { type: type as SocialType, url };
+      if (typeof it.label === 'string') link.label = it.label;
+      socials.push(link);
+    }
+  }
+  return { ok: true, value: { html: obj.html, plaintext: obj.plaintext, logoBox, socials } };
 }
 
 export function mapClaudeError(err: unknown): ImportResult {
@@ -265,6 +303,7 @@ export async function pickAndImportSignature(): Promise<ImportResult> {
     plaintext: parsed.value.plaintext,
     image,
     importedAt: Date.now(),
+    socials: parsed.value.socials,
   };
   return { ok: true, data };
 }

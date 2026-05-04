@@ -39,12 +39,12 @@ describe('parseImportToolUse', () => {
   };
 
   it('accepts a valid no-logo response', () => {
-    expect(parseImportToolUse(ok)).toEqual({ ok: true, value: ok });
+    expect(parseImportToolUse(ok)).toEqual({ ok: true, value: { ...ok, socials: [] } });
   });
 
   it('accepts a valid with-logo response', () => {
     const withLogo = { ...ok, logoBox: { x: 10, y: 20, w: 100, h: 50 } };
-    expect(parseImportToolUse(withLogo)).toEqual({ ok: true, value: withLogo });
+    expect(parseImportToolUse(withLogo)).toEqual({ ok: true, value: { ...withLogo, socials: [] } });
   });
 
   it('rejects missing html', () => {
@@ -66,6 +66,57 @@ describe('parseImportToolUse', () => {
     expect(parseImportToolUse(null)).toEqual({ ok: false });
     expect(parseImportToolUse('a string')).toEqual({ ok: false });
     expect(parseImportToolUse(42)).toEqual({ ok: false });
+  });
+
+  it('accepts a socials array with valid items', () => {
+    const okWithSocials = {
+      html: '<table><tr><td>Hi</td></tr></table>',
+      plaintext: 'Hi',
+      logoBox: null,
+      socials: [
+        { type: 'linkedin', url: 'https://linkedin.com/in/albert' },
+        { type: 'github',   url: 'https://github.com/albert' },
+      ],
+    };
+    const out = parseImportToolUse(okWithSocials);
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.value.socials).toEqual(okWithSocials.socials);
+    }
+  });
+
+  it('drops socials items with bad type or missing url', () => {
+    const input = {
+      html: '<table><tr><td>Hi</td></tr></table>',
+      plaintext: 'Hi',
+      logoBox: null,
+      socials: [
+        { type: 'linkedin', url: 'https://linkedin.com/in/albert' },  // ok
+        { type: 'invalid',  url: 'https://x.com' },                    // bad type
+        { type: 'github' },                                            // missing url
+        { type: 'twitter', url: 42 },                                  // non-string url
+      ],
+    };
+    const out = parseImportToolUse(input);
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.value.socials).toEqual([
+        { type: 'linkedin', url: 'https://linkedin.com/in/albert' },
+      ]);
+    }
+  });
+
+  it('treats missing socials field as empty array', () => {
+    const input = {
+      html: '<table><tr><td>Hi</td></tr></table>',
+      plaintext: 'Hi',
+      logoBox: null,
+    };
+    const out = parseImportToolUse(input);
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.value.socials).toEqual([]);
+    }
   });
 });
 
