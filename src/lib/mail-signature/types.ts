@@ -14,7 +14,7 @@
 
 export type SocialType =
   | 'linkedin' | 'twitter' | 'instagram' | 'facebook'
-  | 'tiktok' | 'youtube' | 'github' | 'other';
+  | 'tiktok' | 'youtube' | 'github' | 'website' | 'other';
 
 export type SocialLink = {
   type: SocialType;

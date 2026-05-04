@@ -26,7 +26,7 @@ const VISION_MAX_DIMENSION = 1024;
 
 const SOCIAL_TYPES: ReadonlyArray<SocialType> = [
   'linkedin', 'twitter', 'instagram', 'facebook',
-  'tiktok', 'youtube', 'github', 'other',
+  'tiktok', 'youtube', 'github', 'website', 'other',
 ];
 const VISION_MAX_BASE64_LEN = 300_000;
 
@@ -41,10 +41,10 @@ CRITICAL constraints — output that violates these will be sanitized away:
 
 Reproduce the screenshot's visible content as faithfully as possible: text content, weights, italics, colors, alignment, dividers, and the visual structure (single line vs multi-line vs columns implemented as nested tables).
 
-Social-media icons:
-- If the screenshot contains social-media link icons (LinkedIn, Twitter/X, Instagram, Facebook, TikTok, YouTube, GitHub, or others), extract them as a "socials" array. Each entry has a "type" (one of: linkedin, twitter, instagram, facebook, tiktok, youtube, github, other) and a "url". Use "other" with a "label" field for platforms not in this list.
+Social-media icons and link icons:
+- If the screenshot contains social-media link icons (LinkedIn, Twitter/X, Instagram, Facebook, TikTok, YouTube, GitHub) or generic website/link icons (globe, "www", a personal/company URL displayed as a clickable element), extract them as a "socials" array. Each entry has a "type" (one of: linkedin, twitter, instagram, facebook, tiktok, youtube, github, website, other) and a "url". Use "website" for generic homepage/portfolio/company URLs that aren't a known platform. Use "other" with a "label" field for non-website platforms not in this list (e.g. Bluesky, Mastodon, Threads).
 - IMPORTANT: Do NOT include these icon links in the html output. We render the social row separately. The html should not have any <a> tags wrapping social-media icons or icon-replacements for them.
-- If no social-media icons are visible, return socials: [].
+- If no social-media or link icons are visible, return socials: [].
 
 Return your output via the import_signature tool with three fields:
 - html: the Outlook-safe HTML (typically wrapped in a <table>)

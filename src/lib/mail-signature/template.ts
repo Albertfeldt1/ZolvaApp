@@ -112,7 +112,8 @@ const SOCIAL_LABELS: Record<SocialType, string> = {
   tiktok:    'TikTok',
   youtube:   'YouTube',
   github:    'GitHub',
-  other:     '',
+  website:   '',  // falls back to URL host
+  other:     '',  // falls back to label || URL host
 };
 
 const SOCIAL_COLORS: Record<SocialType, string> = {
@@ -123,6 +124,7 @@ const SOCIAL_COLORS: Record<SocialType, string> = {
   tiktok:    '#1a1a1a',
   youtube:   '#ff0000',
   github:    '#1a1a1a',
+  website:   '#1a1a1a',
   other:     '#1a1a1a',
 };
 
@@ -133,6 +135,9 @@ function urlHost(url: string): string {
 }
 
 function socialDisplayName(link: SocialLink): string {
+  if (link.type === 'website') {
+    return link.label && link.label.trim() ? link.label : urlHost(link.url);
+  }
   if (link.type === 'other') {
     return link.label && link.label.trim() ? link.label : urlHost(link.url);
   }

@@ -5,7 +5,7 @@
 // email the contact address and Zolva responds within 30 days. When/if a real
 // JSON export is built (Edge Function + Resend), re-add a button here and grep
 // for this marker to update the handoff.
-import { Check, ChevronDown, ChevronLeft, Plus, X } from 'lucide-react-native';
+import { Check, ChevronDown, ChevronLeft, Globe, Plus, X } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
@@ -244,6 +244,7 @@ type SocialMeta = {
   fg: string;          // glyph foreground color
   placeholder: string; // url input hint
   gradient?: readonly string[]; // optional brand gradient (Instagram)
+  useGlobeIcon?: boolean; // when true, BrandIcon renders the Globe lucide icon instead of the glyph
 };
 
 const SOCIAL_META: Record<SocialType, SocialMeta> = {
@@ -255,12 +256,13 @@ const SOCIAL_META: Record<SocialType, SocialMeta> = {
   tiktok:    { label: 'TikTok',    glyph: 'T',   bg: '#000000', fg: '#ffffff', placeholder: 'tiktok.com/@…' },
   youtube:   { label: 'YouTube',   glyph: '▶',   bg: '#ff0000', fg: '#ffffff', placeholder: 'youtube.com/@…' },
   github:    { label: 'GitHub',    glyph: 'Gh',  bg: '#1a1a1a', fg: '#ffffff', placeholder: 'github.com/…' },
+  website:   { label: 'Website',   glyph: '',    bg: '#3a7afe', fg: '#ffffff', placeholder: 'https://…',  useGlobeIcon: true },
   other:     { label: 'Andet',     glyph: '•',   bg: '#777777', fg: '#ffffff', placeholder: 'https://…' },
 };
 
 const SOCIAL_TYPES: SocialType[] = [
   'linkedin', 'twitter', 'instagram', 'facebook',
-  'tiktok', 'youtube', 'github', 'other',
+  'tiktok', 'youtube', 'github', 'website', 'other',
 ];
 
 function BrandIcon({ type, size = 36 }: { type: SocialType; size?: number }) {
@@ -268,7 +270,9 @@ function BrandIcon({ type, size = 36 }: { type: SocialType; size?: number }) {
   const radius = size / 2;
   const fontSize = size <= 28 ? size * 0.42 : size * 0.4;
 
-  const inner = (
+  const inner = meta.useGlobeIcon ? (
+    <Globe size={Math.round(size * 0.5)} color={meta.fg} strokeWidth={2.2} />
+  ) : (
     <Text
       style={{
         color: meta.fg,
