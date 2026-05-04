@@ -22,7 +22,7 @@ export async function pickAndCompressLogo(): Promise<PickResult> {
   if (!perm.granted) return { ok: false, reason: 'permission-denied' };
 
   const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    mediaTypes: ['images'] as ImagePicker.MediaType[],
     allowsMultipleSelection: false,
     quality: 1,
   });

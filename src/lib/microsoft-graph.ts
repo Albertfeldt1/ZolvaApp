@@ -347,12 +347,12 @@ export async function createDraft(input: GraphComposeInput): Promise<{ id: strin
 }
 
 export async function sendMail(input: GraphComposeInput): Promise<void> {
+  if (input.replyToId) {
+    // Defensive: route to replyToMessage so the rich-signature reply
+    // path handles inline attachments correctly.
+    return replyToMessage(input.replyToId, input.body);
+  }
   return tryWithRefresh('microsoft', async (token) => {
-    if (input.replyToId) {
-      // Defensive: route to replyToMessage so the rich-signature reply
-      // path (Task 10) handles inline attachments correctly.
-      return replyToMessage(input.replyToId, input.body);
-    }
     const built: OutgoingBody = await buildOutgoingBody(input.body);
     const attachments = toGraphAttachments(built.attachments);
     await graphFetch<void>(token, `/me/sendMail`, {

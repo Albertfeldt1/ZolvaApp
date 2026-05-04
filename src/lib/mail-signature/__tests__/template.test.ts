@@ -71,6 +71,19 @@ describe('renderSignature', () => {
     const out = renderSignature({ ...EMPTY_SIGNATURE, name: 'A', website: 'http://zolva.io' });
     expect(out!.html).toContain('href="http://zolva.io"');
   });
+
+  it('renders only customLines when no other fields are set', () => {
+    const out = renderSignature({
+      ...EMPTY_SIGNATURE,
+      customLines: 'Disclaimer\nLine 2',
+    });
+    expect(out).not.toBeNull();
+    expect(out!.html).toContain('Disclaimer<br>Line 2');
+    expect(out!.html).not.toContain('<strong>');
+    expect(out!.html).not.toContain('mailto:');
+    expect(out!.image).toBeNull();
+    expect(out!.plaintext).toBe('Disclaimer\nLine 2');
+  });
 });
 
 describe('escapeWithBrBreaks', () => {

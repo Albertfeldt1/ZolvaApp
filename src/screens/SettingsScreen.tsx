@@ -10,7 +10,7 @@ import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -137,6 +137,8 @@ function MailSignatureSection() {
   const [hydrated, setHydrated] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [pickerBusy, setPickerBusy] = useState(false);
+  const dataRef = useRef(data);
+  useEffect(() => { dataRef.current = data; }, [data]);
 
   useEffect(() => {
     let cancelled = false;
@@ -156,7 +158,7 @@ function MailSignatureSection() {
   };
   const commit = () => {
     if (!hydrated) return;
-    void saveSignature(data);
+    void saveSignature(dataRef.current);
   };
 
   const onPickLogo = async () => {
