@@ -74,6 +74,10 @@ import {
   pickResultMessage,
   pickAndImportSignature,
   importResultMessage,
+  pickAndFillFields,
+  fillResultMessage,
+  pickAndUseScreenshot,
+  useScreenshotResultMessage,
   renderSignature,
   EMPTY_SIGNATURE,
   type SignatureData,
@@ -870,8 +874,11 @@ function MailSignatureSection() {
   const [hydrated, setHydrated] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [pickerBusy, setPickerBusy] = useState(false);
-  const [importing, setImporting] = useState(false);
+  const [reproducing, setReproducing] = useState(false);
+  const [usingImage, setUsingImage] = useState(false);
+  const [fillingFields, setFillingFields] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const anyImporting = reproducing || usingImage || fillingFields;
   const [previewKey, setPreviewKey] = useState(0);
   const [previewHeight, setPreviewHeight] = useState(260);
   const dataRef = useRef(data);
@@ -926,9 +933,9 @@ function MailSignatureSection() {
     void saveSignature(next);
   };
 
-  const onImportFromScreenshot = async () => {
+  const onReproduceFromScreenshot = async () => {
     setImportError(null);
-    setImporting(true);
+    setReproducing(true);
     try {
       const result = await pickAndImportSignature();
       if (!result.ok) {
@@ -939,7 +946,46 @@ function MailSignatureSection() {
       setData(result.data);
       void saveSignature(result.data);
     } finally {
-      setImporting(false);
+      setReproducing(false);
+    }
+  };
+
+  const onUseScreenshotDirectly = async () => {
+    setImportError(null);
+    setUsingImage(true);
+    try {
+      const result = await pickAndUseScreenshot();
+      if (!result.ok) {
+        const msg = useScreenshotResultMessage(result);
+        if (msg) setImportError(msg);
+        return;
+      }
+      setData(result.data);
+      void saveSignature(result.data);
+    } finally {
+      setUsingImage(false);
+    }
+  };
+
+  const onFillFieldsFromScreenshot = async () => {
+    setImportError(null);
+    setFillingFields(true);
+    try {
+      const result = await pickAndFillFields();
+      if (!result.ok) {
+        const msg = fillResultMessage(result);
+        if (msg) setImportError(msg);
+        return;
+      }
+      // Preserve the existing logo (vision call doesn't touch it). Every
+      // other field is replaced — partial merges create surprising mixed
+      // states; the user explicitly asked to autofill from this screenshot.
+      const existingLogo = data.kind === 'structured' ? data.logo : null;
+      const next: StructuredSignature = { ...result.data, logo: existingLogo };
+      setData(next);
+      void saveSignature(next);
+    } finally {
+      setFillingFields(false);
     }
   };
 
@@ -1025,22 +1071,45 @@ function MailSignatureSection() {
       </Text>
 
       <Pressable
-        onPress={onImportFromScreenshot}
-        disabled={importing}
-        style={[styles.sigImportBtn, importing && { opacity: 0.5 }]}
+        onPress={onReproduceFromScreenshot}
+        disabled={anyImporting}
+        style={[styles.sigImportBtn, reproducing && { opacity: 0.5 }]}
         accessibilityRole="button"
       >
         <Text style={styles.sigImportBtnTitle}>
-          {importing ? 'Læser signatur…' : '📷 Importér fra screenshot'}
+          {reproducing ? 'Reproducerer signatur…' : '📷 Reproducér fra screenshot'}
         </Text>
         <Text style={styles.sigImportBtnSub}>
-          Lad Zolva udfylde felterne fra et billede af din nuværende signatur.
+          Zolva genskaber designet 1:1 ud fra et billede.
         </Text>
       </Pressable>
+
+      <Pressable
+        onPress={onUseScreenshotDirectly}
+        disabled={anyImporting}
+        style={[styles.sigUseImageBtn, usingImage && { opacity: 0.5 }]}
+        accessibilityRole="button"
+      >
+        <Text style={styles.sigUseImageBtnText}>
+          {usingImage ? 'Indlæser billede…' : 'Brug screenshot som billede'}
+        </Text>
+      </Pressable>
+
       {importError && <Text style={styles.sigError}>{importError}</Text>}
 
       {data.kind === 'structured' ? (
         <>
+          <Pressable
+            onPress={onFillFieldsFromScreenshot}
+            disabled={anyImporting}
+            style={[styles.sigFillFieldsBtn, fillingFields && { opacity: 0.5 }]}
+            accessibilityRole="button"
+          >
+            <Text style={styles.sigFillFieldsBtnText}>
+              {fillingFields ? 'Læser felter…' : '📷 Udfyld felter fra screenshot'}
+            </Text>
+          </Pressable>
+
           <SigField label="Navn"        value={data.name}        onChange={(v) => update({ name: v })}        onBlur={commit} editable={hydrated} />
           <SigField label="Titel"       value={data.title}       onChange={(v) => update({ title: v })}       onBlur={commit} editable={hydrated} />
           <SigField label="Virksomhed"  value={data.company}     onChange={(v) => update({ company: v })}     onBlur={commit} editable={hydrated} />
@@ -2396,6 +2465,36 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 12,
     color: colors.fg3,
+  },
+  sigUseImageBtn: {
+    marginTop: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: 'transparent',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    alignItems: 'center',
+  },
+  sigUseImageBtnText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.ink,
+  },
+  sigFillFieldsBtn: {
+    marginTop: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: colors.mist,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    alignItems: 'center',
+  },
+  sigFillFieldsBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.ink,
   },
   sigError: {
     marginTop: 8,
