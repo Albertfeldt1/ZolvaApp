@@ -12,6 +12,16 @@
 // The `kind` field tags each entry. Migration on read defaults legacy
 // entries (no `kind` field) to 'structured' — see storage.ts.
 
+export type SocialType =
+  | 'linkedin' | 'twitter' | 'instagram' | 'facebook'
+  | 'tiktok' | 'youtube' | 'github' | 'other';
+
+export type SocialLink = {
+  type: SocialType;
+  url: string;
+  label?: string;  // optional override, used when type === 'other' (else falls back to URL host).
+};
+
 export type StructuredSignature = {
   kind: 'structured';
   name: string;
@@ -22,6 +32,7 @@ export type StructuredSignature = {
   website: string;
   customLines: string;
   logo: InlineImage | null;
+  socials: SocialLink[];
 };
 
 export type ImportedSignature = {
@@ -30,6 +41,7 @@ export type ImportedSignature = {
   plaintext: string;
   image: InlineImage | null;
   importedAt: number;
+  socials: SocialLink[];
 };
 
 export type SignatureData = StructuredSignature | ImportedSignature;
@@ -64,4 +76,5 @@ export const EMPTY_SIGNATURE: StructuredSignature = {
   website: '',
   customLines: '',
   logo: null,
+  socials: [],
 };
