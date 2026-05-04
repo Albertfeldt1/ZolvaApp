@@ -5,7 +5,7 @@
 // email the contact address and Zolva responds within 30 days. When/if a real
 // JSON export is built (Edge Function + Resend), re-add a button here and grep
 // for this marker to update the handoff.
-import { Check, ChevronDown, ChevronLeft } from 'lucide-react-native';
+import { Check, ChevronDown, ChevronLeft, Plus, X } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
@@ -32,12 +32,18 @@ import {
 import Animated, {
   Easing,
   FadeIn,
+  FadeInDown,
   FadeOut,
   LinearTransition,
+  SlideInDown,
+  SlideOutDown,
   useAnimatedStyle,
   useSharedValue,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 import { makeRedirectUri } from 'expo-auth-session';
@@ -232,16 +238,130 @@ function formatImportedDate(unixMs: number): string {
   }
 }
 
-const SOCIAL_OPTIONS: { value: SocialType; label: string }[] = [
-  { value: 'linkedin',  label: 'LinkedIn' },
-  { value: 'twitter',   label: 'Twitter' },
-  { value: 'instagram', label: 'Instagram' },
-  { value: 'facebook',  label: 'Facebook' },
-  { value: 'tiktok',    label: 'TikTok' },
-  { value: 'youtube',   label: 'YouTube' },
-  { value: 'github',    label: 'GitHub' },
-  { value: 'other',     label: 'Andet' },
+type SocialMeta = {
+  label: string;
+  glyph: string;       // letter monogram or unicode mark
+  bg: string;          // brand background color
+  fg: string;          // glyph foreground color
+  placeholder: string; // url input hint
+  gradient?: readonly string[]; // optional brand gradient (Instagram)
+};
+
+const SOCIAL_META: Record<SocialType, SocialMeta> = {
+  linkedin:  { label: 'LinkedIn',  glyph: 'in',  bg: '#0a66c2', fg: '#ffffff', placeholder: 'linkedin.com/in/…' },
+  twitter:   { label: 'X / Twitter', glyph: '𝕏', bg: '#000000', fg: '#ffffff', placeholder: 'x.com/…' },
+  instagram: { label: 'Instagram', glyph: 'Ig',  bg: '#e4405f', fg: '#ffffff', placeholder: 'instagram.com/…',
+               gradient: ['#833ab4', '#fd1d1d', '#fcb045'] },
+  facebook:  { label: 'Facebook',  glyph: 'f',   bg: '#1877f2', fg: '#ffffff', placeholder: 'facebook.com/…' },
+  tiktok:    { label: 'TikTok',    glyph: 'T',   bg: '#000000', fg: '#ffffff', placeholder: 'tiktok.com/@…' },
+  youtube:   { label: 'YouTube',   glyph: '▶',   bg: '#ff0000', fg: '#ffffff', placeholder: 'youtube.com/@…' },
+  github:    { label: 'GitHub',    glyph: 'Gh',  bg: '#1a1a1a', fg: '#ffffff', placeholder: 'github.com/…' },
+  other:     { label: 'Andet',     glyph: '•',   bg: '#777777', fg: '#ffffff', placeholder: 'https://…' },
+};
+
+const SOCIAL_TYPES: SocialType[] = [
+  'linkedin', 'twitter', 'instagram', 'facebook',
+  'tiktok', 'youtube', 'github', 'other',
 ];
+
+function BrandIcon({ type, size = 36 }: { type: SocialType; size?: number }) {
+  const meta = SOCIAL_META[type];
+  const radius = size / 2;
+  const fontSize = size <= 28 ? size * 0.42 : size * 0.4;
+
+  const inner = (
+    <Text
+      style={{
+        color: meta.fg,
+        fontSize,
+        fontWeight: '800',
+        letterSpacing: -0.5,
+        includeFontPadding: false,
+        textAlign: 'center',
+      }}
+    >
+      {meta.glyph}
+    </Text>
+  );
+
+  if (meta.gradient) {
+    return (
+      <LinearGradient
+        colors={[...meta.gradient] as [string, string, ...string[]]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={{ width: size, height: size, borderRadius: radius, alignItems: 'center', justifyContent: 'center' }}
+      >
+        {inner}
+      </LinearGradient>
+    );
+  }
+
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: radius,
+        backgroundColor: meta.bg,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {inner}
+    </View>
+  );
+}
+
+function SocialTypePicker(props: {
+  visible: boolean;
+  value: SocialType;
+  onSelect: (next: SocialType) => void;
+  onClose: () => void;
+}) {
+  const { visible, value, onSelect, onClose } = props;
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
+        <BlurView intensity={24} tint="dark" style={StyleSheet.absoluteFill} />
+      </Pressable>
+      <Animated.View
+        entering={SlideInDown.springify().damping(18).stiffness(180)}
+        exiting={SlideOutDown.duration(180)}
+        style={styles.sigPickerSheet}
+      >
+        <View style={styles.sigPickerHandle} />
+        <Text style={styles.sigPickerTitle}>Vælg platform</Text>
+        <View style={styles.sigPickerGrid}>
+          {SOCIAL_TYPES.map((type) => {
+            const meta = SOCIAL_META[type];
+            const selected = type === value;
+            return (
+              <Pressable
+                key={type}
+                onPress={() => {
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onSelect(type);
+                  onClose();
+                }}
+                style={[styles.sigPickerChip, selected && styles.sigPickerChipSelected]}
+                accessibilityRole="button"
+              >
+                <BrandIcon type={type} size={44} />
+                <Text style={styles.sigPickerChipLabel}>{meta.label}</Text>
+                {selected && (
+                  <View style={styles.sigPickerChipCheck}>
+                    <Check size={12} color="#fff" strokeWidth={3} />
+                  </View>
+                )}
+              </Pressable>
+            );
+          })}
+        </View>
+      </Animated.View>
+    </Modal>
+  );
+}
 
 function SocialLinkRow(props: {
   link: SocialLink;
@@ -249,63 +369,129 @@ function SocialLinkRow(props: {
   onRemove: () => void;
 }) {
   const { link, onChange, onRemove } = props;
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const currentLabel =
-    SOCIAL_OPTIONS.find((o) => o.value === link.type)?.label ?? 'LinkedIn';
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const meta = SOCIAL_META[link.type];
+
+  const removeScale = useSharedValue(1);
+  const brandScale = useSharedValue(1);
+  const removeStyle = useAnimatedStyle(() => ({ transform: [{ scale: removeScale.value }] }));
+  const brandStyle = useAnimatedStyle(() => ({ transform: [{ scale: brandScale.value }] }));
 
   return (
-    <View style={styles.sigSocialRow}>
-      <Pressable
-        onPress={() => setPickerOpen((v) => !v)}
-        style={styles.sigSocialTypeBtn}
+    <Animated.View
+      entering={FadeInDown.springify().damping(16).stiffness(180)}
+      exiting={FadeOut.duration(160)}
+      layout={LinearTransition.springify().damping(18).stiffness(200)}
+      style={styles.sigSocialRow}
+    >
+      <AnimatedPressable
+        onPressIn={() => { brandScale.value = withSpring(0.92, { damping: 14, stiffness: 320 }); }}
+        onPressOut={() => { brandScale.value = withSpring(1, { damping: 14, stiffness: 320 }); }}
+        onPress={() => {
+          void Haptics.selectionAsync();
+          setPickerVisible(true);
+        }}
+        style={[styles.sigSocialBrandBtn, brandStyle]}
         accessibilityRole="button"
+        accessibilityLabel={`Skift platform fra ${meta.label}`}
       >
-        <Text style={styles.sigSocialTypeBtnText}>{currentLabel}</Text>
-        <ChevronDown size={14} color={colors.fg2} />
-      </Pressable>
-      {pickerOpen && (
-        <View style={styles.sigSocialTypeMenu}>
-          {SOCIAL_OPTIONS.map((opt) => (
-            <Pressable
-              key={opt.value}
-              onPress={() => {
-                onChange({ ...link, type: opt.value });
-                setPickerOpen(false);
-              }}
-              style={styles.sigSocialTypeMenuItem}
-            >
-              <Text style={styles.sigSocialTypeMenuItemText}>{opt.label}</Text>
-              {opt.value === link.type && <Check size={14} color={colors.ink} />}
-            </Pressable>
-          ))}
-        </View>
-      )}
-      <TextInput
-        value={link.url}
-        onChangeText={(url) => onChange({ ...link, url })}
-        placeholder="https://..."
-        placeholderTextColor={colors.fg3}
-        style={styles.sigSocialUrlInput}
-        autoCapitalize="none"
-        autoCorrect={false}
-        keyboardType="url"
-      />
-      {link.type === 'other' && (
+        <BrandIcon type={link.type} size={36} />
+      </AnimatedPressable>
+
+      <View style={styles.sigSocialInputs}>
         <TextInput
-          value={link.label ?? ''}
-          onChangeText={(label) => onChange({ ...link, label })}
-          placeholder="Visningsnavn"
+          value={link.url}
+          onChangeText={(url) => onChange({ ...link, url })}
+          placeholder={meta.placeholder}
           placeholderTextColor={colors.fg3}
-          style={styles.sigSocialLabelInput}
+          style={styles.sigSocialUrlInput}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
         />
-      )}
-      <Pressable
-        onPress={onRemove}
-        style={styles.sigSocialRemoveBtn}
+        {link.type === 'other' && (
+          <TextInput
+            value={link.label ?? ''}
+            onChangeText={(label) => onChange({ ...link, label })}
+            placeholder="Visningsnavn"
+            placeholderTextColor={colors.fg3}
+            style={styles.sigSocialLabelInput}
+          />
+        )}
+      </View>
+
+      <AnimatedPressable
+        onPressIn={() => { removeScale.value = withSpring(0.85, { damping: 12, stiffness: 320 }); }}
+        onPressOut={() => { removeScale.value = withSpring(1, { damping: 12, stiffness: 320 }); }}
+        onPress={() => {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          onRemove();
+        }}
+        style={[styles.sigSocialRemoveBtn, removeStyle]}
+        accessibilityRole="button"
+        accessibilityLabel="Fjern social-medie"
+      >
+        <X size={14} color={colors.fg2} strokeWidth={2.5} />
+      </AnimatedPressable>
+
+      <SocialTypePicker
+        visible={pickerVisible}
+        value={link.type}
+        onSelect={(type) => onChange({ ...link, type })}
+        onClose={() => setPickerVisible(false)}
+      />
+    </Animated.View>
+  );
+}
+
+function SocialsSection(props: {
+  socials: SocialLink[];
+  onUpdate: (idx: number, link: SocialLink) => void;
+  onRemove: (idx: number) => void;
+  onAdd: () => void;
+}) {
+  const { socials, onUpdate, onRemove, onAdd } = props;
+  const addScale = useSharedValue(1);
+  const addStyle = useAnimatedStyle(() => ({ transform: [{ scale: addScale.value }] }));
+  const isEmpty = socials.length === 0;
+
+  return (
+    <View style={styles.sigSocialsWrap}>
+      <View style={styles.sigSocialsHeader}>
+        <Text style={styles.sigFieldLabel}>Sociale medier</Text>
+        {!isEmpty && (
+          <View style={styles.sigSocialsCountPill}>
+            <Text style={styles.sigSocialsCountText}>{socials.length}</Text>
+          </View>
+        )}
+      </View>
+
+      {socials.map((link, idx) => (
+        <SocialLinkRow
+          key={idx}
+          link={link}
+          onChange={(next) => onUpdate(idx, next)}
+          onRemove={() => onRemove(idx)}
+        />
+      ))}
+
+      <AnimatedPressable
+        onPressIn={() => { addScale.value = withSpring(0.97, { damping: 14, stiffness: 320 }); }}
+        onPressOut={() => { addScale.value = withSpring(1, { damping: 14, stiffness: 320 }); }}
+        onPress={() => {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          onAdd();
+        }}
+        style={[styles.sigSocialAddBtn, isEmpty && styles.sigSocialAddBtnEmpty, addStyle]}
         accessibilityRole="button"
       >
-        <Text style={styles.sigSocialRemoveBtnText}>×</Text>
-      </Pressable>
+        <View style={styles.sigSocialAddPlus}>
+          <Plus size={14} color={colors.ink} strokeWidth={2.5} />
+        </View>
+        <Text style={styles.sigSocialAddBtnText}>
+          {isEmpty ? 'Tilføj sociale medier' : 'Tilføj endnu et'}
+        </Text>
+      </AnimatedPressable>
     </View>
   );
 }
@@ -438,22 +624,12 @@ function MailSignatureSection() {
 
   const rendered = data.kind === 'structured' ? renderSignature(data) : null;
 
-  const socialsBlock = (
-    <>
-      <Text style={[styles.sigFieldLabel, { marginTop: 16 }]}>Sociale medier</Text>
-      {data.socials.map((link, idx) => (
-        <SocialLinkRow
-          key={idx}
-          link={link}
-          onChange={(next) => updateSocialAt(idx, next)}
-          onRemove={() => removeSocialAt(idx)}
-        />
-      ))}
-      <Pressable onPress={addSocial} style={styles.sigSocialAddBtn} accessibilityRole="button">
-        <Text style={styles.sigSocialAddBtnText}>+ tilføj sociale medier</Text>
-      </Pressable>
-    </>
-  );
+  const socialsBlock = <SocialsSection
+    socials={data.socials}
+    onUpdate={updateSocialAt}
+    onRemove={removeSocialAt}
+    onAdd={addSocial}
+  />;
 
   return (
     <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
@@ -1843,55 +2019,54 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: colors.ink,
   },
-  sigSocialRow: {
+  sigSocialsWrap: {
+    marginTop: 16,
+  },
+  sigSocialsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 8,
+  },
+  sigSocialsCountPill: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 7,
+    borderRadius: 11,
+    backgroundColor: colors.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sigSocialsCountText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#fff',
+    includeFontPadding: false,
+  },
+  sigSocialRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 10,
+  },
+  sigSocialBrandBtn: {
+    // The BrandIcon already provides its own background; keep this wrapper
+    // transparent so the press-feedback scale is clean.
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sigSocialInputs: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
     flexWrap: 'wrap',
-  },
-  sigSocialTypeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.line,
-    backgroundColor: colors.mist,
-  },
-  sigSocialTypeBtnText: {
-    fontSize: 13,
-    color: colors.ink,
-    fontWeight: '500',
-  },
-  sigSocialTypeMenu: {
-    width: '100%',
-    marginTop: 4,
-    borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.line,
-    backgroundColor: '#fff',
-    overflow: 'hidden',
-  },
-  sigSocialTypeMenuItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  sigSocialTypeMenuItemText: {
-    fontSize: 14,
-    color: colors.ink,
   },
   sigSocialUrlInput: {
     flex: 1,
     minWidth: 140,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.line,
     backgroundColor: '#fff',
@@ -1900,9 +2075,9 @@ const styles = StyleSheet.create({
   },
   sigSocialLabelInput: {
     width: 120,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.line,
     backgroundColor: '#fff',
@@ -1910,32 +2085,115 @@ const styles = StyleSheet.create({
     color: colors.ink,
   },
   sigSocialRemoveBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.mist,
   },
-  sigSocialRemoveBtnText: {
-    fontSize: 18,
-    color: colors.fg3,
-    fontWeight: '300',
-  },
   sigSocialAddBtn: {
-    marginTop: 12,
-    paddingVertical: 10,
+    marginTop: 14,
+    flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 8,
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.line,
+    backgroundColor: colors.mist,
+  },
+  sigSocialAddBtnEmpty: {
     borderStyle: 'dashed',
     backgroundColor: 'transparent',
   },
+  sigSocialAddPlus: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.06)',
+  },
   sigSocialAddBtnText: {
     fontSize: 13,
-    fontWeight: '500',
-    color: colors.fg2,
+    fontWeight: '600',
+    color: colors.ink,
+    letterSpacing: -0.1,
+  },
+  sigPickerSheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingTop: 8,
+    paddingBottom: 32,
+    paddingHorizontal: 16,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: -8 },
+  },
+  sigPickerHandle: {
+    alignSelf: 'center',
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(0,0,0,0.18)',
+    marginBottom: 14,
+  },
+  sigPickerTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.ink,
+    textAlign: 'center',
+    marginBottom: 18,
+  },
+  sigPickerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 14,
+  },
+  sigPickerChip: {
+    width: '23%',
+    aspectRatio: 0.85,
+    borderRadius: 14,
+    paddingTop: 10,
+    paddingBottom: 8,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f7f7f8',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.06)',
+    position: 'relative',
+  },
+  sigPickerChipSelected: {
+    backgroundColor: '#eef0f3',
+    borderColor: colors.ink,
+  },
+  sigPickerChipLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.ink,
+    textAlign: 'center',
+    paddingHorizontal: 4,
+  },
+  sigPickerChipCheck: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: colors.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   signatureBody: {
     fontFamily: fonts.ui,
