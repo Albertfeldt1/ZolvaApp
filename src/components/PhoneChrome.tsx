@@ -1,6 +1,9 @@
+import { isGlassEffectAPIAvailable, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { Bookmark, Calendar, Mail, Sun } from 'lucide-react-native';
 import React, { createContext, useContext } from 'react';
+import { Platform } from 'react-native';
 import { ClassicTabBar } from './ClassicTabBar';
+import { LiquidTabBar } from './LiquidTabBar';
 
 // Dynamic bottom inset for screens so their scroll content always ends just
 // above the tab bar, no matter what height the chrome actually renders at
@@ -29,6 +32,16 @@ export type PhoneChromeProps = {
   darkBg?: boolean;
 };
 
+// isGlassEffectAPIAvailable guards iOS 26 beta builds that ship the
+// component without the underlying API (expo issue #40911).
+// isLiquidGlassAvailable also returns false when the user has Reduce
+// Transparency on in Accessibility settings — we honor that and fall
+// back to ClassicTabBar.
+const liquidGlassReady =
+  Platform.OS === 'ios' &&
+  isGlassEffectAPIAvailable() &&
+  isLiquidGlassAvailable();
+
 export function PhoneChrome(props: PhoneChromeProps) {
-  return <ClassicTabBar {...props} />;
+  return liquidGlassReady ? <LiquidTabBar {...props} /> : <ClassicTabBar {...props} />;
 }
