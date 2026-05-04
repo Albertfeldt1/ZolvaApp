@@ -28,12 +28,34 @@ describe('detectImportedTargets — word extraction', () => {
     expect(result.images).toEqual([]);
   });
 
-  it('filters out tokens shorter than 3 chars', () => {
+  it('keeps short tokens (single chars and ≤2 chars) so icon-stand-ins like "f"/"X"/"in" are bindable', () => {
     const result = detectImportedTargets('Hi me you long');
-    expect(result.words).not.toContain('Hi');
-    expect(result.words).not.toContain('me');
+    expect(result.words).toContain('Hi');
+    expect(result.words).toContain('me');
     expect(result.words).toContain('you');
     expect(result.words).toContain('long');
+  });
+
+  it('exposes the whole text-node phrase alongside its tokens', () => {
+    const result = detectImportedTargets('<a>Find me on Facebook</a><span>Hi</span>');
+    // Whole phrase appears as one bindable target …
+    expect(result.words).toContain('Find me on Facebook');
+    // … and individual tokens are still extractable.
+    expect(result.words).toContain('Find');
+    expect(result.words).toContain('Facebook');
+  });
+
+  it('phrases ending in punctuation survive as a single entry', () => {
+    const result = detectImportedTargets("<button>Let's connect!</button>");
+    expect(result.words).toContain("Let's connect!");
+  });
+
+  it('sorts longer entries before shorter ones (most specific bindings first)', () => {
+    const result = detectImportedTargets('<p>Find me on Facebook</p>');
+    const phraseIdx = result.words.indexOf('Find me on Facebook');
+    const tokenIdx = result.words.indexOf('Find');
+    expect(phraseIdx).toBeGreaterThanOrEqual(0);
+    expect(tokenIdx).toBeGreaterThan(phraseIdx);
   });
 
   it('filters out pure-numeric tokens', () => {
@@ -44,13 +66,15 @@ describe('detectImportedTargets — word extraction', () => {
     expect(result.words).toContain('now');
   });
 
-  it('strips trailing punctuation from words', () => {
+  it('splits on punctuation into tokens (and also exposes the whole run as a phrase)', () => {
     const result = detectImportedTargets('her. og, men; dig:');
+    // Individual tokens after punctuation split — even ≤2 char ones
     expect(result.words).toContain('her');
+    expect(result.words).toContain('og');
     expect(result.words).toContain('men');
-    // "og" is 2 chars — filtered; "dig" is 3 chars — kept
-    expect(result.words).not.toContain('og');
     expect(result.words).toContain('dig');
+    // Whole text run survives as a phrase candidate too
+    expect(result.words).toContain('her. og, men; dig:');
   });
 
   it('deduplicates words case-insensitively, preserving first-occurrence casing', () => {
@@ -89,11 +113,12 @@ describe('detectImportedTargets — word extraction', () => {
     expect(result.words).not.toContain('Logo');
   });
 
-  it('caps word list at 20 entries', () => {
-    // Generate HTML with 30 distinct words
-    const manyWords = Array.from({ length: 30 }, (_, i) => `word${String(i).padStart(2, '0')}`).join(' ');
-    const result = detectImportedTargets(manyWords);
-    expect(result.words.length).toBeLessThanOrEqual(20);
+  it('caps the candidates list at 50 entries', () => {
+    // Generate HTML with 80 distinct words (each in its own block so the
+    // phrase entry equals the token).
+    const manyTokens = Array.from({ length: 80 }, (_, i) => `<p>word${String(i).padStart(2, '0')}</p>`).join('');
+    const result = detectImportedTargets(manyTokens);
+    expect(result.words.length).toBeLessThanOrEqual(50);
   });
 
   it('skips text inside <style> tags defensively', () => {
@@ -176,8 +201,10 @@ describe('detectImportedTargets — combined HTML', () => {
     expect(result.words).toContain('Albert');
     expect(result.words).toContain('Hangaard');
     expect(result.words).toContain('CEO');
-    // Email address in href should NOT appear as words
-    expect(result.words.some(w => w.includes('@'))).toBe(false);
+    // Email shown as visible text content IS bindable. The href attribute
+    // value is still excluded — but here the email is also a text node
+    // inside the <a>, so it appears in the candidates list.
+    expect(result.words).toContain('albert@firma.dk');
     expect(result.images).toEqual([
       { src: 'https://example.com/logo.png', description: 'Firma Logo' },
     ]);

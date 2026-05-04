@@ -11,7 +11,14 @@
 // No DOM dependency — pure string operations only.
 
 export type DetectedTargets = {
-  /** Distinct word tokens, length >= 3, not pure-numeric, cap 20, document-order. */
+  /**
+   * Bindable text fragments — every distinct piece of visible content in the
+   * imported HTML, including:
+   *   • single tokens of any length (e.g. "f", "X", "Albert")
+   *   • whole text-node phrases (e.g. "Find me on Facebook", "Let's connect!")
+   * Sorted longer-first so the most specific phrases surface at the top of
+   * the bind picker. Cap at 50 entries, document-order within length tiers.
+   */
   words: string[];
   /** Each unique <img src=...>; description is alt if present, else 'Billede'. */
   images: { src: string; description: string }[];
@@ -58,52 +65,52 @@ export function detectImportedTargets(html: unknown): DetectedTargets {
     images.push({ src, description });
   }
 
-  // ── Pass 2: extract plain text, skipping tag attribute content ───────────
+  // ── Pass 2: walk the HTML and collect each visible text-node run ─────────
   //
-  // Strategy: walk the HTML character by character maintaining a tiny
-  // tag-vs-text state machine. When in a skip-with-content block
-  // (script/style/...) suppress everything. Outside tags, collect text runs.
-  // Inside a tag's < ... > boundary, discard (so attribute values are never
-  // included in word extraction).
+  // Strategy: walk character by character maintaining a tag-vs-text state
+  // machine. SKIP_CONTENT_TAGS suppress everything inside them. For each
+  // contiguous run of text outside tags, emit the run as a separate entry.
+  // (A "run" is the text between two consecutive tags or doc boundaries.)
 
-  const textParts: string[] = [];
+  const runs: string[] = [];
+  let buf: string[] = [];
+
+  const flushBuf = () => {
+    if (buf.length === 0) return;
+    const trimmed = buf.join('').trim();
+    if (trimmed) runs.push(trimmed);
+    buf = [];
+  };
+
   let i = 0;
   let skipDepth = 0;
   let skipTag = '';
 
   while (i < html.length) {
     if (html[i] !== '<') {
-      // Plain text character
-      if (skipDepth === 0) {
-        textParts.push(html[i]);
-      }
+      if (skipDepth === 0) buf.push(html[i]);
       i++;
       continue;
     }
 
-    // We're at '<' -- find the end of this tag.
-    const tagStart = i;
     const gtIdx = html.indexOf('>', i);
     if (gtIdx < 0) {
       // Malformed -- treat remainder as text if not skipping
-      if (skipDepth === 0) textParts.push(html.slice(i));
+      if (skipDepth === 0) buf.push(html.slice(i));
       break;
     }
 
-    const tagContent = html.slice(tagStart + 1, gtIdx); // content between < and >
+    const tagContent = html.slice(i + 1, gtIdx);
     i = gtIdx + 1;
 
-    // Determine if closing tag
     const isClose = tagContent.trimStart().startsWith('/');
     const rawName = isClose
       ? tagContent.trimStart().slice(1).trim()
       : tagContent.trimStart();
-    // Extract just the tag name (up to first whitespace or end)
     const spaceIdx = rawName.search(/[\s/]/);
     const tagName = (spaceIdx < 0 ? rawName : rawName.slice(0, spaceIdx)).toLowerCase();
 
     if (skipDepth > 0) {
-      // Inside a skipped block -- track nesting
       if (isClose && tagName === skipTag) {
         skipDepth--;
         if (skipDepth === 0) skipTag = '';
@@ -113,42 +120,53 @@ export function detectImportedTargets(html: unknown): DetectedTargets {
       continue;
     }
 
-    // Not currently skipping -- check if this tag starts a skip block
     if (!isClose && SKIP_CONTENT_TAGS.has(tagName)) {
       skipDepth = 1;
       skipTag = tagName;
+      flushBuf();
       continue;
     }
 
-    // For all other tags: discard tag (and its attributes) -- do NOT emit text.
-    // Emit a space boundary so words don't merge across tags.
-    textParts.push(' ');
+    // Tag boundary — flush whatever's in the buffer as a run.
+    flushBuf();
   }
+  // Trailing text without a closing tag
+  flushBuf();
 
-  const plainText = textParts.join('');
+  // ── Pass 3: build the candidates list ────────────────────────────────────
+  // Each text-run becomes one phrase entry. Each run is also tokenized into
+  // its individual words so the picker offers both granularities (e.g. the
+  // whole "Find me on Facebook" phrase AND the standalone words "Find" /
+  // "Facebook"). Sort longer-first so the most specific bindings surface at
+  // the top — phrases land above their constituent tokens.
 
-  // ── Pass 3: tokenize plain text into words ───────────────────────────────
-  // Split on whitespace and common punctuation boundaries.
-  const rawTokens = plainText.split(/[\s.,;:!?()\[\]{}<>'"\/\\|@#$%^&*+=~`]+/);
-
-  const words: string[] = [];
+  const candidates: string[] = [];
   const seenLower = new Set<string>();
 
-  for (const raw of rawTokens) {
-    if (!raw) continue;
-    // Strip any remaining leading/trailing dash punctuation
+  const tryAdd = (raw: string) => {
+    if (!raw) return;
     const token = raw.replace(/^[-–—]+|[-–—]+$/g, '').trim();
-    if (!token) continue;
-    if (token.length < 3) continue;
-    if (/^\d+$/.test(token)) continue;
-
+    if (!token) return;
+    if (/^\d+$/.test(token)) return;
     const lower = token.toLowerCase();
-    if (seenLower.has(lower)) continue;
+    if (seenLower.has(lower)) return;
     seenLower.add(lower);
-    words.push(token);
+    candidates.push(token);
+  };
 
-    if (words.length >= 20) break;
+  for (const run of runs) {
+    // Phrase: the whole run as a single bindable target.
+    tryAdd(run);
+    // Words within the run.
+    const tokens = run.split(/[\s.,;:!?()\[\]{}<>'"\/\\|@#$%^&*+=~`]+/);
+    for (const t of tokens) tryAdd(t);
   }
+
+  // Sort longer-first while preserving insertion order within the same
+  // length tier (stable sort on most modern JS engines).
+  candidates.sort((a, b) => b.length - a.length);
+
+  const words = candidates.slice(0, 50);
 
   return { words, images };
 }

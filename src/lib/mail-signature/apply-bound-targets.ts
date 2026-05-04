@@ -120,18 +120,29 @@ function escapeForRegex(s: string): string {
 }
 
 /**
- * Find the first occurrence of `word` (word-boundary match, case-insensitive)
- * in `html` that is NOT inside a tag attribute. Returns the match position,
- * matched text, and the surrounding <a>...</a> range when applicable. Tag-
- * attribute hits are skipped because we never want to bind to text that lives
- * inside `alt="..."` etc.
+ * Find the first occurrence of `word` in `html` that is NOT inside a tag
+ * attribute. Returns the match position, matched text, and the surrounding
+ * <a>...</a> range when applicable. Tag-attribute hits are skipped because
+ * we never want to bind to text that lives inside `alt="..."` etc.
+ *
+ * Single-word targets use word-boundary matching (`\bfoo\b`) to avoid
+ * accidentally wrapping inside longer words. Phrases (any target containing
+ * whitespace or trailing non-word punctuation, e.g. "Find me on Facebook"
+ * or "Let's connect!") use literal substring matching since `\b` doesn't
+ * match next to non-word characters at the phrase boundary.
  */
 function findFirstWordMatch(
   html: string,
   word: string,
 ): { index: number; matched: string; inAnchor: [number, number] | null } | null {
   const aRanges = anchorRanges(html);
-  const re = new RegExp(`\\b${escapeForRegex(word)}\\b`, 'gi');
+  const escaped = escapeForRegex(word);
+  // Detect if this target is a "simple word": purely word characters, no
+  // whitespace, no punctuation. If so, anchor with \b on both sides.
+  const isSimpleWord = /^[A-Za-z0-9_]+$/.test(word);
+  const re = isSimpleWord
+    ? new RegExp(`\\b${escaped}\\b`, 'gi')
+    : new RegExp(escaped, 'gi');
   let m: RegExpExecArray | null;
   while ((m = re.exec(html)) !== null) {
     const idx = m.index;
