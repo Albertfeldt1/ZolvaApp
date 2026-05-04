@@ -17,6 +17,7 @@
       "bundleIdentifier": "io.zolva.app",
       "infoPlist": {
         "NSUserNotificationsUsageDescription": "Zolva sender notifikationer om påmindelser, dagens overblik og kommende møder.",
+        "NSPhotoLibraryUsageDescription": "Vælg et logo til din mail-signatur.",
         "ITSAppUsesNonExemptEncryption": false,
         "SupabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNqa2hma2F0bWVxdHNyeXNpeG9wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNDA0MjMsImV4cCI6MjA5MTgxNjQyM30.pKadjlb7pQPXoZHfws4BvkdjyT2_hUeDtMFzX9v5_dY"
       },
