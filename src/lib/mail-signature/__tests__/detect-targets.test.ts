@@ -2,20 +2,45 @@
 import { detectImportedTargets } from '../detect-targets';
 
 describe('detectImportedTargets — invalid / empty input', () => {
+  const empty = { words: [], glyphs: [], images: [] };
   it('returns empty arrays for empty string', () => {
-    expect(detectImportedTargets('')).toEqual({ words: [], images: [] });
+    expect(detectImportedTargets('')).toEqual(empty);
   });
 
   it('returns empty arrays for null input', () => {
-    expect(detectImportedTargets(null as unknown as string)).toEqual({ words: [], images: [] });
+    expect(detectImportedTargets(null as unknown as string)).toEqual(empty);
   });
 
   it('returns empty arrays for numeric input', () => {
-    expect(detectImportedTargets(42 as unknown as string)).toEqual({ words: [], images: [] });
+    expect(detectImportedTargets(42 as unknown as string)).toEqual(empty);
   });
 
   it('returns empty arrays for object input', () => {
-    expect(detectImportedTargets({} as unknown as string)).toEqual({ words: [], images: [] });
+    expect(detectImportedTargets({} as unknown as string)).toEqual(empty);
+  });
+});
+
+describe('detectImportedTargets — glyph categorization', () => {
+  it('puts single-character tokens (icon stand-ins) into glyphs, not words', () => {
+    const result = detectImportedTargets('<span>f</span><span>X</span><span>▶</span>');
+    expect(result.glyphs).toEqual(expect.arrayContaining(['f', 'X', '▶']));
+    expect(result.words).not.toContain('f');
+    expect(result.words).not.toContain('X');
+    expect(result.words).not.toContain('▶');
+  });
+
+  it('puts symbol-only tokens (no letters/digits) into glyphs', () => {
+    const result = detectImportedTargets('<span>@</span><span>++</span>');
+    expect(result.glyphs).toContain('@');
+    // "++" is symbol-only → glyphs
+    expect(result.glyphs).toContain('++');
+  });
+
+  it('keeps multi-letter alphanumeric tokens in words', () => {
+    const result = detectImportedTargets('<p>Albert Hangaard</p>');
+    expect(result.words).toContain('Albert');
+    expect(result.words).toContain('Hangaard');
+    expect(result.glyphs).not.toContain('Albert');
   });
 });
 

@@ -539,7 +539,7 @@ function SocialBindPicker(props: {
   onClose: () => void;
 }) {
   const { visible, target, targets, imageThumbnails, onSelect, onClose } = props;
-  const isEmpty = targets.words.length === 0 && targets.images.length === 0;
+  const isEmpty = targets.words.length === 0 && targets.glyphs.length === 0 && targets.images.length === 0;
 
   const handleSelect = (next: LinkTarget | undefined) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -604,9 +604,25 @@ function SocialBindPicker(props: {
                     </View>
                   </>
                 )}
-                {targets.images.length > 0 && (
+                {(targets.glyphs.length > 0 || targets.images.length > 0) && (
                   <>
                     <Text style={[styles.sigBindSectionLabel, { marginTop: 18 }]}>BILLEDER</Text>
+                    {/* Glyphs first — single-char/symbol icon stand-ins.
+                        Bound the same way as words (kind:'word') but rendered
+                        here as a wrap-flow of small chips for visual parity
+                        with the image rows below. */}
+                    {targets.glyphs.length > 0 && (
+                      <View style={styles.sigBindWordWrap}>
+                        {targets.glyphs.map((glyph) => (
+                          <WordChip
+                            key={glyph}
+                            word={glyph}
+                            selected={target?.kind === 'word' && target.text === glyph}
+                            onPress={() => handleSelect({ kind: 'word', text: glyph })}
+                          />
+                        ))}
+                      </View>
+                    )}
                     {targets.images.map((img) => (
                       <ImageBindOption
                         key={img.src}
@@ -931,7 +947,7 @@ function MailSignatureSection() {
   const rendered = data.kind === 'structured' ? renderSignature(data) : null;
 
   const importedTargets = useMemo(
-    () => (data.kind === 'imported' ? detectImportedTargets(data.html) : { words: [], images: [] }),
+    () => (data.kind === 'imported' ? detectImportedTargets(data.html) : { words: [], glyphs: [], images: [] }),
     [data],
   );
 

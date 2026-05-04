@@ -12,14 +12,20 @@
 
 export type DetectedTargets = {
   /**
-   * Bindable text fragments — every distinct piece of visible content in the
-   * imported HTML, including:
-   *   • single tokens of any length (e.g. "f", "X", "Albert")
-   *   • whole text-node phrases (e.g. "Find me on Facebook", "Let's connect!")
-   * Sorted longer-first so the most specific phrases surface at the top of
-   * the bind picker. Cap at 50 entries, document-order within length tiers.
+   * Bindable text fragments with at least 2 characters — words, multi-word
+   * phrases ("Find me on Facebook"), text runs with punctuation
+   * ("Let's connect!"). Sorted longer-first so phrases surface at the top
+   * of the bind picker. Cap 50 entries.
    */
   words: string[];
+  /**
+   * Single-character tokens and emoji-like symbols Claude leaves behind
+   * for icon stand-ins ("f", "X", "▶", "@"). Bindable — but rendered in
+   * the picker's "BILLEDER" section because they're visually decorative,
+   * not real text. Same target.kind as words ('word'), the picker just
+   * categorizes them differently.
+   */
+  glyphs: string[];
   /** Each unique <img src=...>; description is alt if present, else 'Billede'. */
   images: { src: string; description: string }[];
 };
@@ -45,7 +51,7 @@ function getAttr(attrs: string, name: string): string | undefined {
  */
 export function detectImportedTargets(html: unknown): DetectedTargets {
   if (typeof html !== 'string' || html.length === 0) {
-    return { words: [], images: [] };
+    return { words: [], glyphs: [], images: [] };
   }
 
   // ── Pass 1: extract images ───────────────────────────────────────────────
@@ -162,11 +168,36 @@ export function detectImportedTargets(html: unknown): DetectedTargets {
     for (const t of tokens) tryAdd(t);
   }
 
-  // Sort longer-first while preserving insertion order within the same
-  // length tier (stable sort on most modern JS engines).
-  candidates.sort((a, b) => b.length - a.length);
+  // Split into words (≥2 chars of text-y content) and glyphs (single chars
+  // or symbol-only entries like "▶", "@"). Glyphs are still bindable, just
+  // categorized separately so the picker renders them under "BILLEDER".
+  const words: string[] = [];
+  const glyphs: string[] = [];
+  for (const c of candidates) {
+    if (isGlyphLike(c)) {
+      glyphs.push(c);
+    } else {
+      words.push(c);
+    }
+  }
 
-  const words = candidates.slice(0, 50);
+  // Sort each list longer-first while preserving insertion order within
+  // the same length tier (stable sort on most modern JS engines).
+  words.sort((a, b) => b.length - a.length);
+  glyphs.sort((a, b) => b.length - a.length);
 
-  return { words, images };
+  return { words: words.slice(0, 50), glyphs: glyphs.slice(0, 30), images };
+}
+
+/**
+ * A "glyph-like" candidate is a single character OR a symbol-only entry
+ * (no alphanumeric characters anywhere). These are usually icon stand-ins
+ * Claude leaves behind ("f" inside an oval, "▶" play triangle, "@" mail
+ * marker) and belong in the picker's image/icon section, not the text list.
+ */
+function isGlyphLike(s: string): boolean {
+  if (s.length === 1) return true;
+  // No latin letters, digits, or underscore anywhere → treat as symbol/emoji.
+  if (!/[A-Za-z0-9_]/.test(s)) return true;
+  return false;
 }
