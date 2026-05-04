@@ -101,7 +101,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 2,
     paddingHorizontal: 4,
-    paddingVertical: 4,
+    // No paddingVertical: keeps the bar height identical to ClassicTabBar
+    // so useChromeInsets() returns the same bottom padding on both branches.
+    // position: 'relative' anchors the absolutely-positioned activePill below.
     position: 'relative',
   },
   activePill: {

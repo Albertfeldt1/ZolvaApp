@@ -37,7 +37,7 @@ src/components/
 - `TabId` type
 - `TABS` constant (id, label, Icon)
 - `ChromeInsetsContext` + `useChromeInsets()`
-- The `Props` shape (`active`, `onChange`, `onAskZolva`, `showAsk`, `darkBg`)
+- The `PhoneChromeProps` shape (`active`, `onChange`, `onAskZolva`, `showAsk`, `darkBg`)
 
 so no caller in `App.tsx` changes. Both child components receive the same `Props` and the same `TABS`.
 
@@ -170,7 +170,7 @@ No automated tests added — `expo-glass-effect` is a native UI module with no J
 - `src/components/ClassicTabBar.tsx` — extracted current implementation.
 
 **Modified:**
-- `src/components/PhoneChrome.tsx` — slimmed to chooser + shared exports (`TabId`, `TABS`, `ChromeInsetsContext`, `useChromeInsets`, `Props`).
+- `src/components/PhoneChrome.tsx` — slimmed to chooser + shared exports (`TabId`, `TABS`, `ChromeInsetsContext`, `useChromeInsets`, `PhoneChromeProps`).
 
 **Unchanged:**
 - `App.tsx` and every screen.
