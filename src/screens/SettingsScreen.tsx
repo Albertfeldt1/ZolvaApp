@@ -873,6 +873,7 @@ function MailSignatureSection() {
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [previewKey, setPreviewKey] = useState(0);
+  const [previewHeight, setPreviewHeight] = useState(260);
   const dataRef = useRef(data);
   useEffect(() => { dataRef.current = data; }, [data]);
 
@@ -1088,14 +1089,21 @@ function MailSignatureSection() {
       ) : (
         <View style={styles.sigImportedPreviewWrap}>
           <Text style={[styles.sigFieldLabel, { marginTop: 0 }]}>Forhåndsvisning</Text>
-          <View style={styles.sigImportedPreview}>
+          <View style={[styles.sigImportedPreview, { height: previewHeight }]}>
             <WebView
               key={previewKey}
               originWhitelist={['*']}
-              javaScriptEnabled={false}
-              scrollEnabled={true}
+              javaScriptEnabled
+              scrollEnabled={false}
               source={{ html: buildPreviewHtml(data) }}
               style={styles.sigImportedWebView}
+              injectedJavaScript={`(function(){function post(){try{window.ReactNativeWebView.postMessage(String(Math.ceil(document.body.scrollHeight)));}catch(e){}}post();window.addEventListener('load',post);setTimeout(post,80);setTimeout(post,300);})();true;`}
+              onMessage={(event) => {
+                const h = parseInt(event.nativeEvent.data, 10);
+                if (Number.isFinite(h) && h > 60 && h < 900) {
+                  setPreviewHeight(h);
+                }
+              }}
               onShouldStartLoadWithRequest={(req) => {
                 // Allow only the inline HTML's initial load. User-tapped
                 // links go to the system browser instead of navigating
@@ -2409,7 +2417,10 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   sigImportedPreview: {
-    height: 300,
+    // Dynamic height — see the inline style override on the preview View
+    // and the WebView's injectedJavaScript / onMessage that measure
+    // document.body.scrollHeight and update previewHeight state.
+    minHeight: 80,
     borderRadius: 12,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
