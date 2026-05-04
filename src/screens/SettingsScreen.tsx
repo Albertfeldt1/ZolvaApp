@@ -11,7 +11,7 @@ import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
 import { WebView } from 'react-native-webview';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -35,6 +35,8 @@ import Animated, {
   FadeInDown,
   FadeOut,
   LinearTransition,
+  SlideInDown,
+  SlideOutDown,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -80,7 +82,9 @@ import {
   type StructuredSignature,
   type SocialLink,
   type SocialType,
+  type LinkTarget,
 } from '../lib/mail-signature';
+import { detectImportedTargets, type DetectedTargets } from '../lib/mail-signature/detect-targets';
 import { translateProviderError } from '../utils/danish';
 
 import {
@@ -424,19 +428,129 @@ function SocialTypeWheel(props: {
   );
 }
 
+function SocialBindPicker(props: {
+  visible: boolean;
+  target: LinkTarget | undefined;
+  targets: DetectedTargets;
+  onSelect: (next: LinkTarget | undefined) => void;
+  onClose: () => void;
+}) {
+  const { visible, target, targets, onSelect, onClose } = props;
+  const isEmpty = targets.words.length === 0 && targets.images.length === 0;
+
+  const handleSelect = (next: LinkTarget | undefined) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onSelect(next);
+    onClose();
+  };
+
+  const isVisSeparat = target == null;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="Luk Bind til-vælger">
+        <BlurView intensity={24} tint="dark" style={StyleSheet.absoluteFill} />
+      </Pressable>
+      <View style={styles.sigBindSheetWrap} pointerEvents="box-none">
+        <Animated.View
+          entering={SlideInDown.springify().damping(18).stiffness(180)}
+          exiting={SlideOutDown.duration(180)}
+          style={styles.sigBindSheet}
+        >
+          <View style={styles.sigBindSheetHandle} />
+          <Text style={styles.sigBindSheetTitle}>Bind til element</Text>
+
+          <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
+            {/* "Vis som separat link" option */}
+            <Pressable
+              onPress={() => handleSelect(undefined)}
+              style={[styles.sigBindOption, isVisSeparat && styles.sigBindOptionSelected]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.sigBindOptionText}>Vis som separat link</Text>
+              {isVisSeparat && <Check size={16} color={colors.sageDeep} strokeWidth={2.5} />}
+            </Pressable>
+
+            {isEmpty ? (
+              <Text style={styles.sigBindEmptyHint}>
+                Ingen ord eller billeder fundet i signaturen. Importér et tydeligere screenshot for at få bind-muligheder.
+              </Text>
+            ) : (
+              <>
+                {targets.words.length > 0 && (
+                  <>
+                    <Text style={styles.sigBindSectionLabel}>Ord i signaturen</Text>
+                    {targets.words.map((word) => {
+                      const selected = target?.kind === 'word' && target.text === word;
+                      return (
+                        <Pressable
+                          key={word}
+                          onPress={() => handleSelect({ kind: 'word', text: word })}
+                          style={[styles.sigBindOption, selected && styles.sigBindOptionSelected]}
+                          accessibilityRole="button"
+                        >
+                          <Text style={styles.sigBindOptionText}>{word}</Text>
+                          {selected && <Check size={16} color={colors.sageDeep} strokeWidth={2.5} />}
+                        </Pressable>
+                      );
+                    })}
+                  </>
+                )}
+                {targets.images.length > 0 && (
+                  <>
+                    <Text style={styles.sigBindSectionLabel}>Billeder</Text>
+                    {targets.images.map((img) => {
+                      const selected = target?.kind === 'image' && target.src === img.src;
+                      return (
+                        <Pressable
+                          key={img.src}
+                          onPress={() => handleSelect({ kind: 'image', src: img.src })}
+                          style={[styles.sigBindOption, selected && styles.sigBindOptionSelected]}
+                          accessibilityRole="button"
+                        >
+                          <Text style={styles.sigBindOptionText}>{img.description}</Text>
+                          {selected && <Check size={16} color={colors.sageDeep} strokeWidth={2.5} />}
+                        </Pressable>
+                      );
+                    })}
+                  </>
+                )}
+              </>
+            )}
+          </ScrollView>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
+function bindPillLabel(target: LinkTarget | undefined): string {
+  if (target == null) return 'Vis separat';
+  if (target.kind === 'word') {
+    const truncated = target.text.length > 16 ? target.text.slice(0, 16) + '…' : target.text;
+    return `↪ "${truncated}"`;
+  }
+  return '↪ Billede';
+}
+
 function SocialLinkRow(props: {
   link: SocialLink;
+  mode: 'structured' | 'imported';
+  targets: DetectedTargets;
   onChange: (next: SocialLink) => void;
   onRemove: () => void;
 }) {
-  const { link, onChange, onRemove } = props;
+  const { link, mode, targets, onChange, onRemove } = props;
   const [pickerVisible, setPickerVisible] = useState(false);
+  const [bindPickerVisible, setBindPickerVisible] = useState(false);
   const meta = SOCIAL_META[link.type];
 
   const removeScale = useSharedValue(1);
   const brandScale = useSharedValue(1);
   const removeStyle = useAnimatedStyle(() => ({ transform: [{ scale: removeScale.value }] }));
   const brandStyle = useAnimatedStyle(() => ({ transform: [{ scale: brandScale.value }] }));
+
+  const isBound = link.target != null;
 
   return (
     <Animated.View
@@ -479,6 +593,16 @@ function SocialLinkRow(props: {
             style={styles.sigSocialLabelInput}
           />
         )}
+        {mode === 'imported' && (
+          <Pressable
+            onPress={() => setBindPickerVisible(true)}
+            style={[styles.sigBindPill, isBound ? styles.sigBindPillBound : styles.sigBindPillUnbound]}
+            accessibilityRole="button"
+            accessibilityLabel="Bind til element i signatur"
+          >
+            <Text style={styles.sigBindPillText} numberOfLines={1}>{bindPillLabel(link.target)}</Text>
+          </Pressable>
+        )}
       </View>
 
       <AnimatedPressable
@@ -501,17 +625,27 @@ function SocialLinkRow(props: {
         onSelect={(type) => onChange({ ...link, type })}
         onClose={() => setPickerVisible(false)}
       />
+
+      <SocialBindPicker
+        visible={bindPickerVisible}
+        target={link.target}
+        targets={targets}
+        onSelect={(next) => onChange({ ...link, target: next })}
+        onClose={() => setBindPickerVisible(false)}
+      />
     </Animated.View>
   );
 }
 
 function SocialsSection(props: {
   socials: SocialLink[];
+  mode: 'structured' | 'imported';
+  targets: DetectedTargets;
   onUpdate: (idx: number, link: SocialLink) => void;
   onRemove: (idx: number) => void;
   onAdd: () => void;
 }) {
-  const { socials, onUpdate, onRemove, onAdd } = props;
+  const { socials, mode, targets, onUpdate, onRemove, onAdd } = props;
   const addScale = useSharedValue(1);
   const addStyle = useAnimatedStyle(() => ({ transform: [{ scale: addScale.value }] }));
   const isEmpty = socials.length === 0;
@@ -531,6 +665,8 @@ function SocialsSection(props: {
         <SocialLinkRow
           key={idx}
           link={link}
+          mode={mode}
+          targets={targets}
           onChange={(next) => onUpdate(idx, next)}
           onRemove={() => onRemove(idx)}
         />
@@ -685,8 +821,15 @@ function MailSignatureSection() {
 
   const rendered = data.kind === 'structured' ? renderSignature(data) : null;
 
+  const importedTargets = useMemo(
+    () => (data.kind === 'imported' ? detectImportedTargets(data.html) : { words: [], images: [] }),
+    [data],
+  );
+
   const socialsBlock = <SocialsSection
     socials={data.socials}
+    mode={data.kind}
+    targets={importedTargets}
     onUpdate={updateSocialAt}
     onRemove={removeSocialAt}
     onAdd={addSocial}
@@ -2252,6 +2395,93 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
+  },
+  sigBindPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignSelf: 'flex-start',
+  },
+  sigBindPillUnbound: {
+    backgroundColor: colors.mist,
+    borderColor: colors.line,
+  },
+  sigBindPillBound: {
+    backgroundColor: 'rgba(58, 122, 254, 0.1)',
+    borderColor: 'rgba(58, 122, 254, 0.4)',
+  },
+  sigBindPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.ink,
+    letterSpacing: -0.1,
+  },
+  sigBindSheetWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+  },
+  sigBindSheet: {
+    backgroundColor: colors.paper,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 12,
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: -4 },
+  },
+  sigBindSheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.line,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  sigBindSheetTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.ink,
+    letterSpacing: -0.3,
+    marginBottom: 12,
+  },
+  sigBindSectionLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.fg3,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginTop: 14,
+    marginBottom: 4,
+  },
+  sigBindOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    marginBottom: 2,
+    backgroundColor: 'transparent',
+  },
+  sigBindOptionSelected: {
+    backgroundColor: colors.mist,
+  },
+  sigBindOptionText: {
+    fontSize: 15,
+    color: colors.ink,
+    fontWeight: '400',
+    flex: 1,
+  },
+  sigBindEmptyHint: {
+    fontSize: 13,
+    color: colors.fg3,
+    lineHeight: 18,
+    marginTop: 12,
+    textAlign: 'center',
   },
   signatureBody: {
     fontFamily: fonts.ui,
