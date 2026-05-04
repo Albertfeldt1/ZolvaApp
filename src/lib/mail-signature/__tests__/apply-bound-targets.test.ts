@@ -53,7 +53,7 @@ describe('applyBoundTargets', () => {
     expect(result.unbound).toEqual([link]);
   });
 
-  it('bound word found but inside an existing <a>…</a> → html unchanged, unbound = [the link]', () => {
+  it('bound word inside an existing <a>…</a> → REPLACES the existing href (Claude often invents fake hrefs around styled words)', () => {
     const html = '<p>Check <a href="http://old.com">her</a> for info</p>';
     const link: SocialLink = {
       type: 'website',
@@ -61,9 +61,28 @@ describe('applyBoundTargets', () => {
       target: { kind: 'word', text: 'her' },
     };
     const result = applyBoundTargets({ html, socials: [link] });
-    // html unchanged — her was inside <a>
-    expect(result.html).toBe(html);
-    expect(result.unbound).toEqual([link]);
+    // Old href is gone, replaced with the user's URL. Inner content
+    // ("her") is preserved.
+    expect(result.html).not.toContain('http://old.com');
+    expect(result.html).toContain('href="https://example.com"');
+    expect(result.html).toMatch(/<a [^>]*>her<\/a>/);
+    expect(result.unbound).toEqual([]);
+  });
+
+  it('bound word inside an existing <a>…</a> with extra attributes → those are dropped, only our href+style remain', () => {
+    const html = '<p><a href="http://x" target="_blank" data-x="y" style="color:red">her</a></p>';
+    const link: SocialLink = {
+      type: 'linkedin',
+      url: 'https://example.com',
+      target: { kind: 'word', text: 'her' },
+    };
+    const result = applyBoundTargets({ html, socials: [link] });
+    expect(result.html).not.toContain('target="_blank"');
+    expect(result.html).not.toContain('data-x');
+    expect(result.html).not.toContain('http://x');
+    expect(result.html).toContain('href="https://example.com"');
+    expect(result.html).toContain('color:#0a66c2'); // LinkedIn brand color
+    expect(result.unbound).toEqual([]);
   });
 
   it('bound word found but inside a tag attribute (alt="her") → html unchanged, unbound = [the link]', () => {

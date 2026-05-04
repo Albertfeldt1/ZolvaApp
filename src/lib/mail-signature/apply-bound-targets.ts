@@ -4,12 +4,15 @@
 // Walks `socials`, partitions into bound (target set) vs. unbound (target unset).
 // For each bound link:
 //   - 'word' target: finds the first occurrence of the literal text that is NOT
-//     inside an existing <a>...</a> tag and NOT inside a tag attribute, then wraps
-//     it with <a href="..."> using SOCIAL_COLORS for the colour.
-//   - 'image' target: finds the first <img src="..."> whose src matches target.src
-//     and wraps the entire <img> tag with <a href="...">.
-// If the binding fails for any reason (not found, unsafe URL, already wrapped)
-// the link is pushed to the unbound list.
+//     inside a tag attribute. If the match falls INSIDE an existing <a>...</a>
+//     (Claude often invents fake hrefs around styled words like "her"), we
+//     REPLACE that anchor's href with the user's URL — this is what the user
+//     intends when they bind. Otherwise we wrap the match with a fresh <a>.
+//   - 'image' target: finds the first <img src="..."> whose src matches
+//     target.src and wraps it with <a href="...">; or replaces the surrounding
+//     <a>'s href if the image is already inside one.
+// If the binding fails (not found, unsafe URL, in an attribute) the link is
+// pushed to the unbound list.
 //
 // No DOM dependency -- pure string operations only.
 
@@ -117,30 +120,41 @@ function escapeForRegex(s: string): string {
 }
 
 /**
- * Find the first occurrence of `word` (as a word-boundary match) in `html`
- * that is NOT inside a tag attribute and NOT inside an existing <a>...</a>.
- * Returns the match start index and the exact matched text, or null.
+ * Find the first occurrence of `word` (word-boundary match, case-insensitive)
+ * in `html` that is NOT inside a tag attribute. Returns the match position,
+ * matched text, and the surrounding <a>...</a> range when applicable. Tag-
+ * attribute hits are skipped because we never want to bind to text that lives
+ * inside `alt="..."` etc.
  */
-function findFirstSafeWordMatch(
+function findFirstWordMatch(
   html: string,
   word: string,
-): { index: number; matched: string } | null {
+): { index: number; matched: string; inAnchor: [number, number] | null } | null {
   const aRanges = anchorRanges(html);
   const re = new RegExp(`\\b${escapeForRegex(word)}\\b`, 'gi');
   let m: RegExpExecArray | null;
   while ((m = re.exec(html)) !== null) {
     const idx = m.index;
     if (insideTag(html, idx)) continue;
-    if (insideAnyRange(idx, aRanges)) continue;
-    return { index: idx, matched: m[0] };
+    let inAnchor: [number, number] | null = null;
+    for (const range of aRanges) {
+      if (idx >= range[0] && idx < range[1]) {
+        inAnchor = range;
+        break;
+      }
+    }
+    return { index: idx, matched: m[0], inAnchor };
   }
   return null;
 }
 
 /**
- * Attempt to wrap the first safe occurrence of `word` in `html` with an <a>
- * tag. Returns the new html string on success, or null if the word was not
- * found in a bindable position.
+ * Attempt to wrap (or rewrite) the first match of `word` in `html` with an
+ * <a> tag pointing at `href`. If the match is inside an existing <a>...</a>,
+ * the existing anchor's opening tag is replaced (Claude often invents hrefs
+ * around styled words and the user's bind is meant to override). Returns the
+ * new html string on success, or null if the word can't be bound (only inside
+ * tag attributes or not present at all).
  */
 function wrapWord(
   html: string,
@@ -148,11 +162,22 @@ function wrapWord(
   href: string,
   color: string,
 ): string | null {
-  const found = findFirstSafeWordMatch(html, word);
+  const found = findFirstWordMatch(html, word);
   if (!found) return null;
-  const { index, matched } = found;
-  const wrapped = `<a href="${escapeAttr(href)}" style="color:${color};text-decoration:underline">${matched}</a>`;
-  return html.slice(0, index) + wrapped + html.slice(index + matched.length);
+  const newOpenTag = `<a href="${escapeAttr(href)}" style="color:${color};text-decoration:underline">`;
+
+  if (found.inAnchor) {
+    // Replace the existing <a ...> opening tag with our fresh one. Inner
+    // content (including the matched word) is preserved as-is.
+    const [aStart] = found.inAnchor;
+    const openTagEnd = html.indexOf('>', aStart) + 1;
+    if (openTagEnd <= 0) return null;
+    return html.slice(0, aStart) + newOpenTag + html.slice(openTagEnd);
+  }
+
+  // No surrounding anchor — wrap the match with a fresh <a>...</a>.
+  const wrapped = `${newOpenTag}${found.matched}</a>`;
+  return html.slice(0, found.index) + wrapped + html.slice(found.index + found.matched.length);
 }
 
 /**
