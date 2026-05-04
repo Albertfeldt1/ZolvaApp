@@ -255,23 +255,29 @@ function formatImportedDate(unixMs: number): string {
 
 type SocialMeta = {
   label: string;
-  glyph: string;       // letter monogram or unicode mark
-  bg: string;          // brand background color
+  glyph: string;       // letter monogram or unicode mark — fallback when no asset
+  bg: string;          // brand background color (used when rendering the glyph circle)
   fg: string;          // glyph foreground color
   placeholder: string; // url input hint
-  gradient?: readonly string[]; // optional brand gradient (Instagram)
+  gradient?: readonly string[]; // optional brand gradient (Instagram fallback)
   useGlobeIcon?: boolean; // when true, BrandIcon renders the Globe lucide icon instead of the glyph
+  asset?: ImageSourcePropType; // pre-rendered brand-icon PNG (preferred over glyph when set)
 };
 
 const SOCIAL_META: Record<SocialType, SocialMeta> = {
   linkedin:  { label: 'LinkedIn',  glyph: 'in',  bg: '#0a66c2', fg: '#ffffff', placeholder: 'linkedin.com/in/…' },
   twitter:   { label: 'X / Twitter', glyph: '𝕏', bg: '#000000', fg: '#ffffff', placeholder: 'x.com/…' },
   instagram: { label: 'Instagram', glyph: 'Ig',  bg: '#e4405f', fg: '#ffffff', placeholder: 'instagram.com/…',
-               gradient: ['#833ab4', '#fd1d1d', '#fcb045'] },
-  facebook:  { label: 'Facebook',  glyph: 'f',   bg: '#1877f2', fg: '#ffffff', placeholder: 'facebook.com/…' },
-  tiktok:    { label: 'TikTok',    glyph: 'T',   bg: '#000000', fg: '#ffffff', placeholder: 'tiktok.com/@…' },
-  youtube:   { label: 'YouTube',   glyph: '▶',   bg: '#ff0000', fg: '#ffffff', placeholder: 'youtube.com/@…' },
-  github:    { label: 'GitHub',    glyph: 'Gh',  bg: '#1a1a1a', fg: '#ffffff', placeholder: 'github.com/…' },
+               gradient: ['#833ab4', '#fd1d1d', '#fcb045'],
+               asset: require('../../assets/socials/instagram.png') },
+  facebook:  { label: 'Facebook',  glyph: 'f',   bg: '#1877f2', fg: '#ffffff', placeholder: 'facebook.com/…',
+               asset: require('../../assets/socials/facebook.png') },
+  tiktok:    { label: 'TikTok',    glyph: 'T',   bg: '#000000', fg: '#ffffff', placeholder: 'tiktok.com/@…',
+               asset: require('../../assets/socials/tiktok.png') },
+  youtube:   { label: 'YouTube',   glyph: '▶',   bg: '#ff0000', fg: '#ffffff', placeholder: 'youtube.com/@…',
+               asset: require('../../assets/socials/youtube.png') },
+  github:    { label: 'GitHub',    glyph: 'Gh',  bg: '#1a1a1a', fg: '#ffffff', placeholder: 'github.com/…',
+               asset: require('../../assets/socials/github.png') },
   website:   { label: 'Website',   glyph: '',    bg: '#3a7afe', fg: '#ffffff', placeholder: 'https://…',  useGlobeIcon: true },
   other:     { label: 'Andet',     glyph: '•',   bg: '#777777', fg: '#ffffff', placeholder: 'https://…' },
 };
@@ -285,6 +291,18 @@ function BrandIcon({ type, size = 36 }: { type: SocialType; size?: number }) {
   const meta = SOCIAL_META[type];
   const radius = size / 2;
   const fontSize = size <= 28 ? size * 0.42 : size * 0.4;
+
+  // Preferred path: pre-rendered brand-icon PNG. The asset already includes
+  // the colored circle, so we just render the image at the requested size.
+  if (meta.asset) {
+    return (
+      <Image
+        source={meta.asset}
+        style={{ width: size, height: size, borderRadius: radius }}
+        resizeMode="contain"
+      />
+    );
+  }
 
   const inner = meta.useGlobeIcon ? (
     <Globe size={Math.round(size * 0.5)} color={meta.fg} strokeWidth={2.2} />
