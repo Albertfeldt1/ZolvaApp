@@ -14,6 +14,8 @@ type Props = {
   darkBg?: boolean;
 };
 
+// iOS gets the real UIBlurEffect material (matches native tab-bar glass);
+// Android falls back to the generic tint with experimental blur.
 const LIGHT_BLUR_TINT = Platform.OS === 'ios' ? 'systemChromeMaterialLight' : 'light';
 const DARK_BLUR_TINT = Platform.OS === 'ios' ? 'systemChromeMaterialDark' : 'dark';
 
