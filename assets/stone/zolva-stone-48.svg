@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <defs>
+    <radialGradient id="body" cx="32%" cy="26%" r="80%">
+      <stop offset="0%" stop-color="#8AA38C"></stop>
+      <stop offset="55%" stop-color="#6B8770"></stop>
+      <stop offset="100%" stop-color="#3F5446"></stop>
+    </radialGradient>
+    <radialGradient id="sheen" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.55)"></stop>
+      <stop offset="70%" stop-color="rgba(255,255,255,0)"></stop>
+    </radialGradient>
+    <radialGradient id="eye" cx="50%" cy="65%" r="65%">
+      <stop offset="0%" stop-color="#222a26"></stop>
+      <stop offset="55%" stop-color="#121814"></stop>
+      <stop offset="100%" stop-color="#080b09"></stop>
+    </radialGradient>
+    <filter id="cast" x="-30%" y="-10%" width="160%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2.88"></feGaussianBlur>
+      <feOffset dy="3.84"></feOffset>
+      <feColorMatrix values="0 0 0 0 0.24  0 0 0 0 0.35  0 0 0 0 0.27  0 0 0 0.35 0"></feColorMatrix>
+      <feMerge><feMergeNode></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#cast)">
+    <circle cx="24" cy="24" r="23.5" fill="url(#body)"></circle>
+    <ellipse cx="19.200000000000003" cy="12" rx="10.8" ry="7.199999999999999" fill="url(#sheen)"></ellipse>
+    <ellipse cx="14.879999999999999" cy="9.600000000000001" rx="3.3600000000000003" ry="1.92" fill="rgba(255,255,255,0.95)"></ellipse>
+    <ellipse cx="16.32" cy="22.080000000000002" rx="3.1824" ry="3.9312" fill="url(#eye)"></ellipse>
+    <ellipse cx="31.68" cy="22.080000000000002" rx="3.1824" ry="3.9312" fill="url(#eye)"></ellipse>
+    <ellipse cx="15.64608" cy="20.65728" rx="1.1232" ry="1.4976" fill="rgba(255,255,255,0.92)"></ellipse>
+    <ellipse cx="31.00608" cy="20.65728" rx="1.1232" ry="1.4976" fill="rgba(255,255,255,0.92)"></ellipse>
+    <path d="M 20.88 29.759999999999998 Q 24 32.64 27.12 29.759999999999998" stroke="#1a221d" stroke-width="1.44" stroke-linecap="round" fill="none"></path>
+  </g>
+</svg>
