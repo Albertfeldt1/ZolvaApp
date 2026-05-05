@@ -53,6 +53,7 @@ export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, force
   if (icloudConnected) sources.push('iCloud Mail');
   if (isConnected('google-calendar')) sources.push('Google Kalender');
   if (isConnected('outlook-calendar')) sources.push('Outlook Kalender');
+  if (isConnected('google-drive')) sources.push('Google Drive');
 
   const noSources = sources.length === 0;
 

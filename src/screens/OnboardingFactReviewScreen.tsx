@@ -64,6 +64,7 @@ const SOURCE_GROUP_LABELS: Record<string, string> = {
   'backfill:icloud:mail': 'Fra iCloud',
   'backfill:google:calendar': 'Fra Google Kalender',
   'backfill:microsoft:calendar': 'Fra Outlook Kalender',
+  'backfill:google:drive': 'Fra Google Drive',
 };
 
 function groupLabel(source: string | null | undefined): string {
@@ -83,6 +84,7 @@ const GROUP_ORDER = [
   'Fra iCloud',
   'Fra Google Kalender',
   'Fra Outlook Kalender',
+  'Fra Google Drive',
   'Fra dine svar',
   'Fra chat',
   'Andet',

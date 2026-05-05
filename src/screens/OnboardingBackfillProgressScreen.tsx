@@ -36,6 +36,7 @@ import { colors, fonts } from '../theme';
 type ServiceId =
   | 'google:mail'
   | 'google:calendar'
+  | 'google:drive'
   | 'microsoft:mail'
   | 'microsoft:calendar'
   | 'icloud:mail';
@@ -43,6 +44,7 @@ type ServiceId =
 const SERVICE_META: Record<ServiceId, { logo: ImageSourcePropType; label: string }> = {
   'google:mail': { logo: require('../../assets/logos/gmail.png'), label: 'Gmail' },
   'google:calendar': { logo: require('../../assets/logos/google-calendar.png'), label: 'Google Kalender' },
+  'google:drive': { logo: require('../../assets/logos/google-drive.png'), label: 'Google Drive' },
   'microsoft:mail': { logo: require('../../assets/logos/outlook-mail.png'), label: 'Outlook' },
   'microsoft:calendar': { logo: require('../../assets/logos/outlook-calendar.png'), label: 'Outlook Kalender' },
   'icloud:mail': { logo: require('../../assets/logos/icloud.png'), label: 'iCloud' },
@@ -91,9 +93,11 @@ const STONE_SIZE = 132;
 const ICON_SIZE = 44;
 
 function jobKey(j: BackfillJob): ServiceId | null {
-  if (j.kind !== 'mail' && j.kind !== 'calendar') return null;
+  if (j.kind !== 'mail' && j.kind !== 'calendar' && j.kind !== 'drive') return null;
   // iCloud only has a mail-backfill job; calendar lives in daily-brief.
   if (j.provider === 'icloud' && j.kind !== 'mail') return null;
+  // Drive is Google-only.
+  if (j.kind === 'drive' && j.provider !== 'google') return null;
   return `${j.provider}:${j.kind}` as ServiceId;
 }
 

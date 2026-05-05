@@ -8,7 +8,7 @@ import { supabase } from './supabase';
 
 export type BackfillJob = {
   id: string;
-  kind: 'mail' | 'calendar';
+  kind: 'mail' | 'calendar' | 'drive';
   provider: 'google' | 'microsoft' | 'icloud';
   status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
   processed: number;
@@ -87,7 +87,10 @@ export function progressLabel(jobs: BackfillJob[]): string {
   if (jobs.length === 0) return 'Færdig';
   const running = jobs.find((j) => j.status === 'running');
   if (running) {
-    const kind = running.kind === 'mail' ? 'emails' : 'kalender';
+    const kind =
+      running.kind === 'mail' ? 'emails'
+      : running.kind === 'calendar' ? 'kalender'
+      : 'filer';
     if (running.total) return `Læser ${kind}… (${running.processed} af ${running.total})`;
     return `Læser ${kind}…`;
   }
