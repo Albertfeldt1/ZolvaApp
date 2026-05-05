@@ -281,14 +281,20 @@ export function TodayScreen({
           onGear={onGoToSettings}
         />
 
-        {/* Hero text block */}
-        <View style={{ paddingHorizontal: spacing.heroPad, paddingTop: spacing.cardPad }}>
-          <Text style={{ ...type.displayXL, color: t.ink }}>
-            {user ? `${hello},\n${user.name}.` : `${hello}.`}
-          </Text>
-          <Text style={{ ...type.body, color: t.ink2, marginTop: spacing.md - 2, maxWidth: 300 }}>
-            {summaryLine}
-          </Text>
+        {/* Hero text block — wrapped in a soft glass backdrop so the
+            headline doesn't float bare over the halo paper. */}
+        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
+          <GlassFrostedCard
+            radius={radius.card}
+            style={{ paddingVertical: spacing.lg, paddingHorizontal: spacing.lg }}
+          >
+            <Text style={{ ...type.displayXL, color: t.ink }}>
+              {user ? `${hello},\n${user.name}.` : `${hello}.`}
+            </Text>
+            <Text style={{ ...type.body, color: t.ink2, marginTop: spacing.md - 2, maxWidth: 300 }}>
+              {summaryLine}
+            </Text>
+          </GlassFrostedCard>
         </View>
 
         {/* Frosted hero stat card */}
@@ -513,38 +519,37 @@ export function TodayScreen({
           />
         )}
 
-        {/* Brief history pills */}
-        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: spacing.cardPad, paddingTop: spacing.heroPad }}>
-          {(['morning', 'midday', 'evening'] as const).map((kind) => {
-            const I = kind === 'morning' ? Sunrise : kind === 'midday' ? Sun : Moon;
-            const label = kind === 'morning' ? 'Morgen' : kind === 'midday' ? 'Middag' : 'Aften';
-            return (
-              <Pressable
-                key={kind}
-                onPress={() => setHistoryKind(kind)}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel={`Tidligere ${label.toLowerCase()}briefs`}
-              >
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: spacing.sm - 2,
-                    paddingVertical: spacing.sm - 2,
-                    paddingHorizontal: spacing.md,
-                    borderRadius: radius.pill,
-                    backgroundColor: surface.glassWeak,
-                    borderWidth: 1,
-                    borderColor: surface.glassRim,
-                  }}
-                >
-                  <I size={SMALL_GLYPH} color={t.ink2} strokeWidth={1.75} />
-                  <Text style={{ ...type.caption, color: t.ink2, fontWeight: '600' }}>{label}</Text>
-                </View>
-              </Pressable>
-            );
-          })}
+        {/* Brief history pills — wrapped in a single glass card so the
+            three time-of-day shortcuts read as one element, not as
+            three loose chips floating on the halo paper. */}
+        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
+          <GlassFrostedCard style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center' }}>
+              {(['morning', 'midday', 'evening'] as const).map((kind) => {
+                const I = kind === 'morning' ? Sunrise : kind === 'midday' ? Sun : Moon;
+                const label = kind === 'morning' ? 'Morgen' : kind === 'midday' ? 'Middag' : 'Aften';
+                return (
+                  <Pressable
+                    key={kind}
+                    onPress={() => setHistoryKind(kind)}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Tidligere ${label.toLowerCase()}briefs`}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: spacing.sm - 2,
+                      paddingVertical: spacing.sm - 2,
+                      paddingHorizontal: spacing.md,
+                    }}
+                  >
+                    <I size={SMALL_GLYPH} color={t.ink2} strokeWidth={1.75} />
+                    <Text style={{ ...type.caption, color: t.ink2, fontWeight: '600' }}>{label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </GlassFrostedCard>
         </View>
 
         {/* Modals */}

@@ -20,6 +20,7 @@ import { CalendarPickerSheet } from '../components/CalendarPickerSheet';
 import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { Skeleton } from '../components/Skeleton';
+import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { TopBar } from '../design/primitives/TopBar';
 import { useTheme } from '../design/useTheme';
@@ -304,49 +305,54 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
           showsVerticalScrollIndicator={false}
           contentInsetAdjustmentBehavior="never"
         >
-          {/* Display headline + secondary actions */}
-          <View style={{ paddingHorizontal: spacing.heroPad, paddingTop: spacing.cardPad }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-              <Text style={{ ...type.displayXL, color: t.ink }}>
-                {weekdayLine}
-                {'\n'}
-                {dateLine}
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingBottom: spacing.xs }}>
-                {(pageIndex !== WEEKS_BEFORE || !isSelectedToday) && (
-                  <Pressable onPress={jumpToToday} hitSlop={8}>
-                    <Text style={{
-                      fontFamily: fonts.ui,
-                      fontSize: type.bodySm.fontSize,
-                      color: t.ink3,
-                    }}>
-                      I dag
-                    </Text>
-                  </Pressable>
-                )}
-                {hasProvider && (
-                  <Pressable
-                    onPress={() => setPickerOpen(true)}
-                    hitSlop={8}
-                    style={{
-                      paddingHorizontal: spacing.sm,
-                      paddingVertical: spacing.xs,
-                      borderRadius: radius.pill,
-                      backgroundColor: surface.iconButton,
-                    }}
-                  >
-                    <Text style={{
-                      fontFamily: fonts.mono,
-                      fontSize: type.eyebrow.fontSize,
-                      letterSpacing: type.eyebrow.letterSpacing,
-                      color: t.ink3,
-                    }}>
-                      KAL
-                    </Text>
-                  </Pressable>
-                )}
+          {/* Display headline + secondary actions — wrapped in a soft glass backdrop. */}
+          <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
+            <GlassFrostedCard
+              radius={radius.card}
+              style={{ paddingVertical: spacing.lg, paddingHorizontal: spacing.lg }}
+            >
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                <Text style={{ ...type.displayXL, color: t.ink }}>
+                  {weekdayLine}
+                  {'\n'}
+                  {dateLine}
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingBottom: spacing.xs }}>
+                  {(pageIndex !== WEEKS_BEFORE || !isSelectedToday) && (
+                    <Pressable onPress={jumpToToday} hitSlop={8}>
+                      <Text style={{
+                        fontFamily: fonts.ui,
+                        fontSize: type.bodySm.fontSize,
+                        color: t.ink3,
+                      }}>
+                        I dag
+                      </Text>
+                    </Pressable>
+                  )}
+                  {hasProvider && (
+                    <Pressable
+                      onPress={() => setPickerOpen(true)}
+                      hitSlop={8}
+                      style={{
+                        paddingHorizontal: spacing.sm,
+                        paddingVertical: spacing.xs,
+                        borderRadius: radius.pill,
+                        backgroundColor: surface.iconButton,
+                      }}
+                    >
+                      <Text style={{
+                        fontFamily: fonts.mono,
+                        fontSize: type.eyebrow.fontSize,
+                        letterSpacing: type.eyebrow.letterSpacing,
+                        color: t.ink3,
+                      }}>
+                        KAL
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
               </View>
-            </View>
+            </GlassFrostedCard>
           </View>
 
           {/* Week-strip belt */}
@@ -394,11 +400,17 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
             )}
           </View>
 
-          {/* Events / hour grid */}
+          {/* Events / hour grid — wrapped in a glass card so the
+              dayPanResponder swipe target sits on a backdrop instead
+              of floating directly on the halo paper. */}
           <View
-            style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.xxl }}
+            style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.xl }}
             {...dayPanResponder.panHandlers}
           >
+            <GlassFrostedCard
+              radius={radius.card}
+              style={{ paddingVertical: spacing.lg, paddingHorizontal: spacing.lg }}
+            >
             <Text style={{ ...type.displayS, color: t.ink }}>
               {sectionTitle}
             </Text>
@@ -531,6 +543,7 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
                 )}
               </View>
             )}
+            </GlassFrostedCard>
           </View>
         </ScrollView>
       </View>

@@ -52,61 +52,66 @@ export function ChatScreen({ onBack, initialDraft }: Props) {
       <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
         <GlassHaloLayer />
 
-        {/* Header row */}
+        {/* Header — wrapped in a glass card so the back button + Stone +
+            title sit on a backdrop instead of floating on the halo paper. */}
         <View
           style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: spacing.md,
             paddingTop: spacing.statusBarFallback,
-            paddingHorizontal: spacing.xl - spacing.xs,
+            paddingHorizontal: spacing.screenPad,
             paddingBottom: spacing.cardPad,
             position: 'relative',
             zIndex: 1,
           }}
         >
-          <Pressable
-            onPress={onBack}
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: radius.pill,
-              backgroundColor: surface.iconButton,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Tilbage"
+          <GlassFrostedCard
+            radius={radius.card}
+            style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}
           >
-            <ChevronLeft size={18} color={t.ink} strokeWidth={1.75} />
-          </Pressable>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              <Pressable
+                onPress={onBack}
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: radius.pill,
+                  backgroundColor: surface.iconButton,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Tilbage"
+              >
+                <ChevronLeft size={18} color={t.ink} strokeWidth={1.75} />
+              </Pressable>
 
-          <Stone size={36} />
+              <Stone size={36} />
 
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontFamily: fonts.display, fontSize: 20, fontWeight: '600', letterSpacing: -0.4, color: t.ink }}>
-              Zolva
-            </Text>
-            <Text style={{ ...type.eyebrow, color: t.ink3, textTransform: 'none', letterSpacing: 0.6 }}>
-              Læser kalender og mail
-            </Text>
-          </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: fonts.display, fontSize: 20, fontWeight: '600', letterSpacing: -0.4, color: t.ink }}>
+                  Zolva
+                </Text>
+                <Text style={{ ...type.eyebrow, color: t.ink3, textTransform: 'none', letterSpacing: 0.6 }}>
+                  Læser kalender og mail
+                </Text>
+              </View>
 
-          <Pressable
-            onPress={onBack}
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: radius.pill,
-              backgroundColor: surface.iconButton,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Luk"
-          >
-            <Text style={{ fontFamily: fonts.ui, fontSize: 18, color: t.ink2 }}>×</Text>
-          </Pressable>
+              <Pressable
+                onPress={onBack}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: radius.pill,
+                  backgroundColor: surface.iconButton,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Luk"
+              >
+                <Text style={{ fontFamily: fonts.ui, fontSize: 18, color: t.ink2 }}>×</Text>
+              </Pressable>
+            </View>
+          </GlassFrostedCard>
         </View>
 
         {/* Messages */}
@@ -159,38 +164,39 @@ export function ChatScreen({ onBack, initialDraft }: Props) {
           {typing && <TypingIndicator t={t} spacing={spacing} radius={radius} />}
         </ScrollView>
 
-        {/* Suggestion pills */}
+        {/* Suggestion pills — wrapped in a glass card backdrop so the
+            row reads as one element instead of loose chips on paper. */}
         {suggestions.length > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={{ flexGrow: 0, flexShrink: 0 }}
-            contentContainerStyle={{
-              paddingHorizontal: spacing.screenPad,
-              paddingBottom: spacing.sm,
-              gap: spacing.sm - 2,
-              alignItems: 'center',
-            }}
-            keyboardShouldPersistTaps="handled"
-          >
-            {suggestions.map((q, i) => (
-              <Pressable key={`${i}-${q}`} onPress={() => submit(q)}>
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    paddingVertical: spacing.sm,
-                    paddingHorizontal: spacing.md,
-                    borderRadius: radius.pill,
-                    backgroundColor: surface.glassWeak,
-                    borderWidth: 1,
-                    borderColor: surface.glassRim,
-                  }}
-                >
-                  <Text style={{ ...type.bodySm, color: t.ink2 }}>{q}</Text>
-                </View>
-              </Pressable>
-            ))}
-          </ScrollView>
+          <View style={{ paddingHorizontal: spacing.screenPad, paddingBottom: spacing.sm }}>
+            <GlassFrostedCard style={{ paddingVertical: spacing.sm }}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{
+                  paddingHorizontal: spacing.cardPad,
+                  gap: spacing.sm - 2,
+                  alignItems: 'center',
+                }}
+                keyboardShouldPersistTaps="handled"
+              >
+                {suggestions.map((q, i) => (
+                  <Pressable key={`${i}-${q}`} onPress={() => submit(q)}>
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        paddingVertical: spacing.sm,
+                        paddingHorizontal: spacing.md,
+                        borderRadius: radius.pill,
+                        backgroundColor: surface.scrim,
+                      }}
+                    >
+                      <Text style={{ ...type.bodySm, color: t.ink2 }}>{q}</Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </GlassFrostedCard>
+          </View>
         )}
 
         {/* Input dock */}

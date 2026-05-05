@@ -208,48 +208,44 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
       >
         <TopBar eyebrow="HUSK" onBell={onOpenNotifications} onGear={onOpenSettings} />
 
-        {/* Display headline */}
-        <View style={{ paddingHorizontal: spacing.heroPad, paddingTop: spacing.cardPad }}>
-          <Text style={{ ...type.displayXL, color: t.ink }}>
-            {`Det jeg\nhusker.`}
-          </Text>
-        </View>
-
-        {/* Tab chips: Noter / Fakta / Samtaler */}
-        <View style={{
-          flexDirection: 'row',
-          gap: spacing.sm - 2,
-          paddingHorizontal: spacing.screenPad,
-          paddingTop: spacing.cardPad,
-          flexWrap: 'wrap',
-        }}>
-          {MEMORY_TABS.map((tabDef) => {
-            const active = tab === tabDef.id;
-            const count =
-              tabDef.id === 'noter' ? notes.length :
-              tabDef.id === 'fakta' ? facts.length :
-              chat.length;
-            return (
-              <Pressable key={tabDef.id} onPress={() => setTab(tabDef.id)}>
-                <View style={{
-                  paddingVertical: spacing.sm - 1,
-                  paddingHorizontal: spacing.md,
-                  borderRadius: radius.pill,
-                  backgroundColor: active ? t.ink : surface.glassWeak,
-                  borderWidth: active ? 0 : 1,
-                  borderColor: surface.glassRim,
-                }}>
-                  <Text style={{
-                    fontFamily: fonts.uiBold,
-                    fontSize: type.caption.fontSize,
-                    color: active ? '#FFFFFF' : t.ink, // #FFFFFF for contrast on dark ink pill
-                  }}>
-                    {tabDef.label} · {count}
-                  </Text>
-                </View>
-              </Pressable>
-            );
-          })}
+        {/* Display headline + tab chips — wrapped in a single glass
+            card backdrop so the hero region reads as a unit. */}
+        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
+          <GlassFrostedCard
+            radius={radius.card}
+            style={{ paddingVertical: spacing.lg, paddingHorizontal: spacing.lg, gap: spacing.lg }}
+          >
+            <Text style={{ ...type.displayXL, color: t.ink }}>
+              {`Det jeg\nhusker.`}
+            </Text>
+            <View style={{ flexDirection: 'row', gap: spacing.sm - 2, flexWrap: 'wrap' }}>
+              {MEMORY_TABS.map((tabDef) => {
+                const active = tab === tabDef.id;
+                const count =
+                  tabDef.id === 'noter' ? notes.length :
+                  tabDef.id === 'fakta' ? facts.length :
+                  chat.length;
+                return (
+                  <Pressable key={tabDef.id} onPress={() => setTab(tabDef.id)}>
+                    <View style={{
+                      paddingVertical: spacing.sm - 1,
+                      paddingHorizontal: spacing.md,
+                      borderRadius: radius.pill,
+                      backgroundColor: active ? t.ink : surface.scrim,
+                    }}>
+                      <Text style={{
+                        fontFamily: fonts.uiBold,
+                        fontSize: type.caption.fontSize,
+                        color: active ? '#FFFFFF' : t.ink, // #FFFFFF for contrast on dark ink pill
+                      }}>
+                        {tabDef.label} · {count}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </GlassFrostedCard>
         </View>
 
         {/* ── Noter tab ── */}

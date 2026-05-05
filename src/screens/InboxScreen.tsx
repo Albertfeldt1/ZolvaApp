@@ -162,16 +162,21 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
           onGear={onGoToSettings}
         />
 
-        {/* Hero text block */}
-        <View style={{ paddingHorizontal: spacing.heroPad, paddingTop: spacing.cardPad, paddingBottom: spacing.lg }}>
-          <Text style={{ ...type.displayXL, color: t.ink }}>
-            {`${waiting.length} venter\npå dig.`}
-          </Text>
-          {(waiting.length + read.length) > 0 && (
-            <Text style={{ ...type.body, color: t.ink2, marginTop: spacing.md - 2 }}>
-              {`${waiting.length + read.length} mails i alt. Jeg har sorteret dem efter, hvad der haster.`}
+        {/* Hero text block — wrapped in a soft glass backdrop. */}
+        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
+          <GlassFrostedCard
+            radius={radius.card}
+            style={{ paddingVertical: spacing.lg, paddingHorizontal: spacing.lg }}
+          >
+            <Text style={{ ...type.displayXL, color: t.ink }}>
+              {`${waiting.length} venter\npå dig.`}
             </Text>
-          )}
+            {(waiting.length + read.length) > 0 && (
+              <Text style={{ ...type.body, color: t.ink2, marginTop: spacing.md - 2 }}>
+                {`${waiting.length + read.length} mails i alt. Jeg har sorteret dem efter, hvad der haster.`}
+              </Text>
+            )}
+          </GlassFrostedCard>
         </View>
 
         {/* Banners */}
