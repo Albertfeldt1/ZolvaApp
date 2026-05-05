@@ -33,19 +33,25 @@ import { Stone } from '../components/Stone';
 import { fetchBackfillStatus, type BackfillJob } from '../lib/onboarding-backfill';
 import { colors, fonts } from '../theme';
 
-type ServiceId = 'google:mail' | 'google:calendar' | 'microsoft:mail' | 'microsoft:calendar';
+type ServiceId =
+  | 'google:mail'
+  | 'google:calendar'
+  | 'microsoft:mail'
+  | 'microsoft:calendar'
+  | 'icloud:mail';
 
 const SERVICE_META: Record<ServiceId, { logo: ImageSourcePropType; label: string }> = {
   'google:mail': { logo: require('../../assets/logos/gmail.png'), label: 'Gmail' },
   'google:calendar': { logo: require('../../assets/logos/google-calendar.png'), label: 'Google Kalender' },
   'microsoft:mail': { logo: require('../../assets/logos/outlook-mail.png'), label: 'Outlook' },
   'microsoft:calendar': { logo: require('../../assets/logos/outlook-calendar.png'), label: 'Outlook Kalender' },
+  'icloud:mail': { logo: require('../../assets/logos/icloud.png'), label: 'iCloud' },
 };
 
 // Ambient orbit pool — purely visual. Wider than the actual backfill set
 // so the screen feels lively even for users with only one or two real
-// jobs. iCloud + Drive logos appear here as flavour even though they're
-// not currently part of the backfill flow.
+// jobs. Drive logo appears here as flavour even though it's not part of
+// the backfill flow.
 const AMBIENT_LOGOS: ImageSourcePropType[] = [
   require('../../assets/logos/gmail.png'),
   require('../../assets/logos/google-calendar.png'),
@@ -85,8 +91,9 @@ const STONE_SIZE = 132;
 const ICON_SIZE = 44;
 
 function jobKey(j: BackfillJob): ServiceId | null {
-  if (j.provider === 'icloud') return null;
   if (j.kind !== 'mail' && j.kind !== 'calendar') return null;
+  // iCloud only has a mail-backfill job; calendar lives in daily-brief.
+  if (j.provider === 'icloud' && j.kind !== 'mail') return null;
   return `${j.provider}:${j.kind}` as ServiceId;
 }
 

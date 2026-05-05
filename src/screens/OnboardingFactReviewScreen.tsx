@@ -61,6 +61,7 @@ function failedJobsLabel(jobs: BackfillJob[]): string {
 const SOURCE_GROUP_LABELS: Record<string, string> = {
   'backfill:google:mail': 'Fra Gmail',
   'backfill:microsoft:mail': 'Fra Outlook',
+  'backfill:icloud:mail': 'Fra iCloud',
   'backfill:google:calendar': 'Fra Google Kalender',
   'backfill:microsoft:calendar': 'Fra Outlook Kalender',
 };
@@ -79,6 +80,7 @@ function groupLabel(source: string | null | undefined): string {
 const GROUP_ORDER = [
   'Fra Gmail',
   'Fra Outlook',
+  'Fra iCloud',
   'Fra Google Kalender',
   'Fra Outlook Kalender',
   'Fra dine svar',
