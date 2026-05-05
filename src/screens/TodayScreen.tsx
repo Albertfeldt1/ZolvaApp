@@ -1,4 +1,5 @@
-import { Bookmark, ChevronRight, Moon, Sun, Sunrise, X } from 'lucide-react-native';
+import { BlurView } from 'expo-blur';
+import { Bookmark, Moon, Sun, Sunrise, X } from 'lucide-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -20,13 +21,9 @@ import { BriefBanner } from '../components/BriefBanner';
 import { BriefHistoryModal } from '../components/BriefHistoryModal';
 import { BriefModal } from '../components/BriefModal';
 import { ObservationHistoryModal } from '../components/ObservationHistoryModal';
-import { CountUp } from '../components/CountUp';
-import { DayRibbon, RibbonEvent } from '../components/DayRibbon';
 import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { SkeletonRow } from '../components/Skeleton';
-import { Stone } from '../components/Stone';
-import { TopRightActions } from '../components/TopRightActions';
 import type { Brief } from '../lib/briefs';
 import { useTodayBrief } from '../lib/briefs';
 import { formatToday, greeting } from '../lib/date';
@@ -48,12 +45,18 @@ import type {
   Reminder,
   UpcomingEvent,
 } from '../lib/types';
-import { colors, fonts } from '../theme';
+import { colors, fonts as legacyFonts } from '../theme';
 import { plural, translateProviderError } from '../utils/danish';
 import { isPendingAndDueOrUpcoming } from '../lib/reminders';
+import { useTheme } from '../design/useTheme';
+import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
+import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
+import { TopBar } from '../design/primitives/TopBar';
+import { Icon as DesignIcon } from '../design/primitives/Icon';
+import { Stone } from '../components/Stone';
 
-const toneColor = (t: UpcomingEvent['tone']) =>
-  t === 'sage' ? colors.sage : t === 'clay' ? colors.clay : t === 'warning' ? colors.warning : colors.stone;
+const toneColor = (tone: UpcomingEvent['tone']) =>
+  tone === 'sage' ? colors.sage : tone === 'clay' ? colors.clay : tone === 'warning' ? colors.warning : colors.stone;
 
 type Props = {
   onOpenChat: () => void;
@@ -85,6 +88,9 @@ export function TodayScreen({
   const dateInfo = useMemo(() => formatToday(today), [today]);
   const hello = useMemo(() => greeting(today), [today]);
   const { bottom: chromeBottom } = useChromeInsets();
+
+  const theme = useTheme();
+  const { t, type, fonts, radius } = theme;
 
   const { user: authUser } = useAuth();
   const userId = authUser?.id ?? '';
@@ -178,7 +184,8 @@ export function TodayScreen({
   );
   const showHuskPreview = pendingReminders.length > 0 || notes.length > 0;
 
-  const ribbonEvents: RibbonEvent[] = useMemo(() => {
+  // ribbonEvents kept for potential future use; not rendered in Phase 1.
+  const _ribbonEvents = useMemo(() => {
     const startOfDay = new Date(today);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(today);
@@ -227,326 +234,378 @@ export function TodayScreen({
     };
   }, [onOverDarkChange]);
 
+  const summaryLine = `${todayMeetingCount} ${plural(todayMeetingCount, 'møde', 'møder')}, ${waiting.length} ${plural(waiting.length, 'mail venter', 'mails venter')}, og ${pendingReminders.length} ${plural(pendingReminders.length, 'påmindelse', 'påmindelser')}.`;
+
   return (
-    <ScrollView
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-      contentInsetAdjustmentBehavior="never"
-      onScroll={onScroll}
-      scrollEventThrottle={16}
-      onLayout={(e) => {
-        viewportHRef.current = e.nativeEvent.layout.height;
-        checkOverDark();
-      }}
-    >
-      <View style={styles.hero}>
-        <View style={styles.heroTopRow}>
-          <Text style={styles.eyebrow}>{dateInfo.eyebrow}</Text>
-          <TopRightActions
-            onOpenNotifications={onOpenNotifications}
-            onOpenSettings={onGoToSettings}
-          />
-        </View>
-        <Text style={styles.heroH1}>
-          {user ? `${hello},\n${user.name}.` : `${hello}.`}
-        </Text>
-
-        <View style={styles.statsRow}>
-          <View>
-            <CountUp to={todayMeetingCount} style={styles.statBig} />
-            <Text style={styles.statLabel}>Møder</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View>
-            <CountUp to={waiting.length} style={styles.statMid} />
-            <Text style={styles.statLabel}>Mails venter</Text>
-          </View>
-        </View>
-
-        <DayRibbon events={ribbonEvents} now={today} />
-      </View>
-
-      {icloudExpired && (
-        <Pressable
-          style={styles.expiredBanner}
-          onPress={() => onOpenIcloudSetup?.(icloudExpiredEmail ?? undefined)}
-          accessibilityRole="button"
-        >
-          <Text style={styles.expiredBannerText}>
-            Apple afviste adgangskoden — iCloud-begivenheder vises ikke. Tryk for at genindtaste.
-          </Text>
-        </Pressable>
-      )}
-
-      {showHuskPreview && (
-        <Pressable onPress={onGoToMemory} style={styles.huskCard}>
-          <View style={styles.huskHead}>
-            <View style={styles.huskIconWrap}>
-              <Bookmark size={14} color={colors.sageDeep} strokeWidth={2} />
-            </View>
-            <Text style={styles.huskKicker}>Husk</Text>
-            <Text style={styles.huskMeta}>
-              {pendingReminders.length > 0 &&
-                plural(pendingReminders.length, 'påmindelse', 'påmindelser')}
-              {pendingReminders.length > 0 && notes.length > 0 && ' · '}
-              {notes.length > 0 && plural(notes.length, 'note', 'noter')}
-            </Text>
-            <ChevronRight size={16} color={colors.fg4} strokeWidth={1.75} />
-          </View>
-          {pendingReminders.slice(0, 2).map((r) => (
-            <HuskReminderLine key={r.id} reminder={r} now={today} />
-          ))}
-        </Pressable>
-      )}
-
-      <View style={styles.næste}>
-        <View style={styles.sectionHeadRow}>
-          <Text style={styles.sectionTitle}>Næste</Text>
-          <Text style={styles.sectionMeta}>
-            {upcoming.length > 0 ? `${upcoming.length} i dag` : '-'}
-          </Text>
-        </View>
-        <View style={styles.inkRule} />
-        {upcoming.length === 0 ? (
-          upcomingLoading && hasProvider && !upcomingError ? (
-            <View>
-              <SkeletonRow />
-              <SkeletonRow />
-              <SkeletonRow />
-            </View>
-          ) : hasProvider ? (
-            (() => {
-              const err = upcomingError ? translateProviderError(upcomingError) : null;
-              const isAuth = err?.kind === 'auth';
-              return (
-                <EmptyState
-                  mood="calm"
-                  title={
-                    err
-                      ? err.kind === 'network'
-                        ? 'Ingen forbindelse'
-                        : 'Kunne ikke hente kalender'
-                      : 'Ingen aftaler i dag'
-                  }
-                  body={err ? err.message : 'Du har en rolig dag foran dig.'}
-                  ctaLabel={isAuth ? 'Gå til indstillinger' : undefined}
-                  onCta={isAuth ? onGoToSettings : undefined}
-                />
-              );
-            })()
-          ) : (
-            <EmptyState
-              mood="calm"
-              title="Ingen aftaler i dag"
-              body="Forbind din kalender, så samler jeg dagens møder her."
-              ctaLabel="Forbind kalender"
-              onCta={onGoToSettings}
-            />
-          )
-        ) : (
-          upcoming.map((e, i) => (
-            <View key={e.id} style={[styles.row, i > 0 && styles.rowBorder]}>
-              <View style={styles.timeCol}>
-                <Text style={styles.timeTop}>{e.time}</Text>
-                <Text style={styles.timeMeta}>{e.meta}</Text>
-              </View>
-              <View style={[styles.rowBody, { borderLeftColor: toneColor(e.tone) }]}>
-                <Text style={styles.rowTitle}>{e.title}</Text>
-                <Text style={styles.rowSub}>{e.sub}</Text>
-              </View>
-              <ChevronRight size={18} color={colors.fg4} strokeWidth={1.75} />
-            </View>
-          ))
-        )}
-      </View>
-
-      {brief && !brief.readAt && (
-        <BriefBanner
-          brief={brief}
-          onOpen={() => setViewingBrief(brief)}
-          onDismiss={() => {
-            void markBriefRead();
-          }}
-        />
-      )}
-
-      <View style={styles.briefHistoryRow}>
-        <Pressable
-          onPress={() => setHistoryKind('morning')}
-          style={styles.briefHistoryBtn}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="Tidligere morgenbriefs"
-        >
-          <Sunrise size={14} color={colors.sageDeep} strokeWidth={1.75} />
-          <Text style={styles.briefHistoryLabel}>Morgen</Text>
-        </Pressable>
-        <View style={styles.briefHistoryDot} />
-        <Pressable
-          onPress={() => setHistoryKind('midday')}
-          style={styles.briefHistoryBtn}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="Tidligere middagsbriefs"
-        >
-          <Sun size={14} color={colors.sageDeep} strokeWidth={1.75} />
-          <Text style={styles.briefHistoryLabel}>Middag</Text>
-        </Pressable>
-        <View style={styles.briefHistoryDot} />
-        <Pressable
-          onPress={() => setHistoryKind('evening')}
-          style={styles.briefHistoryBtn}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="Tidligere aftenbriefs"
-        >
-          <Moon size={14} color={colors.sageDeep} strokeWidth={1.75} />
-          <Text style={styles.briefHistoryLabel}>Aften</Text>
-        </Pressable>
-      </View>
-
-      <BriefModal
-        brief={viewingBrief}
-        visible={viewingBrief !== null}
-        onClose={() => {
-          const wasTodayUnread =
-            viewingBrief !== null && brief !== null && viewingBrief.id === brief.id && !brief.readAt;
-          setViewingBrief(null);
-          // Mark read when the user has seen today's unread brief.
-          if (wasTodayUnread) void markBriefRead();
-        }}
-      />
-      <BriefHistoryModal
-        kind={historyKind}
-        onClose={() => setHistoryKind(null)}
-        onSelect={(b) => {
-          setViewingBrief(b);
-          setHistoryKind(null);
-        }}
-      />
-      <ObservationHistoryModal
-        visible={observationHistoryOpen}
-        onClose={() => setObservationHistoryOpen(false)}
-      />
-
-      <View
-        style={[styles.dark, { paddingBottom: chromeBottom }]}
+    <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
+      <GlassHaloLayer />
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        contentInsetAdjustmentBehavior="never"
+        onScroll={onScroll}
+        scrollEventThrottle={16}
         onLayout={(e) => {
-          darkYRef.current = e.nativeEvent.layout.y;
+          viewportHRef.current = e.nativeEvent.layout.height;
           checkOverDark();
         }}
       >
-        <View style={styles.darkTitleRow}>
-          <Text style={styles.darkTitle}>Hvad jeg har bemærket</Text>
-          <Pressable
-            onPress={() => setObservationHistoryOpen(true)}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="Tidligere observationer"
-          >
-            <Text style={styles.darkTitleLink}>Tidligere</Text>
-          </Pressable>
-        </View>
-        {pendingFacts.length === 0 && visibleObservations.length === 0 ? (
-          observationsError ? (
-            <EmptyState
-              dark
-              mood="thinking"
-              title="Kunne ikke hente observationer"
-              body="Jeg kan ikke nå min AI lige nu. Prøv igen om lidt."
-            />
-          ) : hasProvider ? (
-            <EmptyState
-              dark
-              mood="thinking"
-              title="Intet at fremhæve lige nu"
-              body="Jeg kigger på dagens kalender og indbakke og fremhæver det vigtigste. Tjek tilbage når der er noget nyt."
-            />
-          ) : (
-            <EmptyState
-              dark
-              mood="thinking"
-              title="Intet at fortælle endnu"
-              body="Når jeg har adgang til din indbakke og kalender, samler jeg observationer her."
-              ctaLabel="Forbind konti"
-              onCta={onGoToSettings}
-            />
-          )
-        ) : (
-          <View style={{ gap: 14 }}>
-            {pendingFacts.map((f) => (
-              <PendingFactRow
-                key={f.id}
-                fact={f}
-                onAccept={() => acceptFact(f.id)}
-                onReject={() => rejectFactHook(f.id)}
-              />
-            ))}
-            {feedObservations.map((n, i) => (
-              <NoticedRow
-                key={n.id}
-                item={n}
-                index={i}
-                onAction={() => handleObservationAction(n.action)}
-                onDismiss={() => dismissObservation(n.id)}
-              />
-            ))}
-            {hasMoreObservations && (
-              <Pressable
-                onPress={() => setObservationsModalOpen(true)}
-                style={styles.showAllRow}
-                hitSlop={8}
-              >
-                <Text style={styles.showAllText}>
-                  Vis alle ({visibleObservations.length}) →
-                </Text>
-              </Pressable>
-            )}
-          </View>
-        )}
-      </View>
+        {/* TopBar */}
+        <TopBar
+          eyebrow={dateInfo.eyebrow.toUpperCase()}
+          onBell={onOpenNotifications}
+          onGear={onGoToSettings}
+        />
 
-      <Modal
-        visible={observationsModalOpen}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setObservationsModalOpen(false)}
-      >
-        <SafeAreaView style={styles.modalRoot}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Hvad jeg har bemærket</Text>
-            <Pressable
-              onPress={() => setObservationsModalOpen(false)}
-              hitSlop={12}
-              style={styles.modalClose}
-            >
-              <X size={20} color={colors.paperOn75} strokeWidth={1.75} />
+        {/* Hero text block */}
+        <View style={{ paddingHorizontal: 22, paddingTop: 14 }}>
+          <Text style={{ ...type.displayXL, color: t.ink }}>
+            {user ? `${hello},\n${user.name}.` : `${hello}.`}
+          </Text>
+          <Text style={{ ...type.body, color: t.ink2, marginTop: 10, maxWidth: 300 }}>
+            {summaryLine}
+          </Text>
+        </View>
+
+        {/* Frosted hero stat card */}
+        <View style={{ paddingHorizontal: 18, paddingTop: 22 }}>
+          <BlurView
+            intensity={50}
+            tint="light"
+            style={{ borderRadius: radius.card, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)' }}
+          >
+            <View style={{ backgroundColor: 'rgba(255,255,255,0.55)', padding: 18 }}>
+              {/* Top eyebrow row: "LIGE NU" + clock */}
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 14 }}>
+                <Text style={{ ...type.eyebrow, color: t.ink2, fontWeight: '600' }}>Lige nu</Text>
+                <View style={{ flex: 1 }} />
+                <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '500', textTransform: 'none' }}>
+                  {`${today.getHours().toString().padStart(2, '0')}:${today.getMinutes().toString().padStart(2, '0')}`}
+                </Text>
+              </View>
+
+              {/* Big number + secondary stats */}
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 18 }}>
+                <View>
+                  <Text style={{ fontFamily: fonts.display, fontSize: 64, lineHeight: 60, fontWeight: '500', letterSpacing: -3, color: t.ink }}>
+                    {todayMeetingCount}
+                  </Text>
+                  <Text style={{ ...type.eyebrow, color: t.ink2, marginTop: 4, fontWeight: '600' }}>Møder</Text>
+                </View>
+                <View style={{ flex: 1, paddingBottom: 6 }}>
+                  <View style={{ flexDirection: 'row', gap: 14 }}>
+                    <View>
+                      <Text style={{ fontFamily: fonts.display, fontSize: 28, fontWeight: '500', letterSpacing: -1, color: t.ink }}>
+                        {waiting.length}
+                      </Text>
+                      <Text style={{ ...type.eyebrow, color: t.ink3, marginTop: 2, fontSize: 9.5, letterSpacing: 0.8 }}>Mails</Text>
+                    </View>
+                    <View style={{ width: 1, backgroundColor: t.line }} />
+                    <View>
+                      <Text style={{ fontFamily: fonts.display, fontSize: 28, fontWeight: '500', letterSpacing: -1, color: t.ink }}>
+                        {pendingReminders.length}
+                      </Text>
+                      <Text style={{ ...type.eyebrow, color: t.ink3, marginTop: 2, fontSize: 9.5, letterSpacing: 0.8 }}>Påmindelser</Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              {/* Soft ribbon — static 4-color proxy; Phase 5 will derive from real events */}
+              <View style={{ marginTop: 16, height: 8, borderRadius: 9999, backgroundColor: 'rgba(15,16,20,0.05)', position: 'relative', overflow: 'hidden' }}>
+                <View style={{ position: 'absolute', left: '8%',  width: '10%', height: '100%', backgroundColor: t.cal,    borderRadius: 9999 }} />
+                <View style={{ position: 'absolute', left: '22%', width: '18%', height: '100%', backgroundColor: t.today,  borderRadius: 9999 }} />
+                <View style={{ position: 'absolute', left: '48%', width: '8%',  height: '100%', backgroundColor: t.mem,    borderRadius: 9999 }} />
+                <View style={{ position: 'absolute', left: '62%', width: '14%', height: '100%', backgroundColor: t.inbox,  borderRadius: 9999 }} />
+              </View>
+            </View>
+          </BlurView>
+        </View>
+
+        {/* iCloud expired banner */}
+        {icloudExpired && (
+          <View style={{ paddingHorizontal: 18, paddingTop: 14 }}>
+            <Pressable onPress={() => onOpenIcloudSetup?.(icloudExpiredEmail ?? undefined)} accessibilityRole="button">
+              <GlassFrostedCard overlay="rgba(255,193,127,0.55)" style={{ padding: 14 }}>
+                <Text style={{ ...type.bodySm, color: t.ink, fontWeight: '600' }}>
+                  Apple afviste adgangskoden — iCloud-begivenheder vises ikke. Tryk for at genindtaste.
+                </Text>
+              </GlassFrostedCard>
             </Pressable>
           </View>
-          <ScrollView
-            contentContainerStyle={styles.modalBody}
-            showsVerticalScrollIndicator={false}
-          >
-            {visibleObservations.length === 0 ? (
-              <Text style={styles.modalEmpty}>Ingen flere observationer lige nu.</Text>
+        )}
+
+        {/* Husk preview */}
+        {showHuskPreview && (
+          <View style={{ paddingHorizontal: 18, paddingTop: 14 }}>
+            <Pressable onPress={onGoToMemory}>
+              <GlassFrostedCard style={{ padding: 14, gap: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Bookmark size={14} color={t.mem} strokeWidth={2} />
+                  <Text style={{ ...type.eyebrow, color: t.mem, fontWeight: '700' }}>Husk</Text>
+                  <Text style={{ ...type.eyebrow, color: t.ink3, flex: 1 }}>
+                    {pendingReminders.length > 0 && plural(pendingReminders.length, 'påmindelse', 'påmindelser')}
+                    {pendingReminders.length > 0 && notes.length > 0 && ' · '}
+                    {notes.length > 0 && plural(notes.length, 'note', 'noter')}
+                  </Text>
+                  <DesignIcon.chev size={14} color={t.ink4} />
+                </View>
+                {pendingReminders.slice(0, 2).map((r) => (
+                  <HuskReminderLine key={r.id} reminder={r} now={today} />
+                ))}
+              </GlassFrostedCard>
+            </Pressable>
+          </View>
+        )}
+
+        {/* "Næste" section */}
+        <View style={{ paddingHorizontal: 18, paddingTop: 22 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: 4, paddingBottom: 8 }}>
+            <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>Næste</Text>
+            <Text style={{ ...type.eyebrow, color: t.ink3 }}>{upcoming.length > 0 ? `${upcoming.length} i dag` : '—'}</Text>
+          </View>
+
+          {upcoming.length === 0 ? (
+            upcomingLoading && hasProvider && !upcomingError ? (
+              <View>
+                <SkeletonRow />
+                <SkeletonRow />
+                <SkeletonRow />
+              </View>
+            ) : hasProvider ? (
+              (() => {
+                const err = upcomingError ? translateProviderError(upcomingError) : null;
+                const isAuth = err?.kind === 'auth';
+                return (
+                  <EmptyState
+                    mood="calm"
+                    title={
+                      err
+                        ? err.kind === 'network'
+                          ? 'Ingen forbindelse'
+                          : 'Kunne ikke hente kalender'
+                        : 'Ingen aftaler i dag'
+                    }
+                    body={err ? err.message : 'Du har en rolig dag foran dig.'}
+                    ctaLabel={isAuth ? 'Gå til indstillinger' : undefined}
+                    onCta={isAuth ? onGoToSettings : undefined}
+                  />
+                );
+              })()
             ) : (
-              visibleObservations.map((n, i) => (
-                <NoticedRow
-                  key={n.id}
-                  item={n}
-                  index={i}
-                  onAction={() => {
-                    setObservationsModalOpen(false);
-                    handleObservationAction(n.action);
-                  }}
-                  onDismiss={() => dismissObservation(n.id)}
+              <EmptyState
+                mood="calm"
+                title="Ingen aftaler i dag"
+                body="Forbind din kalender, så samler jeg dagens møder her."
+                ctaLabel="Forbind kalender"
+                onCta={onGoToSettings}
+              />
+            )
+          ) : (
+            <View style={{ gap: 10 }}>
+              {upcoming.slice(0, 5).map((e) => (
+                <GlassFrostedCard key={e.id} style={{ paddingVertical: 12, paddingHorizontal: 14 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+                    <View style={{ width: 6, alignSelf: 'stretch', borderRadius: 9999, backgroundColor: toneColor(e.tone) }} />
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+                        <Text style={{ fontFamily: fonts.display, fontSize: 16, fontWeight: '600', letterSpacing: -0.3, color: t.ink }}>{e.time}</Text>
+                        <Text style={{ fontFamily: fonts.uiBold, fontSize: 13.5, color: t.ink, flexShrink: 1 }} numberOfLines={1}>{e.title}</Text>
+                      </View>
+                      <Text style={{ ...type.caption, color: t.ink3, marginTop: 1 }} numberOfLines={1}>{e.sub}</Text>
+                    </View>
+                    <DesignIcon.chev size={14} color={t.ink4} />
+                  </View>
+                </GlassFrostedCard>
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* BriefBanner */}
+        {brief && !brief.readAt && (
+          <BriefBanner
+            brief={brief}
+            onOpen={() => setViewingBrief(brief)}
+            onDismiss={() => {
+              void markBriefRead();
+            }}
+          />
+        )}
+
+        {/* Brief history pills */}
+        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 14, paddingTop: 22 }}>
+          {(['morning', 'midday', 'evening'] as const).map((kind) => {
+            const I = kind === 'morning' ? Sunrise : kind === 'midday' ? Sun : Moon;
+            const label = kind === 'morning' ? 'Morgen' : kind === 'midday' ? 'Middag' : 'Aften';
+            return (
+              <Pressable
+                key={kind}
+                onPress={() => setHistoryKind(kind)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={`Tidligere ${label.toLowerCase()}briefs`}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 9999, backgroundColor: 'rgba(255,255,255,0.7)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.8)' }}>
+                  <I size={14} color={t.ink2} strokeWidth={1.75} />
+                  <Text style={{ ...type.caption, color: t.ink2, fontWeight: '600' }}>{label}</Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {/* Modals */}
+        <BriefModal
+          brief={viewingBrief}
+          visible={viewingBrief !== null}
+          onClose={() => {
+            const wasTodayUnread =
+              viewingBrief !== null && brief !== null && viewingBrief.id === brief.id && !brief.readAt;
+            setViewingBrief(null);
+            // Mark read when the user has seen today's unread brief.
+            if (wasTodayUnread) void markBriefRead();
+          }}
+        />
+        <BriefHistoryModal
+          kind={historyKind}
+          onClose={() => setHistoryKind(null)}
+          onSelect={(b) => {
+            setViewingBrief(b);
+            setHistoryKind(null);
+          }}
+        />
+        <ObservationHistoryModal
+          visible={observationHistoryOpen}
+          onClose={() => setObservationHistoryOpen(false)}
+        />
+
+        {/* Dark observation card */}
+        <View
+          style={{ paddingHorizontal: 18, paddingTop: 24, paddingBottom: chromeBottom + 24 }}
+          onLayout={(e) => {
+            darkYRef.current = e.nativeEvent.layout.y;
+            checkOverDark();
+          }}
+        >
+          <GlassFrostedCard intensity={70} overlay="rgba(15,16,20,0.78)" style={{ padding: 18 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
+              <Text style={{ fontFamily: fonts.display, fontSize: 18, fontWeight: '600', letterSpacing: -0.3, color: '#F5F4F0' }}>
+                Hvad jeg har bemærket
+              </Text>
+              <Pressable
+                onPress={() => setObservationHistoryOpen(true)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Tidligere observationer"
+              >
+                <Text style={{ ...type.caption, color: 'rgba(245,244,240,0.7)', fontWeight: '600' }}>Tidligere</Text>
+              </Pressable>
+            </View>
+
+            {pendingFacts.length === 0 && visibleObservations.length === 0 ? (
+              observationsError ? (
+                <EmptyState
+                  dark
+                  mood="thinking"
+                  title="Kunne ikke hente observationer"
+                  body="Jeg kan ikke nå min AI lige nu. Prøv igen om lidt."
                 />
-              ))
+              ) : hasProvider ? (
+                <EmptyState
+                  dark
+                  mood="thinking"
+                  title="Intet at fremhæve lige nu"
+                  body="Jeg kigger på dagens kalender og indbakke og fremhæver det vigtigste. Tjek tilbage når der er noget nyt."
+                />
+              ) : (
+                <EmptyState
+                  dark
+                  mood="thinking"
+                  title="Intet at fortælle endnu"
+                  body="Når jeg har adgang til din indbakke og kalender, samler jeg observationer her."
+                  ctaLabel="Forbind konti"
+                  onCta={onGoToSettings}
+                />
+              )
+            ) : (
+              <View style={{ gap: 14 }}>
+                {pendingFacts.map((f) => (
+                  <PendingFactRow
+                    key={f.id}
+                    fact={f}
+                    onAccept={() => acceptFact(f.id)}
+                    onReject={() => rejectFactHook(f.id)}
+                  />
+                ))}
+                {feedObservations.map((n, i) => (
+                  <NoticedRow
+                    key={n.id}
+                    item={n}
+                    index={i}
+                    onAction={() => handleObservationAction(n.action)}
+                    onDismiss={() => dismissObservation(n.id)}
+                  />
+                ))}
+                {hasMoreObservations && (
+                  <Pressable
+                    onPress={() => setObservationsModalOpen(true)}
+                    style={styles.showAllRow}
+                    hitSlop={8}
+                  >
+                    <Text style={styles.showAllText}>
+                      Vis alle ({visibleObservations.length}) →
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
             )}
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
-    </ScrollView>
+          </GlassFrostedCard>
+        </View>
+
+        {/* "Vis alle" observations modal */}
+        <Modal
+          visible={observationsModalOpen}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setObservationsModalOpen(false)}
+        >
+          <SafeAreaView style={styles.modalRoot}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Hvad jeg har bemærket</Text>
+              <Pressable
+                onPress={() => setObservationsModalOpen(false)}
+                hitSlop={12}
+                style={styles.modalClose}
+              >
+                <X size={20} color={colors.paperOn75} strokeWidth={1.75} />
+              </Pressable>
+            </View>
+            <ScrollView
+              contentContainerStyle={styles.modalBody}
+              showsVerticalScrollIndicator={false}
+            >
+              {visibleObservations.length === 0 ? (
+                <Text style={styles.modalEmpty}>Ingen flere observationer lige nu.</Text>
+              ) : (
+                visibleObservations.map((n, i) => (
+                  <NoticedRow
+                    key={n.id}
+                    item={n}
+                    index={i}
+                    onAction={() => {
+                      setObservationsModalOpen(false);
+                      handleObservationAction(n.action);
+                    }}
+                    onDismiss={() => dismissObservation(n.id)}
+                  />
+                ))
+              )}
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -644,183 +703,24 @@ function PendingFactRow({
 }
 
 const styles = StyleSheet.create({
-  scrollContent: { flexGrow: 1, backgroundColor: colors.paper },
+  scrollContent: { flexGrow: 1 },
 
-  expiredBanner: {
-    marginHorizontal: 20, marginTop: 12,
-    backgroundColor: colors.warningSoft, padding: 12, borderRadius: 8,
-  },
-  expiredBannerText: {
-    fontFamily: fonts.ui, fontSize: 13, lineHeight: 19, color: colors.warningInk,
-  },
-
-  hero: {
-    backgroundColor: colors.sageSoft,
-    paddingTop: 56,
-    paddingBottom: 24,
-    paddingHorizontal: 20,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
-  },
-  heroTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  eyebrow: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.sageDeep,
-  },
-  heroH1: {
-    marginTop: 10,
-    fontFamily: fonts.displayItalic,
-    fontSize: 40,
-    lineHeight: 44,
-    letterSpacing: -1.4,
-    color: colors.ink,
-  },
-
-  statsRow: {
-    marginTop: 28,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 24,
-  },
-  statBig: {
-    fontFamily: fonts.display,
-    fontSize: 80,
-    letterSpacing: -4,
-    lineHeight: 84,
-    color: colors.ink,
-  },
-  statMid: {
-    fontFamily: fonts.display,
-    fontSize: 48,
-    letterSpacing: -1.44,
-    lineHeight: 52,
-    color: colors.ink,
-  },
-  statLabel: {
-    marginTop: 6,
-    fontFamily: fonts.uiSemi,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.fg3,
-  },
-  statDivider: {
-    width: StyleSheet.hairlineWidth,
-    alignSelf: 'stretch',
-    backgroundColor: colors.line,
-    marginBottom: 8,
-  },
-
-  huskCard: {
-    marginTop: 28,
-    marginHorizontal: 20,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    backgroundColor: colors.mist,
-    gap: 8,
-  },
-  huskHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  huskIconWrap: {
-    width: 24, height: 24, borderRadius: 999,
-    backgroundColor: colors.sageSoft,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  huskKicker: {
-    fontFamily: fonts.uiSemi, fontSize: 12,
-    letterSpacing: 0.6, textTransform: 'uppercase', color: colors.ink,
-  },
-  huskMeta: { flex: 1, fontFamily: fonts.mono, fontSize: 11, color: colors.fg3 },
+  // Sub-component styles (HuskReminderLine)
   huskLine: { flexDirection: 'row', gap: 10, alignItems: 'center' },
   huskTime: {
-    fontFamily: fonts.mono, fontSize: 11, color: colors.sageDeep,
+    fontFamily: legacyFonts.mono, fontSize: 11, color: colors.sageDeep,
     minWidth: 42,
   },
-  huskText: { flex: 1, fontFamily: fonts.ui, fontSize: 13, color: colors.ink },
+  huskText: { flex: 1, fontFamily: legacyFonts.ui, fontSize: 13, color: colors.ink },
 
-  næste: { paddingHorizontal: 20, paddingTop: 40 },
-  sectionHeadRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4,
-  },
-  sectionTitle: {
-    fontFamily: fonts.display,
-    fontSize: 24,
-    letterSpacing: -0.48,
-    color: colors.ink,
-  },
-  sectionMeta: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: colors.fg3,
-  },
-  inkRule: { height: 1, backgroundColor: colors.ink, marginBottom: 2 },
-  emptyText: {
-    paddingVertical: 20,
-    fontFamily: 'Inter_500Medium_Italic',
-    fontSize: 13,
-    color: colors.fg3,
-  },
-  row: { flexDirection: 'row', gap: 14, alignItems: 'center', paddingVertical: 18 },
-  rowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-  timeCol: { width: 72 },
-  timeTop: {
-    fontFamily: fonts.display,
-    fontSize: 20,
-    letterSpacing: -0.4,
-    color: colors.ink,
-    lineHeight: 24,
-  },
-  timeMeta: {
-    marginTop: 4,
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    color: colors.fg3,
-  },
-  rowBody: { flex: 1, borderLeftWidth: 2, paddingLeft: 12 },
-  rowTitle: { fontFamily: fonts.uiSemi, fontSize: 14.5, color: colors.ink },
-  rowSub: { marginTop: 2, fontFamily: fonts.ui, fontSize: 12.5, color: colors.fg3 },
-
-  dark: {
-    marginTop: 40,
-    backgroundColor: colors.ink,
-    paddingVertical: 32,
-    paddingHorizontal: 20,
-  },
-  darkTitleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-    marginBottom: 14,
-  },
-  darkTitle: {
-    fontFamily: fonts.displayItalic,
-    fontSize: 24,
-    letterSpacing: -0.36,
-    color: colors.paper,
-  },
-  darkTitleLink: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.paperOn55,
-  },
-  darkEmpty: {
-    fontFamily: 'Inter_500Medium_Italic',
-    fontSize: 14,
-    lineHeight: 21,
-    color: colors.paperOn55,
-  },
+  // Observation rows (NoticedRow / PendingFactRow)
   noticedRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
-  noticedText: { fontFamily: fonts.ui, fontSize: 14.5, lineHeight: 21, color: colors.paperOn95 },
+  noticedText: { fontFamily: legacyFonts.ui, fontSize: 14.5, lineHeight: 21, color: colors.paperOn95 },
   noticedActions: { marginTop: 8, flexDirection: 'row', gap: 16 },
-  noticedCta: { fontFamily: fonts.uiSemi, fontSize: 12.5, color: colors.sageDim },
-  noticedDismiss: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.paperOn50 },
+  noticedCta: { fontFamily: legacyFonts.uiSemi, fontSize: 12.5, color: colors.sageDim },
+  noticedDismiss: { fontFamily: legacyFonts.ui, fontSize: 12.5, color: colors.paperOn50 },
+
+  // "Vis alle" row inside dark card
   showAllRow: {
     marginTop: 6,
     paddingVertical: 10,
@@ -829,12 +729,13 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   showAllText: {
-    fontFamily: fonts.uiSemi,
+    fontFamily: legacyFonts.uiSemi,
     fontSize: 13,
     letterSpacing: 0.2,
     color: colors.sageDim,
   },
 
+  // "Vis alle" observations modal
   modalRoot: { flex: 1, backgroundColor: colors.ink },
   modalHeader: {
     flexDirection: 'row',
@@ -847,7 +748,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.paperOn20,
   },
   modalTitle: {
-    fontFamily: fonts.displayItalic,
+    fontFamily: legacyFonts.displayItalic,
     fontSize: 22,
     letterSpacing: -0.32,
     color: colors.paper,
@@ -866,33 +767,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     color: colors.paperOn55,
-  },
-
-  briefHistoryRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 14,
-    paddingTop: 14,
-    paddingBottom: 4,
-  },
-  briefHistoryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  briefHistoryDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 999,
-    backgroundColor: colors.sageDeep,
-    opacity: 0.4,
-  },
-  briefHistoryLabel: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.sageDeep,
   },
 });
