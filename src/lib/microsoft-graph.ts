@@ -417,6 +417,19 @@ export async function listCalendarEvents(
   start: Date,
   end: Date,
 ): Promise<GraphCalendarEvent[]> {
+  return listCalendarEventsForCalendars(start, end, null);
+}
+
+// `calendarIds === null` keeps the legacy /me/calendarView fan-in across
+// every calendar in the mailbox (used by brief / chat). When passed a list,
+// we still hit /me/calendarView (cheaper than per-calendar fan-out) and
+// drop events whose source calendar isn't in the visible set. Each event
+// returned carries `calendarId` for downstream filtering/coloring.
+export async function listCalendarEventsForCalendars(
+  start: Date,
+  end: Date,
+  calendarIds: string[] | null,
+): Promise<Array<GraphCalendarEvent & { calendarId: string | undefined }>> {
   // Master categories fetch is fire-and-forget: if it resolves before the
   // events do (usually the case after warm cache) we get colors; otherwise
   // events render in the palette fallback.
@@ -425,35 +438,40 @@ export async function listCalendarEvents(
     const path =
       `/me/calendarView?startDateTime=${start.toISOString()}&endDateTime=${end.toISOString()}` +
       `&$select=id,subject,start,end,location,isAllDay,attendees,responseStatus,body,categories` +
+      `&$expand=calendar($select=id)` +
       `&$orderby=start/dateTime&$top=50`;
     const [data, categoryMap] = await Promise.all([
-      graphFetch<{ value: RawEvent[] }>(token, path),
+      graphFetch<{ value: Array<RawEvent & { calendar?: { id?: string } }> }>(token, path),
       categoryMapPromise,
     ]);
-    return (data.value ?? []).map((e): GraphCalendarEvent => {
-      const attendeeList: GraphAttendee[] = (e.attendees ?? []).map((a) => ({
-        name: a.emailAddress?.name,
-        email: a.emailAddress?.address,
-      }));
-      const categories = e.categories ?? [];
-      const rawBody = e.body?.content ?? '';
-      const description =
-        e.body?.contentType === 'html' ? stripHtml(rawBody) : rawBody;
-      return {
-        id: e.id,
-        subject: e.subject || 'Uden titel',
-        start: new Date(`${e.start.dateTime}Z`),
-        end: new Date(`${e.end.dateTime}Z`),
-        location: e.location?.displayName,
-        isAllDay: e.isAllDay ?? false,
-        hasOtherAttendees: attendeeList.length > 0,
-        userResponse: e.responseStatus?.response ?? 'none',
-        description: description || undefined,
-        attendeeList,
-        categories,
-        categoryColor: resolveCategoryColor(categories, categoryMap),
-      };
-    });
+    const visible = calendarIds ? new Set(calendarIds) : null;
+    return (data.value ?? [])
+      .filter((e) => !visible || (e.calendar?.id != null && visible.has(e.calendar.id)))
+      .map((e) => {
+        const attendeeList: GraphAttendee[] = (e.attendees ?? []).map((a) => ({
+          name: a.emailAddress?.name,
+          email: a.emailAddress?.address,
+        }));
+        const categories = e.categories ?? [];
+        const rawBody = e.body?.content ?? '';
+        const description =
+          e.body?.contentType === 'html' ? stripHtml(rawBody) : rawBody;
+        return {
+          id: e.id,
+          subject: e.subject || 'Uden titel',
+          start: new Date(`${e.start.dateTime}Z`),
+          end: new Date(`${e.end.dateTime}Z`),
+          location: e.location?.displayName,
+          isAllDay: e.isAllDay ?? false,
+          hasOtherAttendees: attendeeList.length > 0,
+          userResponse: e.responseStatus?.response ?? 'none',
+          description: description || undefined,
+          attendeeList,
+          categories,
+          categoryColor: resolveCategoryColor(categories, categoryMap),
+          calendarId: e.calendar?.id,
+        };
+      });
   });
 }
 

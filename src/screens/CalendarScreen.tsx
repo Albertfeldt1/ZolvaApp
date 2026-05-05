@@ -17,6 +17,7 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
+import { CalendarPickerSheet } from '../components/CalendarPickerSheet';
 import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { Skeleton } from '../components/Skeleton';
@@ -119,6 +120,7 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
   const hasEvents = slots.some((s) => s.event);
   const hasProvider = useHasProvider();
   const { bottom: chromeBottom } = useChromeInsets();
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const [now, setNow] = useState(copenhagenNowMinutes);
   useEffect(() => {
@@ -257,6 +259,7 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
   };
 
   return (
+    <>
     <ScrollView
       contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom }]}
       showsVerticalScrollIndicator={false}
@@ -274,6 +277,7 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
             <TopRightActions
               onOpenNotifications={onOpenNotifications}
               onOpenSettings={onGoToSettings}
+              onOpenCalendarPicker={hasProvider ? () => setPickerOpen(true) : undefined}
             />
           </View>
         </View>
@@ -395,6 +399,8 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
         )}
       </View>
     </ScrollView>
+    <CalendarPickerSheet visible={pickerOpen} onClose={() => setPickerOpen(false)} />
+    </>
   );
 }
 

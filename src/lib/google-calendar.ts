@@ -63,6 +63,14 @@ export async function listEvents(
   timeMin: Date,
   timeMax: Date,
 ): Promise<GoogleCalendarEvent[]> {
+  return listEventsForCalendar('primary', timeMin, timeMax);
+}
+
+async function listEventsForCalendar(
+  calendarId: string,
+  timeMin: Date,
+  timeMax: Date,
+): Promise<GoogleCalendarEvent[]> {
   return tryWithRefresh('google', async (accessToken) => {
     const params = new URLSearchParams({
       timeMin: timeMin.toISOString(),
@@ -72,12 +80,17 @@ export async function listEvents(
       maxResults: '50',
       fields: EVENT_FIELDS,
     });
-    const url = `${BASE}/calendars/primary/events?${params.toString()}`;
+    const url = `${BASE}/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`;
     const res = await fetchWithTimeout('google', url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (res.status === 401 || res.status === 403) {
       throw new ProviderAuthError('google', `Google Calendar afvist (${res.status}).`);
+    }
+    if (res.status === 404) {
+      // Calendar removed/unshared since the picker last enumerated. Drop
+      // silently rather than failing the whole fan-out.
+      return [];
     }
     if (!res.ok) {
       throw new Error(`Google Calendar API ${res.status}: ${await res.text()}`);
@@ -85,6 +98,36 @@ export async function listEvents(
     const json = (await res.json()) as { items?: GoogleCalendarEvent[] };
     return json.items ?? [];
   });
+}
+
+// Fans out a parallel events.list per calendar id, tagging each event with
+// its source calendar so the caller can color/filter without a second pass.
+// Used by the calendar tab when the user has multiple calendars connected;
+// the legacy primary-only path stays in `listEvents` for the brief/chat
+// callers that haven't been migrated.
+export async function listEventsForCalendars(
+  calendarIds: string[],
+  timeMin: Date,
+  timeMax: Date,
+): Promise<Array<GoogleCalendarEvent & { calendarId: string }>> {
+  if (calendarIds.length === 0) return [];
+  const results = await Promise.allSettled(
+    calendarIds.map((id) =>
+      listEventsForCalendar(id, timeMin, timeMax).then((evts) =>
+        evts.map((e) => ({ ...e, calendarId: id })),
+      ),
+    ),
+  );
+  // First rejection that's a ProviderAuthError must propagate so tryWithRefresh
+  // (already inside listEventsForCalendar) gets a chance at the call-site
+  // catch. Other failures (per-calendar 5xx etc.) are swallowed — losing one
+  // calendar is better than blanking all.
+  const auth = results.find(
+    (r): r is PromiseRejectedResult =>
+      r.status === 'rejected' && r.reason instanceof ProviderAuthError,
+  );
+  if (auth) throw auth.reason;
+  return results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
 }
 
 export function eventStart(e: GoogleCalendarEvent): Date | null {

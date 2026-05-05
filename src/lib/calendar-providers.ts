@@ -35,7 +35,7 @@ type MicrosoftCalendar = {
   owner?: { address?: string };
 };
 
-export async function listGoogleCalendars(): Promise<ProviderCalendar[]> {
+export async function listGoogleCalendars(opts: { writableOnly?: boolean } = {}): Promise<ProviderCalendar[]> {
   return tryWithRefresh('google', async (token) => {
     const res = await fetch(
       'https://www.googleapis.com/calendar/v3/users/me/calendarList',
@@ -47,8 +47,9 @@ export async function listGoogleCalendars(): Promise<ProviderCalendar[]> {
     }
     if (!res.ok) throw new Error(`Google calendarList ${res.status}`);
     const body = (await res.json()) as { items?: GoogleCalendarListEntry[] };
+    const writable = opts.writableOnly ?? true;
     return (body.items ?? [])
-      .filter((c) => c.accessRole === 'owner' || c.accessRole === 'writer')
+      .filter((c) => !writable || c.accessRole === 'owner' || c.accessRole === 'writer')
       .map<ProviderCalendar>((c) => ({
         provider: 'google',
         id: c.id,
@@ -60,7 +61,7 @@ export async function listGoogleCalendars(): Promise<ProviderCalendar[]> {
   });
 }
 
-export async function listMicrosoftCalendars(): Promise<ProviderCalendar[]> {
+export async function listMicrosoftCalendars(opts: { writableOnly?: boolean } = {}): Promise<ProviderCalendar[]> {
   return tryWithRefresh('microsoft', async (token) => {
     const res = await fetch('https://graph.microsoft.com/v1.0/me/calendars', {
       headers: { Authorization: `Bearer ${token}` },
@@ -71,8 +72,9 @@ export async function listMicrosoftCalendars(): Promise<ProviderCalendar[]> {
     }
     if (!res.ok) throw new Error(`Microsoft calendars ${res.status}`);
     const body = (await res.json()) as { value?: MicrosoftCalendar[] };
+    const writable = opts.writableOnly ?? true;
     return (body.value ?? [])
-      .filter((c) => c.canEdit !== false)
+      .filter((c) => !writable || c.canEdit !== false)
       .map<ProviderCalendar>((c) => ({
         provider: 'microsoft',
         id: c.id,
@@ -109,5 +111,23 @@ export async function listWritableCalendars(opts: {
   if (opts.hasIcloud) calls.push(listIcloudCalendars(opts.userId));
   const settled = await Promise.allSettled(calls);
   // Promise.allSettled so one provider's failure doesn't blank the picker.
+  return settled.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+}
+
+// All calendars the user can READ. Includes shared / read-only calendars
+// (eg Birthdays, holidays, subscribed feeds) that the writable-only filter
+// drops. Used by the visibility picker on the calendar tab — read-only
+// calendars are still relevant for "do I want to see this on my calendar".
+export async function listAllCalendars(opts: {
+  hasGoogle: boolean;
+  hasMicrosoft: boolean;
+  hasIcloud: boolean;
+  userId: string;
+}): Promise<ProviderCalendar[]> {
+  const calls: Array<Promise<ProviderCalendar[]>> = [];
+  if (opts.hasGoogle) calls.push(listGoogleCalendars({ writableOnly: false }));
+  if (opts.hasMicrosoft) calls.push(listMicrosoftCalendars({ writableOnly: false }));
+  if (opts.hasIcloud) calls.push(listIcloudCalendars(opts.userId));
+  const settled = await Promise.allSettled(calls);
   return settled.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
 }

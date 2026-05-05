@@ -44,8 +44,11 @@ import {
   eventStart,
   isAllDay as isGoogleAllDay,
   listEvents as listGoogleEvents,
+  listEventsForCalendars as listGoogleEventsForCalendars,
   resolveGoogleEventColor,
 } from './google-calendar';
+import { listAllCalendars } from './calendar-providers';
+import { useCalendarVisibility } from './calendar-visibility';
 import {
   createDraft as gmailCreateDraft,
   getMessageBody as gmailGetMessageBody,
@@ -59,6 +62,7 @@ import {
   createDraft as graphCreateDraft,
   getMessageBody as graphGetMessageBody,
   listCalendarEvents as listGraphEvents,
+  listCalendarEventsForCalendars as listGraphEventsForCalendars,
   listInboxMessages as listGraphMessages,
   replyToMessage as graphReplyToMessage,
   sendMail as graphSendMail,
@@ -565,7 +569,15 @@ const RIBBON_PALETTE = [
   '#E67C73', // Flamingo
 ];
 
-function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
+function useCalendarItems(
+  rangeStartMs?: number,
+  rangeEndMs?: number,
+  // When true, fan out across every Google/Microsoft/iCloud calendar (not
+  // just `primary`) and apply the user's visibility selection. Used by the
+  // calendar tab. Default false keeps brief / chat / today on the legacy
+  // primary-only path so this change doesn't expand their scope.
+  respectVisibility = false,
+): {
   items: NormalizedEvent[];
   loading: boolean;
   error: Error | null;
@@ -573,17 +585,26 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
   const { googleAccessToken, microsoftAccessToken, user } = useAuth();
   const userId = user?.id ?? '';
   const icloudConnected = useIcloudConnected(userId);
+  const { visibility, hydrated: visibilityHydrated } = useCalendarVisibility(userId);
   const [state, setState] = useState<{
     items: NormalizedEvent[];
     loading: boolean;
     error: Error | null;
   }>({ items: [], loading: false, error: null });
 
+  // Stable string snapshot of the visibility map so the effect only refires
+  // when the actual hidden set changes (objects compare by reference).
+  const visibilitySig = JSON.stringify(visibility);
+
   useEffect(() => {
     if (!user || (!googleAccessToken && !microsoftAccessToken && !icloudConnected)) {
       setState({ items: [], loading: false, error: null });
       return;
     }
+    // Wait for visibility to hydrate when it's actually being used. Without
+    // this, the first render fetches with an empty hidden set, then
+    // re-fetches once AsyncStorage resolves — wasted round trip on cold open.
+    if (respectVisibility && !visibilityHydrated) return;
     let cancelled = false;
     setState({ items: [], loading: true, error: null });
     const { start, end } =
@@ -592,67 +613,85 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
         : dayBounds(new Date());
 
     const tasks: Promise<NormalizedEvent[]>[] = [];
+    const googleHidden = new Set(visibility.google ?? []);
+    const microsoftHidden = new Set(visibility.microsoft ?? []);
+    const icloudHidden = new Set(visibility.icloud ?? []);
+
     if (googleAccessToken) {
       tasks.push(
-        listGoogleEvents(start, end).then((evts) =>
-          evts
-            .map((e): NormalizedEvent | null => {
-              const s = eventStart(e);
-              const ev = eventEnd(e);
-              if (!s || !ev) return null;
-              const attendees = (e.attendees ?? [])
-                .filter((a) => a.self !== true)
-                .map((a) => ({ name: a.displayName, email: a.email }));
-              return {
-                id: e.id,
-                title: e.summary ?? 'Uden titel',
-                location: e.location,
-                start: s,
-                end: ev,
-                allDay: isGoogleAllDay(e),
-                description: e.description,
-                attendees: attendees.length ? attendees : undefined,
-                color: resolveGoogleEventColor(e),
-                source: 'google',
-              };
-            })
-            .filter((e): e is NormalizedEvent => e !== null),
-        ),
+        (async () => {
+          if (!respectVisibility) {
+            // Legacy: primary only, no fan-out.
+            const evts = await listGoogleEvents(start, end);
+            return evts
+              .map((e): NormalizedEvent | null => normalizeGoogleEvent(e))
+              .filter((e): e is NormalizedEvent => e !== null);
+          }
+          // Fan out: list every readable calendar, drop the hidden ones,
+          // events.list each in parallel. Listing is cheap (single round
+          // trip); the per-calendar event fetches are what matters.
+          const cals = await listAllCalendars({
+            hasGoogle: true,
+            hasMicrosoft: false,
+            hasIcloud: false,
+            userId,
+          });
+          const visibleIds = cals
+            .filter((c) => c.provider === 'google' && !googleHidden.has(c.id))
+            .map((c) => c.id);
+          if (visibleIds.length === 0) return [];
+          const evts = await listGoogleEventsForCalendars(visibleIds, start, end);
+          return evts
+            .map((e): NormalizedEvent | null => normalizeGoogleEvent(e))
+            .filter((e): e is NormalizedEvent => e !== null);
+        })(),
       );
     }
     if (microsoftAccessToken) {
       tasks.push(
-        listGraphEvents(start, end).then((evts) =>
-          evts.map((e): NormalizedEvent => ({
-            id: e.id,
-            title: e.subject,
-            location: e.location,
-            start: e.start,
-            end: e.end,
-            allDay: e.isAllDay,
-            description: e.description,
-            attendees: e.attendeeList.length ? e.attendeeList : undefined,
-            color: e.categoryColor,
-            source: 'microsoft',
-          })),
-        ),
+        (async () => {
+          if (!respectVisibility) {
+            const evts = await listGraphEvents(start, end);
+            return evts.map(normalizeGraphEvent);
+          }
+          // Microsoft's /me/calendarView is already cross-calendar — we just
+          // tell the helper which IDs are visible and it filters server-
+          // returned results. No extra round trip vs. the legacy path.
+          const cals = await listAllCalendars({
+            hasGoogle: false,
+            hasMicrosoft: true,
+            hasIcloud: false,
+            userId,
+          });
+          const visibleIds = cals
+            .filter((c) => c.provider === 'microsoft' && !microsoftHidden.has(c.id))
+            .map((c) => c.id);
+          if (visibleIds.length === 0) return [];
+          const evts = await listGraphEventsForCalendars(start, end, visibleIds);
+          return evts.map(normalizeGraphEvent);
+        })(),
       );
     }
     if (icloudConnected && userId) {
       tasks.push(
         listIcloudEvents(userId, start, end).then((r) => {
           if (!r.ok) throw new Error(`icloud:${r.error}`);
-          return r.data.map((e): NormalizedEvent => ({
-            id: `icloud:${e.uid}`,
-            title: e.title,
-            location: e.location,
-            start: e.start,
-            end: e.end,
-            allDay: e.allDay,
-            description: e.description,
-            color: e.calendarColor,
-            source: 'icloud',
-          }));
+          // iCloud's listEvents already fans across all CalDAV calendars; we
+          // just drop events whose source calendar URL is in the hidden set.
+          const items = r.data
+            .filter((e) => !respectVisibility || !icloudHidden.has(e.calendarUrl))
+            .map((e): NormalizedEvent => ({
+              id: `icloud:${e.uid}`,
+              title: e.title,
+              location: e.location,
+              start: e.start,
+              end: e.end,
+              allDay: e.allDay,
+              description: e.description,
+              color: e.calendarColor,
+              source: 'icloud',
+            }));
+          return items;
         }),
       );
     }
@@ -715,9 +754,61 @@ function useCalendarItems(rangeStartMs?: number, rangeEndMs?: number): {
       cancelled = true;
       clearTimeout(timeoutId);
     };
-  }, [googleAccessToken, microsoftAccessToken, user, rangeStartMs, rangeEndMs, icloudConnected, userId]);
+  }, [
+    googleAccessToken,
+    microsoftAccessToken,
+    user,
+    rangeStartMs,
+    rangeEndMs,
+    icloudConnected,
+    userId,
+    respectVisibility,
+    visibilityHydrated,
+    visibilitySig,
+  ]);
 
   return state;
+}
+
+// Normalize a Google Calendar event into the cross-provider shape used by
+// the calendar UI. Returns null when the event is missing both start and
+// end timestamps (recurring-master entries surface this way occasionally).
+function normalizeGoogleEvent(
+  e: import('./google-calendar').GoogleCalendarEvent,
+): NormalizedEvent | null {
+  const s = eventStart(e);
+  const ev = eventEnd(e);
+  if (!s || !ev) return null;
+  const attendees = (e.attendees ?? [])
+    .filter((a) => a.self !== true)
+    .map((a) => ({ name: a.displayName, email: a.email }));
+  return {
+    id: e.id,
+    title: e.summary ?? 'Uden titel',
+    location: e.location,
+    start: s,
+    end: ev,
+    allDay: isGoogleAllDay(e),
+    description: e.description,
+    attendees: attendees.length ? attendees : undefined,
+    color: resolveGoogleEventColor(e),
+    source: 'google',
+  };
+}
+
+function normalizeGraphEvent(e: import('./microsoft-graph').GraphCalendarEvent): NormalizedEvent {
+  return {
+    id: e.id,
+    title: e.subject,
+    location: e.location,
+    start: e.start,
+    end: e.end,
+    allDay: e.isAllDay,
+    description: e.description,
+    attendees: e.attendeeList.length ? e.attendeeList : undefined,
+    color: e.categoryColor,
+    source: 'microsoft',
+  };
 }
 
 // Per-provider failure surfaced to the UI when one provider errored but at
@@ -1810,9 +1901,12 @@ function describeTimedEvent(e: NormalizedEvent, tone: 'sage' | 'clay' | 'mist') 
 export function useDaySchedule(targetDate?: Date): Result<CalendarSlot[]> {
   const { user } = useAuth();
   const bounds = targetDate ? dayBounds(targetDate) : undefined;
+  // Calendar tab honors the visibility picker; brief / today / chat
+  // (other useCalendarItems consumers) keep the legacy primary-only fetch.
   const { items, loading, error } = useCalendarItems(
     bounds?.start.getTime(),
     bounds?.end.getTime(),
+    true,
   );
   if (isDemoUser(user)) {
     return { data: demoDaySchedule(), loading: false, error: null };

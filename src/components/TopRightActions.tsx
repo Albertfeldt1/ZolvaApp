@@ -1,4 +1,4 @@
-import { Bell, PackageOpen, Settings } from 'lucide-react-native';
+import { Bell, CalendarRange, PackageOpen, Settings } from 'lucide-react-native';
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useUnreadNotificationCount } from '../lib/hooks';
@@ -8,12 +8,24 @@ type Props = {
   onOpenNotifications: () => void;
   onOpenSettings?: () => void;
   onOpenArchive?: () => void;
+  onOpenCalendarPicker?: () => void;
 };
 
-export function TopRightActions({ onOpenNotifications, onOpenSettings, onOpenArchive }: Props) {
+export function TopRightActions({ onOpenNotifications, onOpenSettings, onOpenArchive, onOpenCalendarPicker }: Props) {
   const unread = useUnreadNotificationCount();
   return (
     <View style={styles.row}>
+      {onOpenCalendarPicker && (
+        <Pressable
+          onPress={onOpenCalendarPicker}
+          style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Vælg kalendere"
+        >
+          <CalendarRange size={16} color={colors.ink} strokeWidth={1.75} />
+        </Pressable>
+      )}
       {onOpenArchive && (
         <Pressable
           onPress={onOpenArchive}
