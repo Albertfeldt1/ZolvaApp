@@ -21,6 +21,13 @@ import {
 import { useIcloudConnected } from '../lib/hooks';
 import { colors, fonts } from '../theme';
 
+// When the calendarList endpoint returns 403 it almost always means the
+// user authorized Google before we added calendar.calendarlist.readonly to
+// the scope list — the only fix is a full re-OAuth, not a refresh.
+function isScopeError(state: ProviderState): boolean {
+  return state.kind === 'error' && /\b403\b/.test(state.message);
+}
+
 type Props = {
   visible: boolean;
   onClose: () => void;
@@ -47,7 +54,7 @@ type ProviderState =
 // Google doesn't collapse with iCloud's empty list into a misleading
 // "no calendars found" — the user needs to know which provider broke.
 export function CalendarPickerSheet({ visible, onClose }: Props) {
-  const { user, googleAccessToken, microsoftAccessToken } = useAuth();
+  const { user, googleAccessToken, microsoftAccessToken, signInWithGoogle, signInWithMicrosoft } = useAuth();
   const userId = user?.id ?? '';
   const icloudConnected = useIcloudConnected(userId);
   const { visibility, setHidden } = useCalendarVisibility(userId);
@@ -128,12 +135,14 @@ export function CalendarPickerSheet({ visible, onClose }: Props) {
             state={google}
             visibility={visibility.google ?? []}
             onToggle={(id, hidden) => setHidden('google', id, hidden)}
+            onReauthorize={isScopeError(google) ? () => { void signInWithGoogle(); } : undefined}
           />
           <ProviderSection
             label="Outlook"
             state={microsoft}
             visibility={visibility.microsoft ?? []}
             onToggle={(id, hidden) => setHidden('microsoft', id, hidden)}
+            onReauthorize={isScopeError(microsoft) ? () => { void signInWithMicrosoft(); } : undefined}
           />
           <ProviderSection
             label="iCloud"
@@ -152,11 +161,13 @@ function ProviderSection({
   state,
   visibility,
   onToggle,
+  onReauthorize,
 }: {
   label: string;
   state: ProviderState;
   visibility: string[];
   onToggle: (calendarId: string, hidden: boolean) => Promise<void>;
+  onReauthorize?: () => void;
 }) {
   if (state.kind === 'idle') return null;
 
@@ -167,7 +178,18 @@ function ProviderSection({
         <View style={styles.center}><ActivityIndicator color={colors.fg3} /></View>
       )}
       {state.kind === 'error' && (
-        <Text style={styles.error}>Kunne ikke hente {label}: {state.message}</Text>
+        <View style={styles.errorBlock}>
+          <Text style={styles.error}>
+            {onReauthorize
+              ? `${label} mangler tilladelse til at vise kalenderlisten. Genaktivér forbindelsen.`
+              : `Kunne ikke hente ${label}: ${state.message}`}
+          </Text>
+          {onReauthorize && (
+            <Pressable onPress={onReauthorize} style={styles.errorCta} accessibilityRole="button">
+              <Text style={styles.errorCtaText}>Genaktivér {label}</Text>
+            </Pressable>
+          )}
+        </View>
       )}
       {state.kind === 'ok' && state.calendars.length === 0 && (
         <Text style={styles.empty}>Ingen kalendere fundet i {label}.</Text>
@@ -215,6 +237,20 @@ const styles = StyleSheet.create({
   body: { padding: 20, gap: 24, paddingBottom: 40 },
   center: { paddingVertical: 24, alignItems: 'center' },
   error: { fontFamily: fonts.ui, fontSize: 13, lineHeight: 18, color: colors.warningInk },
+  errorBlock: {
+    gap: 10,
+    padding: 12,
+    backgroundColor: colors.warningSoft,
+    borderRadius: 10,
+  },
+  errorCta: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: colors.ink,
+  },
+  errorCtaText: { fontFamily: fonts.uiSemi, fontSize: 13, color: colors.paper },
   empty: { fontFamily: fonts.ui, fontSize: 14, color: colors.fg3 },
   group: { gap: 8 },
   groupHeading: {
