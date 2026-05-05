@@ -1,5 +1,6 @@
 import React from 'react';
-import { Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Animated, { SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { colors, fonts } from '../theme';
 
 // Bump this when a release ships notable user-visible changes worth a
@@ -12,9 +13,16 @@ type Props = {
   onClose: () => void;
 };
 
+// Animated.View overlay (not <Modal>) — see MemoryConsentModal.tsx for the
+// rationale; same iOS modal-stacking conflict applies here.
 export function WhatsNewModal({ visible, onClose }: Props) {
+  if (!visible) return null;
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Animated.View
+      style={styles.absoluteFill}
+      entering={SlideInDown.duration(320)}
+      exiting={SlideOutDown.duration(260)}
+    >
       <SafeAreaView style={styles.root}>
         <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
           <Text style={styles.eyebrow}>Nyt</Text>
@@ -50,11 +58,12 @@ export function WhatsNewModal({ visible, onClose }: Props) {
           </Pressable>
         </View>
       </SafeAreaView>
-    </Modal>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
+  absoluteFill: { ...StyleSheet.absoluteFillObject, zIndex: 100 },
   root: { flex: 1, backgroundColor: colors.paper },
   body: { padding: 24, gap: 14 },
   eyebrow: {

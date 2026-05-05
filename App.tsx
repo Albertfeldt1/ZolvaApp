@@ -73,6 +73,12 @@ import { writeSnapshotFromSources } from './src/lib/widget-bridge';
 // cold launch, skip on resume from background".
 let introShownThisSession = false;
 
+// Bumped on every fix iteration so we can verify in Metro which bundle
+// the device is actually running. Logged once at module eval (cold-start
+// or JS reload), so the most recent line tells us the live commit.
+const APP_BOOT_TAG = 'modal-fix-overlay-v1';
+console.log(`[BOOT] ${APP_BOOT_TAG}`);
+
 export default function App() {
   const [fraunces] = useFraunces({
     Fraunces_500Medium,
