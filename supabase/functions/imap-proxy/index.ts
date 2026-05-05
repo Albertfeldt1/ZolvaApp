@@ -320,8 +320,6 @@ function mapImapError(caughtErr: unknown): Response {
     return err('network', 503);
   }
 
-  // Capture as much context as ImapFlow exposes so the next 'protocol' error
-  // is diagnosable from the function logs without repro on the client.
   const errObj = caughtErr as {
     name?: string;
     code?: string;
@@ -330,6 +328,24 @@ function mapImapError(caughtErr: unknown): Response {
     responseStatus?: string;
     authenticationFailed?: boolean;
   } | null;
+
+  // imapflow's `ClosedAfterConnectTLS` / `ClosedAfterConnect` codes — TCP+TLS
+  // handshake completed, then the server (Apple) closed the socket before
+  // sending the IMAP greeting. We've seen this when Apple's anti-abuse system
+  // throttles connections from Supabase's edge egress IPs. Functionally
+  // equivalent to a transient unavailable from Apple's side, not a protocol
+  // bug — surface it so the client banner reads "iCloud svarer ikke" instead
+  // of a generic protocol error.
+  if (
+    errObj?.code === 'ClosedAfterConnectTLS' ||
+    errObj?.code === 'ClosedAfterConnect' ||
+    /ClosedAfterConnect/i.test(msg)
+  ) {
+    return err('temporarily-unavailable', 503);
+  }
+
+  // Capture as much context as ImapFlow exposes so the next 'protocol' error
+  // is diagnosable from the function logs without repro on the client.
   const ctx = JSON.stringify({
     msg,
     name: errObj?.name,
