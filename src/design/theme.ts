@@ -65,8 +65,24 @@ export const typeScale = {
   eyebrow:   { fontSize: 10.5, lineHeight: 14, letterSpacing: 1.2, fontFamily: fontFamilies.mono, textTransform: 'uppercase' as const },
 } as const;
 
-export const spacing = { xs: 4, sm: 8, md: 12, lg: 18, xl: 24, xxl: 32, screenPad: 18 } as const;
-export const radius  = { sharp: 6, soft: 18, pill: 9999, card: 24, cardSm: 14 } as const;
+export const spacing = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 18,
+  xl: 24,
+  xxl: 32,
+  // Semantic
+  screenPad: 18,
+  cardPad: 14,
+  heroPad: 22,
+  statusBarFallback: 56,
+  tabBarLift: 18,
+  tabBarSideMargin: 48,
+  fabSideMargin: 48,
+} as const;
+
+export const radius = { sharp: 6, soft: 18, pill: 9999, card: 24, cardSm: 14 } as const;
 
 export const stoneTokens = {
   body: '#6B8770',
@@ -76,3 +92,99 @@ export const stoneTokens = {
   face: '#1a221d',
   shadowCast: 'rgba(60,90,70,0.35)',
 } as const;
+
+// Hero stat card — pulled out so consumers don't carry literals.
+export const heroStat = {
+  bigSize: 64,
+  bigLineHeight: 60,
+  bigLetterSpacing: -3,
+  midSize: 28,
+  midLetterSpacing: -1,
+  ribbonHeight: 8,
+} as const;
+
+// BlurView intensities — direction G is light, intensities map well across iOS;
+// Android uses lower values everywhere because the native blur is weaker.
+export const blur = {
+  card: 45,
+  hero: 50,
+  haloField: 80,
+  tabBarIos: 70,
+  tabBarAndroid: 60,
+  pill: 14,
+} as const;
+
+// Reusable shadow presets. RN consumes these via spread on a View's style.
+export type ShadowPreset = {
+  shadowColor: string;
+  shadowOffset: { width: number; height: number };
+  shadowOpacity: number;
+  shadowRadius: number;
+  elevation: number;
+};
+
+export const shadows: Record<'softCard' | 'elevated' | 'fab' | 'tabBar' | 'stoneCast', ShadowPreset> = {
+  softCard:  { shadowColor: '#0F1014', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.06, shadowRadius: 16, elevation: 2 },
+  elevated:  { shadowColor: '#0F1014', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.10, shadowRadius: 24, elevation: 6 },
+  fab:       { shadowColor: '#000000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.18, shadowRadius: 24, elevation: 8 },
+  tabBar:    { shadowColor: '#000000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.10, shadowRadius: 24, elevation: 6 },
+  stoneCast: { shadowColor: '#5C7355', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.35, shadowRadius: 12, elevation: 6 },
+};
+
+// Surface overlays — direction-aware. Glass overlays sit above the BlurView
+// to give the frosted look its tint and saturation; the dark variants flip
+// the ratios for Twilight (E).
+export type SurfaceTokens = {
+  glass: string;
+  glassStrong: string;
+  glassWeak: string;
+  glassRim: string;
+  glassAndroidFallback: string;
+  glassDark: string;
+  scrim: string;
+  fab: string;
+  fabText: string;
+  iconButton: string;
+  tabBar: string;
+  tabActive: string;
+  warningTint: string;
+  ribbonTrack: string;
+};
+
+const SURFACES_LIGHT: SurfaceTokens = {
+  glass:                'rgba(255,255,255,0.65)',
+  glassStrong:          'rgba(255,255,255,0.55)',
+  glassWeak:            'rgba(255,255,255,0.7)',
+  glassRim:             'rgba(255,255,255,0.8)',
+  glassAndroidFallback: 'rgba(255,255,255,0.85)',
+  glassDark:            'rgba(15,16,20,0.78)',
+  scrim:                'rgba(15,16,20,0.05)',
+  fab:                  'rgba(21,23,26,0.78)',
+  fabText:              '#FFFFFF',
+  iconButton:           'rgba(21,23,26,0.05)',
+  tabBar:               'rgba(255,255,255,0.55)',
+  tabActive:            'rgba(255,255,255,0.9)',
+  warningTint:          'rgba(255,193,127,0.55)',
+  ribbonTrack:          'rgba(15,16,20,0.05)',
+};
+
+const SURFACES_DARK: SurfaceTokens = {
+  glass:                'rgba(27,32,48,0.65)',
+  glassStrong:          'rgba(27,32,48,0.55)',
+  glassWeak:            'rgba(27,32,48,0.7)',
+  glassRim:             'rgba(255,255,255,0.10)',
+  glassAndroidFallback: 'rgba(27,32,48,0.85)',
+  glassDark:            'rgba(0,0,0,0.55)',
+  scrim:                'rgba(255,255,255,0.05)',
+  fab:                  'rgba(242,239,232,0.92)',
+  fabText:              '#0E1117',
+  iconButton:           'rgba(255,255,255,0.10)',
+  tabBar:               'rgba(27,32,48,0.65)',
+  tabActive:            'rgba(255,255,255,0.12)',
+  warningTint:          'rgba(255,193,127,0.45)',
+  ribbonTrack:          'rgba(255,255,255,0.08)',
+};
+
+export function getSurfaces(t: DirectionTokens): SurfaceTokens {
+  return t.mode === 'dark' ? SURFACES_DARK : SURFACES_LIGHT;
+}
