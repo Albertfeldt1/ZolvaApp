@@ -23,6 +23,11 @@ import { fetchGmailCandidates } from '../_shared/backfill-providers/gmail.ts';
 import { fetchGraphCandidates } from '../_shared/backfill-providers/microsoft.ts';
 import { fetchGoogleRecurring } from '../_shared/backfill-providers/google-calendar.ts';
 import { fetchGraphRecurring } from '../_shared/backfill-providers/microsoft-calendar.ts';
+import { fetchIcloudCandidates } from '../_shared/backfill-providers/icloud.ts';
+import { userHasIcloudCreds } from '../_shared/icloud-calendar.ts';
+
+type MailProvider = 'google' | 'microsoft' | 'icloud';
+type CalProvider = 'google' | 'microsoft';
 
 const MAIL_SYSTEM = `Du analyserer en samling emails for at finde få vedvarende fakta om brugeren — ikke om emails.
 
@@ -135,12 +140,17 @@ serve(async (req) => {
     return json({ job_ids: existingJobs.map((j) => j.id), idempotent: true });
   }
 
-  // Determine which providers the user has connected.
-  const providers: Array<{ provider: 'google' | 'microsoft'; kind: 'mail' | 'calendar' }> = [];
+  // Determine which providers the user has connected. Mail accepts iCloud
+  // (IMAP via stored app-specific password); calendar iCloud is handled by
+  // daily-brief, not the backfill, so we don't queue an iCloud calendar job.
+  const providers: Array<{ provider: MailProvider; kind: 'mail' | 'calendar' }> = [];
   for (const kind of kinds) {
     for (const provider of ['google', 'microsoft'] as const) {
       const refresh = await loadRefreshToken(service, userId, provider);
       if (refresh) providers.push({ provider, kind });
+    }
+    if (kind === 'mail' && (await userHasIcloudCreds(service, userId))) {
+      providers.push({ provider: 'icloud', kind: 'mail' });
     }
   }
 
@@ -242,7 +252,7 @@ serve(async (req) => {
   return json({ job_ids: jobs.map((j) => j.id) });
 });
 
-type Job = { id: string; kind: 'mail' | 'calendar'; provider: 'google' | 'microsoft' };
+type Job = { id: string; kind: 'mail' | 'calendar'; provider: MailProvider };
 
 async function runJob(
   service: SupabaseClient,
@@ -252,6 +262,58 @@ async function runJob(
   anthropicKey: string,
 ): Promise<number> {
   try {
+    let factsThisJob = 0;
+    // Cross-batch anti-context. Texts of facts already extracted in this
+    // run get passed back to Claude as "do not repeat these" — stops
+    // semantic dupes (different wording, same theme) from piling up.
+    const priorFactTexts: string[] = [];
+
+    // iCloud uses IMAP with a stored app-specific password — no OAuth
+    // refresh path. Branch early so the Google/Microsoft token-refresh
+    // logic below stays untouched.
+    if (job.provider === 'icloud') {
+      if (job.kind !== 'mail') {
+        await finishJob(service, job.id, 'failed', 'icloud calendar not in backfill');
+        return 0;
+      }
+      const encryptionKey = Deno.env.get('ICLOUD_CREDS_ENCRYPTION_KEY');
+      if (!encryptionKey) {
+        await finishJob(service, job.id, 'failed', 'ICLOUD_CREDS_ENCRYPTION_KEY missing');
+        return 0;
+      }
+      let candidates;
+      try {
+        candidates = await fetchIcloudCandidates(service, userId, encryptionKey, userOwnEmail);
+      } catch (err) {
+        await finishJob(service, job.id, 'failed', `icloud fetch: ${err instanceof Error ? err.message : String(err)}`);
+        return 0;
+      }
+      await setJobRunning(service, job.id, candidates.length);
+
+      const BATCH = 10;
+      let processed = 0;
+      for (let i = 0; i < candidates.length; i += BATCH) {
+        if (await isCancelled(service, job.id)) {
+          await finishJob(service, job.id, 'cancelled');
+          return factsThisJob;
+        }
+        const slice = candidates.slice(i, i + BATCH);
+        const userPayload = slice
+          .map((c, idx) => `Email ${idx + 1}:
+Fra: ${c.from}
+Emne: ${c.subject}
+Uddrag: ${c.snippet}`)
+          .join('\n\n');
+        const facts = await callClaudeBatch(anthropicKey, MAIL_SYSTEM, userPayload, priorFactTexts);
+        for (const f of facts) priorFactTexts.push(f.text);
+        factsThisJob += await insertPendingFacts(service, userId, facts, `backfill:${job.provider}:mail`);
+        processed += slice.length;
+        await bumpJobProgress(service, job.id, processed);
+      }
+      await finishJob(service, job.id, 'done');
+      return factsThisJob;
+    }
+
     const refresh = await loadRefreshToken(service, userId, job.provider);
     if (!refresh) {
       await finishJob(service, job.id, 'failed', 'no refresh token');
@@ -270,12 +332,6 @@ async function runJob(
       await finishJob(service, job.id, 'failed', `token refresh: ${err instanceof Error ? err.message : String(err)}`);
       return 0;
     }
-
-    let factsThisJob = 0;
-    // Cross-batch anti-context. Texts of facts already extracted in this
-    // run get passed back to Claude as "do not repeat these" — stops
-    // semantic dupes (different wording, same theme) from piling up.
-    const priorFactTexts: string[] = [];
 
     if (job.kind === 'mail') {
       const candidates = job.provider === 'google'
