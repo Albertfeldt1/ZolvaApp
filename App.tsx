@@ -125,12 +125,19 @@ export default function App() {
   // TodayScreen opens the brief modal on each change.
   const [briefOpenTrigger, setBriefOpenTrigger] = useState(0);
 
+  // Tracks "we've decided whether the consent modal needs to show". The
+  // WhatsNew gate below blocks until this is true so we never present
+  // WhatsNew before the consent path is committed — iOS rejects two
+  // simultaneous Modal presentations and leaves a phantom modal that eats
+  // every touch on the screen behind it (manifests as a 'stale' screen).
+  const [consentResolved, setConsentResolved] = useState(false);
   useEffect(() => {
     if (!user?.id) return;
     let cancelled = false;
     void shouldShowMemoryConsent(user.id).then((show) => {
-      if (cancelled || !show) return;
-      setMemoryConsentOpen(true);
+      if (cancelled) return;
+      if (show) setMemoryConsentOpen(true);
+      setConsentResolved(true);
     });
     return () => { cancelled = true; };
   }, [user?.id]);
@@ -171,18 +178,21 @@ export default function App() {
     return () => { cancelled = true; };
   }, [memoryEnabled, user?.id, googleAccessToken, microsoftAccessToken]);
 
-  // What's-new modal: one-shot per user per WHATS_NEW_VERSION. Don't compete
-  // with the memory-consent modal — defer until that has been seen.
+  // What's-new modal: one-shot per user per WHATS_NEW_VERSION. Defer until
+  // (a) the consent check has resolved, (b) the consent modal isn't open,
+  // and (c) the onboarding-backfill chain isn't open. iOS only allows one
+  // Modal transition at a time — racing presents leave a phantom Modal
+  // that intercepts touches on the screen behind it.
   useEffect(() => {
     const uid = user?.id;
-    if (!uid || isDemoUser(user) || memoryConsentOpen) return;
+    if (!uid || isDemoUser(user) || !consentResolved || memoryConsentOpen || onboardingOpen) return;
     let cancelled = false;
     void shouldShowWhatsNew(uid, WHATS_NEW_VERSION).then((show) => {
       if (cancelled || !show) return;
       setWhatsNewOpen(true);
     });
     return () => { cancelled = true; };
-  }, [user?.id, user, memoryConsentOpen]);
+  }, [user?.id, user, consentResolved, memoryConsentOpen, onboardingOpen]);
 
   // One-shot Microsoft reconnect nudge — old tokens carry Calendars.Read,
   // new code requires Calendars.ReadWrite for chatbot/voice calendar writes.
