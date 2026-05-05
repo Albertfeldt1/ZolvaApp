@@ -20,7 +20,12 @@ import { loadIcloudCreds } from '../icloud-creds.ts';
 const IMAP_HOST = 'imap.mail.me.com';
 const IMAP_PORT = 993;
 const CONNECT_TIMEOUT_MS = 5_000;
-const COMMAND_TIMEOUT_MS = 10_000;
+// 30s, not 10s. The backfill fetches up to 100 messages WITH body parts in
+// a single IMAP transaction — over Supabase's edge → me.com path that
+// regularly exceeds 10s of wall time, especially when iCloud throttles or a
+// single message body is multi-MB. imap-proxy gets away with 10s because it
+// fetches ≤50 messages on the live-inbox path.
+const COMMAND_TIMEOUT_MS = 30_000;
 
 let _ImapFlowCtor: typeof ImapFlow | null = null;
 async function getImapFlow(): Promise<typeof ImapFlow> {
@@ -35,7 +40,11 @@ export async function fetchIcloudCandidates(
   userId: string,
   encryptionKey: string,
   userOwnEmail: string,
-  maxFetch = 200,
+  // 100, not 200. iCloud IMAP over the Supabase edge path can't reliably
+  // stream 200 message bodies inside the socket-timeout window; 100 keeps
+  // the fetch under wall-time limits while still feeding ample candidates
+  // to the downstream filter (which keeps 50 after isAutomatedSender).
+  maxFetch = 100,
   keep = 50,
 ): Promise<CandidateMessage[]> {
   const creds = await loadIcloudCreds(client, userId, encryptionKey);

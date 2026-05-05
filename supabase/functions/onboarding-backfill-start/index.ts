@@ -182,12 +182,31 @@ serve(async (req) => {
   }
 
   // Idempotency: if any backfill_jobs row exists for this user, just return.
+  // Exception: a worker that crashed (e.g. an imapflow socketTimeout that
+  // escapes the active fetch's promise chain) leaves jobs stuck in
+  // queued/running. The unique (user_id, kind, provider) index then blocks
+  // any new attempt without force=true and the user has no recovery path
+  // short of waiting for a manual cleanup. Auto-clear non-terminal rows
+  // older than 5 minutes and proceed as fresh.
   const { data: existingJobs } = await service
     .from('backfill_jobs')
-    .select('id, status')
+    .select('id, status, updated_at, created_at')
     .eq('user_id', userId);
   if (existingJobs && existingJobs.length > 0) {
-    return json({ job_ids: existingJobs.map((j) => j.id), idempotent: true });
+    const STALE_MS = 5 * 60 * 1000;
+    const now = Date.now();
+    const isTerminal = (s: string) => s === 'done' || s === 'failed' || s === 'cancelled';
+    const isStaleNonTerminal = (j: { status: string; updated_at: string | null; created_at: string }) =>
+      !isTerminal(j.status) &&
+      now - new Date(j.updated_at ?? j.created_at).getTime() > STALE_MS;
+    const everyStaleOrTerminal = existingJobs.every((j) => isTerminal(j.status) || isStaleNonTerminal(j));
+    const anyStaleNonTerminal = existingJobs.some(isStaleNonTerminal);
+    if (everyStaleOrTerminal && anyStaleNonTerminal) {
+      console.warn(`[backfill-start] auto-clearing stale jobs for ${userId} (${existingJobs.length} rows)`);
+      await service.from('backfill_jobs').delete().eq('user_id', userId);
+    } else {
+      return json({ job_ids: existingJobs.map((j) => j.id), idempotent: true });
+    }
   }
 
   // Determine which providers the user has connected. Mail accepts iCloud
