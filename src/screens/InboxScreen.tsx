@@ -1,4 +1,3 @@
-import { ChevronRight } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AppState,
@@ -14,18 +13,20 @@ import { useAuth } from '../lib/auth';
 import { loadCredential } from '../lib/icloud-credentials';
 import { ArchiveModal } from '../components/ArchiveModal';
 import { Avatar } from '../components/Avatar';
-import { CountUp } from '../components/CountUp';
 import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { SkeletonRow } from '../components/Skeleton';
-import { Stone } from '../components/Stone';
-import { TopRightActions } from '../components/TopRightActions';
 import { formatClock, formatToday } from '../lib/date';
 import { refreshMailNow, useHasProvider, useInboxWaiting } from '../lib/hooks';
 import type { MailProviderError } from '../lib/hooks';
 import type { InboxMail, MailProvider } from '../lib/types';
-import { colors, fonts } from '../theme';
 import { translateProviderError } from '../utils/danish';
+import { useTheme } from '../design/useTheme';
+import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
+import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
+import { TopBar } from '../design/primitives/TopBar';
+import { Icon as DesignIcon } from '../design/primitives/Icon';
+import { Stone } from '../design/primitives/Stone';
 
 const PROVIDER_LOGOS: Record<MailProvider, ReturnType<typeof require>> = {
   google: require('../../assets/logos/gmail.png'),
@@ -56,12 +57,13 @@ type Props = {
 
 export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOpenIcloudSetup, onOpenNotifications }: Props) {
   const today = useMemo(() => new Date(), []);
-  const date = useMemo(() => formatToday(today), [today]);
-  const clock = useMemo(() => formatClock(today), [today]);
   const { bottom: chromeBottom } = useChromeInsets();
 
   const { data: waiting, read, loading: waitingLoading, error: waitingError, providerErrors } = useInboxWaiting();
   const hasProvider = useHasProvider();
+
+  const theme = useTheme();
+  const { t, type, fonts, radius, spacing, surface } = theme;
 
   // Soft per-provider failures — when iCloud throws but Gmail succeeds (or
   // vice versa), `waitingError` stays null because the global "all failed"
@@ -124,8 +126,6 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
     return () => onOverDarkChange?.(false);
   }, [onOverDarkChange]);
 
-  const openArchive = () => setArchiveOpen(true);
-
   // Pull-to-refresh: latch on the user gesture, hold the spinner until the
   // backing fetch settles (waitingLoading flips back to false), then release.
   // Avoids a fixed timeout that could snap closed mid-fetch on slow networks.
@@ -139,94 +139,98 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
   }, [pullActive, waitingLoading]);
 
   return (
-    <View style={styles.flex}>
+    <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
+      <GlassHaloLayer />
+
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom + 96 }]}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: chromeBottom + 96 }}
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="never"
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={pullActive}
             onRefresh={onRefresh}
-            tintColor={colors.fg3}
+            tintColor={t.ink3}
           />
         }
       >
-        <View style={styles.hero}>
-          <View style={styles.heroTopRow}>
-            <Text style={styles.eyebrow}>{`Indbakke · ${date.weekdayShort} ${clock}`}</Text>
-            <TopRightActions
-              onOpenNotifications={onOpenNotifications}
-              onOpenSettings={onGoToSettings}
-              onOpenArchive={openArchive}
-            />
-          </View>
-          <Text style={styles.heroH1}>Indbakke</Text>
+        {/* TopBar */}
+        <TopBar
+          eyebrow="INDBAKKE"
+          onBell={onOpenNotifications}
+          onGear={onGoToSettings}
+        />
 
-          <View style={styles.statsRow}>
-            <View>
-              <CountUp to={waiting.length} style={styles.statBig} />
-              <Text style={styles.statLabel}>Venter på dig</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View>
-              <CountUp to={read.length} style={styles.statMid} />
-              <Text style={styles.statLabel}>Læst</Text>
-            </View>
-          </View>
+        {/* Hero text block */}
+        <View style={{ paddingHorizontal: spacing.heroPad, paddingTop: spacing.cardPad, paddingBottom: spacing.lg }}>
+          <Text style={{ ...type.displayXL, color: t.ink }}>
+            {`${waiting.length} venter\npå dig.`}
+          </Text>
+          {(waiting.length + read.length) > 0 && (
+            <Text style={{ ...type.body, color: t.ink2, marginTop: spacing.md - 2 }}>
+              {`${waiting.length + read.length} mails i alt. Jeg har sorteret dem efter, hvad der haster.`}
+            </Text>
+          )}
         </View>
 
+        {/* Banners */}
         {icloudExpired && (
-          <Pressable
-            style={styles.expiredBanner}
-            onPress={() => onOpenIcloudSetup?.(icloudExpiredEmail ?? undefined)}
-            accessibilityRole="button"
-          >
-            <Text style={styles.expiredBannerText}>
-              Apple afviste adgangskoden — iCloud-mails vises ikke. Tryk for at genindtaste.
-            </Text>
-          </Pressable>
+          <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
+            <Pressable onPress={() => onOpenIcloudSetup?.(icloudExpiredEmail ?? undefined)} accessibilityRole="button">
+              <GlassFrostedCard overlay={surface.warningTint} style={{ padding: spacing.cardPad }}>
+                <Text style={{ ...type.bodySm, color: t.ink, fontWeight: '600' }}>
+                  Apple afviste adgangskoden — iCloud-mails vises ikke. Tryk for at genindtaste.
+                </Text>
+              </GlassFrostedCard>
+            </Pressable>
+          </View>
         )}
 
         {needsMicrosoftReauth && (
-          <Pressable
-            style={styles.expiredBanner}
-            onPress={() => { void signInWithMicrosoft(); }}
-            accessibilityRole="button"
-          >
-            <Text style={styles.expiredBannerText}>
-              Microsoft-forbindelsen er udløbet — Outlook-mails vises ikke. Tryk for at logge ind igen.
-            </Text>
-          </Pressable>
+          <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
+            <Pressable onPress={() => { void signInWithMicrosoft(); }} accessibilityRole="button">
+              <GlassFrostedCard overlay={surface.warningTint} style={{ padding: spacing.cardPad }}>
+                <Text style={{ ...type.bodySm, color: t.ink, fontWeight: '600' }}>
+                  Microsoft-forbindelsen er udløbet — Outlook-mails vises ikke. Tryk for at logge ind igen.
+                </Text>
+              </GlassFrostedCard>
+            </Pressable>
+          </View>
         )}
 
         {needsGoogleReauth && (
-          <Pressable
-            style={styles.expiredBanner}
-            onPress={() => { void signInWithGoogle(); }}
-            accessibilityRole="button"
-          >
-            <Text style={styles.expiredBannerText}>
-              Google-forbindelsen er udløbet — Gmail vises ikke. Tryk for at logge ind igen.
-            </Text>
-          </Pressable>
+          <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
+            <Pressable onPress={() => { void signInWithGoogle(); }} accessibilityRole="button">
+              <GlassFrostedCard overlay={surface.warningTint} style={{ padding: spacing.cardPad }}>
+                <Text style={{ ...type.bodySm, color: t.ink, fontWeight: '600' }}>
+                  Google-forbindelsen er udløbet — Gmail vises ikke. Tryk for at logge ind igen.
+                </Text>
+              </GlassFrostedCard>
+            </Pressable>
+          </View>
         )}
 
         {softFailures.map((e) => (
-          <View key={e.provider} style={styles.softBanner}>
-            <Text style={styles.softBannerText}>{providerFailureCopy(e)}</Text>
+          <View key={e.provider} style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
+            <GlassFrostedCard overlay={surface.warningTint} style={{ padding: spacing.cardPad }}>
+              <Text style={{ ...type.bodySm, color: t.ink }}>
+                {providerFailureCopy(e)}
+              </Text>
+            </GlassFrostedCard>
           </View>
         ))}
 
-        <View style={styles.list}>
-          <View style={styles.sectionHead}>
-            <Text style={styles.sectionTitle}>Venter på dig</Text>
-            <Text style={styles.sectionMeta}>{waiting.length}</Text>
+        {/* "Venter på dig" section */}
+        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: spacing.xs, paddingBottom: spacing.sm }}>
+            <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>Venter på dig</Text>
+            <Text style={{ ...type.eyebrow, color: t.ink3 }}>{waiting.length}</Text>
           </View>
-          <View style={styles.inkRule} />
+
           {waiting.length === 0 ? (
             waitingLoading && hasProvider && !waitingError ? (
-              <View>
+              <View style={{ gap: spacing.sm }}>
                 <SkeletonRow />
                 <SkeletonRow />
                 <SkeletonRow />
@@ -279,86 +283,106 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
               />
             )
           ) : (
-            waiting.map((m, i) => (
-              <Pressable
-                key={m.id}
-                onPress={() => onOpenMail(m)}
-                style={({ pressed }) => [
-                  styles.row,
-                  i > 0 && styles.rowBorder,
-                  pressed && styles.rowPressed,
-                ]}
-              >
-                <View style={styles.avatarWrap}>
-                  <Avatar initials={m.initials} tone={m.tone} />
-                  {PROVIDER_LOGOS[m.provider] != null && (
-                    <View style={styles.providerBadge}>
-                      <Image
-                        source={PROVIDER_LOGOS[m.provider]}
-                        style={styles.providerLogo}
-                        resizeMode="contain"
-                      />
+            <View style={{ gap: spacing.sm }}>
+              {waiting.map((m) => (
+                <GlassFrostedCard key={m.id} style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}>
+                  <Pressable
+                    onPress={() => onOpenMail(m)}
+                    style={({ pressed }) => [{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' }, pressed && { opacity: 0.6 }]}
+                  >
+                    <View style={{ position: 'relative' }}>
+                      <Avatar initials={m.initials} tone={m.tone} />
+                      {PROVIDER_LOGOS[m.provider] != null && (
+                        <View style={{
+                          position: 'absolute',
+                          bottom: -2,
+                          right: -2,
+                          width: 16,
+                          height: 16,
+                          borderRadius: radius.pill,
+                          backgroundColor: t.paper,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}>
+                          <Image
+                            source={PROVIDER_LOGOS[m.provider]}
+                            style={{ width: 12, height: 12 }}
+                            resizeMode="contain"
+                          />
+                        </View>
+                      )}
                     </View>
-                  )}
-                </View>
-                <View style={styles.rowBody}>
-                  <View style={styles.rowTopLine}>
-                    <Text style={styles.sender} numberOfLines={1} ellipsizeMode="tail">{m.from}</Text>
-                    <Text style={styles.time} numberOfLines={1}>{m.time}</Text>
-                  </View>
-                  <Text style={styles.subject} numberOfLines={2}>{m.subject}</Text>
-                  {m.aiDraft && (
-                    <View style={styles.draft}>
-                      <Stone size={22} mood="thinking" />
-                      <Text style={styles.draftText}>{m.aiDraft}</Text>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
+                        <Text style={{ fontFamily: fonts.uiBold, fontSize: type.bodySm.fontSize, color: t.ink, flex: 0, flexShrink: 1 }} numberOfLines={1}>{m.from}</Text>
+                        <View style={{ flex: 1 }} />
+                        <Text style={{ ...type.eyebrow, color: t.ink3, textTransform: 'none' }}>{m.time}</Text>
+                      </View>
+                      <Text style={{ fontFamily: fonts.uiBold, fontSize: type.bodySm.fontSize, color: t.ink, marginTop: 2 }} numberOfLines={2}>{m.subject}</Text>
+                      {m.aiDraft && (
+                        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, alignItems: 'flex-start' }}>
+                          <Stone size={22} jumpOnTap={false} />
+                          <Text style={{ ...type.caption, color: t.ink3, flex: 1 }} numberOfLines={2}>{m.aiDraft}</Text>
+                        </View>
+                      )}
                     </View>
-                  )}
-                </View>
-                <ChevronRight size={18} color={colors.fg4} strokeWidth={1.75} />
-              </Pressable>
-            ))
+                    <DesignIcon.chev size={14} color={t.ink4} />
+                  </Pressable>
+                </GlassFrostedCard>
+              ))}
+            </View>
           )}
         </View>
 
+        {/* "Læst" section */}
         {read.length > 0 && (
-          <View style={styles.list}>
-            <View style={styles.sectionHead}>
-              <Text style={styles.sectionTitle}>Læst</Text>
-              <Text style={styles.sectionMeta}>{read.length}</Text>
+          <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: spacing.xs, paddingBottom: spacing.sm }}>
+              <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>Læst</Text>
+              <Text style={{ ...type.eyebrow, color: t.ink3 }}>{read.length}</Text>
             </View>
-            <View style={styles.inkRule} />
-            {read.map((m, i) => (
-              <Pressable
-                key={m.id}
-                onPress={() => onOpenMail(m)}
-                style={({ pressed }) => [
-                  styles.row,
-                  i > 0 && styles.rowBorder,
-                  pressed && styles.rowPressed,
-                ]}
-              >
-                <View style={[styles.avatarWrap, styles.readAvatarWrap]}>
-                  <Avatar initials={m.initials} tone={m.tone} />
-                  {PROVIDER_LOGOS[m.provider] != null && (
-                    <View style={styles.providerBadge}>
-                      <Image
-                        source={PROVIDER_LOGOS[m.provider]}
-                        style={styles.providerLogo}
-                        resizeMode="contain"
-                      />
+            <View style={{ gap: spacing.sm }}>
+              {read.map((m) => (
+                <GlassFrostedCard key={m.id} style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad, opacity: 0.75 }}>
+                  <Pressable
+                    onPress={() => onOpenMail(m)}
+                    style={({ pressed }) => [{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' }, pressed && { opacity: 0.6 }]}
+                  >
+                    <View style={{ position: 'relative', opacity: 0.7 }}>
+                      <Avatar initials={m.initials} tone={m.tone} />
+                      {PROVIDER_LOGOS[m.provider] != null && (
+                        <View style={{
+                          position: 'absolute',
+                          bottom: -2,
+                          right: -2,
+                          width: 16,
+                          height: 16,
+                          borderRadius: radius.pill,
+                          backgroundColor: t.paper,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}>
+                          <Image
+                            source={PROVIDER_LOGOS[m.provider]}
+                            style={{ width: 12, height: 12 }}
+                            resizeMode="contain"
+                          />
+                        </View>
+                      )}
                     </View>
-                  )}
-                </View>
-                <View style={styles.rowBody}>
-                  <View style={styles.rowTopLine}>
-                    <Text style={[styles.sender, styles.senderRead]} numberOfLines={1} ellipsizeMode="tail">{m.from}</Text>
-                    <Text style={styles.time} numberOfLines={1}>{m.time}</Text>
-                  </View>
-                  <Text style={[styles.subject, styles.subjectRead]} numberOfLines={2}>{m.subject}</Text>
-                </View>
-                <ChevronRight size={18} color={colors.fg4} strokeWidth={1.75} />
-              </Pressable>
-            ))}
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
+                        <Text style={{ fontFamily: fonts.ui, fontSize: type.bodySm.fontSize, color: t.ink2, flex: 0, flexShrink: 1 }} numberOfLines={1}>{m.from}</Text>
+                        <View style={{ flex: 1 }} />
+                        <Text style={{ ...type.eyebrow, color: t.ink3, textTransform: 'none' }}>{m.time}</Text>
+                      </View>
+                      <Text style={{ fontFamily: fonts.ui, fontSize: type.bodySm.fontSize, color: t.ink3, marginTop: 2 }} numberOfLines={2}>{m.subject}</Text>
+                    </View>
+                    <DesignIcon.chev size={14} color={t.ink4} />
+                  </Pressable>
+                </GlassFrostedCard>
+              ))}
+            </View>
           </View>
         )}
       </ScrollView>
@@ -372,101 +396,5 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.paper },
-  scroll: { flexGrow: 1, backgroundColor: colors.paper },
-
-  hero: {
-    backgroundColor: colors.sageSoft,
-    paddingTop: 56,
-    paddingBottom: 22,
-    paddingHorizontal: 20,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
-  },
-  heroTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  eyebrow: {
-    fontFamily: fonts.mono, fontSize: 11, letterSpacing: 0.88,
-    textTransform: 'uppercase', color: colors.sageDeep,
-  },
-  heroH1: {
-    marginTop: 12,
-    fontFamily: fonts.displayItalic,
-    fontSize: 36,
-    lineHeight: 40,
-    letterSpacing: -1.08,
-    color: colors.ink,
-  },
-  statsRow: { marginTop: 16, flexDirection: 'row', alignItems: 'flex-end', gap: 18 },
-  statBig: {
-    fontFamily: fonts.display, fontSize: 64, letterSpacing: -3.2, lineHeight: 68, color: colors.ink,
-  },
-  statMid: {
-    fontFamily: fonts.display, fontSize: 36, letterSpacing: -1.08, lineHeight: 40, color: colors.ink,
-  },
-  statLabel: {
-    marginTop: 4, fontFamily: fonts.uiSemi, fontSize: 11,
-    letterSpacing: 0.88, textTransform: 'uppercase', color: colors.fg3,
-  },
-  statDivider: {
-    width: StyleSheet.hairlineWidth, alignSelf: 'stretch',
-    backgroundColor: colors.line, marginBottom: 6,
-  },
-
-  expiredBanner: {
-    marginHorizontal: 20, marginTop: 12,
-    backgroundColor: colors.warningSoft, padding: 12, borderRadius: 8,
-  },
-  expiredBannerText: {
-    fontFamily: fonts.ui, fontSize: 13, lineHeight: 19, color: colors.warningInk,
-  },
-  softBanner: {
-    marginHorizontal: 20, marginTop: 8,
-    backgroundColor: colors.line, padding: 10, borderRadius: 8,
-  },
-  softBannerText: {
-    fontFamily: fonts.ui, fontSize: 12.5, lineHeight: 18, color: colors.fg2,
-  },
-
-  list: { paddingHorizontal: 20, paddingTop: 28 },
-  sectionHead: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'baseline', marginBottom: 4,
-  },
-  sectionTitle: { fontFamily: fonts.display, fontSize: 22, letterSpacing: -0.44, color: colors.ink },
-  sectionMeta: { fontFamily: fonts.mono, fontSize: 11, color: colors.fg3 },
-  inkRule: { height: 1, backgroundColor: colors.ink, marginBottom: 2 },
-  row: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', paddingVertical: 14 },
-  avatarWrap: { position: 'relative' },
-  providerBadge: {
-    position: 'absolute',
-    right: -2,
-    bottom: -2,
-    width: 16,
-    height: 16,
-    borderRadius: 999,
-    backgroundColor: colors.paper,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.line,
-  },
-  providerLogo: { width: 11, height: 11 },
-  rowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-  rowPressed: { opacity: 0.6 },
-  rowBody: { flex: 1, minWidth: 0 },
-  rowTopLine: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 },
-  // flexShrink lets a long sender ellipsize instead of pushing the time
-  // element off the right edge into the chevron.
-  sender: { flexShrink: 1, fontFamily: fonts.uiSemi, fontSize: 14, color: colors.ink },
-  // Read rows visually dim the sender + subject so the eye still parses
-  // "venter" rows as the active set, even when read mails are below.
-  senderRead: { fontFamily: fonts.ui, color: colors.fg2 },
-  subjectRead: { color: colors.fg3 },
-  readAvatarWrap: { opacity: 0.7 },
-  time: { flexShrink: 0, fontFamily: fonts.mono, fontSize: 11, color: colors.fg3 },
-  subject: { marginTop: 2, fontFamily: fonts.ui, fontSize: 13.5, color: colors.ink },
-  draft: { marginTop: 8, flexDirection: 'row', gap: 8, alignItems: 'center' },
-  draftText: { flex: 1, fontFamily: 'Inter_500Medium_Italic', fontSize: 12.5, color: colors.fg2 },
-
-});
+// Keep a minimal StyleSheet for any remaining style references
+const styles = StyleSheet.create({});
