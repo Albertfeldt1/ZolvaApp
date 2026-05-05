@@ -24,6 +24,7 @@ import { fetchGraphCandidates } from '../_shared/backfill-providers/microsoft.ts
 import { fetchGoogleRecurring } from '../_shared/backfill-providers/google-calendar.ts';
 import { fetchGraphRecurring } from '../_shared/backfill-providers/microsoft-calendar.ts';
 import { fetchIcloudCandidates } from '../_shared/backfill-providers/icloud.ts';
+import { fetchDriveCandidates } from '../_shared/backfill-providers/google-drive.ts';
 
 // Mail-side iCloud connectedness: presence of an icloud_credential_bindings
 // row, written by imap-proxy on first successful IMAP call. We deliberately
@@ -48,6 +49,7 @@ async function userHasIcloudMailBinding(
 
 type MailProvider = 'google' | 'microsoft' | 'icloud';
 type CalProvider = 'google' | 'microsoft';
+type Kind = 'mail' | 'calendar' | 'drive';
 
 const MAIL_SYSTEM = `Du analyserer en samling emails for at finde få vedvarende fakta om brugeren — ikke om emails.
 
@@ -98,6 +100,34 @@ REGLER:
 Output (kun det her):
 [{"text": "...", "category": "relationship|role|preference|project|commitment", "confidence": 0.0-1.0, "referentDate": null}]`;
 
+const DRIVE_SYSTEM = `Du analyserer metadata om brugerens nyligt redigerede Google Drive-filer (titel, type, samarbejdere, ejer) og finder få vedvarende fakta om brugeren — ikke om dokumenter.
+
+VIGTIGT: Du har KUN metadata — ikke dokumentindhold. Drag konklusioner ud fra titler og samarbejdsmønstre, ikke ud fra hvad du formoder dokumentet siger.
+
+REGLER:
+
+1. Konsolidér på tværs af alle filer. Flere filer der peger på samme projekt eller samme person → ÉT fakta. Den endelige liste skal være distinkt.
+
+2. Højst 3 fakta pr. svar. Vælg de stærkeste signaler. Hellere færre, præcise fakta.
+
+3. Kategori (vælg én):
+   - relationship: en navngiven samarbejdspartner der optræder på flere filer (kollega, kunde, partner).
+   - role: brugerens rolle eller funktion ("arbejder på flere finansrapporter").
+   - preference: brugerens vane eller værktøj ("foretrækker Sheets til budgetarbejde").
+   - project: et navngivent initiativ udledt af filtitler ("Q2-budget", "lancering af qixotic").
+
+4. Skriv på dansk, ÉN kort sætning. Eksempler:
+   "Maria er en hyppig samarbejdspartner på dine dokumenter."
+   "Du arbejder på Q2-budget."
+   "Du bruger primært Google Sheets til budgetarbejde."
+
+5. Ignorér enkeltstående filer uden gentagne mønstre. Ignorér generiske titler ("Untitled document", "Notes", "Test").
+
+6. Antag IKKE indhold. Hvis en titel er "Q2-budget", er det rimeligt at sige at brugeren arbejder på Q2-budget — men sig ikke noget om talene i det.
+
+Output (kun det her, intet andet, ingen markdown):
+[{"text": "...", "category": "relationship|role|preference|project|commitment", "confidence": 0.0-1.0, "referentDate": "YYYY-MM-DD" | null}]`;
+
 function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
     status,
@@ -128,12 +158,12 @@ serve(async (req) => {
   const userId = userData.user.id;
   const userOwnEmail = (userData.user.email ?? '').toLowerCase().trim();
 
-  let kinds: Array<'mail' | 'calendar'> = ['mail', 'calendar'];
+  let kinds: Array<Kind> = ['mail', 'calendar', 'drive'];
   let force = false;
   try {
     const body = await req.json() as { kinds?: unknown; force?: unknown };
     if (Array.isArray(body.kinds)) {
-      const filtered = body.kinds.filter((k): k is 'mail' | 'calendar' => k === 'mail' || k === 'calendar');
+      const filtered = body.kinds.filter((k): k is Kind => k === 'mail' || k === 'calendar' || k === 'drive');
       if (filtered.length > 0) kinds = Array.from(new Set(filtered));
     }
     if (body.force === true) force = true;
@@ -163,8 +193,14 @@ serve(async (req) => {
   // Determine which providers the user has connected. Mail accepts iCloud
   // (IMAP via stored app-specific password); calendar iCloud is handled by
   // daily-brief, not the backfill, so we don't queue an iCloud calendar job.
-  const providers: Array<{ provider: MailProvider; kind: 'mail' | 'calendar' }> = [];
+  // Drive is Google-only (Microsoft Graph drive integration not in scope).
+  const providers: Array<{ provider: MailProvider; kind: Kind }> = [];
   for (const kind of kinds) {
+    if (kind === 'drive') {
+      const refresh = await loadRefreshToken(service, userId, 'google');
+      if (refresh) providers.push({ provider: 'google', kind: 'drive' });
+      continue;
+    }
     for (const provider of ['google', 'microsoft'] as const) {
       const refresh = await loadRefreshToken(service, userId, provider);
       if (refresh) providers.push({ provider, kind });
@@ -272,7 +308,7 @@ serve(async (req) => {
   return json({ job_ids: jobs.map((j) => j.id) });
 });
 
-type Job = { id: string; kind: 'mail' | 'calendar'; provider: MailProvider };
+type Job = { id: string; kind: Kind; provider: MailProvider };
 
 async function runJob(
   service: SupabaseClient,
@@ -351,6 +387,40 @@ Uddrag: ${c.snippet}`)
     } catch (err) {
       await finishJob(service, job.id, 'failed', `token refresh: ${err instanceof Error ? err.message : String(err)}`);
       return 0;
+    }
+
+    if (job.kind === 'drive') {
+      // Drive is Google-only. Provider-detection above already filters,
+      // but defend against a misqueued row.
+      if (job.provider !== 'google') {
+        await finishJob(service, job.id, 'failed', `drive backfill not supported for ${job.provider}`);
+        return 0;
+      }
+      const candidates = await fetchDriveCandidates(accessToken, userOwnEmail);
+      await setJobRunning(service, job.id, candidates.length);
+
+      const BATCH = 10;
+      let processed = 0;
+      for (let i = 0; i < candidates.length; i += BATCH) {
+        if (await isCancelled(service, job.id)) {
+          await finishJob(service, job.id, 'cancelled');
+          return factsThisJob;
+        }
+        const slice = candidates.slice(i, i + BATCH);
+        const userPayload = slice
+          .map((c, idx) => `Fil ${idx + 1}:
+Type: ${c.from}
+Titel: ${c.subject}
+Metadata: ${c.snippet}`)
+          .join('\n\n');
+        const facts = await callClaudeBatch(anthropicKey, DRIVE_SYSTEM, userPayload, priorFactTexts);
+        for (const f of facts) priorFactTexts.push(f.text);
+        factsThisJob += await insertPendingFacts(service, userId, facts, `backfill:${job.provider}:drive`);
+        processed += slice.length;
+        await bumpJobProgress(service, job.id, processed);
+      }
+      await finishJob(service, job.id, 'done');
+      return factsThisJob;
     }
 
     if (job.kind === 'mail') {
