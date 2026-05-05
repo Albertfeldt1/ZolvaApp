@@ -235,7 +235,13 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
               </View>
             ) : hasProvider ? (
               (() => {
-                const err = waitingError ? translateProviderError(waitingError) : null;
+                // When per-provider banners are already showing the failure(s), the
+                // empty-state error just duplicates them — and is less specific. Suppress
+                // the error copy here and show a quieter "pull to refresh" hint instead.
+                const anyProviderBanner =
+                  icloudExpired || needsMicrosoftReauth || needsGoogleReauth || softFailures.length > 0;
+                const dedupErr = !!waitingError && anyProviderBanner;
+                const err = !dedupErr && waitingError ? translateProviderError(waitingError) : null;
                 const isAuth = err?.kind === 'auth';
                 return (
                   <EmptyState
@@ -245,13 +251,19 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
                         ? err.kind === 'network'
                           ? 'Ingen forbindelse'
                           : 'Kunne ikke hente indbakke'
-                        : 'Indbakken er tom'
+                        : dedupErr
+                          ? 'Træk ned for at prøve igen'
+                          : 'Indbakken er tom'
                     }
                     body={
                       // "Perfekt timing" replaces the Anglicism "God timing". Triggered when the
                       // inbox has zero waiting mails — the intent is "lucky moment that nothing's
                       // waiting", not "take a break". "Timing" is a naturalised loanword in Danish.
-                      err ? err.message : 'Intet venter på dig lige nu. Perfekt timing.'
+                      err
+                        ? err.message
+                        : dedupErr
+                          ? undefined
+                          : 'Intet venter på dig lige nu. Perfekt timing.'
                     }
                     ctaLabel={isAuth ? 'Gå til indstillinger' : undefined}
                     onCta={isAuth ? onGoToSettings : undefined}

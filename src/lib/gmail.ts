@@ -1,7 +1,27 @@
 // Minimal Gmail client. Lists inbox messages and fetches metadata only.
 
 import { ProviderAuthError, subscribeUserId, tryWithRefresh } from './auth';
-import { fetchWithTimeout } from './network-errors';
+import { fetchWithTimeout, NetworkTimeoutError } from './network-errors';
+
+// One retry on transient failures (timeout, 5xx) before giving up. Mirrors
+// iCloud's first-retry delay (1.5s). Without this, a brief network blip
+// during the list fetch took Gmail offline until the user pulled to refresh.
+async function fetchListWithRetry(url: string, init: RequestInit): Promise<Response> {
+  try {
+    const res = await fetchWithTimeout('google', url, init);
+    if (res.status >= 500 && res.status < 600) {
+      await new Promise((r) => setTimeout(r, 1500));
+      return await fetchWithTimeout('google', url, init);
+    }
+    return res;
+  } catch (err) {
+    if (err instanceof NetworkTimeoutError) {
+      await new Promise((r) => setTimeout(r, 1500));
+      return await fetchWithTimeout('google', url, init);
+    }
+    throw err;
+  }
+}
 
 // Reset the per-session signature cache when the active user changes — the
 // signature is account-specific and must not leak across accounts.
@@ -51,8 +71,7 @@ type RawMessage = {
 
 export async function listInboxMessages(maxResults = 12): Promise<GmailMessage[]> {
   return tryWithRefresh('google', async (accessToken) => {
-    const listRes = await fetchWithTimeout(
-      'google',
+    const listRes = await fetchListWithRetry(
       `${BASE}/messages?q=in:inbox&maxResults=${maxResults}`,
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
@@ -65,10 +84,27 @@ export async function listInboxMessages(maxResults = 12): Promise<GmailMessage[]
     const list = (await listRes.json()) as RawMessageList;
     if (!list.messages?.length) return [];
 
-    const detailed = await Promise.all(
+    // allSettled, not all: one transient metadata failure (timeout, 5xx)
+    // shouldn't blank the other 49 mails. Auth errors still propagate so
+    // tryWithRefresh can refresh the token and retry the whole batch.
+    const settled = await Promise.allSettled(
       list.messages.map((m) => fetchMessageMeta(accessToken, m.id)),
     );
-    return detailed.filter((m): m is GmailMessage => m !== null);
+    const authErr = settled.find(
+      (r): r is PromiseRejectedResult =>
+        r.status === 'rejected' && r.reason instanceof ProviderAuthError,
+    );
+    if (authErr) throw authErr.reason;
+    if (__DEV__) {
+      const rejected = settled.filter((r) => r.status === 'rejected').length;
+      if (rejected > 0) {
+        console.warn(`[gmail] ${rejected}/${settled.length} metadata fetches failed transiently`);
+      }
+    }
+    return settled
+      .filter((r): r is PromiseFulfilledResult<GmailMessage | null> => r.status === 'fulfilled')
+      .map((r) => r.value)
+      .filter((m): m is GmailMessage => m !== null);
   });
 }
 

@@ -4,7 +4,7 @@
 import { ProviderAuthError, tryWithRefresh } from './auth';
 import { buildOutgoingBody } from './mail-signature';
 import type { InlineAttachmentSpec, OutgoingBody } from './mail-signature';
-import { fetchWithTimeout } from './network-errors';
+import { fetchWithTimeout, NetworkTimeoutError } from './network-errors';
 
 type GraphFileAttachment = {
   '@odata.type': '#microsoft.graph.fileAttachment';
@@ -201,6 +201,22 @@ async function graphFetch<T>(
   return JSON.parse(text) as T;
 }
 
+// One retry on transient failures (timeout, 5xx) for read-only list calls.
+// Restricted to listInboxMessages because mutations (send, archive) MUST NOT
+// retry on timeout — the request may have already succeeded server-side.
+async function listFetchWithRetry<T>(token: string, path: string): Promise<T> {
+  try {
+    return await graphFetch<T>(token, path);
+  } catch (err) {
+    const isTransient =
+      err instanceof NetworkTimeoutError ||
+      (err instanceof Error && /^Microsoft Graph 5\d\d:/.test(err.message));
+    if (!isTransient) throw err;
+    await new Promise((r) => setTimeout(r, 1500));
+    return await graphFetch<T>(token, path);
+  }
+}
+
 export async function listInboxMessages(top = 12): Promise<GraphMessage[]> {
   return tryWithRefresh('microsoft', async (token) => {
     // Folder-scoped to /mailFolders/inbox/messages — /me/messages returns
@@ -208,7 +224,7 @@ export async function listInboxMessages(top = 12): Promise<GraphMessage[]> {
     // Active Outlook users have Sent items and already-read mail dominating
     // the top of /me/messages, which crowded out their unread Inbox mail
     // once the downstream `!isRead` filter ran. Matches Gmail's `q=in:inbox`.
-    const data = await graphFetch<{ value: RawMessage[] }>(
+    const data = await listFetchWithRetry<{ value: RawMessage[] }>(
       token,
       `/me/mailFolders/inbox/messages?$top=${top}&$select=id,from,subject,bodyPreview,receivedDateTime,isRead&$orderby=receivedDateTime desc`,
     );
