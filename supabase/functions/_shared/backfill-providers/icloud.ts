@@ -20,12 +20,18 @@ import { loadIcloudCreds } from '../icloud-creds.ts';
 const IMAP_HOST = 'imap.mail.me.com';
 const IMAP_PORT = 993;
 const CONNECT_TIMEOUT_MS = 5_000;
-// 30s, not 10s. The backfill fetches up to 100 messages WITH body parts in
-// a single IMAP transaction — over Supabase's edge → me.com path that
-// regularly exceeds 10s of wall time, especially when iCloud throttles or a
-// single message body is multi-MB. imap-proxy gets away with 10s because it
-// fetches ≤50 messages on the live-inbox path.
+// 30s, not 10s. The backfill fetches a window of message bodies in a
+// single IMAP transaction — over Supabase's edge → me.com path that
+// regularly exceeds 10s of wall time, especially when iCloud throttles or
+// a single message body is multi-MB. imap-proxy gets away with 10s because
+// it fetches ≤50 messages on the live-inbox path.
 const COMMAND_TIMEOUT_MS = 30_000;
+// Hard ceiling on the entire fetchIcloudCandidates call. Backstop for the
+// imapflow race where socket errors escape as event-loop rejections instead
+// of bubbling through the active fetch's promise — without this, a stalled
+// connection left the worker hanging until function-level wall clock killed
+// it, and the backfill_jobs row stuck in 'queued' forever.
+const FETCH_DEADLINE_MS = 60_000;
 
 let _ImapFlowCtor: typeof ImapFlow | null = null;
 async function getImapFlow(): Promise<typeof ImapFlow> {
@@ -40,12 +46,42 @@ export async function fetchIcloudCandidates(
   userId: string,
   encryptionKey: string,
   userOwnEmail: string,
-  // 100, not 200. iCloud IMAP over the Supabase edge path can't reliably
-  // stream 200 message bodies inside the socket-timeout window; 100 keeps
-  // the fetch under wall-time limits while still feeding ample candidates
-  // to the downstream filter (which keeps 50 after isAutomatedSender).
-  maxFetch = 100,
+  // 50, matching imap-proxy's working volume for the live-inbox path.
+  // Larger windows (100, 200) routinely stalled mid-fetch over Supabase's
+  // edge → me.com path on slower mailboxes. The downstream `keep` cap is
+  // already 50, so reducing maxFetch only narrows the candidate pool the
+  // automated-sender filter chooses from.
+  maxFetch = 50,
   keep = 50,
+): Promise<CandidateMessage[]> {
+  return raceWithDeadline(
+    fetchIcloudCandidatesInner(client, userId, encryptionKey, userOwnEmail, maxFetch, keep),
+    FETCH_DEADLINE_MS,
+  );
+}
+
+// Race the inner work against an explicit deadline. imapflow's socket-timeout
+// can emit an unhandled rejection on the client's 'error' event instead of
+// rejecting the active fetch's promise — caller's try/catch never fires and
+// the worker hangs until function wall-clock kills it. Our timeout always
+// reaches our own catch, so finishJob can mark the row 'failed'.
+function raceWithDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`icloud fetch deadline ${ms}ms exceeded`)), ms);
+  });
+  return Promise.race([work, deadline]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+async function fetchIcloudCandidatesInner(
+  client: SupabaseClient,
+  userId: string,
+  encryptionKey: string,
+  userOwnEmail: string,
+  maxFetch: number,
+  keep: number,
 ): Promise<CandidateMessage[]> {
   const creds = await loadIcloudCreds(client, userId, encryptionKey);
   if (!creds) throw new Error('icloud creds missing');
@@ -59,6 +95,15 @@ export async function fetchIcloudCandidates(
     logger: false,
     socketTimeout: COMMAND_TIMEOUT_MS,
     greetingTimeout: CONNECT_TIMEOUT_MS,
+  });
+
+  // Subscribe to the imapflow client error event so socket-level errors
+  // surface as visible logs instead of escaping silently to Deno's event
+  // loop. The deadline race above is what actually rescues the caller;
+  // this is just for diagnostics.
+  imap.on('error', (err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[backfill:icloud] imapflow client error: ${msg}`);
   });
 
   const messages: CandidateMessage[] = [];
