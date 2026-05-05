@@ -39,6 +39,7 @@ export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, force
   // disables itself for iCloud-only accounts and the user dead-ends here.
   const icloudConnected = useIcloudConnected(user?.id ?? '');
   const [busy, setBusy] = useState(false);
+  console.log('[obf-diag] render', { uid: user?.id?.slice(0, 8), busy, icloudConnected, connCount: connections.length });
 
   // Build the human-readable list of sources we'll scan. Only include
   // currently-connected providers — disconnected ones aren't relevant
@@ -57,6 +58,7 @@ export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, force
   const noSources = sources.length === 0;
 
   const handleStart = async () => {
+    console.log('[obf-diag] Start pressed');
     if (busy) return;
     setBusy(true);
     // Await the start call itself so the progress screen's first poll
@@ -128,7 +130,7 @@ export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, force
           </Pressable>
 
           <Pressable
-            onPress={onConnectMore}
+            onPress={() => { console.log('[obf-diag] ConnectMore pressed'); onConnectMore(); }}
             disabled={busy}
             style={styles.secondaryBtn}
             accessibilityRole="button"
@@ -141,7 +143,7 @@ export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, force
           </Text>
 
           <Pressable
-            onPress={onSkip}
+            onPress={() => { console.log('[obf-diag] Skip pressed'); onSkip(); }}
             disabled={busy}
             style={styles.secondaryBtn}
             accessibilityRole="button"
