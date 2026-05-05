@@ -1,4 +1,4 @@
-import { ArrowUp, ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft } from 'lucide-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -7,16 +7,18 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import { Stone } from '../components/Stone';
+import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
+import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
+import { Icon as DesignIcon } from '../design/primitives/Icon';
+import { Stone } from '../design/primitives/Stone';
+import { useTheme } from '../design/useTheme';
 import { formatClock, formatToday } from '../lib/date';
 import { useChat, useChatSuggestions } from '../lib/hooks';
 import type { ChatMessage } from '../lib/types';
-import { colors, fonts } from '../theme';
 
 type Props = { onBack: () => void; initialDraft?: string };
 
@@ -24,6 +26,8 @@ export function ChatScreen({ onBack, initialDraft }: Props) {
   const today = useMemo(() => new Date(), []);
   const dateInfo = useMemo(() => formatToday(today), [today]);
   const clock = useMemo(() => formatClock(today), [today]);
+
+  const { t, type, fonts, radius, spacing, surface } = useTheme();
 
   const { data: messages, typing, send } = useChat();
   const { data: suggestions } = useChatSuggestions();
@@ -41,137 +45,286 @@ export function ChatScreen({ onBack, initialDraft }: Props) {
 
   return (
     <KeyboardAvoidingView
-      style={styles.flex}
+      style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={0}
     >
-      <View style={styles.topBar}>
-        <Pressable
-          onPress={onBack}
-          style={styles.roundBtn}
-          accessibilityRole="button"
-          accessibilityLabel="Tilbage"
+      <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
+        <GlassHaloLayer />
+
+        {/* Header row */}
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: spacing.md,
+            paddingTop: spacing.statusBarFallback,
+            paddingHorizontal: spacing.xl - spacing.xs,
+            paddingBottom: spacing.cardPad,
+            position: 'relative',
+            zIndex: 1,
+          }}
         >
-          <ChevronLeft size={18} color={colors.ink} strokeWidth={1.75} />
-        </Pressable>
-        <Stone size={34} mood="calm" />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.botName}>Zolva</Text>
-          <Text style={styles.botMeta}>Klar</Text>
-        </View>
-      </View>
-
-      <ScrollView
-        ref={scrollRef}
-        style={styles.flex}
-        contentContainerStyle={styles.messagesContent}
-        showsVerticalScrollIndicator={false}
-        automaticallyAdjustKeyboardInsets={false}
-        contentInsetAdjustmentBehavior="never"
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
-      >
-        <Text style={styles.daySeparator}>{`${dateInfo.weekdayFull} · ${clock}`}</Text>
-        {messages.length === 0 && (
-          <Text style={styles.emptyHint}>Skriv en besked for at starte.</Text>
-        )}
-        {messages.map((m) => (
-          <Bubble key={m.id} msg={m} />
-        ))}
-        {typing && <TypingIndicator />}
-      </ScrollView>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.suggestScroll}
-        contentContainerStyle={styles.suggestRow}
-        keyboardShouldPersistTaps="handled"
-      >
-        {suggestions.map((q, i) => (
-          <Pressable key={`${i}-${q}`} onPress={() => submit(q)} style={styles.suggestChip}>
-            <Text style={styles.suggestText}>{q}</Text>
-          </Pressable>
-        ))}
-      </ScrollView>
-
-      <View style={styles.inputBar}>
-        <View style={styles.inputPill}>
-          <TextInput
-            value={input}
-            onChangeText={setInput}
-            onSubmitEditing={() => submit(input)}
-            placeholder="Skriv til Zolva…"
-            placeholderTextColor={colors.fg3}
-            style={styles.input}
-            returnKeyType="send"
-          />
           <Pressable
-            style={styles.sendBtn}
-            onPress={() => submit(input)}
+            onPress={onBack}
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: radius.pill,
+              backgroundColor: surface.iconButton,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
             accessibilityRole="button"
-            accessibilityLabel="Send"
+            accessibilityLabel="Tilbage"
           >
-            <ArrowUp size={18} color={colors.paper} strokeWidth={2.4} />
+            <ChevronLeft size={18} color={t.ink} strokeWidth={1.75} />
           </Pressable>
+
+          <Stone size={36} />
+
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: fonts.display, fontSize: 20, fontWeight: '600', letterSpacing: -0.4, color: t.ink }}>
+              Zolva
+            </Text>
+            <Text style={{ ...type.eyebrow, color: t.ink3, textTransform: 'none', letterSpacing: 0.6 }}>
+              Læser kalender og mail
+            </Text>
+          </View>
+
+          <Pressable
+            onPress={onBack}
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: radius.pill,
+              backgroundColor: surface.iconButton,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Luk"
+          >
+            <Text style={{ fontFamily: fonts.ui, fontSize: 18, color: t.ink2 }}>×</Text>
+          </Pressable>
+        </View>
+
+        {/* Messages */}
+        <ScrollView
+          ref={scrollRef}
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            padding: spacing.screenPad,
+            paddingTop: spacing.md,
+            paddingBottom: spacing.md,
+            gap: spacing.md - 2,
+          }}
+          showsVerticalScrollIndicator={false}
+          automaticallyAdjustKeyboardInsets={false}
+          contentInsetAdjustmentBehavior="never"
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
+          <Text
+            style={{
+              ...type.eyebrow,
+              textAlign: 'center',
+              color: t.ink3,
+              textTransform: 'none',
+              paddingBottom: spacing.sm,
+              paddingTop: spacing.xs,
+            }}
+          >
+            {`${dateInfo.weekdayFull} · ${clock}`}
+          </Text>
+
+          {messages.length === 0 && (
+            <Text
+              style={{
+                textAlign: 'center',
+                marginTop: 40,
+                fontFamily: 'Inter_500Medium_Italic',
+                fontSize: 13,
+                color: t.ink3,
+              }}
+            >
+              Skriv en besked for at starte.
+            </Text>
+          )}
+
+          {messages.map((m) => (
+            <Bubble key={m.id} msg={m} t={t} type={type} fonts={fonts} radius={radius} spacing={spacing} surface={surface} />
+          ))}
+
+          {typing && <TypingIndicator t={t} spacing={spacing} radius={radius} />}
+        </ScrollView>
+
+        {/* Suggestion pills */}
+        {suggestions.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ flexGrow: 0, flexShrink: 0 }}
+            contentContainerStyle={{
+              paddingHorizontal: spacing.screenPad,
+              paddingBottom: spacing.sm,
+              gap: spacing.sm - 2,
+              alignItems: 'center',
+            }}
+            keyboardShouldPersistTaps="handled"
+          >
+            {suggestions.map((q, i) => (
+              <Pressable key={`${i}-${q}`} onPress={() => submit(q)}>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    paddingVertical: spacing.sm,
+                    paddingHorizontal: spacing.md,
+                    borderRadius: radius.pill,
+                    backgroundColor: surface.glassWeak,
+                    borderWidth: 1,
+                    borderColor: surface.glassRim,
+                  }}
+                >
+                  <Text style={{ ...type.bodySm, color: t.ink2 }}>{q}</Text>
+                </View>
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
+
+        {/* Input dock */}
+        <View style={{ padding: spacing.md, paddingBottom: spacing.xl }}>
+          <GlassFrostedCard radius={radius.pill} style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+              <DesignIcon.plus size={18} color={t.ink3} />
+              <TextInput
+                value={input}
+                onChangeText={setInput}
+                placeholder="Spørg om noget…"
+                placeholderTextColor={t.ink4}
+                style={{
+                  flex: 1,
+                  fontFamily: fonts.ui,
+                  fontSize: type.body.fontSize,
+                  color: t.ink,
+                  paddingVertical: 0,
+                }}
+                onSubmitEditing={() => input.trim() && submit(input.trim())}
+                returnKeyType="send"
+              />
+              <Pressable
+                onPress={() => input.trim() && submit(input.trim())}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: radius.pill,
+                  backgroundColor: t.ink,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Send"
+              >
+                <DesignIcon.send size={14} color="#FFFFFF" />
+              </Pressable>
+            </View>
+          </GlassFrostedCard>
         </View>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
-// Tiny inline-markdown renderer for chat bubbles. Splits on `**bold**`
-// segments — Claude often emits these in replies and rendering them as
-// literal asterisks looks broken. Other markdown (lists, headings, links)
-// is left as-is for now; bold is the highest-frequency case.
-function renderInlineMd(text: string): React.ReactNode[] {
-  // Even indices: plain text. Odd indices: bold contents.
+// ─── Inline markdown — bold segments ───────────────────────────────────────
+
+function renderInlineMd(text: string, boldFamily: string): React.ReactNode[] {
   const parts = text.split(/\*\*([\s\S]+?)\*\*/g);
   return parts.map((part, i) =>
     i % 2 === 1
-      ? <Text key={i} style={styles.bubbleBold}>{part}</Text>
+      ? <Text key={i} style={{ fontFamily: boldFamily }}>{part}</Text>
       : part,
   );
 }
 
-function Bubble({ msg }: { msg: ChatMessage }) {
+// ─── Theme-prop types passed down to sub-components ────────────────────────
+
+type ThemeSlice = {
+  t: ReturnType<typeof useTheme>['t'];
+  type: ReturnType<typeof useTheme>['type'];
+  fonts: ReturnType<typeof useTheme>['fonts'];
+  radius: ReturnType<typeof useTheme>['radius'];
+  spacing: ReturnType<typeof useTheme>['spacing'];
+  surface: ReturnType<typeof useTheme>['surface'];
+};
+
+// ─── Bubble ────────────────────────────────────────────────────────────────
+
+function Bubble({ msg, t, type, fonts, radius, spacing }: { msg: ChatMessage } & ThemeSlice) {
   const isZ = msg.from === 'zolva';
+  if (isZ) {
+    return (
+      <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-end' }}>
+        <Stone size={28} jumpOnTap={false} />
+        <GlassFrostedCard
+          radius={18}
+          style={{
+            paddingVertical: spacing.md,
+            paddingHorizontal: spacing.cardPad,
+            maxWidth: '82%',
+          }}
+        >
+          <Text style={{ ...type.body, color: t.ink }}>
+            {renderInlineMd(msg.text, fonts.uiBold)}
+          </Text>
+        </GlassFrostedCard>
+      </View>
+    );
+  }
   return (
-    <View
-      style={[
-        styles.bubbleRow,
-        { flexDirection: isZ ? 'row' : 'row-reverse' },
-      ]}
-    >
-      {isZ && <Stone size={26} />}
+    <View style={{ flexDirection: 'row-reverse' }}>
       <View
-        style={[
-          styles.bubble,
-          isZ ? styles.bubbleZ : styles.bubbleU,
-        ]}
+        style={{
+          maxWidth: '75%',
+          paddingVertical: spacing.md,
+          paddingHorizontal: spacing.cardPad,
+          backgroundColor: t.ink,
+          borderRadius: 18,
+          borderBottomRightRadius: 6,
+        }}
       >
-        <Text style={[styles.bubbleText, { color: isZ ? colors.ink : colors.paper }]}>
-          {renderInlineMd(msg.text)}
+        <Text style={{ ...type.body, color: '#fff' }}>
+          {renderInlineMd(msg.text, fonts.uiBold)}
         </Text>
       </View>
     </View>
   );
 }
 
-function TypingIndicator() {
+// ─── Typing indicator ──────────────────────────────────────────────────────
+
+function TypingIndicator({ t, spacing, radius }: Pick<ThemeSlice, 't' | 'spacing' | 'radius'>) {
   return (
-    <View style={[styles.bubbleRow, { flexDirection: 'row' }]}>
-      <Stone size={26} mood="thinking" />
-      <View style={[styles.bubble, styles.bubbleZ, { flexDirection: 'row', gap: 4 }]}>
+    <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-end' }}>
+      <Stone size={28} jumpOnTap={false} />
+      <GlassFrostedCard
+        radius={18}
+        style={{
+          paddingVertical: spacing.md,
+          paddingHorizontal: spacing.cardPad,
+          flexDirection: 'row',
+          gap: 4,
+        }}
+      >
         {[0, 1, 2].map((i) => (
-          <TypingDot key={i} delay={i * 180} />
+          <TypingDot key={i} delay={i * 180} stoneColor={t.ink3} />
         ))}
-      </View>
+      </GlassFrostedCard>
     </View>
   );
 }
 
-function TypingDot({ delay }: { delay: number }) {
+function TypingDot({ delay, stoneColor }: { delay: number; stoneColor: string }) {
   const op = useRef(new Animated.Value(0.3)).current;
   useEffect(() => {
     const seq = () =>
@@ -186,120 +339,15 @@ function TypingDot({ delay }: { delay: number }) {
       loop.stop();
     };
   }, [op, delay]);
-  return <Animated.View style={[styles.typingDot, { opacity: op }]} />;
+  return (
+    <Animated.View
+      style={{
+        width: 6,
+        height: 6,
+        borderRadius: 999,
+        backgroundColor: stoneColor,
+        opacity: op,
+      }}
+    />
+  );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.paper },
-
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingTop: Platform.OS === 'ios' ? 58 : 40,
-    paddingBottom: 12,
-    paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
-    backgroundColor: colors.paper,
-  },
-  roundBtn: {
-    width: 34, height: 34, borderRadius: 999,
-    backgroundColor: colors.mist,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  botName: { fontFamily: fonts.uiSemi, fontSize: 15, color: colors.ink },
-  botMeta: { fontFamily: fonts.ui, fontSize: 11.5, color: colors.fg3 },
-
-  messagesContent: {
-    padding: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
-    gap: 10,
-  },
-  daySeparator: {
-    textAlign: 'center',
-    fontFamily: fonts.ui,
-    fontSize: 11,
-    color: colors.fg3,
-    paddingBottom: 8,
-    paddingTop: 4,
-  },
-  emptyHint: {
-    textAlign: 'center',
-    marginTop: 40,
-    fontFamily: 'Inter_500Medium_Italic',
-    fontSize: 13,
-    color: colors.fg3,
-  },
-
-  bubbleRow: { gap: 8, alignItems: 'flex-end' },
-  bubble: {
-    maxWidth: '78%',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  bubbleZ: {
-    backgroundColor: colors.paper,
-    borderColor: colors.line,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    borderBottomRightRadius: 14,
-    borderBottomLeftRadius: 4,
-  },
-  bubbleU: {
-    backgroundColor: colors.ink,
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    borderBottomRightRadius: 4,
-    borderBottomLeftRadius: 14,
-  },
-  bubbleText: { fontFamily: fonts.ui, fontSize: 14, lineHeight: 21 },
-  bubbleBold: { fontFamily: fonts.uiSemi },
-
-  typingDot: { width: 6, height: 6, borderRadius: 999, backgroundColor: colors.stone },
-
-  suggestScroll: { flexGrow: 0, flexShrink: 0 },
-  suggestRow: {
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    gap: 6,
-    alignItems: 'center',
-  },
-  suggestChip: {
-    backgroundColor: colors.mist,
-    paddingHorizontal: 12, paddingVertical: 7,
-    borderRadius: 999,
-    marginRight: 6,
-  },
-  suggestText: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.fg2 },
-
-  inputBar: {
-    paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.line,
-    backgroundColor: colors.paper,
-  },
-  inputPill: {
-    flexDirection: 'row', alignItems: 'center',
-    gap: 8,
-    backgroundColor: colors.mist,
-    borderRadius: 22,
-    paddingLeft: 16, paddingRight: 8, paddingVertical: 6,
-  },
-  input: {
-    flex: 1, fontFamily: fonts.ui, fontSize: 15, color: colors.ink,
-    paddingVertical: 6,
-  },
-  inputIconBtn: {
-    width: 34, height: 34, borderRadius: 999,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: colors.mist,
-  },
-  sendBtn: {
-    width: 34, height: 34, borderRadius: 999,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: colors.ink,
-  },
-});
