@@ -45,6 +45,7 @@ import { initNotificationSettings } from './src/lib/notification-settings';
 import { initNotificationFeed, markFeedByPayload } from './src/lib/notification-feed';
 import type { InboxMail, NotificationPayload } from './src/lib/types';
 import { colors } from './src/theme';
+import { ThemeProvider } from './src/design/ThemeProvider';
 import { useAuth } from './src/lib/auth';
 import {
   shouldShowMemoryConsent,
@@ -481,6 +482,7 @@ export default function App() {
   };
 
   return (
+    <ThemeProvider>
     <ErrorBoundary>
     <ChromeInsetsContext.Provider value={chromeInsets}>
     <View style={styles.root}>
@@ -697,6 +699,7 @@ export default function App() {
     </View>
     </ChromeInsetsContext.Provider>
     </ErrorBoundary>
+    </ThemeProvider>
   );
 }
 
