@@ -6,7 +6,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   View,
 } from 'react-native';
@@ -21,15 +20,15 @@ import { CalendarPickerSheet } from '../components/CalendarPickerSheet';
 import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { Skeleton } from '../components/Skeleton';
-import { TopRightActions } from '../components/TopRightActions';
-import { formatToday, weekStrip, type WeekStripDay } from '../lib/date';
+import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
+import { TopBar } from '../design/primitives/TopBar';
+import { useTheme } from '../design/useTheme';
+import { weekStrip, type WeekStripDay } from '../lib/date';
 import { useDaySchedule, useHasProvider } from '../lib/hooks';
 import { liquidGlassReady } from '../lib/liquid-glass';
 import type { CalendarSlot } from '../lib/types';
-import { colors, fonts } from '../theme';
 import { translateProviderError } from '../utils/danish';
 
-const AnimatedGlassView = Animated.createAnimatedComponent(GlassView);
 // Same physics as LiquidTabBar / LiquidTabSwitcher so all springy pills feel
 // like one system.
 const DAY_PILL_SPRING = { damping: 22, stiffness: 260, mass: 1 };
@@ -38,10 +37,14 @@ const DAY_PILL_SPRING = { damping: 22, stiffness: 260, mass: 1 };
 // row visually). The belt is a single capsule that holds all 7 days.
 const BELT_HEIGHT = 56;
 const BELT_INSET = 4;
+// Inset the outline a few px from each cell edge so the bordered pill hugs
+// the day text instead of touching the next cell. Manual rightward nudge
+// compensates for mono-letter + display-digit not being perfectly centred
+// in their typeface metrics.
+const PILL_HUG = 6;
+const PILL_X_NUDGE = 0;
 
 type EventTone = NonNullable<CalendarSlot['event']>['tone'];
-const toneColor = (t: EventTone) =>
-  t === 'sage' ? colors.sage : t === 'clay' ? colors.clay : colors.stone;
 
 function copenhagenNowMinutes(): { hour: number; minute: number } {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -57,6 +60,24 @@ function copenhagenNowMinutes(): { hour: number; minute: number } {
 
 function copenhagenDateKey(d: Date): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Copenhagen' }).format(d);
+}
+
+/** Build "MAJ 2026"-style eyebrow from a date. */
+function monthYearEyebrow(d: Date): string {
+  return new Intl.DateTimeFormat('da-DK', { month: 'long', year: 'numeric' })
+    .format(d)
+    .toUpperCase();
+}
+
+/** First line of display headline — e.g. "Tirsdag" capitalised. */
+function weekdayHeadline(d: Date): string {
+  const s = new Intl.DateTimeFormat('da-DK', { weekday: 'long' }).format(d);
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** Short Danish month — strips trailing period from da-DK short format. */
+function shortMonth(d: Date): string {
+  return new Intl.DateTimeFormat('da-DK', { month: 'short' }).format(d).replace('.', '');
 }
 
 type Props = {
@@ -84,6 +105,12 @@ function sameDay(a: Date, b: Date): boolean {
 }
 
 export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
+  const { t, type, fonts, radius, spacing, surface, shadows } = useTheme();
+
+  // toneColor needs access to t, so lives inside the component.
+  const toneColor = (tone: EventTone): string =>
+    tone === 'sage' ? t.cal : tone === 'clay' ? t.today : t.ink3;
+
   const [today, setToday] = useState<Date>(() => new Date());
   const [selectedDate, setSelectedDate] = useState<Date>(today);
   const [pageIndex, setPageIndex] = useState<number>(WEEKS_BEFORE);
@@ -112,8 +139,6 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
     () => addDays(today, (pageIndex - WEEKS_BEFORE) * 7),
     [today, pageIndex],
   );
-  const visibleDate = useMemo(() => formatToday(visibleAnchor), [visibleAnchor]);
-  const selectedInfo = useMemo(() => formatToday(selectedDate), [selectedDate]);
   const isSelectedToday = sameDay(selectedDate, today);
 
   const { data: slots, loading: scheduleLoading, error: scheduleError } = useDaySchedule(selectedDate);
@@ -258,158 +283,262 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
     setPageIndex(WEEKS_BEFORE);
   };
 
+  // Derived display strings for the headline area.
+  const eyebrow = monthYearEyebrow(visibleAnchor);
+  const weekdayLine = weekdayHeadline(selectedDate);
+  const dateLine = `${selectedDate.getDate()}. ${shortMonth(selectedDate)}.`;
+  const sectionTitle = isSelectedToday ? 'I dag' : `${weekdayLine}, ${dateLine}`;
+
   return (
-    <>
-    <ScrollView
-      contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom }]}
-      showsVerticalScrollIndicator={false}
-      contentInsetAdjustmentBehavior="never"
-    >
-      <View style={styles.hero}>
-        <View style={styles.heroTopRow}>
-          <Text style={styles.eyebrow}>{visibleDate.weekHeadline}</Text>
-          <View style={styles.heroRightCluster}>
-            {(pageIndex !== WEEKS_BEFORE || !isSelectedToday) && (
-              <Pressable onPress={jumpToToday} hitSlop={8}>
-                <Text style={styles.todayLink}>I dag</Text>
-              </Pressable>
-            )}
-            <TopRightActions
-              onOpenNotifications={onOpenNotifications}
-              onOpenSettings={onGoToSettings}
-              onOpenCalendarPicker={hasProvider ? () => setPickerOpen(true) : undefined}
-            />
-          </View>
-        </View>
-        <Text style={styles.heroH1}>{selectedInfo.dayHeadline}</Text>
+    <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
+      <GlassHaloLayer />
+      <View style={{ position: 'relative', flex: 1 }}>
+        <TopBar
+          eyebrow={eyebrow}
+          onBell={onOpenNotifications}
+          onGear={onGoToSettings}
+        />
 
-        <View
-          style={styles.stripWrap}
-          onLayout={(e) => setPageWidth(e.nativeEvent.layout.width)}
+        <ScrollView
+          contentContainerStyle={{ flexGrow: 1, paddingBottom: chromeBottom }}
+          showsVerticalScrollIndicator={false}
+          contentInsetAdjustmentBehavior="never"
         >
-          {pageWidth > 0 && (
-            <ScrollView
-              ref={weekScrollRef}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              decelerationRate="fast"
-              onMomentumScrollEnd={onMomentumEnd}
-              scrollEventThrottle={16}
-            >
-              {weeks.map((week, wi) => (
-                <WeekPage
-                  key={wi}
-                  week={week}
-                  width={pageWidth}
-                  onSelect={(date) => selectDay(date)}
-                />
-              ))}
-              {selectedPosition && (
-                <Animated.View
-                  style={[styles.dayPill, stripPillStyle, { width: stripPillWidth }]}
-                  pointerEvents="none"
-                />
-              )}
-            </ScrollView>
-          )}
-        </View>
-      </View>
-
-      <View style={styles.list} {...dayPanResponder.panHandlers}>
-        <Text style={styles.sectionTitle}>
-          {isSelectedToday ? 'I dag' : selectedInfo.dayHeadline}
-        </Text>
-        <View style={styles.inkRule} />
-        {!hasEvents ? (
-          scheduleLoading && hasProvider && !scheduleError ? (
-            <View>
-              {Array.from({ length: 4 }).map((_, i) => (
-                <View key={i} style={[styles.row, i > 0 && styles.rowBorder]}>
-                  <Skeleton width={36} height={16} />
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Skeleton width="70%" height={14} />
-                    <Skeleton width="45%" height={12} style={{ marginTop: 6 }} />
-                  </View>
-                </View>
-              ))}
+          {/* Display headline + secondary actions */}
+          <View style={{ paddingHorizontal: spacing.heroPad, paddingTop: spacing.cardPad }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+              <Text style={{ ...type.displayXL, color: t.ink }}>
+                {weekdayLine}
+                {'\n'}
+                {dateLine}
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingBottom: spacing.xs }}>
+                {(pageIndex !== WEEKS_BEFORE || !isSelectedToday) && (
+                  <Pressable onPress={jumpToToday} hitSlop={8}>
+                    <Text style={{
+                      fontFamily: fonts.ui,
+                      fontSize: type.bodySm.fontSize,
+                      color: t.ink3,
+                    }}>
+                      I dag
+                    </Text>
+                  </Pressable>
+                )}
+                {hasProvider && (
+                  <Pressable
+                    onPress={() => setPickerOpen(true)}
+                    hitSlop={8}
+                    style={{
+                      paddingHorizontal: spacing.sm,
+                      paddingVertical: spacing.xs,
+                      borderRadius: radius.pill,
+                      backgroundColor: surface.iconButton,
+                    }}
+                  >
+                    <Text style={{
+                      fontFamily: fonts.mono,
+                      fontSize: type.eyebrow.fontSize,
+                      letterSpacing: type.eyebrow.letterSpacing,
+                      color: t.ink3,
+                    }}>
+                      KAL
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
             </View>
-          ) : hasProvider ? (
-            (() => {
-              const err = scheduleError ? translateProviderError(scheduleError) : null;
-              const isAuth = err?.kind === 'auth';
-              const emptyBody = isSelectedToday
-                ? 'Du har en rolig dag foran dig.'
-                : 'Ingen begivenheder på denne dag.';
-              return (
+          </View>
+
+          {/* Week-strip belt */}
+          <View
+            style={{ marginTop: spacing.lg, marginHorizontal: spacing.screenPad, overflow: 'hidden' }}
+            onLayout={(e) => setPageWidth(e.nativeEvent.layout.width)}
+          >
+            {pageWidth > 0 && (
+              <ScrollView
+                ref={weekScrollRef}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                decelerationRate="fast"
+                onMomentumScrollEnd={onMomentumEnd}
+                scrollEventThrottle={16}
+              >
+                {weeks.map((week, wi) => (
+                  <WeekPage
+                    key={wi}
+                    week={week}
+                    width={pageWidth}
+                    onSelect={(date) => selectDay(date)}
+                  />
+                ))}
+                {selectedPosition && (
+                  <Animated.View
+                    style={[
+                      {
+                        position: 'absolute',
+                        left: 0,
+                        top: (BELT_HEIGHT - 44) / 2,
+                        height: 44,
+                        borderRadius: radius.soft,
+                        borderWidth: 1.5,
+                        borderColor: t.ink,
+                        width: stripPillWidth,
+                      },
+                      stripPillStyle,
+                    ]}
+                    pointerEvents="none"
+                  />
+                )}
+              </ScrollView>
+            )}
+          </View>
+
+          {/* Events / hour grid */}
+          <View
+            style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.xxl }}
+            {...dayPanResponder.panHandlers}
+          >
+            <Text style={{ ...type.displayS, color: t.ink }}>
+              {sectionTitle}
+            </Text>
+            <View style={{ height: 1, backgroundColor: t.ink, marginTop: spacing.xs }} />
+
+            {!hasEvents ? (
+              scheduleLoading && hasProvider && !scheduleError ? (
+                <View>
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <View
+                      key={i}
+                      style={[
+                        { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start', paddingVertical: spacing.md },
+                        i > 0 && { borderTopWidth: 1, borderTopColor: t.line },
+                      ]}
+                    >
+                      <Skeleton width={36} height={16} />
+                      <View style={{ flex: 1, marginLeft: spacing.md }}>
+                        <Skeleton width="70%" height={14} />
+                        <Skeleton width="45%" height={12} style={{ marginTop: 6 }} />
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ) : hasProvider ? (
+                (() => {
+                  const err = scheduleError ? translateProviderError(scheduleError) : null;
+                  const isAuth = err?.kind === 'auth';
+                  const emptyBody = isSelectedToday
+                    ? 'Du har en rolig dag foran dig.'
+                    : 'Ingen begivenheder på denne dag.';
+                  return (
+                    <EmptyState
+                      mood="calm"
+                      title={
+                        err
+                          ? err.kind === 'network'
+                            ? 'Ingen forbindelse'
+                            : 'Kunne ikke hente kalender'
+                          : 'Ingen aftaler'
+                      }
+                      body={err ? err.message : emptyBody}
+                      ctaLabel={isAuth ? 'Gå til indstillinger' : undefined}
+                      onCta={isAuth ? onGoToSettings : undefined}
+                    />
+                  );
+                })()
+              ) : (
                 <EmptyState
                   mood="calm"
-                  title={
-                    err
-                      ? err.kind === 'network'
-                        ? 'Ingen forbindelse'
-                        : 'Kunne ikke hente kalender'
-                      : 'Ingen aftaler'
-                  }
-                  body={err ? err.message : emptyBody}
-                  ctaLabel={isAuth ? 'Gå til indstillinger' : undefined}
-                  onCta={isAuth ? onGoToSettings : undefined}
+                  title="Ingen aftaler"
+                  body="Forbind Google eller Outlook Kalender for at se din dagsplan."
+                  ctaLabel="Forbind kalender"
+                  onCta={onGoToSettings}
                 />
-              );
-            })()
-          ) : (
-            <EmptyState
-              mood="calm"
-              title="Ingen aftaler"
-              body="Forbind Google eller Outlook Kalender for at se din dagsplan."
-              ctaLabel="Forbind kalender"
-              onCta={onGoToSettings}
-            />
-          )
-        ) : (
-          <View style={styles.grid}>
-            {slots.map((row, i) => (
-              <View
-                key={i}
-                style={[styles.row, i > 0 && styles.rowBorder]}
-                onLayout={(e) =>
-                  onRowLayout(row.hour, e.nativeEvent.layout.y, e.nativeEvent.layout.height)
-                }
-              >
-                <Text style={[styles.hour, !row.event && styles.hourDim]}>{row.hour}</Text>
-                <View style={{ flex: 1 }}>
-                  {row.event ? (
-                    <View style={[styles.event, { borderLeftColor: toneColor(row.event.tone) }]}>
-                      <Text style={styles.eventTitle}>{row.event.title}</Text>
-                      <Text style={styles.eventSub}>{row.event.sub}</Text>
+              )
+            ) : (
+              <View style={{ position: 'relative' }}>
+                {slots.map((row, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start', paddingVertical: spacing.md },
+                      i > 0 && { borderTopWidth: 1, borderTopColor: t.line },
+                    ]}
+                    onLayout={(e) =>
+                      onRowLayout(row.hour, e.nativeEvent.layout.y, e.nativeEvent.layout.height)
+                    }
+                  >
+                    {/* Hour label */}
+                    <Text style={{
+                      width: 48,
+                      fontFamily: fonts.mono,
+                      fontSize: type.eyebrow.fontSize,
+                      letterSpacing: type.eyebrow.letterSpacing,
+                      color: row.event ? t.ink3 : t.ink4,
+                      lineHeight: 22,
+                    }}>
+                      {row.hour}
+                    </Text>
+                    <View style={{ flex: 1 }}>
+                      {row.event ? (
+                        <View style={{
+                          borderRadius: radius.cardSm,
+                          paddingVertical: spacing.sm,
+                          paddingHorizontal: spacing.md,
+                          backgroundColor: toneColor(row.event.tone),
+                          ...shadows.softCard,
+                        }}>
+                          {/* White on signal color — direction-agnostic chip text */}
+                          <Text style={{ fontFamily: fonts.uiBold, fontSize: type.bodySm.fontSize, color: '#fff' }}>
+                            {row.event.title}
+                          </Text>
+                          <Text style={{
+                            fontFamily: fonts.mono,
+                            fontSize: type.eyebrow.fontSize,
+                            letterSpacing: type.eyebrow.letterSpacing,
+                            color: 'rgba(255,255,255,0.85)',
+                            marginTop: 1,
+                          }}>
+                            {row.event.sub}
+                          </Text>
+                        </View>
+                      ) : (
+                        <Text style={{ fontFamily: fonts.ui, fontSize: type.bodySm.fontSize, color: t.ink4 }}>
+                          —
+                        </Text>
+                      )}
                     </View>
-                  ) : (
-                    <Text style={styles.empty}>-</Text>
-                  )}
-                </View>
-              </View>
-            ))}
-            {showNowLine && (
-              <View style={[styles.nowWrap, { top: nowTop }]} pointerEvents="none">
-                <View style={styles.nowDot} />
-                <View style={styles.nowBar} />
+                  </View>
+                ))}
+
+                {/* Current-time indicator */}
+                {showNowLine && (
+                  <View
+                    style={{
+                      position: 'absolute',
+                      left: 0,
+                      right: 0,
+                      top: nowTop,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      zIndex: 10,
+                    }}
+                    pointerEvents="none"
+                  >
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: t.today }} />
+                    <View style={{ flex: 1, height: 1.5, backgroundColor: t.today }} />
+                  </View>
+                )}
               </View>
             )}
           </View>
-        )}
+        </ScrollView>
       </View>
-    </ScrollView>
-    <CalendarPickerSheet visible={pickerOpen} onClose={() => setPickerOpen(false)} />
-    </>
+
+      <CalendarPickerSheet visible={pickerOpen} onClose={() => setPickerOpen(false)} />
+    </View>
   );
 }
-
-// Inset the outline a few px from each cell edge so the bordered pill hugs
-// the day text instead of touching the next cell. Manual rightward nudge
-// compensates for mono-letter + display-digit not being perfectly centred
-// in their typeface metrics. Both shared with the strip-level pill below.
-const PILL_HUG = 6;
-const PILL_X_NUDGE = 0;
 
 function WeekPage({
   week,
@@ -420,6 +549,8 @@ function WeekPage({
   width: number;
   onSelect: (date: Date) => void;
 }) {
+  const { t, fonts, radius, surface } = useTheme();
+
   // Belt is a single capsule across the row; cells share its width equally
   // minus the inset on each side. The active-day pill is rendered ABOVE the
   // strip at the parent level so it can spring across week boundaries when
@@ -428,34 +559,38 @@ function WeekPage({
   const cellWidth = innerWidth / week.length;
 
   const cells = (
-    <View style={styles.weekRow}>
+    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
       {week.map((d, di) => (
         <Pressable
           key={di}
           onPress={() => onSelect(d.date)}
           style={({ pressed }) => [
-            styles.dayCell,
-            { width: cellWidth },
-            pressed && !d.isSelected && styles.dayCellPressed,
+            {
+              width: cellWidth,
+              height: BELT_HEIGHT - BELT_INSET * 2,
+              alignItems: 'center' as const,
+              justifyContent: 'center' as const,
+            },
+            pressed && !d.isSelected && { opacity: 0.55 },
           ]}
           hitSlop={4}
         >
-          <Text
-            style={[
-              styles.dayLetter,
-              d.isSelected && styles.dayLetterSelected,
-              d.isToday && !d.isSelected && styles.dayLetterToday,
-            ]}
-          >
+          <Text style={{
+            fontFamily: fonts.mono,
+            fontSize: 10,
+            letterSpacing: 0.5,
+            color: t.ink,
+            opacity: d.isSelected || d.isToday ? 1 : 0.7,
+          }}>
             {d.letter}
           </Text>
-          <Text
-            style={[
-              styles.dayNum,
-              d.isSelected && styles.dayNumSelected,
-              d.isToday && !d.isSelected && styles.dayNumToday,
-            ]}
-          >
+          <Text style={{
+            marginTop: 2,
+            fontFamily: fonts.display,
+            fontSize: 20,
+            lineHeight: 24,
+            color: t.ink,
+          }}>
             {d.num}
           </Text>
         </Pressable>
@@ -463,10 +598,17 @@ function WeekPage({
     </View>
   );
 
+  const beltStyle = {
+    height: BELT_HEIGHT,
+    borderRadius: 16,
+    overflow: 'hidden' as const,
+    paddingHorizontal: BELT_INSET,
+  };
+
   if (liquidGlassReady) {
     return (
-      <View style={[styles.weekPage, { width }]}>
-        <GlassView glassEffectStyle="regular" colorScheme="auto" style={styles.belt}>
+      <View style={{ position: 'relative', width, height: BELT_HEIGHT, justifyContent: 'center' }}>
+        <GlassView glassEffectStyle="regular" colorScheme="auto" style={beltStyle}>
           {cells}
         </GlassView>
       </View>
@@ -474,140 +616,8 @@ function WeekPage({
   }
 
   return (
-    <View style={[styles.weekPage, { width }]}>
-      <View style={[styles.belt, styles.beltFallback]}>{cells}</View>
+    <View style={{ position: 'relative', width, height: BELT_HEIGHT, justifyContent: 'center' }}>
+      <View style={[beltStyle, { backgroundColor: surface.glass }]}>{cells}</View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  scroll: { flexGrow: 1, backgroundColor: colors.paper },
-
-  hero: {
-    backgroundColor: colors.sageSoft,
-    paddingTop: 56,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
-  },
-  heroTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  heroRightCluster: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  eyebrow: {
-    fontFamily: fonts.mono, fontSize: 11, letterSpacing: 0.88,
-    textTransform: 'uppercase', color: colors.sageDeep,
-  },
-  todayLink: {
-    fontFamily: fonts.uiSemi,
-    fontSize: 12,
-    color: colors.sageDeep,
-  },
-  heroH1: {
-    marginTop: 10,
-    fontFamily: fonts.displayItalic,
-    fontSize: 36,
-    lineHeight: 40,
-    letterSpacing: -1.08,
-    color: colors.ink,
-  },
-
-  stripWrap: {
-    marginTop: 16,
-    overflow: 'hidden',
-  },
-  weekPage: {
-    position: 'relative',
-    height: BELT_HEIGHT,
-    justifyContent: 'center',
-  },
-  // The "belt" — single rounded-rectangle wrapping all 7 days. Glass version
-  // uses GlassView regular for the iOS 26 frosted look; fallback is a subtle
-  // sage-tinted background so the active pill still reads against it.
-  belt: {
-    height: BELT_HEIGHT,
-    borderRadius: 16,
-    overflow: 'hidden',
-    paddingHorizontal: BELT_INSET,
-  },
-  beltFallback: {
-    backgroundColor: 'rgba(255,255,255,0.45)',
-  },
-  weekRow: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  dayCell: {
-    height: BELT_HEIGHT - BELT_INSET * 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dayCellPressed: { opacity: 0.55 },
-  // Active-day outline — springs between days inside the belt. No fill;
-  // just a thin ink border that frames the selected cell. Height = text
-  // content (letter 10pt + margin 2pt + lineHeight 24pt = 38pt) + ~3pt
-  // breathing room top and bottom so the border doesn't clip the digits.
-  dayPill: {
-    position: 'absolute',
-    left: 0,
-    top: (BELT_HEIGHT - 44) / 2,
-    height: 44,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: colors.ink,
-  },
-  dayLetter: {
-    fontFamily: fonts.mono, fontSize: 10,
-    letterSpacing: 0.5, color: colors.ink, opacity: 0.7,
-  },
-  dayLetterSelected: { color: colors.ink, opacity: 1 },
-  dayLetterToday: { opacity: 1 },
-  dayNum: {
-    marginTop: 2, fontFamily: fonts.display, fontSize: 20, lineHeight: 24, color: colors.ink,
-  },
-  dayNumSelected: { color: colors.ink },
-  dayNumToday: { color: colors.ink },
-
-  list: { paddingHorizontal: 20, paddingTop: 32 },
-  sectionTitle: { fontFamily: fonts.display, fontSize: 22, letterSpacing: -0.44, color: colors.ink },
-  inkRule: { height: 1, backgroundColor: colors.ink, marginTop: 4 },
-  emptyText: {
-    paddingVertical: 20,
-    fontFamily: 'Inter_500Medium_Italic',
-    fontSize: 13,
-    color: colors.fg3,
-  },
-  row: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', paddingVertical: 12 },
-  rowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-  hour: {
-    width: 48, fontFamily: fonts.display, fontSize: 18, color: colors.ink, lineHeight: 22,
-  },
-  hourDim: { color: colors.fg4 },
-  event: {
-    borderLeftWidth: 3,
-    paddingLeft: 12,
-  },
-  eventTitle: { fontFamily: fonts.uiSemi, fontSize: 14, color: colors.ink },
-  eventSub: { marginTop: 2, fontFamily: fonts.ui, fontSize: 12.5, color: colors.fg3 },
-  empty: { fontFamily: 'Inter_500Medium_Italic', fontSize: 12, color: colors.fg4 },
-  grid: { position: 'relative' },
-  nowWrap: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    zIndex: 10,
-  },
-  nowDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#C8392A',
-  },
-  nowBar: {
-    flex: 1,
-    height: 1.5,
-    backgroundColor: '#C8392A',
-  },
-});
