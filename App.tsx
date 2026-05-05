@@ -19,6 +19,7 @@ import {
   PlayfairDisplay_500Medium_Italic,
   useFonts as usePlayfair,
 } from '@expo-google-fonts/playfair-display';
+import { useDesignFonts } from './src/design/fonts';
 import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -98,6 +99,7 @@ export default function App() {
     JetBrainsMono_400Regular,
     JetBrainsMono_600SemiBold,
   });
+  const designFonts = useDesignFonts();
 
   const { user, googleAccessToken, microsoftAccessToken, signInWithMicrosoft, disconnectProvider } = useAuth();
   const [introPlaying, setIntroPlaying] = useState(!introShownThisSession);
@@ -370,7 +372,7 @@ export default function App() {
     [chromeHeight],
   );
 
-  if (!fraunces || !playfair || !inter || !mono || !migrationsDone) {
+  if (!fraunces || !playfair || !inter || !mono || !designFonts || !migrationsDone) {
     return <View style={[styles.root, { backgroundColor: colors.intro }]} />;
   }
 
