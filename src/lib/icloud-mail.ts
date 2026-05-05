@@ -270,10 +270,16 @@ async function callOnce<T>(
     console.warn(`[icloud-mail] ${op} non-200: status=${res.status} body=${bodyText.slice(0, 400)}`);
   }
   // Gateway 5xx with non-JSON body = upstream contention, worth retrying.
-  // Function-emitted 5xx (502 protocol) carries JSON, so JSON.parse below
-  // will succeed and gatewayFlake stays false.
-  const isHtml = bodyText.trimStart().startsWith('<');
-  const gatewayFlake = (res.status === 502 || res.status === 503) && isHtml;
+  // Two shapes seen in the wild:
+  //   1. HTML error page (Cloudflare/Supabase classic gateway error)
+  //   2. Empty body — happens on edge-runtime worker spawn failure / cold-start
+  //      timeout, where the gateway gives up before the function emits anything
+  // Function-emitted 5xx (502 protocol) carries JSON, so the parse below will
+  // succeed and gatewayFlake stays false either way.
+  const trimmed = bodyText.trim();
+  const isHtml = trimmed.startsWith('<');
+  const isEmpty = trimmed.length === 0;
+  const gatewayFlake = (res.status === 502 || res.status === 503) && (isHtml || isEmpty);
   try {
     const j = JSON.parse(bodyText) as { error?: string; detail?: string };
     const raw = j.error;

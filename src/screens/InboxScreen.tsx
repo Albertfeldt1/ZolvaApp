@@ -1,9 +1,10 @@
 import { ChevronRight } from 'lucide-react-native';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AppState,
   Image,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,7 +21,7 @@ import { SkeletonRow } from '../components/Skeleton';
 import { Stone } from '../components/Stone';
 import { TopRightActions } from '../components/TopRightActions';
 import { formatClock, formatToday } from '../lib/date';
-import { useHasProvider, useInboxCleared, useInboxWaiting } from '../lib/hooks';
+import { refreshMailNow, useHasProvider, useInboxCleared, useInboxWaiting } from '../lib/hooks';
 import type { MailProviderError } from '../lib/hooks';
 import type { InboxMail, MailProvider } from '../lib/types';
 import { colors, fonts } from '../theme';
@@ -126,12 +127,31 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
 
   const openArchive = () => setArchiveOpen(true);
 
+  // Pull-to-refresh: latch on the user gesture, hold the spinner until the
+  // backing fetch settles (waitingLoading flips back to false), then release.
+  // Avoids a fixed timeout that could snap closed mid-fetch on slow networks.
+  const [pullActive, setPullActive] = useState(false);
+  const onRefresh = useCallback(() => {
+    setPullActive(true);
+    refreshMailNow();
+  }, []);
+  useEffect(() => {
+    if (pullActive && !waitingLoading) setPullActive(false);
+  }, [pullActive, waitingLoading]);
+
   return (
     <View style={styles.flex}>
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom + 96 }]}
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="never"
+        refreshControl={
+          <RefreshControl
+            refreshing={pullActive}
+            onRefresh={onRefresh}
+            tintColor={colors.fg3}
+          />
+        }
       >
         <View style={styles.hero}>
           <View style={styles.heroTopRow}>

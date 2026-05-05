@@ -34,7 +34,7 @@ function factsHeading(cat: FactCategory): string | null {
     case 'role':
     case 'preference':
     case 'other':
-      return 'Om brugeren';
+      return 'Om dig';
     case 'relationship':
       return 'Relationer';
     case 'project':
@@ -113,7 +113,7 @@ export async function buildProfilePreambleFromData(data: {
     ),
   );
 
-  for (const heading of ['Om brugeren', 'Relationer', 'Igangværende', 'Løfter og aftaler']) {
+  for (const heading of ['Om dig', 'Relationer', 'Igangværende', 'Løfter og aftaler']) {
     const bullets = grouped.get(heading);
     if (!bullets || bullets.length === 0) continue;
     sections.push(`${heading}:\n${bullets.join('\n')}`);

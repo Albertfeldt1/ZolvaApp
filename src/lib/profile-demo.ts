@@ -1,5 +1,5 @@
 export const DEMO_PROFILE_PREAMBLE = [
-  'Om brugeren:',
+  'Om dig:',
   '• Du arbejder som seniorkonsulent hos Lundgreen & Partner.',
   '• Du foretrækker korte, venlige mails og ingen lange hilsner.',
   '',

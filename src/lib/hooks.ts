@@ -165,10 +165,12 @@ const OBSERVATION_MAX = 8;
 const OBSERVATION_SYSTEM =
   'Du er Zolva, en rolig dansk AI-assistent. Du kigger på brugerens dag og ' +
   'peger blidt på mønstre der er værd at overveje. Svar altid på dansk. ' +
-  'ADRESSERINGSKRAV: Skriv ALTID direkte til brugeren med "du"/"dig"/"din". ' +
-  'Omtal ALDRIG brugeren i 3. person ved navn eller pronomen — skriv ' +
+  'ADRESSERINGSKRAV: Skriv ALTID direkte med "du"/"dig"/"din". ' +
+  'Omtal ALDRIG personen i 3. person ved navn eller pronomen — skriv ' +
   '"Du har 3 ulæste fra Lars", IKKE "Albert har 3 ulæste fra Lars" eller ' +
   '"Han har 3 ulæste". ' +
+  'Skriv ALDRIG ordene "bruger", "brugeren", "brugerens" eller "brugere" — ' +
+  'det er 2.-persons samtale, ikke en beskrivelse af en 3.-part. ' +
   `Returnér mellem 0 og ${OBSERVATION_MAX} observationer — kun dem der faktisk er relevante, ` +
   'sorteret med de vigtigste først. De første 2–3 vises på forsiden, resten i en oversigt. ' +
   'Hver observation skal være maks én sætning og undgå at gentage selvfølgeligheder.';
@@ -736,6 +738,17 @@ export type MailProviderError = {
 // on another client, and a small window left them with zero unreads to show.
 const MAIL_FETCH_PER_PROVIDER = 50;
 
+// Module-level refresh signal: pull-to-refresh on the inbox needs every
+// consumer of useMailItems to refetch in lockstep (waiting + cleared lists
+// share a backing fetch but each owns its own effect/state). Bumping the tick
+// changes a useEffect dep across all consumers, which retriggers the fetch.
+let mailRefreshTick = 0;
+const mailRefreshListeners = new Set<(tick: number) => void>();
+export function refreshMailNow(): void {
+  mailRefreshTick += 1;
+  mailRefreshListeners.forEach((l) => l(mailRefreshTick));
+}
+
 function useMailItems(): {
   items: NormalizedMail[];
   loading: boolean;
@@ -751,6 +764,13 @@ function useMailItems(): {
     error: Error | null;
     providerErrors: MailProviderError[];
   }>({ items: [], loading: false, error: null, providerErrors: [] });
+  const [refreshTick, setRefreshTick] = useState(mailRefreshTick);
+  useEffect(() => {
+    mailRefreshListeners.add(setRefreshTick);
+    return () => {
+      mailRefreshListeners.delete(setRefreshTick);
+    };
+  }, []);
 
   useEffect(() => {
     if (!user || (!googleAccessToken && !microsoftAccessToken && !icloudConnected)) {
@@ -860,7 +880,7 @@ function useMailItems(): {
     return () => {
       cancelled = true;
     };
-  }, [googleAccessToken, microsoftAccessToken, user, icloudConnected, userId]);
+  }, [googleAccessToken, microsoftAccessToken, user, icloudConnected, userId, refreshTick]);
 
   return state;
 }
@@ -1476,9 +1496,11 @@ export function useInboxWaiting(): InboxWaitingResult {
 
   const now = new Date();
   const tones: InboxMail['tone'][] = ['sage', 'clay', 'mist'];
+  // No global truncation: items is already capped per-provider at the fetch
+  // layer (MAIL_FETCH_PER_PROVIDER = 50) and date-desc sorted. Show every
+  // unread fetched so all providers are visible regardless of recency skew.
   const data: InboxMail[] = items
     .filter((m) => !m.isRead && !dismissed.has(m.id))
-    .slice(0, 12)
     .map((m, i) => ({
       id: m.id,
       provider: m.provider,
@@ -2427,20 +2449,25 @@ function buildChatSystemPrompt(name: string): string {
     'Hvis brugeren siger "om 2 minutter", læg 2 minutter til nu. Hvis brugeren siger ' +
     '"kl. 10.30" uden dato, vælg den næste fremtidige forekomst (i dag hvis klokken ' +
     'endnu ikke er 10.30, ellers i morgen). ' +
-    'Tidligere beskeder kan være præfikset med "[sendt: <ISO-tidspunkt>]" — det er ' +
+    'Tidligere brugerbeskeder kan være præfikset med "[sendt: <ISO-tidspunkt>]" — det er ' +
     'hvornår netop den besked blev skrevet. Når du fortolker relative ord som "i dag", ' +
     '"i morgen", "om lidt" eller "kl. 17.30" i en historisk besked, skal du regne ' +
     'fra beskedens sendt-tidspunkt — ikke fra nuværende lokaltid. Sig fx "for tre ' +
     'dage siden kl. 17.30", ikke "i dag kl. 17.30", når en gammel besked refererer ' +
-    'til "i dag" på et tidspunkt der allerede er passeret.';
+    'til "i dag" på et tidspunkt der allerede er passeret. Skriv ALDRIG selv ' +
+    '"[sendt: ...]" i dine svar — præfikset gælder kun historiske brugerbeskeder.';
   return [
     'Du er Zolva, en venlig og omsorgsfuld dansk personlig assistent.',
     'Du svarer altid på dansk i en varm, jordnær og let uformel tone.',
-    'ADRESSERINGSKRAV: Skriv ALTID direkte til brugeren med "du"/"dig"/"din". ' +
-      'Omtal ALDRIG brugeren i 3. person ved navn eller pronomen — skriv ' +
+    'ADRESSERINGSKRAV: Skriv ALTID direkte med "du"/"dig"/"din". ' +
+      'Omtal ALDRIG personen i 3. person ved navn eller pronomen — skriv ' +
       '"Du har et møde kl. 14", IKKE "Albert har et møde" eller "Han har et møde". ' +
-      'Brugerens navn må kun forekomme i en hilsen eller når det citeres tilbage som ' +
-      'noget brugeren selv har skrevet — aldrig som omtale.',
+      'Navnet må kun forekomme i en hilsen eller når det citeres tilbage som ' +
+      'noget der er skrevet til dig — aldrig som omtale. ' +
+      'Skriv ALDRIG ordene "bruger", "brugeren", "brugerens" eller "brugere" i ' +
+      'dit svar — det her er en samtale mellem dig og personen, ikke en ' +
+      'beskrivelse af nogen i 3. person. Denne regel gælder ALLE svar, ' +
+      'også systemmeddelelser, fejltekster og bekræftelser.',
     intro,
     timeContext,
     'Hold svar korte, konkrete og handlingsorienterede, medmindre der bliver spurgt om detaljer.',
@@ -2463,7 +2490,11 @@ function buildChatSystemPrompt(name: string): string {
       'det kun for brugeren hvis det er relevant for svaret.',
     'Når brugeren spørger om mail, brug list_recent_mail for et hurtigt overblik. ' +
       'Brug read_mail_thread KUN hvis brugeren beder om indholdet af en specifik mail, ' +
-      'eller hvis du har brug for fuld tekst for at svare præcist.',
+      'eller hvis du har brug for fuld tekst for at svare præcist. ' +
+      'list_recent_mail og read_mail_thread henter fra Gmail, Outlook OG iCloud ' +
+      'automatisk afhængigt af hvilke der er forbundet — du har altid adgang til ' +
+      'at læse mails så længe brugeren har mindst én postkasse forbundet. Sig ALDRIG ' +
+      '"jeg kan ikke læse din mail" uden først at have prøvet list_recent_mail.',
     'Brug aldrig kalender- eller mail-værktøjer til at gætte fremtidige eller fortidige ' +
       'data — kun konkret det brugeren spørger om i dette øjeblik.',
     'Du kan oprette, redigere og slette begivenheder via create_calendar_event, ' +
@@ -2511,9 +2542,13 @@ function buildChatSystemPrompt(name: string): string {
       'Brug list_recent_mail eller read_mail_thread til at finde det rigtige ID.',
     'Skriv ALDRIG en signatur/underskrift selv i `body` — Zolva tilføjer ' +
       'automatisk brugerens egen signatur. Skriv kun selve beskeden.',
-    'Mail-værktøjerne understøtter Gmail (provider="google") og Outlook ' +
-      '(provider="microsoft"). iCloud kan ikke sende — forklar det hvis brugeren ' +
-      'beder om det og foreslå Apple Mail-appen i stedet.',
+    'SKRIVE-værktøjerne (create_draft og send_mail) understøtter kun Gmail ' +
+      '(provider="google") og Outlook (provider="microsoft") — IKKE iCloud. ' +
+      'Hvis brugeren beder dig sende eller udkaste fra deres iCloud-konto, ' +
+      'forklar at det ikke er muligt endnu og foreslå Apple Mail-appen i stedet, ' +
+      'eller tilbyd at lægge udkastet på Gmail/Outlook hvis det er forbundet. ' +
+      'Denne begrænsning gælder KUN skrivning — list_recent_mail og read_mail_thread ' +
+      'kan stadig læse iCloud-mails.',
   ]
     .filter(Boolean)
     .join(' ');
@@ -2531,12 +2566,10 @@ function messageSentAt(m: ChatMessage): string | null {
 
 function toClaudeMessages(messages: ChatMessage[]): ClaudeMessage[] {
   return messages.slice(-CHAT_API_CONTEXT_LIMIT).map((m) => {
-    const sentAt = messageSentAt(m);
+    const role = m.from === 'user' ? 'user' : 'assistant';
+    const sentAt = role === 'user' ? messageSentAt(m) : null;
     const content = sentAt ? `[sendt: ${sentAt}] ${m.text}` : m.text;
-    return {
-      role: m.from === 'user' ? 'user' : 'assistant',
-      content,
-    };
+    return { role, content };
   });
 }
 

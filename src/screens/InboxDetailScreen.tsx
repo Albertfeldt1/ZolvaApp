@@ -62,7 +62,7 @@ export function InboxDetailScreen({ mail, onClose }: Props) {
         runExtractor({
           trigger: 'mail_draft',
           userId: user.id,
-          text: `Brugeren besvarede en mail fra ${mail.from} om "${mail.subject}"`,
+          text: `Du besvarede en mail fra ${mail.from} om "${mail.subject}"`,
           source: `mail:${replyContextThreadId(detail.replyContext)}`,
         });
       }
@@ -84,7 +84,7 @@ export function InboxDetailScreen({ mail, onClose }: Props) {
         runExtractor({
           trigger: 'mail_decision',
           userId: user.id,
-          text: `Brugeren ignorerede mail fra ${mail.from} med emnet "${mail.subject}"`,
+          text: `Du ignorerede mail fra ${mail.from} med emnet "${mail.subject}"`,
           source: `mail:${detail ? replyContextThreadId(detail.replyContext) : mail.id}`,
         });
       }
