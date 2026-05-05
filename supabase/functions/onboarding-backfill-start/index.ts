@@ -24,7 +24,27 @@ import { fetchGraphCandidates } from '../_shared/backfill-providers/microsoft.ts
 import { fetchGoogleRecurring } from '../_shared/backfill-providers/google-calendar.ts';
 import { fetchGraphRecurring } from '../_shared/backfill-providers/microsoft-calendar.ts';
 import { fetchIcloudCandidates } from '../_shared/backfill-providers/icloud.ts';
-import { userHasIcloudCreds } from '../_shared/icloud-calendar.ts';
+
+// Mail-side iCloud connectedness: presence of an icloud_credential_bindings
+// row, written by imap-proxy on first successful IMAP call. We deliberately
+// do NOT use user_icloud_calendar_creds (the calendar-only table) — that row
+// can outlive an inbox connection (e.g. user set up calendar long ago, never
+// connected mail), and gating the backfill on it would scan inboxes the
+// user never authorized for mail.
+async function userHasIcloudMailBinding(
+  client: SupabaseClient,
+  userId: string,
+): Promise<boolean> {
+  const { count, error } = await client
+    .from('icloud_credential_bindings')
+    .select('user_id', { count: 'exact', head: true })
+    .eq('user_id', userId);
+  if (error) {
+    console.warn('[backfill-start] icloud binding check failed:', error.message);
+    return false;
+  }
+  return (count ?? 0) > 0;
+}
 
 type MailProvider = 'google' | 'microsoft' | 'icloud';
 type CalProvider = 'google' | 'microsoft';
@@ -149,7 +169,7 @@ serve(async (req) => {
       const refresh = await loadRefreshToken(service, userId, provider);
       if (refresh) providers.push({ provider, kind });
     }
-    if (kind === 'mail' && (await userHasIcloudCreds(service, userId))) {
+    if (kind === 'mail' && (await userHasIcloudMailBinding(service, userId))) {
       providers.push({ provider: 'icloud', kind: 'mail' });
     }
   }
