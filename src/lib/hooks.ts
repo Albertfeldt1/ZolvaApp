@@ -1354,6 +1354,11 @@ async function generateDraft(
 
 export type InboxWaitingResult = Result<InboxMail[]> & {
   providerErrors: MailProviderError[];
+  // Read but not user-dismissed. Rendered below `data` (the unread "venter
+  // på dig" list) so the user sees their full inbox, not just unread —
+  // matches the mental model of native Mail.app where read items remain
+  // visible until explicitly archived.
+  read: InboxMail[];
 };
 
 export function useInboxWaiting(): InboxWaitingResult {
@@ -1488,6 +1493,7 @@ export function useInboxWaiting(): InboxWaitingResult {
   if (demo) {
     return {
       data: demoInboxWaiting().filter((m) => !dismissed.has(m.id)),
+      read: demoInboxArchived().filter((m) => !dismissed.has(m.id)),
       loading: false,
       error: null,
       providerErrors: [],
@@ -1511,7 +1517,19 @@ export function useInboxWaiting(): InboxWaitingResult {
       initials: initialsOf(m.from),
       aiDraft: drafts[m.id] ?? null,
     }));
-  return { data, loading, error, providerErrors };
+  const read: InboxMail[] = items
+    .filter((m) => m.isRead && !dismissed.has(m.id))
+    .map((m, i) => ({
+      id: m.id,
+      provider: m.provider,
+      from: m.from,
+      subject: m.subject,
+      time: shortTime(m.receivedAt, now),
+      tone: tones[i % tones.length],
+      initials: initialsOf(m.from),
+      aiDraft: null,
+    }));
+  return { data, read, loading, error, providerErrors };
 }
 
 export function useInboxArchived(): Result<InboxMail[]> {

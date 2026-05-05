@@ -21,7 +21,7 @@ import { SkeletonRow } from '../components/Skeleton';
 import { Stone } from '../components/Stone';
 import { TopRightActions } from '../components/TopRightActions';
 import { formatClock, formatToday } from '../lib/date';
-import { refreshMailNow, useHasProvider, useInboxCleared, useInboxWaiting } from '../lib/hooks';
+import { refreshMailNow, useHasProvider, useInboxWaiting } from '../lib/hooks';
 import type { MailProviderError } from '../lib/hooks';
 import type { InboxMail, MailProvider } from '../lib/types';
 import { colors, fonts } from '../theme';
@@ -60,8 +60,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
   const clock = useMemo(() => formatClock(today), [today]);
   const { bottom: chromeBottom } = useChromeInsets();
 
-  const { data: waiting, loading: waitingLoading, error: waitingError, providerErrors } = useInboxWaiting();
-  const { data: cleared } = useInboxCleared();
+  const { data: waiting, read, loading: waitingLoading, error: waitingError, providerErrors } = useInboxWaiting();
   const hasProvider = useHasProvider();
 
   // Soft per-provider failures — when iCloud throws but Gmail succeeds (or
@@ -171,8 +170,8 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
             </View>
             <View style={styles.statDivider} />
             <View>
-              <CountUp to={cleared.count} style={styles.statMid} />
-              <Text style={styles.statLabel}>Klaret for dig</Text>
+              <CountUp to={read.length} style={styles.statMid} />
+              <Text style={styles.statLabel}>Læst</Text>
             </View>
           </View>
         </View>
@@ -320,6 +319,48 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
             ))
           )}
         </View>
+
+        {read.length > 0 && (
+          <View style={styles.list}>
+            <View style={styles.sectionHead}>
+              <Text style={styles.sectionTitle}>Læst</Text>
+              <Text style={styles.sectionMeta}>{read.length}</Text>
+            </View>
+            <View style={styles.inkRule} />
+            {read.map((m, i) => (
+              <Pressable
+                key={m.id}
+                onPress={() => onOpenMail(m)}
+                style={({ pressed }) => [
+                  styles.row,
+                  i > 0 && styles.rowBorder,
+                  pressed && styles.rowPressed,
+                ]}
+              >
+                <View style={[styles.avatarWrap, styles.readAvatarWrap]}>
+                  <Avatar initials={m.initials} tone={m.tone} />
+                  {PROVIDER_LOGOS[m.provider] != null && (
+                    <View style={styles.providerBadge}>
+                      <Image
+                        source={PROVIDER_LOGOS[m.provider]}
+                        style={styles.providerLogo}
+                        resizeMode="contain"
+                      />
+                    </View>
+                  )}
+                </View>
+                <View style={styles.rowBody}>
+                  <View style={styles.rowTopLine}>
+                    <Text style={[styles.sender, styles.senderRead]} numberOfLines={1} ellipsizeMode="tail">{m.from}</Text>
+                    <Text style={styles.time} numberOfLines={1}>{m.time}</Text>
+                  </View>
+                  <Text style={[styles.subject, styles.subjectRead]} numberOfLines={2}>{m.subject}</Text>
+                </View>
+                <ChevronRight size={18} color={colors.fg4} strokeWidth={1.75} />
+              </Pressable>
+            ))}
+          </View>
+        )}
       </ScrollView>
 
       <ArchiveModal
@@ -418,6 +459,11 @@ const styles = StyleSheet.create({
   // flexShrink lets a long sender ellipsize instead of pushing the time
   // element off the right edge into the chevron.
   sender: { flexShrink: 1, fontFamily: fonts.uiSemi, fontSize: 14, color: colors.ink },
+  // Read rows visually dim the sender + subject so the eye still parses
+  // "venter" rows as the active set, even when read mails are below.
+  senderRead: { fontFamily: fonts.ui, color: colors.fg2 },
+  subjectRead: { color: colors.fg3 },
+  readAvatarWrap: { opacity: 0.7 },
   time: { flexShrink: 0, fontFamily: fonts.mono, fontSize: 11, color: colors.fg3 },
   subject: { marginTop: 2, fontFamily: fonts.ui, fontSize: 13.5, color: colors.ink },
   draft: { marginTop: 8, flexDirection: 'row', gap: 8, alignItems: 'center' },
