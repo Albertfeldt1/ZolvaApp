@@ -18,7 +18,8 @@ import {
   View,
 } from 'react-native';
 import { useChromeInsets } from '../components/PhoneChrome';
-import { useConnections } from '../lib/hooks';
+import { useAuth } from '../lib/auth';
+import { useConnections, useIcloudConnected } from '../lib/hooks';
 import { startBackfill } from '../lib/onboarding-backfill';
 import { colors, fonts } from '../theme';
 
@@ -31,6 +32,11 @@ type Props = {
 export function OnboardingBackfillScreen({ onStart, onSkip, forceRerun }: Props) {
   const { bottom: chromeBottom } = useChromeInsets();
   const { data: connections } = useConnections();
+  const { user } = useAuth();
+  // useConnections only knows about Google + Microsoft; iCloud lives in
+  // SecureStore and needs its own gate. Without this the Start button
+  // disables itself for iCloud-only accounts and the user dead-ends here.
+  const icloudConnected = useIcloudConnected(user?.id ?? '');
   const [busy, setBusy] = useState(false);
 
   // Build the human-readable list of sources we'll scan. Only include
@@ -43,6 +49,7 @@ export function OnboardingBackfillScreen({ onStart, onSkip, forceRerun }: Props)
     connections.find((c) => c.id === id)?.status === 'connected';
   if (isConnected('gmail')) sources.push('Gmail');
   if (isConnected('outlook-mail')) sources.push('Outlook Mail');
+  if (icloudConnected) sources.push('iCloud Mail');
   if (isConnected('google-calendar')) sources.push('Google Kalender');
   if (isConnected('outlook-calendar')) sources.push('Outlook Kalender');
 

@@ -489,7 +489,7 @@ type NormalizedEvent = {
 // Used by useMailItems / useCalendarItems / useHasProvider — credential
 // presence determines whether to fan out an iCloud request and whether the
 // account counts as "has any provider connected" for upstream gating.
-function useIcloudConnected(userId: string): boolean {
+export function useIcloudConnected(userId: string): boolean {
   const [connected, setConnected] = useState(false);
   useEffect(() => {
     let cancelled = false;
