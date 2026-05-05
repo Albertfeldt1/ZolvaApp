@@ -26,10 +26,11 @@ import { colors, fonts } from '../theme';
 type Props = {
   onStart: () => void;
   onSkip: () => void;
+  onConnectMore: () => void;
   forceRerun?: boolean;
 };
 
-export function OnboardingBackfillScreen({ onStart, onSkip, forceRerun }: Props) {
+export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, forceRerun }: Props) {
   const { bottom: chromeBottom } = useChromeInsets();
   const { data: connections } = useConnections();
   const { user } = useAuth();
@@ -125,6 +126,19 @@ export function OnboardingBackfillScreen({ onStart, onSkip, forceRerun }: Props)
               {busy ? 'Starter…' : 'Start'}
             </Text>
           </Pressable>
+
+          <Pressable
+            onPress={onConnectMore}
+            disabled={busy}
+            style={styles.secondaryBtn}
+            accessibilityRole="button"
+          >
+            <Text style={styles.secondaryBtnText}>Forbind flere konti først</Text>
+          </Pressable>
+
+          <Text style={styles.connectMoreHint}>
+            Du kan altid scanne igen fra Hukommelse-fanen.
+          </Text>
 
           <Pressable
             onPress={onSkip}
@@ -223,5 +237,13 @@ const styles = StyleSheet.create({
     fontFamily: fonts.ui,
     fontSize: 14,
     color: colors.fg3,
+  },
+  connectMoreHint: {
+    marginTop: 4,
+    fontFamily: fonts.ui,
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.fg3,
+    textAlign: 'center',
   },
 });

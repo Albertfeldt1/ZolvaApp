@@ -603,6 +603,16 @@ export default function App() {
                   setOnboardingOpen(false);
                   setOnboardingForceRerun(false);
                 }}
+                onConnectMore={() => {
+                  // Mark as shown so the chain doesn't reopen on next launch —
+                  // user is intentionally deferring. They'll re-trigger via
+                  // Memory tab → Genscan once they're done connecting accounts.
+                  const uid = user.id;
+                  void markOnboardingBackfillShown(uid);
+                  setOnboardingOpen(false);
+                  setOnboardingForceRerun(false);
+                  switchTab('settings');
+                }}
               />
             )}
             {onboardingStage === 'progress' && (
