@@ -59,6 +59,7 @@
     "@types/react": "~19.1.0",
     "babel-preset-expo": "~54.0.10",
     "jest-expo": "^55.0.16",
+    "react-native-svg-transformer": "^1.5.3",
     "typescript": "~5.9.2"
   },
   "private": true,
