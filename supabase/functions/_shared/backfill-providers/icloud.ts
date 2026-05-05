@@ -54,9 +54,37 @@ export async function fetchIcloudCandidates(
   maxFetch = 50,
   keep = 50,
 ): Promise<CandidateMessage[]> {
-  return raceWithDeadline(
-    fetchIcloudCandidatesInner(client, userId, encryptionKey, userOwnEmail, maxFetch, keep),
-    FETCH_DEADLINE_MS,
+  // One retry with 5s backoff on transient transport errors. Apple's IMAP
+  // path is intermittently unstable for Supabase edge IPs (TLS close-on-
+  // greeting, socket idle-timeouts) — single-shot fetches fail the user's
+  // entire onboarding when one attempt unluckily lands in a 30s window
+  // when Apple is hiccuping. Two attempts catch most of these without
+  // exceeding the 150s function wall-clock (60+5+60 = 125s worst case).
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 5_000));
+    try {
+      return await raceWithDeadline(
+        fetchIcloudCandidatesInner(client, userId, encryptionKey, userOwnEmail, maxFetch, keep),
+        FETCH_DEADLINE_MS,
+      );
+    } catch (err) {
+      lastErr = err;
+      if (!isTransientImapError(err)) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[backfill:icloud] attempt ${attempt + 1} failed (${msg}), retrying`);
+    }
+  }
+  throw lastErr;
+}
+
+function isTransientImapError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as { code?: string })?.code ?? '';
+  return (
+    /timeout|connection not available|closed.*after.*connect|unexpected close|deadline/i.test(msg) ||
+    code === 'ClosedAfterConnectTLS' ||
+    code === 'ClosedAfterConnect'
   );
 }
 
