@@ -12,7 +12,12 @@ import {
 import Animated, { SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { useAuth } from '../lib/auth';
 import { useCalendarVisibility } from '../lib/calendar-visibility';
-import { listAllCalendars, type ProviderCalendar } from '../lib/calendar-providers';
+import {
+  listGoogleCalendars,
+  listIcloudCalendars,
+  listMicrosoftCalendars,
+  type ProviderCalendar,
+} from '../lib/calendar-providers';
 import { useIcloudConnected } from '../lib/hooks';
 import { colors, fonts } from '../theme';
 
@@ -27,42 +32,79 @@ const PROVIDER_LABEL: Record<ProviderCalendar['provider'], string> = {
   icloud: 'iCloud',
 };
 
+type ProviderState =
+  | { kind: 'idle' }       // connected? unknown — usually means not signed in for this provider
+  | { kind: 'loading' }
+  | { kind: 'error'; message: string }
+  | { kind: 'ok'; calendars: ProviderCalendar[] };
+
 // Account-grouped picker matching Apple Calendar's "Calendars" sheet:
 // switch per row, color dot, name. Hidden state lives in AsyncStorage via
 // useCalendarVisibility — flipping a switch immediately bumps every
 // useCalendarItems consumer that opted into respectVisibility.
+//
+// Per-provider fetch (not aggregated through listAllCalendars) so a 401 on
+// Google doesn't collapse with iCloud's empty list into a misleading
+// "no calendars found" — the user needs to know which provider broke.
 export function CalendarPickerSheet({ visible, onClose }: Props) {
   const { user, googleAccessToken, microsoftAccessToken } = useAuth();
   const userId = user?.id ?? '';
   const icloudConnected = useIcloudConnected(userId);
   const { visibility, setHidden } = useCalendarVisibility(userId);
 
-  const [calendars, setCalendars] = useState<ProviderCalendar[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [google, setGoogle] = useState<ProviderState>({ kind: 'idle' });
+  const [microsoft, setMicrosoft] = useState<ProviderState>({ kind: 'idle' });
+  const [icloud, setIcloud] = useState<ProviderState>({ kind: 'idle' });
 
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
-    setCalendars(null);
-    setLoadError(null);
-    void listAllCalendars({
-      hasGoogle: !!googleAccessToken,
-      hasMicrosoft: !!microsoftAccessToken,
-      hasIcloud: icloudConnected,
-      userId,
-    })
-      .then((list) => { if (!cancelled) setCalendars(list); })
-      .catch((err: Error) => {
-        if (!cancelled) setLoadError(err.message);
-      });
+
+    if (googleAccessToken) {
+      setGoogle({ kind: 'loading' });
+      listGoogleCalendars({ writableOnly: false })
+        .then((cals) => { if (!cancelled) setGoogle({ kind: 'ok', calendars: cals }); })
+        .catch((err: Error) => {
+          if (cancelled) return;
+          if (__DEV__) console.warn('[picker] Google list failed:', err.message);
+          setGoogle({ kind: 'error', message: err.message });
+        });
+    } else {
+      setGoogle({ kind: 'idle' });
+    }
+
+    if (microsoftAccessToken) {
+      setMicrosoft({ kind: 'loading' });
+      listMicrosoftCalendars({ writableOnly: false })
+        .then((cals) => { if (!cancelled) setMicrosoft({ kind: 'ok', calendars: cals }); })
+        .catch((err: Error) => {
+          if (cancelled) return;
+          if (__DEV__) console.warn('[picker] Microsoft list failed:', err.message);
+          setMicrosoft({ kind: 'error', message: err.message });
+        });
+    } else {
+      setMicrosoft({ kind: 'idle' });
+    }
+
+    if (icloudConnected && userId) {
+      setIcloud({ kind: 'loading' });
+      listIcloudCalendars(userId)
+        .then((cals) => { if (!cancelled) setIcloud({ kind: 'ok', calendars: cals }); })
+        .catch((err: Error) => {
+          if (cancelled) return;
+          if (__DEV__) console.warn('[picker] iCloud list failed:', err.message);
+          setIcloud({ kind: 'error', message: err.message });
+        });
+    } else {
+      setIcloud({ kind: 'idle' });
+    }
+
     return () => { cancelled = true; };
   }, [visible, googleAccessToken, microsoftAccessToken, icloudConnected, userId]);
 
   if (!visible) return null;
 
-  // Group by accountEmail (or provider name when no email — typical for
-  // iCloud where the CalDAV reader doesn't surface the account address).
-  const groups = groupByAccount(calendars ?? []);
+  const allIdle = google.kind === 'idle' && microsoft.kind === 'idle' && icloud.kind === 'idle';
 
   return (
     <Animated.View
@@ -78,73 +120,81 @@ export function CalendarPickerSheet({ visible, onClose }: Props) {
           </Pressable>
         </View>
         <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-          {calendars === null && !loadError && (
-            <View style={styles.center}><ActivityIndicator color={colors.fg3} /></View>
+          {allIdle && (
+            <Text style={styles.empty}>Ingen forbundne konti. Forbind Google, Outlook eller iCloud først.</Text>
           )}
-          {loadError && (
-            <Text style={styles.error}>Kunne ikke hente kalendere — prøv igen.</Text>
-          )}
-          {calendars !== null && calendars.length === 0 && !loadError && (
-            <Text style={styles.empty}>Ingen kalendere fundet. Forbind en konto først.</Text>
-          )}
-          {groups.map(({ heading, providerLabel, items }) => (
-            <View key={heading} style={styles.group}>
-              <Text style={styles.groupHeading}>{providerLabel}{heading ? ` · ${heading}` : ''}</Text>
-              {items.map((c) => {
-                const hidden = (visibility[c.provider] ?? []).includes(c.id);
-                return (
-                  <View key={`${c.provider}:${c.id}`} style={styles.row}>
-                    <View style={[styles.dot, { backgroundColor: c.color ?? colors.fg4 }]} />
-                    <Text style={styles.rowName} numberOfLines={1}>{c.name}</Text>
-                    <Switch
-                      value={!hidden}
-                      onValueChange={(next) => { void setHidden(c.provider, c.id, !next); }}
-                      trackColor={{ false: colors.line, true: colors.sage }}
-                      thumbColor={colors.paper}
-                    />
-                  </View>
-                );
-              })}
-            </View>
-          ))}
+          <ProviderSection
+            label="Google"
+            state={google}
+            visibility={visibility.google ?? []}
+            onToggle={(id, hidden) => setHidden('google', id, hidden)}
+          />
+          <ProviderSection
+            label="Outlook"
+            state={microsoft}
+            visibility={visibility.microsoft ?? []}
+            onToggle={(id, hidden) => setHidden('microsoft', id, hidden)}
+          />
+          <ProviderSection
+            label="iCloud"
+            state={icloud}
+            visibility={visibility.icloud ?? []}
+            onToggle={(id, hidden) => setHidden('icloud', id, hidden)}
+          />
         </ScrollView>
       </SafeAreaView>
     </Animated.View>
   );
 }
 
-type Group = { heading: string; providerLabel: string; items: ProviderCalendar[] };
+function ProviderSection({
+  label,
+  state,
+  visibility,
+  onToggle,
+}: {
+  label: string;
+  state: ProviderState;
+  visibility: string[];
+  onToggle: (calendarId: string, hidden: boolean) => Promise<void>;
+}) {
+  if (state.kind === 'idle') return null;
 
-function groupByAccount(calendars: ProviderCalendar[]): Group[] {
-  // Provider order matches the connect-flow priority (Google, Outlook,
-  // iCloud) so the picker doesn't reshuffle each open.
-  const providerOrder: ProviderCalendar['provider'][] = ['google', 'microsoft', 'icloud'];
-  const groups: Group[] = [];
-  for (const provider of providerOrder) {
-    const forProvider = calendars.filter((c) => c.provider === provider);
-    if (forProvider.length === 0) continue;
-    // For iCloud the email is null on every row; collapse into one group.
-    const accounts = new Map<string, ProviderCalendar[]>();
-    for (const c of forProvider) {
-      const key = c.accountEmail ?? '';
-      const list = accounts.get(key) ?? [];
-      list.push(c);
-      accounts.set(key, list);
-    }
-    for (const [email, items] of accounts) {
-      groups.push({
-        heading: email,
-        providerLabel: PROVIDER_LABEL[provider],
-        // Main account first, then alphabetical — nicer when a user has 8
-        // shared calendars on top of their own.
-        items: items.sort((a, b) => {
+  return (
+    <View style={styles.group}>
+      <Text style={styles.groupHeading}>{label}</Text>
+      {state.kind === 'loading' && (
+        <View style={styles.center}><ActivityIndicator color={colors.fg3} /></View>
+      )}
+      {state.kind === 'error' && (
+        <Text style={styles.error}>Kunne ikke hente {label}: {state.message}</Text>
+      )}
+      {state.kind === 'ok' && state.calendars.length === 0 && (
+        <Text style={styles.empty}>Ingen kalendere fundet i {label}.</Text>
+      )}
+      {state.kind === 'ok' && state.calendars
+        .slice()
+        .sort((a, b) => {
           if (a.isMainAccount !== b.isMainAccount) return a.isMainAccount ? -1 : 1;
           return a.name.localeCompare(b.name);
-        }),
-      });
-    }
-  }
-  return groups;
+        })
+        .map((c) => {
+          const hidden = visibility.includes(c.id);
+          return (
+            <View key={`${c.provider}:${c.id}`} style={styles.row}>
+              <View style={[styles.dot, { backgroundColor: c.color ?? colors.fg4 }]} />
+              <Text style={styles.rowName} numberOfLines={1}>{c.name}</Text>
+              <Switch
+                value={!hidden}
+                onValueChange={(next) => { void onToggle(c.id, !next); }}
+                trackColor={{ false: colors.line, true: colors.sage }}
+                thumbColor={colors.paper}
+              />
+            </View>
+          );
+        })}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -163,8 +213,8 @@ const styles = StyleSheet.create({
   title: { fontFamily: fonts.displayItalic, fontSize: 22, letterSpacing: -0.3, color: colors.ink },
   close: { fontFamily: fonts.uiSemi, fontSize: 15, color: colors.sageDeep },
   body: { padding: 20, gap: 24, paddingBottom: 40 },
-  center: { paddingVertical: 40, alignItems: 'center' },
-  error: { fontFamily: fonts.ui, fontSize: 14, color: colors.warningInk },
+  center: { paddingVertical: 24, alignItems: 'center' },
+  error: { fontFamily: fonts.ui, fontSize: 13, lineHeight: 18, color: colors.warningInk },
   empty: { fontFamily: fonts.ui, fontSize: 14, color: colors.fg3 },
   group: { gap: 8 },
   groupHeading: {
