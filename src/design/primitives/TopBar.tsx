@@ -9,11 +9,12 @@ type Props = {
   onGear?: () => void;
 };
 
+const ICON_BUTTON_SIZE = 34;
+const ICON_GLYPH_SIZE = 16;
+const HORIZONTAL_PAD = 20;
+
 export function TopBar({ eyebrow, onBell, onGear }: Props) {
-  const { t, type } = useTheme();
-  const dark = t.mode === 'dark';
-  const iconColor = dark ? 'rgba(255,255,255,0.7)' : t.ink2;
-  const buttonBg = dark ? 'rgba(255,255,255,0.10)' : 'rgba(21,23,26,0.05)';
+  const { t, type, surface, spacing, radius } = useTheme();
 
   return (
     <View
@@ -21,8 +22,8 @@ export function TopBar({ eyebrow, onBell, onGear }: Props) {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingTop: 56,
-        paddingHorizontal: 20,
+        paddingTop: spacing.statusBarFallback,
+        paddingHorizontal: HORIZONTAL_PAD,
       }}
     >
       <Text
@@ -32,38 +33,38 @@ export function TopBar({ eyebrow, onBell, onGear }: Props) {
           letterSpacing: type.eyebrow.letterSpacing,
           fontFamily: type.eyebrow.fontFamily,
           textTransform: type.eyebrow.textTransform,
-          color: dark ? 'rgba(255,255,255,0.65)' : t.ink3,
+          color: t.ink3,
           fontWeight: '500',
         }}
       >
         {eyebrow}
       </Text>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
+      <View style={{ flexDirection: 'row', gap: spacing.sm }}>
         <Pressable
           onPress={onBell}
           style={{
-            width: 34,
-            height: 34,
-            borderRadius: 9999,
-            backgroundColor: buttonBg,
+            width: ICON_BUTTON_SIZE,
+            height: ICON_BUTTON_SIZE,
+            borderRadius: radius.pill,
+            backgroundColor: surface.iconButton,
             alignItems: 'center',
             justifyContent: 'center',
           }}
         >
-          <Icon.bell size={16} color={iconColor} />
+          <Icon.bell size={ICON_GLYPH_SIZE} color={t.ink2} />
         </Pressable>
         <Pressable
           onPress={onGear}
           style={{
-            width: 34,
-            height: 34,
-            borderRadius: 9999,
-            backgroundColor: buttonBg,
+            width: ICON_BUTTON_SIZE,
+            height: ICON_BUTTON_SIZE,
+            borderRadius: radius.pill,
+            backgroundColor: surface.iconButton,
             alignItems: 'center',
             justifyContent: 'center',
           }}
         >
-          <Icon.gear size={16} color={iconColor} />
+          <Icon.gear size={ICON_GLYPH_SIZE} color={t.ink2} />
         </Pressable>
       </View>
     </View>

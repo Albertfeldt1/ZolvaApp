@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable } from 'react-native';
 import Animated from 'react-native-reanimated';
 import Stone24 from '../../../assets/stone/zolva-stone-24.svg';
 import Stone32 from '../../../assets/stone/zolva-stone-32.svg';
@@ -7,6 +7,7 @@ import Stone48 from '../../../assets/stone/zolva-stone-48.svg';
 import Stone88 from '../../../assets/stone/zolva-stone-88.svg';
 import Stone256 from '../../../assets/stone/zolva-stone-256.svg';
 import { useStoneJump } from '../motion/useStoneJump';
+import { useTheme } from '../useTheme';
 
 type Props = {
   size?: number;
@@ -24,6 +25,7 @@ function pickSvg(size: number) {
 
 export function Stone({ size = 32, jumpOnTap = true, onPress }: Props) {
   const { style, trigger } = useStoneJump(size);
+  const { shadows } = useTheme();
   const Svg = pickSvg(size);
 
   const handlePress = () => {
@@ -38,11 +40,7 @@ export function Stone({ size = 32, jumpOnTap = true, onPress }: Props) {
       style={{
         width: size,
         height: size,
-        shadowColor: '#5C7355',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.35,
-        shadowRadius: 12,
-        elevation: 6,
+        ...shadows.stoneCast,
       }}
     >
       <Animated.View style={[{ width: size, height: size }, style]}>

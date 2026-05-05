@@ -16,14 +16,14 @@ type Halo = {
 };
 
 const HALOS: Halo[] = [
-  { top: -100, left: -80,   size: 340, color: 'today', opacity: 0.65 },
-  { top: 40,   right: -110, size: 300, color: 'mem',   opacity: 0.55 },
-  { top: 340,  left: -60,   size: 260, color: 'today', opacity: 0.35 },
-  { bottom: 120, right: -60, size: 240, color: 'mem',  opacity: 0.35 },
+  { top: -100, left: -80,    size: 340, color: 'today', opacity: 0.65 },
+  { top: 40,   right: -110,  size: 300, color: 'mem',   opacity: 0.55 },
+  { top: 340,  left: -60,    size: 260, color: 'today', opacity: 0.35 },
+  { bottom: 120, right: -60, size: 240, color: 'mem',   opacity: 0.35 },
 ];
 
 export function GlassHaloLayer() {
-  const { t } = useTheme();
+  const { t, blur } = useTheme();
   return (
     <View
       pointerEvents="none"
@@ -47,8 +47,8 @@ export function GlassHaloLayer() {
         />
       ))}
       <BlurView
-        intensity={80}
-        tint="light"
+        intensity={blur.haloField}
+        tint={t.mode === 'dark' ? 'dark' : 'light'}
         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
       />
     </View>

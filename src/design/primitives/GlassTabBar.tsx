@@ -19,9 +19,13 @@ type IconRenderer = (props: { size?: number; color: string }) => React.ReactElem
 
 type Tab = { id: TabId; label: string; I: IconRenderer; color: string };
 
+const FAB_STONE_SIZE = 22;
+const FAB_TEXT_SIZE = 13;
+const TAB_ICON_SIZE = 20;
+const TAB_LABEL_SIZE = 10;
+
 export function GlassTabBar({ active, onChange, onAskZolva, bottomInset }: Props) {
-  const { t, fonts } = useTheme();
-  const dark = t.mode === 'dark';
+  const { t, fonts, surface, shadows, blur, spacing, radius } = useTheme();
 
   const TABS: Tab[] = [
     { id: 'today', label: 'I dag',    I: Icon.sun,      color: t.today },
@@ -37,37 +41,33 @@ export function GlassTabBar({ active, onChange, onAskZolva, bottomInset }: Props
         position: 'absolute',
         left: 0,
         right: 0,
-        bottom: bottomInset + 18,
+        bottom: bottomInset + spacing.tabBarLift,
         alignItems: 'center',
-        gap: 10,
+        gap: spacing.md - spacing.xs / 2, // 10pt
       }}
     >
       {/* Spørg Zolva FAB */}
-      <View style={{ alignSelf: 'flex-end', marginRight: 48 }}>
+      <View style={{ alignSelf: 'flex-end', marginRight: spacing.fabSideMargin }}>
         <Pressable
           onPress={onAskZolva}
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            gap: 8,
+            gap: spacing.sm,
             paddingVertical: 9,
             paddingLeft: 9,
-            paddingRight: 14,
-            borderRadius: 9999,
-            backgroundColor: dark ? 'rgba(242,239,232,0.92)' : 'rgba(21,23,26,0.78)',
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 8 },
-            shadowOpacity: 0.18,
-            shadowRadius: 24,
-            elevation: 8,
+            paddingRight: spacing.cardPad,
+            borderRadius: radius.pill,
+            backgroundColor: surface.fab,
+            ...shadows.fab,
           }}
         >
-          <Stone size={22} jumpOnTap={false} />
+          <Stone size={FAB_STONE_SIZE} jumpOnTap={false} />
           <Text
             style={{
               fontFamily: fonts.uiBold,
-              fontSize: 13,
-              color: dark ? '#0E1117' : '#fff',
+              fontSize: FAB_TEXT_SIZE,
+              color: surface.fabText,
               letterSpacing: -0.1,
             }}
           >
@@ -77,25 +77,21 @@ export function GlassTabBar({ active, onChange, onAskZolva, bottomInset }: Props
       </View>
 
       {/* 4-tab pill */}
-      <View style={{ alignSelf: 'stretch', marginHorizontal: 48 }}>
+      <View style={{ alignSelf: 'stretch', marginHorizontal: spacing.tabBarSideMargin }}>
         <BlurView
-          intensity={Platform.OS === 'ios' ? 70 : 60}
-          tint={dark ? 'dark' : 'light'}
+          intensity={Platform.OS === 'ios' ? blur.tabBarIos : blur.tabBarAndroid}
+          tint={t.mode === 'dark' ? 'dark' : 'light'}
           style={{
-            borderRadius: 9999,
+            borderRadius: radius.pill,
             overflow: 'hidden',
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 6 },
-            shadowOpacity: 0.10,
-            shadowRadius: 24,
-            elevation: 6,
+            ...shadows.tabBar,
           }}
         >
           <View
             style={{
               flexDirection: 'row',
-              padding: 8,
-              backgroundColor: dark ? 'rgba(27,32,48,0.65)' : 'rgba(255,255,255,0.55)',
+              padding: spacing.sm,
+              backgroundColor: surface.tabBar,
             }}
           >
             {TABS.map((tab) => {
@@ -108,20 +104,16 @@ export function GlassTabBar({ active, onChange, onAskZolva, bottomInset }: Props
                   style={{
                     flex: 1,
                     alignItems: 'center',
-                    paddingVertical: 8,
-                    borderRadius: 9999,
-                    backgroundColor: isActive
-                      ? dark
-                        ? 'rgba(255,255,255,0.12)'
-                        : 'rgba(255,255,255,0.9)'
-                      : 'transparent',
+                    paddingVertical: spacing.sm,
+                    borderRadius: radius.pill,
+                    backgroundColor: isActive ? surface.tabActive : 'transparent',
                   }}
                 >
-                  <Ic size={20} color={isActive ? tab.color : t.ink3} />
+                  <Ic size={TAB_ICON_SIZE} color={isActive ? tab.color : t.ink3} />
                   <Text
                     style={{
                       fontFamily: fonts.uiBold,
-                      fontSize: 10,
+                      fontSize: TAB_LABEL_SIZE,
                       color: isActive ? tab.color : t.ink3,
                       marginTop: 2,
                       letterSpacing: 0.1,
