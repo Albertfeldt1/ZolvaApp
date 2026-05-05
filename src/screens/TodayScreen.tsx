@@ -72,6 +72,8 @@ type Props = {
 };
 
 const PILL_CLEARANCE = 76;
+// Small chevron / icon glyph size used inside cards.
+const SMALL_GLYPH = 14;
 
 export function TodayScreen({
   onOpenChat,
@@ -90,7 +92,7 @@ export function TodayScreen({
   const { bottom: chromeBottom } = useChromeInsets();
 
   const theme = useTheme();
-  const { t, type, fonts, radius } = theme;
+  const { t, type, fonts, radius, spacing, surface, shadows, blur, heroStat } = theme;
 
   const { user: authUser } = useAuth();
   const userId = authUser?.id ?? '';
@@ -184,8 +186,7 @@ export function TodayScreen({
   );
   const showHuskPreview = pendingReminders.length > 0 || notes.length > 0;
 
-  // ribbonEvents kept for potential future use; not rendered in Phase 1.
-  const _ribbonEvents = useMemo(() => {
+  const ribbonEvents = useMemo(() => {
     const startOfDay = new Date(today);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(today);
@@ -206,6 +207,29 @@ export function TodayScreen({
         attendees: e.attendees,
       }));
   }, [todayEvents, today]);
+
+  // Hero-card soft ribbon — segments derived from real events on a
+  // 6:00-22:00 visible window. Colors cycle through the direction's
+  // signal palette so each event reads distinctly without needing
+  // per-event tone classification.
+  const ribbonSegments = useMemo(() => {
+    const RIBBON_START = 6;
+    const RIBBON_END = 22;
+    const RIBBON_SPAN = RIBBON_END - RIBBON_START;
+    const palette = [t.cal, t.today, t.mem, t.inbox];
+    return ribbonEvents.slice(0, 4).map((e, i) => {
+      const start = Math.max(RIBBON_START, e.startHour);
+      const end = Math.min(RIBBON_END, e.endHour);
+      const left = ((start - RIBBON_START) / RIBBON_SPAN) * 100;
+      const width = Math.max(2, ((end - start) / RIBBON_SPAN) * 100);
+      return {
+        id: e.id,
+        left: `${left}%` as const,
+        width: `${width}%` as const,
+        color: palette[i % palette.length],
+      };
+    });
+  }, [ribbonEvents, t.cal, t.today, t.mem, t.inbox]);
 
   const scrollYRef = useRef(0);
   const viewportHRef = useRef(0);
@@ -258,25 +282,30 @@ export function TodayScreen({
         />
 
         {/* Hero text block */}
-        <View style={{ paddingHorizontal: 22, paddingTop: 14 }}>
+        <View style={{ paddingHorizontal: spacing.heroPad, paddingTop: spacing.cardPad }}>
           <Text style={{ ...type.displayXL, color: t.ink }}>
             {user ? `${hello},\n${user.name}.` : `${hello}.`}
           </Text>
-          <Text style={{ ...type.body, color: t.ink2, marginTop: 10, maxWidth: 300 }}>
+          <Text style={{ ...type.body, color: t.ink2, marginTop: spacing.md - 2, maxWidth: 300 }}>
             {summaryLine}
           </Text>
         </View>
 
         {/* Frosted hero stat card */}
-        <View style={{ paddingHorizontal: 18, paddingTop: 22 }}>
+        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
           <BlurView
-            intensity={50}
-            tint="light"
-            style={{ borderRadius: radius.card, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)' }}
+            intensity={blur.hero}
+            tint={t.mode === 'dark' ? 'dark' : 'light'}
+            style={{
+              borderRadius: radius.card,
+              overflow: 'hidden',
+              borderWidth: 1,
+              borderColor: surface.glassWeak,
+            }}
           >
-            <View style={{ backgroundColor: 'rgba(255,255,255,0.55)', padding: 18 }}>
+            <View style={{ backgroundColor: surface.glassStrong, padding: spacing.screenPad }}>
               {/* Top eyebrow row: "LIGE NU" + clock */}
-              <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 14 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: spacing.cardPad }}>
                 <Text style={{ ...type.eyebrow, color: t.ink2, fontWeight: '600' }}>Lige nu</Text>
                 <View style={{ flex: 1 }} />
                 <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '500', textTransform: 'none' }}>
@@ -285,38 +314,81 @@ export function TodayScreen({
               </View>
 
               {/* Big number + secondary stats */}
-              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 18 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.lg }}>
                 <View>
-                  <Text style={{ fontFamily: fonts.display, fontSize: 64, lineHeight: 60, fontWeight: '500', letterSpacing: -3, color: t.ink }}>
+                  <Text
+                    style={{
+                      fontFamily: fonts.display,
+                      fontSize: heroStat.bigSize,
+                      lineHeight: heroStat.bigLineHeight,
+                      fontWeight: '500',
+                      letterSpacing: heroStat.bigLetterSpacing,
+                      color: t.ink,
+                    }}
+                  >
                     {todayMeetingCount}
                   </Text>
-                  <Text style={{ ...type.eyebrow, color: t.ink2, marginTop: 4, fontWeight: '600' }}>Møder</Text>
+                  <Text style={{ ...type.eyebrow, color: t.ink2, marginTop: spacing.xs, fontWeight: '600' }}>Møder</Text>
                 </View>
-                <View style={{ flex: 1, paddingBottom: 6 }}>
-                  <View style={{ flexDirection: 'row', gap: 14 }}>
+                <View style={{ flex: 1, paddingBottom: spacing.xs + 2 }}>
+                  <View style={{ flexDirection: 'row', gap: spacing.cardPad }}>
                     <View>
-                      <Text style={{ fontFamily: fonts.display, fontSize: 28, fontWeight: '500', letterSpacing: -1, color: t.ink }}>
+                      <Text
+                        style={{
+                          fontFamily: fonts.display,
+                          fontSize: heroStat.midSize,
+                          fontWeight: '500',
+                          letterSpacing: heroStat.midLetterSpacing,
+                          color: t.ink,
+                        }}
+                      >
                         {waiting.length}
                       </Text>
-                      <Text style={{ ...type.eyebrow, color: t.ink3, marginTop: 2, fontSize: 9.5, letterSpacing: 0.8 }}>Mails</Text>
+                      <Text style={{ ...type.eyebrow, color: t.ink3, marginTop: 2 }}>Mails</Text>
                     </View>
                     <View style={{ width: 1, backgroundColor: t.line }} />
                     <View>
-                      <Text style={{ fontFamily: fonts.display, fontSize: 28, fontWeight: '500', letterSpacing: -1, color: t.ink }}>
+                      <Text
+                        style={{
+                          fontFamily: fonts.display,
+                          fontSize: heroStat.midSize,
+                          fontWeight: '500',
+                          letterSpacing: heroStat.midLetterSpacing,
+                          color: t.ink,
+                        }}
+                      >
                         {pendingReminders.length}
                       </Text>
-                      <Text style={{ ...type.eyebrow, color: t.ink3, marginTop: 2, fontSize: 9.5, letterSpacing: 0.8 }}>Påmindelser</Text>
+                      <Text style={{ ...type.eyebrow, color: t.ink3, marginTop: 2 }}>Påmindelser</Text>
                     </View>
                   </View>
                 </View>
               </View>
 
-              {/* Soft ribbon — static 4-color proxy; Phase 5 will derive from real events */}
-              <View style={{ marginTop: 16, height: 8, borderRadius: 9999, backgroundColor: 'rgba(15,16,20,0.05)', position: 'relative', overflow: 'hidden' }}>
-                <View style={{ position: 'absolute', left: '8%',  width: '10%', height: '100%', backgroundColor: t.cal,    borderRadius: 9999 }} />
-                <View style={{ position: 'absolute', left: '22%', width: '18%', height: '100%', backgroundColor: t.today,  borderRadius: 9999 }} />
-                <View style={{ position: 'absolute', left: '48%', width: '8%',  height: '100%', backgroundColor: t.mem,    borderRadius: 9999 }} />
-                <View style={{ position: 'absolute', left: '62%', width: '14%', height: '100%', backgroundColor: t.inbox,  borderRadius: 9999 }} />
+              {/* Soft ribbon — segments derived from today's events */}
+              <View
+                style={{
+                  marginTop: spacing.cardPad + 2,
+                  height: heroStat.ribbonHeight,
+                  borderRadius: radius.pill,
+                  backgroundColor: surface.scrim,
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}
+              >
+                {ribbonSegments.map((seg) => (
+                  <View
+                    key={seg.id}
+                    style={{
+                      position: 'absolute',
+                      left: seg.left,
+                      width: seg.width,
+                      height: '100%',
+                      backgroundColor: seg.color,
+                      borderRadius: radius.pill,
+                    }}
+                  />
+                ))}
               </View>
             </View>
           </BlurView>
@@ -324,9 +396,9 @@ export function TodayScreen({
 
         {/* iCloud expired banner */}
         {icloudExpired && (
-          <View style={{ paddingHorizontal: 18, paddingTop: 14 }}>
+          <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
             <Pressable onPress={() => onOpenIcloudSetup?.(icloudExpiredEmail ?? undefined)} accessibilityRole="button">
-              <GlassFrostedCard overlay="rgba(255,193,127,0.55)" style={{ padding: 14 }}>
+              <GlassFrostedCard overlay={surface.warningTint} style={{ padding: spacing.cardPad }}>
                 <Text style={{ ...type.bodySm, color: t.ink, fontWeight: '600' }}>
                   Apple afviste adgangskoden — iCloud-begivenheder vises ikke. Tryk for at genindtaste.
                 </Text>
@@ -337,18 +409,18 @@ export function TodayScreen({
 
         {/* Husk preview */}
         {showHuskPreview && (
-          <View style={{ paddingHorizontal: 18, paddingTop: 14 }}>
+          <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
             <Pressable onPress={onGoToMemory}>
-              <GlassFrostedCard style={{ padding: 14, gap: 8 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Bookmark size={14} color={t.mem} strokeWidth={2} />
+              <GlassFrostedCard style={{ padding: spacing.cardPad, gap: spacing.sm }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                  <Bookmark size={SMALL_GLYPH} color={t.mem} strokeWidth={2} />
                   <Text style={{ ...type.eyebrow, color: t.mem, fontWeight: '700' }}>Husk</Text>
                   <Text style={{ ...type.eyebrow, color: t.ink3, flex: 1 }}>
                     {pendingReminders.length > 0 && plural(pendingReminders.length, 'påmindelse', 'påmindelser')}
                     {pendingReminders.length > 0 && notes.length > 0 && ' · '}
                     {notes.length > 0 && plural(notes.length, 'note', 'noter')}
                   </Text>
-                  <DesignIcon.chev size={14} color={t.ink4} />
+                  <DesignIcon.chev size={SMALL_GLYPH} color={t.ink4} />
                 </View>
                 {pendingReminders.slice(0, 2).map((r) => (
                   <HuskReminderLine key={r.id} reminder={r} now={today} />
@@ -359,8 +431,16 @@ export function TodayScreen({
         )}
 
         {/* "Næste" section */}
-        <View style={{ paddingHorizontal: 18, paddingTop: 22 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: 4, paddingBottom: 8 }}>
+        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'baseline',
+              justifyContent: 'space-between',
+              paddingHorizontal: spacing.xs,
+              paddingBottom: spacing.sm,
+            }}
+          >
             <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>Næste</Text>
             <Text style={{ ...type.eyebrow, color: t.ink3 }}>{upcoming.length > 0 ? `${upcoming.length} i dag` : '—'}</Text>
           </View>
@@ -402,19 +482,19 @@ export function TodayScreen({
               />
             )
           ) : (
-            <View style={{ gap: 10 }}>
+            <View style={{ gap: spacing.md - 2 }}>
               {upcoming.slice(0, 5).map((e) => (
-                <GlassFrostedCard key={e.id} style={{ paddingVertical: 12, paddingHorizontal: 14 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-                    <View style={{ width: 6, alignSelf: 'stretch', borderRadius: 9999, backgroundColor: toneColor(e.tone) }} />
+                <GlassFrostedCard key={e.id} style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.cardPad }}>
+                    <View style={{ width: 6, alignSelf: 'stretch', borderRadius: radius.pill, backgroundColor: toneColor(e.tone) }} />
                     <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
-                        <Text style={{ fontFamily: fonts.display, fontSize: 16, fontWeight: '600', letterSpacing: -0.3, color: t.ink }}>{e.time}</Text>
-                        <Text style={{ fontFamily: fonts.uiBold, fontSize: 13.5, color: t.ink, flexShrink: 1 }} numberOfLines={1}>{e.title}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
+                        <Text style={{ fontFamily: fonts.display, fontSize: type.title.fontSize - 2, fontWeight: '600', letterSpacing: -0.3, color: t.ink }}>{e.time}</Text>
+                        <Text style={{ fontFamily: fonts.uiBold, fontSize: type.bodySm.fontSize, color: t.ink, flexShrink: 1 }} numberOfLines={1}>{e.title}</Text>
                       </View>
                       <Text style={{ ...type.caption, color: t.ink3, marginTop: 1 }} numberOfLines={1}>{e.sub}</Text>
                     </View>
-                    <DesignIcon.chev size={14} color={t.ink4} />
+                    <DesignIcon.chev size={SMALL_GLYPH} color={t.ink4} />
                   </View>
                 </GlassFrostedCard>
               ))}
@@ -434,7 +514,7 @@ export function TodayScreen({
         )}
 
         {/* Brief history pills */}
-        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 14, paddingTop: 22 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: spacing.cardPad, paddingTop: spacing.heroPad }}>
           {(['morning', 'midday', 'evening'] as const).map((kind) => {
             const I = kind === 'morning' ? Sunrise : kind === 'midday' ? Sun : Moon;
             const label = kind === 'morning' ? 'Morgen' : kind === 'midday' ? 'Middag' : 'Aften';
@@ -446,8 +526,20 @@ export function TodayScreen({
                 accessibilityRole="button"
                 accessibilityLabel={`Tidligere ${label.toLowerCase()}briefs`}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 9999, backgroundColor: 'rgba(255,255,255,0.7)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.8)' }}>
-                  <I size={14} color={t.ink2} strokeWidth={1.75} />
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: spacing.sm - 2,
+                    paddingVertical: spacing.sm - 2,
+                    paddingHorizontal: spacing.md,
+                    borderRadius: radius.pill,
+                    backgroundColor: surface.glassWeak,
+                    borderWidth: 1,
+                    borderColor: surface.glassRim,
+                  }}
+                >
+                  <I size={SMALL_GLYPH} color={t.ink2} strokeWidth={1.75} />
                   <Text style={{ ...type.caption, color: t.ink2, fontWeight: '600' }}>{label}</Text>
                 </View>
               </Pressable>
@@ -482,15 +574,15 @@ export function TodayScreen({
 
         {/* Dark observation card */}
         <View
-          style={{ paddingHorizontal: 18, paddingTop: 24, paddingBottom: chromeBottom + 24 }}
+          style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.xl, paddingBottom: chromeBottom + spacing.xl }}
           onLayout={(e) => {
             darkYRef.current = e.nativeEvent.layout.y;
             checkOverDark();
           }}
         >
-          <GlassFrostedCard intensity={70} overlay="rgba(15,16,20,0.78)" style={{ padding: 18 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
-              <Text style={{ fontFamily: fonts.display, fontSize: 18, fontWeight: '600', letterSpacing: -0.3, color: '#F5F4F0' }}>
+          <GlassFrostedCard intensity={blur.glassStrong} overlay={surface.glassDark} style={{ padding: spacing.screenPad }}>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: spacing.cardPad }}>
+              <Text style={{ ...type.title, fontFamily: fonts.display, color: surface.glassDarkText }}>
                 Hvad jeg har bemærket
               </Text>
               <Pressable
@@ -499,7 +591,7 @@ export function TodayScreen({
                 accessibilityRole="button"
                 accessibilityLabel="Tidligere observationer"
               >
-                <Text style={{ ...type.caption, color: 'rgba(245,244,240,0.7)', fontWeight: '600' }}>Tidligere</Text>
+                <Text style={{ ...type.caption, color: surface.glassDarkTextSoft, fontWeight: '600' }}>Tidligere</Text>
               </Pressable>
             </View>
 

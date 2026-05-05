@@ -108,6 +108,7 @@ export const heroStat = {
 export const blur = {
   card: 45,
   hero: 50,
+  glassStrong: 70,
   haloField: 80,
   tabBarIos: 70,
   tabBarAndroid: 60,
@@ -141,6 +142,8 @@ export type SurfaceTokens = {
   glassRim: string;
   glassAndroidFallback: string;
   glassDark: string;
+  glassDarkText: string;
+  glassDarkTextSoft: string;
   scrim: string;
   fab: string;
   fabText: string;
@@ -158,6 +161,8 @@ const SURFACES_LIGHT: SurfaceTokens = {
   glassRim:             'rgba(255,255,255,0.8)',
   glassAndroidFallback: 'rgba(255,255,255,0.85)',
   glassDark:            'rgba(15,16,20,0.78)',
+  glassDarkText:        '#F5F4F0',
+  glassDarkTextSoft:    'rgba(245,244,240,0.7)',
   scrim:                'rgba(15,16,20,0.05)',
   fab:                  'rgba(21,23,26,0.78)',
   fabText:              '#FFFFFF',
@@ -175,6 +180,8 @@ const SURFACES_DARK: SurfaceTokens = {
   glassRim:             'rgba(255,255,255,0.10)',
   glassAndroidFallback: 'rgba(27,32,48,0.85)',
   glassDark:            'rgba(0,0,0,0.55)',
+  glassDarkText:        '#F5F4F0',
+  glassDarkTextSoft:    'rgba(245,244,240,0.7)',
   scrim:                'rgba(255,255,255,0.05)',
   fab:                  'rgba(242,239,232,0.92)',
   fabText:              '#0E1117',
