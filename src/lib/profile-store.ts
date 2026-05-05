@@ -92,7 +92,11 @@ export async function findDuplicateFact(
     .select('*')
     .eq('user_id', userId)
     .eq('normalized_text', normalizedText)
-    .or('status.eq.confirmed,and(status.eq.rejected,rejection_ttl.gt.' + new Date().toISOString() + ')')
+    .or(
+      'status.eq.confirmed,status.eq.pending,and(status.eq.rejected,rejection_ttl.gt.' +
+        new Date().toISOString() +
+        ')',
+    )
     .limit(1);
   if (error) throw error;
   const row = (data ?? [])[0];

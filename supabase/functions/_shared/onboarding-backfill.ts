@@ -248,7 +248,7 @@ export async function insertPendingFacts(
   if (candidates.length === 0) return 0;
 
   // Pre-check: skip facts whose normalized_text already exists as confirmed,
-  // OR as a non-expired rejection. Mirrors findDuplicateFact() in
+  // pending, or a non-expired rejection. Mirrors findDuplicateFact() in
   // src/lib/profile-store.ts. The unique index on (user_id, normalized_text)
   // is PARTIAL (WHERE status='confirmed'); pending dupes that later flip
   // to confirmed would violate the index.

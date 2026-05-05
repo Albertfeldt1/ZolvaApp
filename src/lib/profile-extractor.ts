@@ -25,16 +25,23 @@ type Candidate = {
 };
 
 const EXTRACTOR_SYSTEM =
-  'Du læser et kort uddrag af samtale eller mailbeslutning og vurderer om der er én ny, ' +
-  'oplysning om brugeren værd at huske (relation, rolle, præference, igangværende projekt, eller løfte/aftale). ' +
-  'Svar altid på dansk. Ignorér helt flygtige ting (humør, hvad brugeren spiser til frokost). ' +
+  'Du læser et kort uddrag af samtale eller mailbeslutning og vurderer om der er én ny ' +
+  'oplysning om dig værd at huske (relation, rolle, præference, igangværende projekt, eller løfte/aftale). ' +
+  'Svar altid på dansk. Ignorér helt flygtige ting (humør, frokost). ' +
   'Hvis fakta refererer til en konkret dato eller dag (fx "fredag", "i morgen", "27. april"), ' +
   'så udfyld referentDate som en ISO-dato (YYYY-MM-DD). Ellers lad det være null. ' +
-  'Returnér højst ét kandidat-faktum.';
+  'Returnér højst ét kandidat-faktum.\n\n' +
+  'ADRESSERINGSKRAV (gælder text-feltet):\n' +
+  '- Skriv ALTID direkte til personen med "du"/"dig"/"din"/"dit"/"dine".\n' +
+  '- Brug ALDRIG ordene "bruger", "brugeren", "brugerens", "brugere".\n' +
+  '- Brug ALDRIG personens eget navn i 3. person ("Oscar skal…", "Albert har…"). Skriv "du skal…" / "du har…" i stedet. Andre menneskers navne er fine ("Maria er din leder").\n' +
+  '- Start ALDRIG med "huske", "husk", "skal jeg huske" eller "påmind". UI\'et viser allerede teksten som "Skal jeg huske at …?", så fakta skal være selve indholdet — fx "du skal gennemgå Mettes kontrakt fredag", IKKE "huske brugeren på at gennemgå Mettes kontrakt".\n' +
+  '- Skriv som en kort, naturlig sætning der grammatisk passer efter "Skal jeg huske at …?".';
 
 const EXTRACTOR_SCHEMA =
   '{"candidate": {"text": string, "category": "relationship" | "role" | "preference" | "project" | "commitment" | "other", "confidence": number (0 til 1), "referentDate": string | null} | null}\n' +
-  '- text: en kort sætning på dansk, fx "Maria er din leder".\n' +
+  '- text: en kort sætning på dansk i 2. person, fx "Maria er din leder", "du foretrækker morgenmøder", "du skal sende kontrakten til Mette fredag".\n' +
+  '  Forkert: "Oscar skal til lægen", "huske brugeren på frokost", "Skal jeg huske at ringe til Anders". Korrekt: "du skal til lægen", "du skal til frokost med Lars", "du skal ringe til Anders".\n' +
   '- category: den bedst passende kategori.\n' +
   '- confidence: 0.6 eller mere hvis du er rimelig sikker; lavere hvis du gætter.\n' +
   '- referentDate: ISO-dato (YYYY-MM-DD) hvis fakta er knyttet til en bestemt dag; ellers null.';

@@ -167,7 +167,7 @@ const observationCache = new Map<string, ObservationCacheEntry>();
 const OBSERVATION_MAX = 8;
 
 const OBSERVATION_SYSTEM =
-  'Du er Zolva, en rolig dansk AI-assistent. Du kigger på brugerens dag og ' +
+  'Du er Zolva, en rolig dansk AI-assistent. Du kigger på din dag og ' +
   'peger blidt på mønstre der er værd at overveje. Svar altid på dansk. ' +
   'ADRESSERINGSKRAV: Skriv ALTID direkte med "du"/"dig"/"din". ' +
   'Omtal ALDRIG personen i 3. person ved navn eller pronomen — skriv ' +
