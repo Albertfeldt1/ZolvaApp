@@ -2509,13 +2509,15 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   input: {
-    backgroundColor: colors.mist,
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 14,
     fontFamily: fonts.ui,
     fontSize: 15,
     color: colors.ink,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
   },
   signatureInput: {
     minHeight: 96,
@@ -2549,7 +2551,7 @@ const styles = StyleSheet.create({
   sigLogoThumb: {
     width: 56,
     height: 56,
-    backgroundColor: colors.mist,
+    backgroundColor: '#FFFFFF',
     borderRadius: 8,
   },
   sigLogoBtn: {
@@ -2566,7 +2568,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
     padding: 14,
     borderRadius: 12,
-    backgroundColor: colors.mist,
+    backgroundColor: '#FFFFFF',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.line,
   },
@@ -2600,7 +2602,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 10,
-    backgroundColor: colors.mist,
+    backgroundColor: '#FFFFFF',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.line,
     alignItems: 'center',
@@ -2619,8 +2621,10 @@ const styles = StyleSheet.create({
     marginTop: 8,
     padding: 16,
     borderRadius: 12,
-    backgroundColor: colors.mist,
+    backgroundColor: '#FFFFFF',
     minHeight: 80,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
   },
   sigPreviewEmpty: {
     color: colors.fg3,
@@ -2753,7 +2757,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.mist,
+    backgroundColor: '#FFFFFF',
   },
   sigSocialAddBtn: {
     marginTop: 14,
@@ -2766,7 +2770,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.line,
-    backgroundColor: colors.mist,
+    backgroundColor: '#FFFFFF',
   },
   sigSocialAddBtnEmpty: {
     borderStyle: 'dashed',
@@ -2848,7 +2852,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   sigBindPillUnbound: {
-    backgroundColor: colors.mist,
+    backgroundColor: '#FFFFFF',
     borderColor: colors.line,
   },
   sigBindPillBound: {
@@ -3237,7 +3241,7 @@ const styles = StyleSheet.create({
   statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
   statusSage: { backgroundColor: colors.sageSoft },
   statusWarn: { backgroundColor: colors.warningSoft },
-  statusNeutral: { backgroundColor: colors.mist },
+  statusNeutral: { backgroundColor: '#FFFFFF' },
   statusText: { fontFamily: fonts.uiSemi, fontSize: 11.5 },
   statusTextSage: { color: colors.sageDeep },
   statusTextWarn: { color: colors.warningInk },
