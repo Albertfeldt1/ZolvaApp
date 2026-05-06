@@ -5,23 +5,23 @@
 // emails and recurring meetings, store conclusions only"), lists which
 // connected sources will be scanned, and offers Start / Skip.
 //
-// Visual style mirrors MicrosoftAdminConsentScreen (sage hero band,
-// Playfair italic h1, Inter body, ink primary button) for consistency
-// across onboarding flows. Wiring into App.tsx is Task 13.
+// Migrated to Glass & Air design system.
 
 import { useState } from 'react';
 import {
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { useChromeInsets } from '../components/PhoneChrome';
+import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
+import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
+import { Stone } from '../design/primitives/Stone';
+import { useTheme } from '../design/useTheme';
 import { useAuth } from '../lib/auth';
 import { useConnections, useIcloudConnected } from '../lib/hooks';
 import { startBackfill } from '../lib/onboarding-backfill';
-import { colors, fonts } from '../theme';
 
 type Props = {
   onStart: () => void;
@@ -39,6 +39,8 @@ export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, force
   // disables itself for iCloud-only accounts and the user dead-ends here.
   const icloudConnected = useIcloudConnected(user?.id ?? '');
   const [busy, setBusy] = useState(false);
+
+  const { t, type, fonts, radius, spacing, surface } = useTheme();
 
   // Build the human-readable list of sources we'll scan. Only include
   // currently-connected providers — disconnected ones aren't relevant
@@ -79,172 +81,146 @@ export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, force
   };
 
   return (
-    <View style={styles.flex}>
+    <View style={{ flex: 1, backgroundColor: t.paper }}>
+      <GlassHaloLayer />
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom + 32 }]}
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingBottom: chromeBottom + 32,
+          paddingHorizontal: spacing.screenPad,
+          paddingTop: spacing.statusBarFallback,
+          gap: spacing.heroPad,
+        }}
         showsVerticalScrollIndicator={false}
         bounces={false}
         overScrollMode="never"
       >
-        <View style={styles.hero}>
-          <Text style={styles.eyebrow}>LÆR DIG AT KENDE</Text>
-          <Text style={styles.heroH1}>Lad Zolva lære dig at kende</Text>
-        </View>
+        {/* Hero card — bone backdrop + Stone + display headline */}
+        <GlassFrostedCard
+          radius={radius.card}
+          overlay={surface.bone}
+          style={{
+            paddingVertical: spacing.xl,
+            paddingHorizontal: spacing.lg,
+            alignItems: 'center',
+            gap: spacing.md,
+          }}
+        >
+          <Stone size={88} jumpOnTap={false} />
+          <Text style={{ ...type.eyebrow, color: t.ink3, textAlign: 'center' }}>
+            LÆR DIG AT KENDE
+          </Text>
+          <Text
+            style={{
+              ...type.displayL,
+              color: t.ink,
+              textAlign: 'center',
+            }}
+          >
+            Lad Zolva lære{'\n'}dig at kende
+          </Text>
+        </GlassFrostedCard>
 
-        <View style={styles.section}>
-          <Text style={styles.body}>
+        {/* Body explainer card */}
+        <GlassFrostedCard
+          style={{ paddingVertical: spacing.cardPad, paddingHorizontal: spacing.cardPad, gap: spacing.md }}
+        >
+          <Text style={{ ...type.body, color: t.ink }}>
             Vi læser hurtigt dine seneste emails og tilbagevendende møder for at finde ud af, hvem du arbejder med og hvad du arbejder med. Vi gemmer kun konklusionerne — ikke selve indholdet.
           </Text>
-          <Text style={[styles.body, styles.bodySpaced]}>
+          <Text style={{ ...type.body, color: t.ink }}>
             Du kan altid se og ændre, hvad Zolva har lært, i Hukommelse-fanen.
           </Text>
+        </GlassFrostedCard>
 
-          <View style={styles.sourceList}>
-            {noSources ? (
-              <Text style={styles.sourceEmpty}>
-                Ingen konti forbundet endnu — du kan altid lade Zolva lære dig at kende ved at chatte.
-              </Text>
-            ) : (
-              sources.map((s) => (
-                <View key={s} style={styles.sourceRow}>
-                  <Text style={styles.sourceCheck}>✓</Text>
-                  <Text style={styles.sourceLabel}>{s}</Text>
-                </View>
-              ))
-            )}
-          </View>
+        {/* Source list */}
+        <GlassFrostedCard
+          style={{ paddingVertical: spacing.cardPad, paddingHorizontal: spacing.cardPad, gap: spacing.sm }}
+        >
+          {noSources ? (
+            <Text style={{ ...type.bodySm, color: t.ink3 }}>
+              Ingen konti forbundet endnu — du kan altid lade Zolva lære dig at kende ved at chatte.
+            </Text>
+          ) : (
+            sources.map((s, i) => (
+              <View
+                key={s}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: spacing.md,
+                  paddingVertical: spacing.sm,
+                  borderTopWidth: i > 0 ? 1 : 0,
+                  borderTopColor: t.line,
+                }}
+              >
+                <Text
+                  style={{
+                    fontFamily: fonts.uiBold,
+                    fontSize: 14,
+                    color: t.mem,
+                    width: 16,
+                    textAlign: 'center',
+                  }}
+                >
+                  ✓
+                </Text>
+                <Text style={{ ...type.body, color: t.ink }}>{s}</Text>
+              </View>
+            ))
+          )}
+        </GlassFrostedCard>
 
+        {/* CTAs */}
+        <View style={{ gap: spacing.sm }}>
+          {/* Primary — Start */}
           <Pressable
             onPress={handleStart}
             disabled={busy || noSources}
-            style={[
-              styles.primaryBtn,
-              (busy || noSources) && styles.primaryBtnDisabled,
-            ]}
             accessibilityRole="button"
+            style={({ pressed }) => ({
+              backgroundColor: t.ink,
+              paddingVertical: 14,
+              borderRadius: radius.soft,
+              alignItems: 'center',
+              opacity: busy || noSources ? 0.4 : pressed ? 0.8 : 1,
+            })}
           >
-            <Text style={styles.primaryBtnText}>
+            <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#FFFFFF' }}>
               {busy ? 'Starter…' : 'Start'}
             </Text>
           </Pressable>
 
+          {/* Secondary — Connect more */}
           <Pressable
             onPress={onConnectMore}
             disabled={busy}
-            style={styles.secondaryBtn}
             accessibilityRole="button"
           >
-            <Text style={styles.secondaryBtnText}>Forbind flere konti først</Text>
+            <GlassFrostedCard
+              style={{ paddingVertical: 12, alignItems: 'center' }}
+            >
+              <Text style={{ ...type.body, color: t.ink2, fontFamily: fonts.uiBold }}>
+                Forbind flere konti først
+              </Text>
+            </GlassFrostedCard>
           </Pressable>
 
-          <Text style={styles.connectMoreHint}>
+          <Text style={{ ...type.caption, color: t.ink3, textAlign: 'center' }}>
             Du kan altid scanne igen fra Hukommelse-fanen.
           </Text>
 
+          {/* Tertiary — Skip */}
           <Pressable
             onPress={onSkip}
             disabled={busy}
-            style={styles.secondaryBtn}
+            style={{ paddingVertical: 12, alignItems: 'center' }}
             accessibilityRole="button"
           >
-            <Text style={styles.secondaryBtnText}>Spring over</Text>
+            <Text style={{ ...type.body, color: t.ink3 }}>Spring over</Text>
           </Pressable>
         </View>
       </ScrollView>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.paper },
-  scroll: { flexGrow: 1, backgroundColor: colors.paper },
-  hero: {
-    backgroundColor: colors.sageSoft,
-    paddingTop: 56,
-    paddingBottom: 22,
-    paddingHorizontal: 20,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
-  },
-  eyebrow: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.sageDeep,
-  },
-  heroH1: {
-    marginTop: 12,
-    fontFamily: fonts.displayItalic,
-    fontSize: 32,
-    lineHeight: 36,
-    letterSpacing: -1,
-    color: colors.ink,
-  },
-  section: { paddingHorizontal: 20, paddingTop: 24 },
-  body: { fontFamily: fonts.ui, fontSize: 15, lineHeight: 22, color: colors.ink },
-  bodySpaced: { marginTop: 12 },
-  sourceList: {
-    marginTop: 24,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.line,
-    backgroundColor: colors.mist,
-    gap: 10,
-  },
-  sourceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  sourceCheck: {
-    fontFamily: fonts.uiSemi,
-    fontSize: 14,
-    color: colors.sageDeep,
-    width: 16,
-    textAlign: 'center',
-  },
-  sourceLabel: {
-    fontFamily: fonts.ui,
-    fontSize: 14,
-    color: colors.ink,
-  },
-  sourceEmpty: {
-    fontFamily: fonts.ui,
-    fontSize: 13,
-    lineHeight: 19,
-    color: colors.fg3,
-  },
-  primaryBtn: {
-    marginTop: 24,
-    backgroundColor: colors.ink,
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  primaryBtnDisabled: { opacity: 0.4 },
-  primaryBtnText: {
-    fontFamily: fonts.uiSemi,
-    fontSize: 15,
-    color: colors.paper,
-  },
-  secondaryBtn: {
-    marginTop: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  secondaryBtnText: {
-    fontFamily: fonts.ui,
-    fontSize: 14,
-    color: colors.fg3,
-  },
-  connectMoreHint: {
-    marginTop: 4,
-    fontFamily: fonts.ui,
-    fontSize: 12,
-    lineHeight: 16,
-    color: colors.fg3,
-    textAlign: 'center',
-  },
-});

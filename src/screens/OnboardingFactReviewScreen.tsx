@@ -9,11 +9,10 @@
 // facts, and calls onDone() to advance the flow. Wiring into App.tsx
 // is Task 13.
 //
-// Visual style mirrors OnboardingChatQuestionsScreen for onboarding
-// flow consistency.
-//
 // NOTE: bulkUpdatePendingFacts uses status:'confirmed' (NOT 'accepted')
 // to match the live FactStatus check constraint in the facts table.
+//
+// Migrated to Glass & Air design system.
 
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -21,11 +20,14 @@ import {
   Alert,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { useChromeInsets } from '../components/PhoneChrome';
+import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
+import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
+import { Stone } from '../design/primitives/Stone';
+import { useTheme } from '../design/useTheme';
 import { subscribeUserId } from '../lib/auth';
 import { invalidatePreamble } from '../lib/profile';
 import { triggerBackfillRerun, type BackfillJob } from '../lib/onboarding-backfill';
@@ -34,7 +36,6 @@ import {
   listPendingFactsForReview,
 } from '../lib/profile-store';
 import type { Fact } from '../lib/types';
-import { colors, fonts } from '../theme';
 
 type Props = {
   onDone: () => void;
@@ -92,6 +93,7 @@ const GROUP_ORDER = [
 
 export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
   const { bottom: chromeBottom } = useChromeInsets();
+  const { t, type, fonts, radius, spacing, surface } = useTheme();
 
   const [userId, setUserId] = useState<string | null>(null);
   useEffect(() => subscribeUserId(setUserId), []);
@@ -182,37 +184,74 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
 
   if (loading) {
     return (
-      <View style={[styles.flex, styles.center]}>
-        <ActivityIndicator color={colors.sageDeep} />
+      <View style={{ flex: 1, backgroundColor: t.paper, justifyContent: 'center', alignItems: 'center' }}>
+        <GlassHaloLayer />
+        <ActivityIndicator color={t.mem} />
       </View>
     );
   }
 
   if (facts.length === 0) {
     return (
-      <View style={styles.flex}>
+      <View style={{ flex: 1, backgroundColor: t.paper }}>
+        <GlassHaloLayer />
         <ScrollView
-          contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom + 32 }]}
+          contentContainerStyle={{
+            flexGrow: 1,
+            paddingBottom: chromeBottom + 32,
+            paddingHorizontal: spacing.screenPad,
+            paddingTop: spacing.statusBarFallback,
+            gap: spacing.heroPad,
+          }}
           showsVerticalScrollIndicator={false}
           bounces={false}
           overScrollMode="never"
         >
-          <View style={styles.hero}>
-            <Text style={styles.eyebrow}>HUKOMMELSE</Text>
-            <Text style={styles.heroH1}>Vi fandt ikke noget endnu</Text>
-          </View>
-          <View style={styles.section}>
-            <Text style={styles.body}>
+          {/* Hero */}
+          <GlassFrostedCard
+            radius={radius.card}
+            overlay={surface.bone}
+            style={{
+              paddingVertical: spacing.xl,
+              paddingHorizontal: spacing.lg,
+              alignItems: 'center',
+              gap: spacing.md,
+            }}
+          >
+            <Stone size={88} jumpOnTap={false} />
+            <Text style={{ ...type.eyebrow, color: t.ink3, textAlign: 'center' }}>
+              HUKOMMELSE
+            </Text>
+            <Text style={{ ...type.displayL, color: t.ink, textAlign: 'center' }}>
+              Vi fandt ikke{'\n'}noget endnu
+            </Text>
+          </GlassFrostedCard>
+
+          {/* Body */}
+          <GlassFrostedCard
+            style={{ paddingVertical: spacing.cardPad, paddingHorizontal: spacing.cardPad }}
+          >
+            <Text style={{ ...type.body, color: t.ink }}>
               Det kommer i takt med, at du bruger Zolva. Du kan altid se og redigere det i Husk-fanen.
             </Text>
-            <Pressable
-              onPress={onDone}
-              style={styles.primaryBtn}
-              accessibilityRole="button"
-            >
-              <Text style={styles.primaryBtnText}>Færdig</Text>
-            </Pressable>
-          </View>
+          </GlassFrostedCard>
+
+          {/* Done button */}
+          <Pressable
+            onPress={onDone}
+            accessibilityRole="button"
+            style={({ pressed }) => ({
+              backgroundColor: t.ink,
+              paddingVertical: 14,
+              borderRadius: radius.soft,
+              alignItems: 'center',
+              opacity: pressed ? 0.8 : 1,
+            })}
+          >
+            <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#FFFFFF' }}>
+              Færdig
+            </Text>
+          </Pressable>
         </ScrollView>
       </View>
     );
@@ -221,235 +260,200 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
   const checkedCount = accepted.size;
 
   return (
-    <View style={styles.flex}>
+    <View style={{ flex: 1, backgroundColor: t.paper }}>
+      <GlassHaloLayer />
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom + 100 }]}
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingBottom: chromeBottom + 100,
+          paddingHorizontal: spacing.screenPad,
+          paddingTop: spacing.statusBarFallback,
+          gap: spacing.heroPad,
+        }}
         showsVerticalScrollIndicator={false}
         bounces={false}
         overScrollMode="never"
       >
-        <View style={styles.hero}>
-          <Text style={styles.eyebrow}>HUKOMMELSE</Text>
-          <Text style={styles.heroH1}>Hvad jeg har lært om dig</Text>
-        </View>
+        {/* Hero card */}
+        <GlassFrostedCard
+          radius={radius.card}
+          overlay={surface.bone}
+          style={{
+            paddingVertical: spacing.xl,
+            paddingHorizontal: spacing.lg,
+            alignItems: 'center',
+            gap: spacing.md,
+          }}
+        >
+          <Stone size={88} jumpOnTap={false} />
+          <Text style={{ ...type.eyebrow, color: t.ink3, textAlign: 'center' }}>
+            HUKOMMELSE
+          </Text>
+          <Text style={{ ...type.displayL, color: t.ink, textAlign: 'center' }}>
+            Hvad jeg har{'\n'}lært om dig
+          </Text>
+        </GlassFrostedCard>
 
+        {/* Failed-job banner */}
         {failedJobs.length > 0 && (
-          <View style={styles.failBanner}>
-            <Text style={styles.failBannerText}>
-              {`Jeg kunne ikke læse ${failedJobsLabel(failedJobs)}.`}
-            </Text>
-            <Pressable
-              onPress={() => {
-                onDone();
-                triggerBackfillRerun();
-              }}
-              style={styles.failBannerCta}
-              accessibilityRole="button"
-            >
-              <Text style={styles.failBannerCtaText}>Prøv igen</Text>
-            </Pressable>
-          </View>
+          <GlassFrostedCard overlay={surface.warningTint} style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              <Text style={{ ...type.bodySm, color: t.ink, flex: 1 }}>
+                {`Jeg kunne ikke læse ${failedJobsLabel(failedJobs)}.`}
+              </Text>
+              <Pressable
+                onPress={() => {
+                  onDone();
+                  triggerBackfillRerun();
+                }}
+                accessibilityRole="button"
+                style={({ pressed }) => ({
+                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                  borderRadius: radius.soft,
+                  backgroundColor: t.ink,
+                  opacity: pressed ? 0.8 : 1,
+                })}
+              >
+                <Text style={{ fontFamily: fonts.uiBold, fontSize: 13, color: '#FFFFFF' }}>
+                  Prøv igen
+                </Text>
+              </Pressable>
+            </View>
+          </GlassFrostedCard>
         )}
 
-        <View style={styles.section}>
-          <Text style={styles.body}>
+        {/* Body explainer */}
+        <GlassFrostedCard
+          style={{ paddingVertical: spacing.cardPad, paddingHorizontal: spacing.cardPad }}
+        >
+          <Text style={{ ...type.body, color: t.ink }}>
             Sæt flueben ved det jeg skal huske, og fjern resten.
           </Text>
+        </GlassFrostedCard>
 
-          {groupedSections.map(({ label, rows }) => (
-            <View key={label} style={styles.group}>
-              <Text style={styles.groupLabel}>{label}</Text>
-              {rows.map((f) => {
+        {/* Grouped fact sections */}
+        {groupedSections.map(({ label, rows }) => (
+          <View key={label} style={{ gap: spacing.sm }}>
+            {/* Section header */}
+            <Text
+              style={{
+                ...type.eyebrow,
+                color: t.ink3,
+                fontFamily: fonts.mono,
+                paddingHorizontal: spacing.xs,
+              }}
+            >
+              {label}
+            </Text>
+
+            {/* All facts in this group in one card, separated by hairlines */}
+            <GlassFrostedCard
+              style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.cardPad }}
+            >
+              {rows.map((f, i) => {
                 const checked = accepted.has(f.id);
                 return (
                   <Pressable
                     key={f.id}
                     onPress={() => toggle(f.id)}
-                    style={[styles.factRow, checked && styles.factRowChecked]}
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked }}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'flex-start',
+                      gap: spacing.md,
+                      paddingVertical: spacing.md,
+                      borderTopWidth: i > 0 ? 1 : 0,
+                      borderTopColor: t.line,
+                    }}
                   >
-                    <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
-                      {checked && <Text style={styles.checkmark}>✓</Text>}
+                    {/* Checkbox */}
+                    <View
+                      style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: 6,
+                        borderWidth: 1.5,
+                        borderColor: checked ? t.mem : t.ink3,
+                        backgroundColor: checked ? t.mem : 'transparent',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginTop: 1,
+                      }}
+                    >
+                      {checked && (
+                        <Text
+                          style={{
+                            fontFamily: fonts.uiBold,
+                            fontSize: 13,
+                            lineHeight: 16,
+                            color: '#FFFFFF',
+                          }}
+                        >
+                          ✓
+                        </Text>
+                      )}
                     </View>
-                    <View style={styles.factBody}>
-                      <Text style={styles.factText}>{f.text}</Text>
-                      <Text style={styles.factMeta}>{f.category}</Text>
+
+                    {/* Fact text + category */}
+                    <View style={{ flex: 1, gap: spacing.xs }}>
+                      <Text style={{ ...type.body, color: t.ink, lineHeight: 21 }}>
+                        {f.text}
+                      </Text>
+                      <Text
+                        style={{
+                          ...type.eyebrow,
+                          color: t.ink3,
+                          letterSpacing: 0.6,
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        {f.category}
+                      </Text>
                     </View>
                   </Pressable>
                 );
               })}
-            </View>
-          ))}
-        </View>
+            </GlassFrostedCard>
+          </View>
+        ))}
       </ScrollView>
 
-      <View style={[styles.footer, { paddingBottom: chromeBottom + 16 }]}>
-        <Pressable
-          onPress={save}
-          disabled={saving}
-          style={[styles.primaryBtn, saving && styles.primaryBtnDisabled]}
-          accessibilityRole="button"
+      {/* Sticky footer with save button */}
+      <View
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          paddingHorizontal: spacing.screenPad,
+          paddingTop: spacing.md,
+          paddingBottom: chromeBottom + spacing.md,
+        }}
+      >
+        <GlassFrostedCard
+          overlay={surface.bone}
+          style={{ paddingVertical: spacing.xs }}
         >
-          <Text style={styles.primaryBtnText}>
-            {saving ? 'Gemmer…' : `Gem ${checkedCount} fakta`}
-          </Text>
-        </Pressable>
+          <Pressable
+            onPress={save}
+            disabled={saving}
+            accessibilityRole="button"
+            style={({ pressed }) => ({
+              backgroundColor: t.ink,
+              paddingVertical: 14,
+              borderRadius: radius.soft,
+              alignItems: 'center',
+              opacity: saving ? 0.4 : pressed ? 0.8 : 1,
+            })}
+          >
+            <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#FFFFFF' }}>
+              {saving ? 'Gemmer…' : `Gem ${checkedCount} fakta`}
+            </Text>
+          </Pressable>
+        </GlassFrostedCard>
       </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.paper },
-  center: { justifyContent: 'center', alignItems: 'center' },
-  scroll: { flexGrow: 1, backgroundColor: colors.paper },
-  hero: {
-    backgroundColor: colors.sageSoft,
-    paddingTop: 56,
-    paddingBottom: 22,
-    paddingHorizontal: 20,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
-  },
-  eyebrow: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.sageDeep,
-  },
-  heroH1: {
-    marginTop: 12,
-    fontFamily: fonts.displayItalic,
-    fontSize: 32,
-    lineHeight: 36,
-    letterSpacing: -1,
-    color: colors.ink,
-  },
-  section: { paddingHorizontal: 20, paddingTop: 24 },
-  body: {
-    fontFamily: fonts.ui,
-    fontSize: 15,
-    lineHeight: 22,
-    color: colors.ink,
-  },
-  group: {
-    marginTop: 24,
-  },
-  groupLabel: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.fg3,
-    marginBottom: 10,
-  },
-  factRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.line,
-    backgroundColor: colors.mist,
-    marginBottom: 8,
-  },
-  factRowChecked: {
-    backgroundColor: colors.sageSoft,
-    borderColor: colors.sageDeep,
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    borderColor: colors.fg3,
-    backgroundColor: colors.paper,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 1,
-  },
-  checkboxChecked: {
-    borderColor: colors.sageDeep,
-    backgroundColor: colors.sageDeep,
-  },
-  checkmark: {
-    fontFamily: fonts.uiSemi,
-    fontSize: 13,
-    lineHeight: 16,
-    color: colors.paper,
-  },
-  factBody: {
-    flex: 1,
-    gap: 4,
-  },
-  factText: {
-    fontFamily: fonts.ui,
-    fontSize: 15,
-    lineHeight: 21,
-    color: colors.ink,
-  },
-  factMeta: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    color: colors.fg3,
-  },
-  footer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    backgroundColor: colors.paperOn90,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.line,
-  },
-  primaryBtn: {
-    marginTop: 16,
-    backgroundColor: colors.ink,
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  primaryBtnDisabled: { opacity: 0.4 },
-  primaryBtnText: {
-    fontFamily: fonts.uiSemi,
-    fontSize: 15,
-    color: colors.paper,
-  },
-  failBanner: {
-    marginHorizontal: 20,
-    marginTop: 16,
-    padding: 14,
-    borderRadius: 10,
-    backgroundColor: colors.warningSoft,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.line,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  failBannerText: {
-    flex: 1,
-    fontFamily: fonts.ui,
-    fontSize: 13,
-    lineHeight: 18,
-    color: colors.warningInk,
-  },
-  failBannerCta: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: colors.ink,
-  },
-  failBannerCtaText: {
-    fontFamily: fonts.uiSemi,
-    fontSize: 13,
-    color: colors.paper,
-  },
-});

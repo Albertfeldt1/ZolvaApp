@@ -16,9 +16,11 @@
 // Stone has an idle breathing animation throughout, a slow horizontal
 // scan to suggest "looking around" (the SVG-eye gaze inside Stone is too
 // subtle at this size), and pulses on completion.
+//
+// Migrated to Glass & Air design system.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Image, ImageSourcePropType, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Image, ImageSourcePropType, Text, View } from 'react-native';
 import Animated, {
   cancelAnimation,
   Easing,
@@ -29,9 +31,10 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import { Stone } from '../components/Stone';
+import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
+import { Stone } from '../design/primitives/Stone';
+import { useTheme } from '../design/useTheme';
 import { fetchBackfillStatus, type BackfillJob } from '../lib/onboarding-backfill';
-import { colors, fonts } from '../theme';
 
 type ServiceId =
   | 'google:mail'
@@ -119,6 +122,7 @@ type Props = {
 };
 
 export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
+  const { t, type, fonts, spacing } = useTheme();
   const [jobs, setJobs] = useState<BackfillJob[]>([]);
   const [reduceMotion, setReduceMotion] = useState(false);
   const completedRef = useRef(false);
@@ -262,10 +266,24 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
   );
 
   return (
-    <View style={styles.flex}>
-      <View style={styles.center}>
-        <Animated.View style={[styles.stoneWrap, stoneStyle]} pointerEvents="none">
-          <Stone mood="thinking" size={STONE_SIZE} />
+    <View style={{ flex: 1, backgroundColor: t.paper }}>
+      <GlassHaloLayer />
+
+      {/* Orbit stage — centered in flex */}
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <Animated.View
+          style={[
+            {
+              width: STONE_SIZE,
+              height: STONE_SIZE,
+              alignItems: 'center',
+              justifyContent: 'center',
+            },
+            stoneStyle,
+          ]}
+          pointerEvents="none"
+        >
+          <Stone size={STONE_SIZE} jumpOnTap={false} />
         </Animated.View>
 
         {ambientSlots.map((slot) => (
@@ -280,9 +298,23 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
           />
         ))}
       </View>
-      <View style={styles.captionWrap} pointerEvents="none">
-        <Text style={styles.eyebrow}>LÆR DIG AT KENDE</Text>
-        <Text style={styles.caption}>Læser dine emails og kalender…</Text>
+
+      {/* Caption at bottom */}
+      <View
+        style={{
+          position: 'absolute',
+          bottom: 64,
+          left: 0,
+          right: 0,
+          alignItems: 'center',
+          gap: spacing.xs,
+        }}
+        pointerEvents="none"
+      >
+        <Text style={{ ...type.eyebrow, color: t.ink3 }}>LÆR DIG AT KENDE</Text>
+        <Text style={{ ...type.body, color: t.ink2, fontFamily: fonts.ui }}>
+          Læser dine emails og kalender…
+        </Text>
       </View>
     </View>
   );
@@ -406,9 +438,41 @@ function AmbientIcon({ slot, reduceMotion }: AmbientIconProps) {
   });
 
   return (
-    <Animated.View style={[styles.iconAbs, animatedStyle]} pointerEvents="none">
-      <View style={styles.iconCard}>
-        <Image source={AMBIENT_LOGOS[logoIdx]} style={styles.iconImage} resizeMode="contain" />
+    <Animated.View
+      style={[
+        {
+          position: 'absolute',
+          // Anchor center-of-icon at center-of-parent so transform translateX/Y
+          // orbits the Stone (which is the parent's natural-flow centered child).
+          top: '50%',
+          left: '50%',
+          marginTop: -ICON_SIZE / 2,
+          marginLeft: -ICON_SIZE / 2,
+          width: ICON_SIZE,
+          height: ICON_SIZE,
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+        animatedStyle,
+      ]}
+      pointerEvents="none"
+    >
+      <View
+        style={{
+          width: ICON_SIZE,
+          height: ICON_SIZE,
+          borderRadius: 12,
+          backgroundColor: '#fff',
+          alignItems: 'center',
+          justifyContent: 'center',
+          shadowColor: '#000',
+          shadowOpacity: 0.08,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 2 },
+          elevation: 2,
+        }}
+      >
+        <Image source={AMBIENT_LOGOS[logoIdx]} style={{ width: ICON_SIZE - 12, height: ICON_SIZE - 12 }} resizeMode="contain" />
       </View>
     </Animated.View>
   );
@@ -426,108 +490,71 @@ type FailedIconProps = {
 };
 
 function FailedIcon({ id, angleDeg }: FailedIconProps) {
+  const { t, fonts } = useTheme();
   const meta = SERVICE_META[id];
   const a = (angleDeg * Math.PI) / 180;
   const x = Math.cos(a) * RADIUS_FAILED;
   const y = Math.sin(a) * RADIUS_FAILED;
   return (
     <View
-      style={[
-        styles.iconAbs,
-        { transform: [{ translateX: x }, { translateY: y }], opacity: 0.42 },
-      ]}
+      style={{
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        marginTop: -ICON_SIZE / 2,
+        marginLeft: -ICON_SIZE / 2,
+        width: ICON_SIZE,
+        height: ICON_SIZE,
+        alignItems: 'center',
+        justifyContent: 'center',
+        transform: [{ translateX: x }, { translateY: y }],
+        opacity: 0.42,
+      }}
       pointerEvents="none"
     >
-      <View style={styles.iconCard}>
-        <Image source={meta.logo} style={styles.iconImage} resizeMode="contain" />
+      <View
+        style={{
+          width: ICON_SIZE,
+          height: ICON_SIZE,
+          borderRadius: 12,
+          backgroundColor: '#fff',
+          alignItems: 'center',
+          justifyContent: 'center',
+          shadowColor: '#000',
+          shadowOpacity: 0.08,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 2 },
+          elevation: 2,
+        }}
+      >
+        <Image source={meta.logo} style={{ width: ICON_SIZE - 12, height: ICON_SIZE - 12 }} resizeMode="contain" />
       </View>
-      <View style={styles.warningBadge}>
-        <Text style={styles.warningText}>!</Text>
+      <View
+        style={{
+          position: 'absolute',
+          top: -4,
+          right: -4,
+          width: 18,
+          height: 18,
+          borderRadius: 9,
+          backgroundColor: '#D14343',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderWidth: 2,
+          borderColor: t.paper,
+        }}
+      >
+        <Text
+          style={{
+            color: '#FFFFFF',
+            fontFamily: fonts.uiBold,
+            fontSize: 11,
+            lineHeight: 12,
+          }}
+        >
+          !
+        </Text>
       </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.paper },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stoneWrap: {
-    width: STONE_SIZE,
-    height: STONE_SIZE,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconAbs: {
-    position: 'absolute',
-    // Anchor center-of-icon at center-of-parent so transform translateX/Y
-    // orbits the Stone (which is the parent's natural-flow centered child).
-    top: '50%',
-    left: '50%',
-    marginTop: -ICON_SIZE / 2,
-    marginLeft: -ICON_SIZE / 2,
-    width: ICON_SIZE,
-    height: ICON_SIZE,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconCard: {
-    width: ICON_SIZE,
-    height: ICON_SIZE,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  iconImage: {
-    width: ICON_SIZE - 12,
-    height: ICON_SIZE - 12,
-  },
-  warningBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: colors.danger ?? '#c44',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: colors.paper,
-  },
-  warningText: {
-    color: '#fff',
-    fontFamily: fonts.uiSemi,
-    fontSize: 11,
-    lineHeight: 12,
-  },
-  captionWrap: {
-    position: 'absolute',
-    bottom: 64,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-  },
-  eyebrow: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.sageDeep,
-    marginBottom: 6,
-  },
-  caption: {
-    fontFamily: fonts.ui,
-    fontSize: 14,
-    color: colors.fg2,
-  },
-});
