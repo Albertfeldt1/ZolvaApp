@@ -1,6 +1,6 @@
 import { Check, Trash2 } from 'lucide-react-native';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { CountUp } from '../components/CountUp';
 import { EmptyState } from '../components/EmptyState';
 import { FactRow } from '../components/FactRow';
@@ -445,35 +445,49 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
                   </GlassFrostedCard>
                 )}
 
-                {/* Re-run scan */}
-                <Pressable
-                  style={{ marginTop: spacing.xl, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: t.line }}
-                  onPress={confirmRerunBackfill}
+                {/* Re-run scan + danger actions — wrapped in a bone card
+                    so the rows aren't fighting the lavender halo for
+                    contrast. Each row is a clear button-row with a
+                    separator hairline pulled in from the card padding. */}
+                <GlassFrostedCard
+                  overlay={surface.bone}
+                  radius={radius.cardSm}
+                  style={{ marginTop: spacing.xl, paddingHorizontal: spacing.cardPad }}
                 >
-                  <Text style={{ fontFamily: fonts.ui, fontSize: 14, color: t.mem }}>
-                    Genscan emails og kalender
-                  </Text>
-                </Pressable>
-
-                {/* Danger actions */}
-                <View style={{ marginTop: spacing.lg, gap: 1 }}>
                   <Pressable
-                    style={{ paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: t.line }}
+                    style={({ pressed }) => [
+                      { paddingVertical: spacing.lg },
+                      pressed && { opacity: 0.55 },
+                    ]}
+                    onPress={confirmRerunBackfill}
+                  >
+                    <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: t.mem }}>
+                      Genscan emails og kalender
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [
+                      { paddingVertical: spacing.lg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line },
+                      pressed && { opacity: 0.55 },
+                    ]}
                     onPress={confirmWipeFacts}
                   >
-                    <Text style={{ fontFamily: fonts.ui, fontSize: 14, color: '#B34B3A' }}>
+                    <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#B34B3A' }}>
                       Slet hele profilen
                     </Text>
                   </Pressable>
                   <Pressable
-                    style={{ paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: t.line }}
+                    style={({ pressed }) => [
+                      { paddingVertical: spacing.lg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line },
+                      pressed && { opacity: 0.55 },
+                    ]}
                     onPress={confirmWipeChat}
                   >
-                    <Text style={{ fontFamily: fonts.ui, fontSize: 14, color: '#B34B3A' }}>
+                    <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#B34B3A' }}>
                       Slet samtalehistorik
                     </Text>
                   </Pressable>
-                </View>
+                </GlassFrostedCard>
               </>
             )}
           </View>
@@ -518,15 +532,25 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
               </GlassFrostedCard>
             )}
 
-            {/* Danger action for chat */}
-            <Pressable
-              style={{ marginTop: spacing.xl, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: t.line }}
-              onPress={confirmWipeChat}
+            {/* Danger action for chat — wrapped in a bone card so the
+                row reads against the lavender halo. */}
+            <GlassFrostedCard
+              overlay={surface.bone}
+              radius={radius.cardSm}
+              style={{ marginTop: spacing.xl, paddingHorizontal: spacing.cardPad }}
             >
-              <Text style={{ fontFamily: fonts.ui, fontSize: 14, color: '#B34B3A' }}>
-                Slet samtalehistorik
-              </Text>
-            </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  { paddingVertical: spacing.lg },
+                  pressed && { opacity: 0.55 },
+                ]}
+                onPress={confirmWipeChat}
+              >
+                <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#B34B3A' }}>
+                  Slet samtalehistorik
+                </Text>
+              </Pressable>
+            </GlassFrostedCard>
           </View>
         )}
 
