@@ -192,7 +192,8 @@ serve(async (req) => {
       body.op !== 'get-body' &&
       body.op !== 'count' &&
       body.op !== 'clear-binding' &&
-      body.op !== 'send-mail')
+      body.op !== 'send-mail' &&
+      body.op !== 'append-draft')
   ) {
     return err('bad-request', 400);
   }
@@ -209,6 +210,28 @@ serve(async (req) => {
   }
   if (body.op === 'get-body' && (typeof body.uid !== 'number' || !Number.isFinite(body.uid))) {
     return err('bad-request', 400);
+  }
+  if (body.op === 'send-mail' || body.op === 'append-draft') {
+    const composeBody = body as ComposeBase;
+    if (!Array.isArray(composeBody.to) || composeBody.to.length === 0 ||
+        !composeBody.to.every((s) => typeof s === 'string' && s.length > 0)) {
+      return err('bad-request', 400, 'invalid `to`');
+    }
+    if (composeBody.cc !== undefined && !Array.isArray(composeBody.cc)) {
+      return err('bad-request', 400, 'invalid `cc`');
+    }
+    if (typeof composeBody.subject !== 'string' || composeBody.subject.length === 0) {
+      return err('bad-request', 400, 'invalid `subject`');
+    }
+    if (composeBody.content_type !== 'text' && composeBody.content_type !== 'html') {
+      return err('bad-request', 400, 'invalid `content_type`');
+    }
+    if (typeof composeBody.content !== 'string' || composeBody.content.length === 0) {
+      return err('bad-request', 400, 'invalid `content`');
+    }
+    if (composeBody.attachments !== undefined && !Array.isArray(composeBody.attachments)) {
+      return err('bad-request', 400, 'invalid `attachments`');
+    }
   }
 
   // --- Rate limit ---
@@ -233,6 +256,9 @@ serve(async (req) => {
   if (body.op === 'send-mail') {
     return await handleSendMail(body, userId, pepper, supabaseUrl, serviceKey);
   }
+  if (body.op === 'append-draft') {
+    return await handleAppendDraft(body, userId, pepper, supabaseUrl, serviceKey);
+  }
   return err('bad-request', 400);
 });
 
@@ -240,7 +266,7 @@ async function checkRateLimit(
   serviceKey: string,
   supabaseUrl: string,
   userId: string,
-  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding' | 'send-mail',
+  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding' | 'send-mail' | 'append-draft',
 ): Promise<boolean> {
   // clear-binding doesn't need rate limiting — the JWT already authorizes,
   // and a malicious user can only delete their OWN row. Skipping the check
@@ -256,6 +282,8 @@ async function checkRateLimit(
       ? RATE_LIMIT_LIST_INBOX
       : op === 'send-mail'
       ? RATE_LIMIT_SEND_MAIL
+      : op === 'append-draft'
+      ? RATE_LIMIT_APPEND_DRAFT
       : RATE_LIMIT_GET_BODY;
   const svc = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false },
