@@ -3146,7 +3146,7 @@ function filterToolsByCtx(
 ): ClaudeToolSchema[] {
   const anyMail = ctx.gmail || ctx.outlookMail || ctx.icloud;
   const anyCal = ctx.googleCalendar || ctx.outlookCalendar || ctx.icloud;
-  const anyComposeMail = ctx.gmail || ctx.outlookMail;
+  const anyComposeMail = ctx.gmail || ctx.outlookMail || ctx.icloud;
   return tools.filter((t) => {
     switch (t.name) {
       // Drive / OneDrive — single-integration tools
@@ -3166,7 +3166,7 @@ function filterToolsByCtx(
       case 'update_calendar_event':
       case 'delete_calendar_event':
         return anyCal;
-      // Mail compose — Gmail or Outlook (no iCloud compose)
+      // Mail compose — needs any mail provider
       case 'create_draft':
       case 'send_mail':
         return anyComposeMail;

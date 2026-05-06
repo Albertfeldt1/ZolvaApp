@@ -538,8 +538,10 @@ async function call<T>(
 ): Promise<IcloudResult<T>> {
   // Retry on Supabase gateway 5xx — cold-start contention on the edge
   // runtime occasionally returns 502/503 with an HTML body before our
-  // function ever boots. All four ops are idempotent server-side, so the
-  // retry is safe.
+  // function ever boots. The retry is gated on `gatewayFlake` (HTML/empty
+  // body from Supabase), which means the function never executed — so
+  // even non-idempotent ops like send-mail can safely retry without
+  // risking a duplicate send.
   let last = await callOnce<T>(op, body);
   if (last.ok) return last;
   for (const delay of GATEWAY_RETRY_BACKOFF_MS) {

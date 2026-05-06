@@ -1273,6 +1273,12 @@ async function handleSendMail(
   }
 
   const SMTPClient = await getSmtpClient();
+  // denomailer 1.6.0 doesn't expose a connect or command timeout on its
+  // ClientOptions — only `pool.timeout` (idle close). The client-side
+  // SEND_MAIL_TIMEOUT_MS (35s) caps the total wall-clock; if Apple's SMTP
+  // hangs mid-handshake, the function's outer fetch timeout is the
+  // backstop. If this becomes a real-world problem, wrap `client.send`
+  // in a Promise.race with an AbortController-driven timeout.
   const client = new SMTPClient({
     connection: {
       hostname: SMTP_HOST,
