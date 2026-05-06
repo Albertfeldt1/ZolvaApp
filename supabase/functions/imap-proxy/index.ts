@@ -44,7 +44,10 @@ async function getImapFlow(): Promise<typeof ImapFlow> {
 // the STARTTLS dance, which simplifies the protocol code.
 const SMTP_HOST = 'smtp.mail.me.com';
 const SMTP_PORT = 465;
-const SMTP_CONNECT_TIMEOUT_MS = 5_000;
+// Apple's TLS handshake from Supabase Edge IPs is variable — 5s was too
+// tight, producing intermittent connectTls timeouts. 10s gives a wider
+// margin while staying under the 12s gateway timeout.
+const SMTP_CONNECT_TIMEOUT_MS = 10_000;
 const SMTP_COMMAND_TIMEOUT_MS = 15_000;
 
 const IMAP_HOST = 'imap.mail.me.com';
