@@ -474,6 +474,15 @@ export async function icloudSendMail(
   if (!res.ok && res.error === 'auth-failed') {
     await markInvalid(userId, 'imap-rejected');
   }
+  if (res.ok) {
+    // The sent message is now in Sent (best-effort) and may also have been
+    // delivered back to INBOX (when sending to self). Drop the cached inbox
+    // so the next listInbox call sees the fresh state. Failure to clear the
+    // cache is not actionable — log and continue.
+    try { await clearInboxCache(userId); } catch (e) {
+      if (__DEV__) console.warn('[icloud-mail] post-send cache clear failed:', e);
+    }
+  }
   return res;
 }
 
