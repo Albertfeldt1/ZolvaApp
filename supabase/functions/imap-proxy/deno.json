@@ -1,6 +1,5 @@
 {
   "imports": {
-    "imapflow": "npm:imapflow@1.3.2",
-    "denomailer": "https://deno.land/x/denomailer@1.6.0/mod.ts"
+    "imapflow": "npm:imapflow@1.3.2"
   }
 }

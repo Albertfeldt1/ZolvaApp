@@ -36,15 +36,13 @@ async function getImapFlow(): Promise<typeof ImapFlow> {
   return _ImapFlowCtor;
 }
 
-let _SmtpClientCtor: typeof import('denomailer').SMTPClient | null = null;
-async function getSmtpClient(): Promise<typeof import('denomailer').SMTPClient> {
-  if (_SmtpClientCtor) return _SmtpClientCtor;
-  const mod = await import('denomailer');
-  _SmtpClientCtor = mod.SMTPClient;
-  return _SmtpClientCtor;
-}
+// SMTP target. We speak the protocol directly via Deno.connect + Deno.startTls
+// rather than pulling a denomailer / nodemailer dependency — both of those
+// pushed our edge-function cold-start past Supabase's 12s gateway timeout.
 const SMTP_HOST = 'smtp.mail.me.com';
 const SMTP_PORT = 587;
+const SMTP_CONNECT_TIMEOUT_MS = 5_000;
+const SMTP_COMMAND_TIMEOUT_MS = 15_000;
 
 const IMAP_HOST = 'imap.mail.me.com';
 const IMAP_PORT = 993;
@@ -455,25 +453,20 @@ function mapImapError(caughtErr: unknown): Response {
   return err('protocol', 502, ctx);
 }
 
-function mapSmtpError(caughtErr: unknown): Response {
-  const msg = caughtErr instanceof Error ? caughtErr.message : String(caughtErr);
-  // denomailer throws with various shapes — match by message content as it
-  // doesn't expose structured error codes the way imapflow does.
-  if (/535|authentication failed|auth.*failed/i.test(msg)) {
-    return err('auth-failed', 422);
-  }
-  if (/AbortError|aborted|timeout/i.test(msg)) {
-    return err('timeout', 504);
-  }
-  if (/ENOTFOUND|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|TLS/i.test(msg)) {
-    return err('network', 503);
-  }
-  if (/4\d\d|5\d\d|smtp/i.test(msg)) {
-    // 4xx/5xx SMTP responses — recipient rejected, message too large, etc.
-    return err('protocol', 502, msg.slice(0, 200));
-  }
-  console.warn('[imap-proxy] unmapped smtp error:', msg);
-  return err('protocol', 502, msg.slice(0, 200));
+// Hand-rolled SMTP outcome codes mirror the public IcloudErrorCode set
+// (auth-failed for 535 LOGIN-failed, network/timeout/protocol for the
+// transport flavors). The `detail` is forwarded to the client and shown in
+// the chat error string.
+type SmtpFailCode = 'auth-failed' | 'network' | 'timeout' | 'protocol';
+type SmtpResult =
+  | { ok: true }
+  | { ok: false; code: SmtpFailCode; detail?: string };
+
+function smtpResultToResponse(r: SmtpResult & { ok: false }): Response {
+  if (r.code === 'auth-failed') return err('auth-failed', 422, r.detail);
+  if (r.code === 'timeout') return err('timeout', 504, r.detail);
+  if (r.code === 'network') return err('network', 503, r.detail);
+  return err('protocol', 502, r.detail);
 }
 
 function clampLimit(n: number | undefined): number {
@@ -988,10 +981,268 @@ function decodeAttachments(specs: AttachmentSpec[] | undefined): Array<{
   return out;
 }
 
-// Map "Niels Hansen <niels@example.com>" or "niels@example.com" into the
-// shape denomailer accepts. Bare addresses pass through unchanged.
-function toAddressList(addrs: string[]): string[] {
-  return addrs.map((a) => a.trim()).filter((a) => a.length > 0);
+// --- Hand-rolled SMTP -------------------------------------------------------
+//
+// We speak SMTP over Deno.connect + Deno.startTls instead of pulling
+// denomailer or nodemailer. Adding a third-party SMTP library to the
+// edge-function bundle pushed cold-start past Supabase's 12s gateway
+// timeout and produced sporadic 503s on first send. Hand-rolling keeps
+// cold-start at zero added cost and keeps the auth path readable.
+//
+// Flow: connect → read greeting (220) → EHLO → STARTTLS → upgrade TLS
+// → EHLO (again) → AUTH PLAIN → MAIL FROM → RCPT TO (each) → DATA →
+// payload → "." → QUIT. Per-command timeout via AbortSignal.
+
+function readLineFromBuffer(buf: Uint8Array): { line: string; rest: Uint8Array } | null {
+  for (let i = 0; i < buf.length - 1; i++) {
+    if (buf[i] === 0x0d && buf[i + 1] === 0x0a) {
+      const line = new TextDecoder('latin1').decode(buf.slice(0, i));
+      const rest = buf.slice(i + 2);
+      return { line, rest };
+    }
+  }
+  return null;
+}
+
+// Race a promise against a wall-clock timeout. Deno's Conn read/write/connect
+// don't accept AbortSignal, so this is the only way to bound an operation.
+// On timeout, the underlying conn is left dangling — caller must close().
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    p.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); },
+    );
+  });
+}
+
+class SmtpConnection {
+  private buffer: Uint8Array = new Uint8Array(0);
+  constructor(
+    private conn: Deno.Conn,
+    private timeoutMs: number,
+  ) {}
+
+  static async connect(host: string, port: number, timeoutMs: number): Promise<SmtpConnection> {
+    const conn = await withTimeout(
+      Deno.connect({ hostname: host, port }),
+      timeoutMs,
+      'smtp connect',
+    );
+    return new SmtpConnection(conn, SMTP_COMMAND_TIMEOUT_MS);
+  }
+
+  async upgradeTls(host: string): Promise<void> {
+    // RFC 3207: after STARTTLS, the buffer must be flushed and a fresh
+    // TLS handshake performed. We discard any bytes pipelined past the
+    // STARTTLS response — Apple doesn't pipeline, but defensively this
+    // closes a known TLS-stripping vector.
+    this.buffer = new Uint8Array(0);
+    this.conn = await withTimeout(
+      Deno.startTls(this.conn as Deno.TcpConn, { hostname: host }),
+      this.timeoutMs,
+      'starttls',
+    );
+  }
+
+  async write(data: string | Uint8Array): Promise<void> {
+    const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+    let off = 0;
+    while (off < bytes.length) {
+      const n = await withTimeout(
+        this.conn.write(bytes.subarray(off)),
+        this.timeoutMs,
+        'smtp write',
+      );
+      if (n <= 0) throw new Error('socket closed during write');
+      off += n;
+    }
+  }
+
+  async readLine(): Promise<string> {
+    while (true) {
+      const got = readLineFromBuffer(this.buffer);
+      if (got) {
+        this.buffer = got.rest;
+        return got.line;
+      }
+      const chunk = new Uint8Array(4096);
+      const n = await withTimeout(this.conn.read(chunk), this.timeoutMs, 'smtp read');
+      if (n === null) throw new Error('connection closed by server');
+      const next = new Uint8Array(this.buffer.length + n);
+      next.set(this.buffer, 0);
+      next.set(chunk.subarray(0, n), this.buffer.length);
+      this.buffer = next;
+    }
+  }
+
+  // SMTP responses can be multi-line: intermediate lines start with
+  // "<code>-", the final line with "<code> ". Returns the numeric code and
+  // the joined message text (last line wins for the textual payload, but
+  // keeping all lines makes errors more diagnosable).
+  async readResponse(): Promise<{ code: number; lines: string[] }> {
+    const lines: string[] = [];
+    while (true) {
+      const line = await this.readLine();
+      lines.push(line);
+      // First three chars are the numeric code; char 4 is '-' (continuation)
+      // or ' ' (final line).
+      if (line.length < 4) throw new Error(`malformed smtp response: ${line}`);
+      const sep = line.charAt(3);
+      if (sep === ' ') {
+        const code = parseInt(line.slice(0, 3), 10);
+        if (!Number.isFinite(code)) throw new Error(`malformed smtp code: ${line}`);
+        return { code, lines };
+      }
+      if (sep !== '-') throw new Error(`malformed smtp response: ${line}`);
+    }
+  }
+
+  async close(): Promise<void> {
+    try { this.conn.close(); } catch { /* ignore */ }
+  }
+}
+
+async function sendViaSmtp(args: {
+  email: string;
+  password: string;
+  rcptTo: string[];   // envelope recipients (to + cc, deduplicated)
+  rfc5322: Uint8Array;
+}): Promise<SmtpResult> {
+  let conn: SmtpConnection | null = null;
+  try {
+    try {
+      conn = await SmtpConnection.connect(SMTP_HOST, SMTP_PORT, SMTP_CONNECT_TIMEOUT_MS);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/abort|timeout/i.test(msg)) return { ok: false, code: 'timeout', detail: msg };
+      return { ok: false, code: 'network', detail: msg };
+    }
+
+    const expect = async (
+      okCodes: number[],
+    ): Promise<{ ok: true; code: number; lines: string[] } | { ok: false; result: SmtpResult }> => {
+      try {
+        const r = await conn!.readResponse();
+        if (okCodes.includes(r.code)) return { ok: true, code: r.code, lines: r.lines };
+        // Auth failures are 535 (or sometimes 530/534/538). Treat anything
+        // 5xx during AUTH PLAIN as auth-failed — the caller knows context.
+        if (r.code === 535 || r.code === 534 || r.code === 538 || r.code === 530) {
+          return { ok: false, result: { ok: false, code: 'auth-failed', detail: r.lines.join(' | ') } };
+        }
+        return { ok: false, result: { ok: false, code: 'protocol', detail: `${r.code} ${r.lines.join(' | ')}`.slice(0, 200) } };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/abort|timeout/i.test(msg)) return { ok: false, result: { ok: false, code: 'timeout', detail: msg } };
+        return { ok: false, result: { ok: false, code: 'network', detail: msg } };
+      }
+    };
+
+    // Greeting
+    const greet = await expect([220]);
+    if (!greet.ok) return greet.result;
+
+    // EHLO. The hostname Zolva announces is informational; Apple doesn't
+    // verify it. "zolva.io" matches the org domain in case anyone audits.
+    await conn.write('EHLO zolva.io\r\n');
+    const ehlo1 = await expect([250]);
+    if (!ehlo1.ok) return ehlo1.result;
+
+    // STARTTLS — only attempt if the server advertised it (it always
+    // does on 587 for Apple, but check defensively).
+    if (!ehlo1.lines.some((l) => /STARTTLS/i.test(l))) {
+      return { ok: false, code: 'protocol', detail: 'server does not support STARTTLS' };
+    }
+    await conn.write('STARTTLS\r\n');
+    const startTlsResp = await expect([220]);
+    if (!startTlsResp.ok) return startTlsResp.result;
+    try {
+      await conn.upgradeTls(SMTP_HOST);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { ok: false, code: 'network', detail: `STARTTLS upgrade failed: ${msg.slice(0, 150)}` };
+    }
+
+    // EHLO again on the encrypted channel. Required by the spec; some
+    // servers reject auth without it.
+    await conn.write('EHLO zolva.io\r\n');
+    const ehlo2 = await expect([250]);
+    if (!ehlo2.ok) return ehlo2.result;
+
+    // AUTH PLAIN — payload is base64 of "\0username\0password". This is
+    // the standard mechanism Apple's iCloud SMTP accepts for app-specific
+    // passwords.
+    const authBlob = btoa(`\0${args.email}\0${args.password}`);
+    await conn.write(`AUTH PLAIN ${authBlob}\r\n`);
+    const auth = await expect([235]);
+    if (!auth.ok) return auth.result;
+
+    // MAIL FROM. Apple requires the envelope sender to match the
+    // authenticated user (or one of their aliases). v1 always uses the
+    // auth email.
+    await conn.write(`MAIL FROM:<${args.email}>\r\n`);
+    const mailFrom = await expect([250]);
+    if (!mailFrom.ok) return mailFrom.result;
+
+    // RCPT TO — once per recipient. If any one is rejected, the whole
+    // send fails — partial-recipient acceptance produces a confusing UX
+    // (some recipients get the mail, some don't, and the user sees only
+    // a single status string).
+    for (const rcpt of args.rcptTo) {
+      await conn.write(`RCPT TO:<${rcpt}>\r\n`);
+      const r = await expect([250, 251]);
+      if (!r.ok) return r.result;
+    }
+
+    // DATA — server replies 354, then we send the message followed by
+    // the bare-line "." terminator. We must dot-stuff: any line in the
+    // payload that starts with "." gets an extra "." prepended (the
+    // server strips one back off when delivering).
+    await conn.write('DATA\r\n');
+    const dataResp = await expect([354]);
+    if (!dataResp.ok) return dataResp.result;
+
+    const payload = dotStuffMessage(args.rfc5322);
+    await conn.write(payload);
+    await conn.write('\r\n.\r\n');
+    const sent = await expect([250]);
+    if (!sent.ok) return sent.result;
+
+    // Best-effort QUIT. We ignore the response — message is already
+    // delivered at this point.
+    try {
+      await conn.write('QUIT\r\n');
+      await conn.readResponse();
+    } catch { /* ignore */ }
+
+    return { ok: true };
+  } finally {
+    if (conn) await conn.close();
+  }
+}
+
+// Dot-stuff per RFC 5321 §4.5.2: any line in the message body that begins
+// with a "." gets an extra "." prepended so the standalone "." terminator
+// stays unambiguous. Operates on the raw RFC 5322 bytes.
+function dotStuffMessage(bytes: Uint8Array): Uint8Array {
+  // Walk byte-by-byte, look for "\r\n." and insert "." after the CRLF.
+  const out: number[] = [];
+  for (let i = 0; i < bytes.length; i++) {
+    out.push(bytes[i]);
+    if (
+      bytes[i] === 0x0a && // LF
+      i >= 1 && bytes[i - 1] === 0x0d && // CR before
+      i + 1 < bytes.length && bytes[i + 1] === 0x2e // dot after
+    ) {
+      out.push(0x2e); // extra dot
+    }
+  }
+  // Edge: if the very first byte is '.', dot-stuff that too.
+  if (bytes.length > 0 && bytes[0] === 0x2e) {
+    out.unshift(0x2e);
+  }
+  return new Uint8Array(out);
 }
 
 // --- clear-binding ----------------------------------------------------------
@@ -1065,8 +1316,9 @@ async function fetchThreadingHeaders(
 
 // --- RFC 5322 builder helpers -----------------------------------------------
 //
-// denomailer doesn't expose its message-builder for IMAP APPEND, so we
-// reconstruct a minimal RFC 5322 message ourselves.
+// Single source of truth for the wire-format bytes. Same output goes to
+// SMTP DATA and the post-success Sent-folder APPEND, so the recipient's
+// inbox copy and the sender's Sent copy are guaranteed byte-identical.
 
 type AppendableMessage = {
   from: string;
@@ -1272,22 +1524,6 @@ async function handleSendMail(
     return err('bad-request', 400, e instanceof Error ? e.message : String(e));
   }
 
-  const SMTPClient = await getSmtpClient();
-  // denomailer 1.6.0 doesn't expose a connect or command timeout on its
-  // ClientOptions — only `pool.timeout` (idle close). The client-side
-  // SEND_MAIL_TIMEOUT_MS (35s) caps the total wall-clock; if Apple's SMTP
-  // hangs mid-handshake, the function's outer fetch timeout is the
-  // backstop. If this becomes a real-world problem, wrap `client.send`
-  // in a Promise.race with an AbortController-driven timeout.
-  const client = new SMTPClient({
-    connection: {
-      hostname: SMTP_HOST,
-      port: SMTP_PORT,
-      tls: false, // STARTTLS upgrade — denomailer handles it via `tls: false` on 587
-      auth: { username: email, password },
-    },
-  });
-
   let threading: ThreadingHeaders = {};
   if (typeof body.reply_to_uid === 'number' && Number.isFinite(body.reply_to_uid)) {
     try {
@@ -1297,31 +1533,9 @@ async function handleSendMail(
     }
   }
 
-  let sendError: unknown = null;
-  try {
-    const sendOpts: Parameters<typeof client.send>[0] = {
-      from: email,
-      to: toAddressList(body.to),
-      cc: body.cc ? toAddressList(body.cc) : undefined,
-      subject: body.subject,
-      attachments: attachments.length > 0 ? attachments : undefined,
-      inReplyTo: threading.inReplyTo,
-      references: threading.references,
-    };
-    if (body.content_type === 'html') {
-      sendOpts.html = body.content;
-    } else {
-      sendOpts.content = body.content;
-    }
-    await client.send(sendOpts);
-  } catch (e) {
-    sendError = e;
-  } finally {
-    try { await client.close(); } catch { /* ignore */ }
-  }
-  if (sendError) return mapSmtpError(sendError);
-
-  // Best-effort APPEND to Sent. Logged-only on failure.
+  // Build the RFC 5322 message ONCE — same bytes go to SMTP DATA and the
+  // post-success Sent-folder APPEND. Guarantees the recipient and the
+  // sender's Sent copy are byte-identical.
   const raw = buildRfc5322({
     from: email,
     to: body.to,
@@ -1333,6 +1547,18 @@ async function handleSendMail(
     threading,
     date: new Date(),
   });
+
+  // Envelope recipients = to + cc (deduplicated, normalized). Bcc is
+  // explicitly out of scope for v1.
+  const rcptTo = Array.from(new Set([
+    ...toAddressList(body.to),
+    ...(body.cc ? toAddressList(body.cc) : []),
+  ]));
+
+  const smtpResult = await sendViaSmtp({ email, password, rcptTo, rfc5322: raw });
+  if (!smtpResult.ok) return smtpResultToResponse(smtpResult);
+
+  // Best-effort APPEND to Sent. Logged-only on failure.
   const append = await appendToSent(email, password, raw);
   if (!append.ok) {
     console.warn('[imap-proxy] send-mail APPEND to Sent failed:', append.reason);
