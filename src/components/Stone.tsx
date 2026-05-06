@@ -10,6 +10,10 @@ type StoneProps = {
   mood?: StoneMood;
   size?: number;
   onPress?: () => void;
+  // When false, taps don't trigger the hop animation (useful inside tab
+  // bars / banner glyphs where the mascot is decorative, not the primary
+  // tap target). Defaults to true to preserve the OG behavior.
+  jumpOnTap?: boolean;
 };
 
 const DIRS = [
@@ -30,7 +34,7 @@ const MOUTH: Record<StoneMood, string> = {
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
-export function Stone({ mood = 'calm', size = 44, onPress }: StoneProps) {
+export function Stone({ mood = 'calm', size = 44, onPress, jumpOnTap = true }: StoneProps) {
   const [blink, setBlink] = useState(false);
   const [gaze, setGaze] = useState({ x: 0, y: 0 });
   const gazeCurrentRef = useRef({ x: 0, y: 0 });
@@ -85,13 +89,15 @@ export function Stone({ mood = 'calm', size = 44, onPress }: StoneProps) {
 
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
-    hop.setValue(0);
-    Animated.timing(hop, {
-      toValue: 1,
-      duration: 1150,
-      easing: Easing.linear,
-      useNativeDriver: true,
-    }).start();
+    if (jumpOnTap) {
+      hop.setValue(0);
+      Animated.timing(hop, {
+        toValue: 1,
+        duration: 1150,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }).start();
+    }
     onPress?.();
   };
 

@@ -69,6 +69,10 @@ type Props = {
   // Incremented by App whenever a brief push is tapped — triggers the modal.
   briefOpenTrigger?: number;
   onOpenIcloudSetup?: (prefilledEmail?: string) => void;
+  // True when this tab is the visible one. Tabs stay mounted across switches,
+  // so the screen needs an explicit signal to re-sync host chrome state when
+  // it becomes active again.
+  isActive?: boolean;
 };
 
 const PILL_CLEARANCE = 76;
@@ -85,6 +89,7 @@ export function TodayScreen({
   onOverDarkChange,
   briefOpenTrigger,
   onOpenIcloudSetup,
+  isActive = true,
 }: Props) {
   const today = useMemo(() => new Date(), []);
   const dateInfo = useMemo(() => formatToday(today), [today]);
@@ -169,9 +174,17 @@ export function TodayScreen({
     onOpenChat();
   };
 
-  const FEED_OBSERVATION_COUNT = 3;
-  const feedObservations = visibleObservations.slice(0, FEED_OBSERVATION_COUNT);
-  const hasMoreObservations = visibleObservations.length > FEED_OBSERVATION_COUNT;
+  // The "Hvad jeg har bemærket" card caps the total displayed items —
+  // pending facts + observations — at FEED_OBSERVATION_COUNT. Pending
+  // facts go first (they need a user decision), then observations fill
+  // any remaining slots. Anything past the cap is reachable via the
+  // "Vis alle" modal.
+  const FEED_OBSERVATION_COUNT = 4;
+  const feedFacts = pendingFacts.slice(0, FEED_OBSERVATION_COUNT);
+  const remainingSlots = Math.max(0, FEED_OBSERVATION_COUNT - feedFacts.length);
+  const feedObservations = visibleObservations.slice(0, remainingSlots);
+  const hasMoreObservations =
+    pendingFacts.length + visibleObservations.length > FEED_OBSERVATION_COUNT;
   const [observationsModalOpen, setObservationsModalOpen] = useState(false);
 
   // Match the MemoryScreen filter: pending + dueAt within 5min past — so a
@@ -257,6 +270,19 @@ export function TodayScreen({
       if (onOverDarkChange && lastOverRef.current) onOverDarkChange(false);
     };
   }, [onOverDarkChange]);
+
+  // When the tab becomes active again, re-publish the chrome dark state from
+  // the preserved scroll position (lastOverRef). When deactivated, clear so
+  // the chrome doesn't stay dark while another tab is showing.
+  useEffect(() => {
+    if (!onOverDarkChange) return;
+    if (isActive) {
+      checkOverDark();
+    } else if (lastOverRef.current) {
+      lastOverRef.current = false;
+      onOverDarkChange(false);
+    }
+  }, [isActive, onOverDarkChange]);
 
 
   return (
@@ -584,17 +610,15 @@ export function TodayScreen({
           onClose={() => setObservationHistoryOpen(false)}
         />
 
-        {/* Dark observation card */}
+        {/* Observation card — light, airbrushy, blends with the rest of
+            the app rather than being a dark slab. The chrome no longer
+            needs to flip dark when scrolled into this region. */}
         <View
           style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.xl, paddingBottom: chromeBottom + spacing.xl }}
-          onLayout={(e) => {
-            darkYRef.current = e.nativeEvent.layout.y;
-            checkOverDark();
-          }}
         >
-          <GlassFrostedCard intensity={blur.glassStrong} overlay={surface.glassDark} style={{ padding: spacing.screenPad }}>
+          <GlassFrostedCard style={{ padding: spacing.screenPad }}>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: spacing.cardPad }}>
-              <Text style={{ ...type.title, fontFamily: fonts.display, color: surface.glassDarkText }}>
+              <Text style={{ ...type.title, fontFamily: fonts.display, color: t.ink }}>
                 Hvad jeg har bemærket
               </Text>
               <Pressable
@@ -603,28 +627,25 @@ export function TodayScreen({
                 accessibilityRole="button"
                 accessibilityLabel="Tidligere observationer"
               >
-                <Text style={{ ...type.caption, color: surface.glassDarkTextSoft, fontWeight: '600' }}>Tidligere</Text>
+                <Text style={{ ...type.caption, color: t.ink3, fontWeight: '600' }}>Tidligere</Text>
               </Pressable>
             </View>
 
             {pendingFacts.length === 0 && visibleObservations.length === 0 ? (
               observationsError ? (
                 <EmptyState
-                  dark
                   mood="thinking"
                   title="Kunne ikke hente observationer"
                   body="Jeg kan ikke nå min AI lige nu. Prøv igen om lidt."
                 />
               ) : hasProvider ? (
                 <EmptyState
-                  dark
                   mood="thinking"
                   title="Intet at fremhæve lige nu"
                   body="Jeg kigger på dagens kalender og indbakke og fremhæver det vigtigste. Tjek tilbage når der er noget nyt."
                 />
               ) : (
                 <EmptyState
-                  dark
                   mood="thinking"
                   title="Intet at fortælle endnu"
                   body="Når jeg har adgang til din indbakke og kalender, samler jeg observationer her."
@@ -634,8 +655,9 @@ export function TodayScreen({
               )
             ) : (
               <View style={{ gap: 14 }}>
-                {pendingFacts.map((f) => (
+                {feedFacts.map((f) => (
                   <PendingFactRow
+                    light
                     key={f.id}
                     fact={f}
                     onAccept={() => acceptFact(f.id)}
@@ -644,6 +666,7 @@ export function TodayScreen({
                 ))}
                 {feedObservations.map((n, i) => (
                   <NoticedRow
+                    light
                     key={n.id}
                     item={n}
                     index={i}
@@ -654,10 +677,10 @@ export function TodayScreen({
                 {hasMoreObservations && (
                   <Pressable
                     onPress={() => setObservationsModalOpen(true)}
-                    style={styles.showAllRow}
+                    style={styles.showAllRowLight}
                     hitSlop={8}
                   >
-                    <Text style={styles.showAllText}>
+                    <Text style={styles.showAllTextLight}>
                       Vis alle ({visibleObservations.length}) →
                     </Text>
                   </Pressable>
@@ -674,39 +697,45 @@ export function TodayScreen({
           presentationStyle="pageSheet"
           onRequestClose={() => setObservationsModalOpen(false)}
         >
-          <SafeAreaView style={styles.modalRoot}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Hvad jeg har bemærket</Text>
-              <Pressable
-                onPress={() => setObservationsModalOpen(false)}
-                hitSlop={12}
-                style={styles.modalClose}
+          <View style={styles.modalRoot}>
+            <GlassHaloLayer />
+            <SafeAreaView style={{ flex: 1 }}>
+              <View style={styles.modalHandle} />
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Hvad jeg har bemærket</Text>
+                <Pressable
+                  onPress={() => setObservationsModalOpen(false)}
+                  hitSlop={12}
+                  style={styles.modalClose}
+                >
+                  <X size={18} color={colors.ink} strokeWidth={1.75} />
+                </Pressable>
+              </View>
+              <ScrollView
+                contentContainerStyle={styles.modalBody}
+                showsVerticalScrollIndicator={false}
               >
-                <X size={20} color={colors.paperOn75} strokeWidth={1.75} />
-              </Pressable>
-            </View>
-            <ScrollView
-              contentContainerStyle={styles.modalBody}
-              showsVerticalScrollIndicator={false}
-            >
-              {visibleObservations.length === 0 ? (
-                <Text style={styles.modalEmpty}>Ingen flere observationer lige nu.</Text>
-              ) : (
-                visibleObservations.map((n, i) => (
-                  <NoticedRow
-                    key={n.id}
-                    item={n}
-                    index={i}
-                    onAction={() => {
-                      setObservationsModalOpen(false);
-                      handleObservationAction(n.action);
-                    }}
-                    onDismiss={() => dismissObservation(n.id)}
-                  />
-                ))
-              )}
-            </ScrollView>
-          </SafeAreaView>
+                {visibleObservations.length === 0 ? (
+                  <Text style={styles.modalEmpty}>Ingen flere observationer lige nu.</Text>
+                ) : (
+                  visibleObservations.map((n, i) => (
+                    <GlassFrostedCard key={n.id} style={styles.modalRowCardInner}>
+                      <NoticedRow
+                        light
+                        item={n}
+                        index={i}
+                        onAction={() => {
+                          setObservationsModalOpen(false);
+                          handleObservationAction(n.action);
+                        }}
+                        onDismiss={() => dismissObservation(n.id)}
+                      />
+                    </GlassFrostedCard>
+                  ))
+                )}
+              </ScrollView>
+            </SafeAreaView>
+          </View>
         </Modal>
       </ScrollView>
     </View>
@@ -739,11 +768,16 @@ function NoticedRow({
   index,
   onAction,
   onDismiss,
+  light,
 }: {
   item: Observation;
   index: number;
   onAction: () => void;
   onDismiss: () => void;
+  // When true, render with ink text + sage accent suitable for a light
+  // background (e.g. the airbrushy "Vis alle" modal). Default is the
+  // legacy dark styling used on the inline glass-dark card.
+  light?: boolean;
 }) {
   const fade = React.useRef(new Animated.Value(0)).current;
   const slide = React.useRef(new Animated.Value(8)).current;
@@ -765,13 +799,13 @@ function NoticedRow({
     <Animated.View style={[styles.noticedRow, { opacity: fade, transform: [{ translateY: slide }] }]}>
       <Stone mood={item.mood} size={36} />
       <View style={{ flex: 1 }}>
-        <Text style={styles.noticedText}>{item.text}</Text>
+        <Text style={[styles.noticedText, light && styles.noticedTextLight]}>{item.text}</Text>
         <View style={styles.noticedActions}>
           <Pressable onPress={onAction}>
-            <Text style={styles.noticedCta}>{item.cta} →</Text>
+            <Text style={[styles.noticedCta, light && styles.noticedCtaLight]}>{item.cta} →</Text>
           </Pressable>
           <Pressable onPress={() => animateOut(onDismiss)}>
-            <Text style={styles.noticedDismiss}>Afvis</Text>
+            <Text style={[styles.noticedDismiss, light && styles.noticedDismissLight]}>Afvis</Text>
           </Pressable>
         </View>
       </View>
@@ -783,22 +817,24 @@ function PendingFactRow({
   fact,
   onAccept,
   onReject,
+  light,
 }: {
   fact: Fact;
   onAccept: () => void;
   onReject: () => void;
+  light?: boolean;
 }) {
   return (
     <View style={styles.noticedRow}>
       <Stone mood="thinking" size={36} />
       <View style={{ flex: 1 }}>
-        <Text style={styles.noticedText}>Skal jeg huske at {fact.text}?</Text>
+        <Text style={[styles.noticedText, light && styles.noticedTextLight]}>Skal jeg huske at {fact.text}?</Text>
         <View style={styles.noticedActions}>
           <Pressable onPress={onAccept}>
-            <Text style={styles.noticedCta}>Ja, husk det</Text>
+            <Text style={[styles.noticedCta, light && styles.noticedCtaLight]}>Ja, husk det</Text>
           </Pressable>
           <Pressable onPress={onReject}>
-            <Text style={styles.noticedDismiss}>Nej</Text>
+            <Text style={[styles.noticedDismiss, light && styles.noticedDismissLight]}>Nej</Text>
           </Pressable>
         </View>
       </View>
@@ -838,24 +874,54 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
     color: colors.sageDim,
   },
+  // Light-card variant — used inside the airbrushy "Hvad jeg har
+  // bemærket" card now that it sits on the regular paper backdrop.
+  showAllRowLight: {
+    marginTop: 6,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(0,0,0,0.08)',
+    alignItems: 'flex-start',
+  },
+  showAllTextLight: {
+    fontFamily: legacyFonts.uiSemi,
+    fontSize: 13,
+    letterSpacing: 0.2,
+    color: colors.sage,
+  },
 
-  // "Vis alle" observations modal
-  modalRoot: { flex: 1, backgroundColor: colors.ink },
+  // Light variant of the noticed row used inside the airbrushy "Vis alle"
+  // modal — ink text reads against the light backdrop instead of the
+  // legacy white-on-dark used by the inline glass-dark card.
+  noticedTextLight: { color: colors.ink },
+  noticedCtaLight: { color: colors.sage },
+  noticedDismissLight: { color: colors.fg3 },
+
+  // "Vis alle" observations modal — light, airbrushy, blends with the rest
+  // of the app instead of a black slab popping out on top.
+  modalRoot: { flex: 1, backgroundColor: '#FBFBFA', overflow: 'hidden' },
+  modalHandle: {
+    alignSelf: 'center',
+    width: 38,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.18)',
+    marginTop: 8,
+    marginBottom: 4,
+  },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.paperOn20,
+    paddingTop: 12,
+    paddingBottom: 16,
   },
   modalTitle: {
-    fontFamily: legacyFonts.displayItalic,
+    fontFamily: legacyFonts.display,
     fontSize: 22,
-    letterSpacing: -0.32,
-    color: colors.paper,
+    letterSpacing: -0.4,
+    color: colors.ink,
   },
   modalClose: {
     width: 32,
@@ -863,13 +929,18 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.paperOn20,
+    backgroundColor: 'rgba(255,255,255,0.65)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.08)',
   },
-  modalBody: { padding: 20, gap: 18 },
+  modalBody: { padding: 20, gap: 12, paddingBottom: 40 },
+  modalRowCardInner: { padding: 14 },
   modalEmpty: {
-    fontFamily: 'Inter_500Medium_Italic',
+    fontFamily: legacyFonts.ui,
     fontSize: 14,
     lineHeight: 21,
-    color: colors.paperOn55,
+    color: colors.fg3,
+    textAlign: 'center',
+    paddingVertical: 40,
   },
 });

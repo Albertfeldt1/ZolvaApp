@@ -24,8 +24,10 @@ import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Linking, StyleSheet, View } from 'react-native';
-import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
+import Animated, { SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { ChromeInsetsContext, PhoneChrome, TabId } from './src/components/PhoneChrome';
+import { TabPane } from './src/components/TabPane';
+import { GlassHaloLayer } from './src/design/primitives/GlassHaloLayer';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { IntroVideo } from './src/components/IntroVideo';
 import { OfflineBanner } from './src/components/OfflineBanner';
@@ -101,7 +103,7 @@ export default function App() {
   });
   const designFonts = useDesignFonts();
 
-  const { user, googleAccessToken, microsoftAccessToken, signInWithMicrosoft, disconnectProvider } = useAuth();
+  const { user, initializing: authInitializing, googleAccessToken, microsoftAccessToken, signInWithMicrosoft, disconnectProvider } = useAuth();
   const [introPlaying, setIntroPlaying] = useState(!introShownThisSession);
   const dismissIntro = () => {
     introShownThisSession = true;
@@ -111,6 +113,28 @@ export default function App() {
   // Tracks the last non-Settings tab so the Settings back button can return
   // the user to whichever tab they came from (Today, Inbox, Calendar, Husk).
   const [previousTab, setPreviousTab] = useState<Exclude<TabId, 'settings'>>('today');
+  // Tabs mount on first visit and stay mounted thereafter. Keeping screens
+  // alive preserves state, scroll, and fetched data — switching tabs becomes
+  // an instant crossfade instead of a remount + refetch.
+  const [mountedTabs, setMountedTabs] = useState<Set<TabId>>(() => new Set([tab]));
+  useEffect(() => {
+    setMountedTabs((prev) => {
+      if (prev.has(tab)) return prev;
+      const next = new Set(prev);
+      next.add(tab);
+      return next;
+    });
+  }, [tab]);
+
+  // On logout, force the active tab to Settings — that's the only screen
+  // that renders the LoginCard. With chrome hidden in the logged-out
+  // state, the user wouldn't have any other way to reach a login surface.
+  useEffect(() => {
+    if (!authInitializing && !user) {
+      setTab('settings');
+      setPreviousTab('today');
+    }
+  }, [authInitializing, user]);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatDraft, setChatDraft] = useState<string | undefined>(undefined);
   const [openMail, setOpenMail] = useState<InboxMail | null>(null);
@@ -376,6 +400,12 @@ export default function App() {
     return <View style={[styles.root, { backgroundColor: colors.intro }]} />;
   }
 
+  // When logged out, hide the bottom nav so the LoginCard inside Settings
+  // isn't framed by an interactive tab bar leading to surfaces that won't
+  // load anything. The Settings tab handles its own logged-out state by
+  // rendering the LoginCard in place of the regular section list.
+  const loggedOut = !authInitializing && !user;
+
   const openChat = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setChatDraft(undefined);
@@ -404,7 +434,9 @@ export default function App() {
     setNotificationsOpen(false);
     setIcloudSetupOpen(false);
     setAdminConsentOpen(false);
-    if (t !== 'today' && t !== 'inbox') setChromeOverDark(false);
+    // Reset to light chrome on every tab switch. The active tab's screen will
+    // re-publish dark via its isActive effect if its scroll position warrants.
+    setChromeOverDark(false);
   };
 
   const openNotifications = () => {
@@ -491,7 +523,70 @@ export default function App() {
       <StatusBar style="dark" translucent />
       <OfflineBanner />
       <View style={styles.content}>
-        {chatOpen ? (
+        {/* App-level airbrushy backdrop sits underneath all TabPanes. Each
+            screen renders its own GlassHaloLayer on top when fully
+            visible, but during a tab crossfade — when both panes are at
+            partial opacity — this base layer shows through so the
+            "behind" surface matches the airbrushy wash instead of
+            flashing the bare paper background. */}
+        <GlassHaloLayer />
+        <TabPane active={tab === 'today' }>
+          {mountedTabs.has('today') && (
+            <TodayScreen
+              onOpenChat={openChat}
+              onOpenChatWithPrompt={openChatWithPrompt}
+              onOpenMail={openMailDetail}
+              onGoToSettings={() => switchTab('settings')}
+              onGoToMemory={() => switchTab('memory')}
+              onOpenNotifications={openNotifications}
+              onOverDarkChange={setChromeOverDark}
+              briefOpenTrigger={briefOpenTrigger}
+              onOpenIcloudSetup={openIcloudSetup}
+              isActive={tab === 'today'}
+            />
+          )}
+        </TabPane>
+        <TabPane active={tab === 'inbox' }>
+          {mountedTabs.has('inbox') && (
+            <InboxScreen
+              onGoToSettings={() => switchTab('settings')}
+              onOpenMail={openMailDetail}
+              onOverDarkChange={setChromeOverDark}
+              onOpenIcloudSetup={openIcloudSetup}
+              onOpenNotifications={openNotifications}
+              isActive={tab === 'inbox'}
+            />
+          )}
+        </TabPane>
+        <TabPane active={tab === 'calendar' }>
+          {mountedTabs.has('calendar') && (
+            <CalendarScreen
+              onGoToSettings={() => switchTab('settings')}
+              onOpenNotifications={openNotifications}
+            />
+          )}
+        </TabPane>
+        <TabPane active={tab === 'memory' }>
+          {mountedTabs.has('memory') && (
+            <MemoryScreen
+              onOpenChat={openChat}
+              onOpenNotifications={openNotifications}
+              onOpenSettings={() => switchTab('settings')}
+            />
+          )}
+        </TabPane>
+        <TabPane active={tab === 'settings' }>
+          {mountedTabs.has('settings') && (
+            <SettingsScreen
+              onOpenIcloudSetup={openIcloudSetup}
+              onOpenMicrosoftAdminConsent={openAdminConsent}
+              icloudRefreshVersion={icloudRefreshVersion}
+              onOpenNotifications={openNotifications}
+              onBack={() => switchTab(previousTab)}
+            />
+          )}
+        </TabPane>
+        {chatOpen && (
           <Animated.View
             key="chat"
             style={StyleSheet.absoluteFill}
@@ -499,58 +594,6 @@ export default function App() {
             exiting={SlideOutDown.duration(260)}
           >
             <ChatScreen onBack={closeChat} initialDraft={chatDraft} />
-          </Animated.View>
-        ) : (
-          <Animated.View
-            key={tab}
-            style={StyleSheet.absoluteFill}
-            entering={FadeIn.duration(240)}
-            exiting={FadeOut.duration(160)}
-          >
-            {tab === 'today' && (
-              <TodayScreen
-                onOpenChat={openChat}
-                onOpenChatWithPrompt={openChatWithPrompt}
-                onOpenMail={openMailDetail}
-                onGoToSettings={() => switchTab('settings')}
-                onGoToMemory={() => switchTab('memory')}
-                onOpenNotifications={openNotifications}
-                onOverDarkChange={setChromeOverDark}
-                briefOpenTrigger={briefOpenTrigger}
-                onOpenIcloudSetup={openIcloudSetup}
-              />
-            )}
-            {tab === 'inbox' && (
-              <InboxScreen
-                onGoToSettings={() => switchTab('settings')}
-                onOpenMail={openMailDetail}
-                onOverDarkChange={setChromeOverDark}
-                onOpenIcloudSetup={openIcloudSetup}
-                onOpenNotifications={openNotifications}
-              />
-            )}
-            {tab === 'calendar' && (
-              <CalendarScreen
-                onGoToSettings={() => switchTab('settings')}
-                onOpenNotifications={openNotifications}
-              />
-            )}
-            {tab === 'memory' && (
-              <MemoryScreen
-                onOpenChat={openChat}
-                onOpenNotifications={openNotifications}
-                onOpenSettings={() => switchTab('settings')}
-              />
-            )}
-            {tab === 'settings' && (
-              <SettingsScreen
-                onOpenIcloudSetup={openIcloudSetup}
-                onOpenMicrosoftAdminConsent={openAdminConsent}
-                icloudRefreshVersion={icloudRefreshVersion}
-                onOpenNotifications={openNotifications}
-                onBack={() => switchTab(previousTab)}
-              />
-            )}
           </Animated.View>
         )}
         {openMail && !chatOpen && (
@@ -682,7 +725,7 @@ export default function App() {
           }}
         />
       )}
-      {!chatOpen && !openMail && !notificationsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && (
+      {!chatOpen && !openMail && !notificationsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && !loggedOut && (
         <View
           style={styles.chrome}
           pointerEvents="box-none"
@@ -706,7 +749,10 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.paper },
-  content: { flex: 1, backgroundColor: colors.paper },
-  chrome: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+  // Match the active theme's paper (direction G = '#FBFBFA') so brief
+  // moments where the root or content shows through during tab crossfades
+  // don't flash the legacy warm cream behind the new airbrushy backdrop.
+  root: { flex: 1, backgroundColor: '#FBFBFA' },
+  content: { flex: 1, backgroundColor: '#FBFBFA' },
+  chrome: { position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 10, elevation: 10 },
 });

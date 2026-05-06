@@ -3,7 +3,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
+  FlatList,
   KeyboardAvoidingView,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -95,21 +98,6 @@ export function ChatScreen({ onBack, initialDraft }: Props) {
                 </Text>
               </View>
 
-              <Pressable
-                onPress={onBack}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: radius.pill,
-                  backgroundColor: surface.iconButton,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Luk"
-              >
-                <Text style={{ fontFamily: fonts.ui, fontSize: 18, color: t.ink2 }}>×</Text>
-              </Pressable>
             </View>
           </GlassFrostedCard>
         </View>
@@ -164,38 +152,26 @@ export function ChatScreen({ onBack, initialDraft }: Props) {
           {typing && <TypingIndicator t={t} spacing={spacing} radius={radius} />}
         </ScrollView>
 
-        {/* Suggestion pills — wrapped in a glass card backdrop so the
-            row reads as one element instead of loose chips on paper. */}
+        {/* Suggestion pills — naked chips (no card backdrop) tucked just
+            above the input. Infinite horizontal scroll: the data is
+            tripled and the list silently snaps from the trailing copy
+            back to the middle copy when the user scrolls past it, so
+            either direction loops forever without a visible seam. */}
         {suggestions.length > 0 && (
-          <View style={{ paddingHorizontal: spacing.screenPad, paddingBottom: spacing.sm }}>
-            <GlassFrostedCard style={{ paddingVertical: spacing.sm }}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{
-                  paddingHorizontal: spacing.cardPad,
-                  gap: spacing.sm - 2,
-                  alignItems: 'center',
-                }}
-                keyboardShouldPersistTaps="handled"
-              >
-                {suggestions.map((q, i) => (
-                  <Pressable key={`${i}-${q}`} onPress={() => submit(q)}>
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        paddingVertical: spacing.sm,
-                        paddingHorizontal: spacing.md,
-                        borderRadius: radius.pill,
-                        backgroundColor: surface.scrim,
-                      }}
-                    >
-                      <Text style={{ ...type.bodySm, color: t.ink2 }}>{q}</Text>
-                    </View>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </GlassFrostedCard>
+          <View style={{ paddingBottom: spacing.xs }}>
+            <SuggestionsCarousel
+              suggestions={suggestions}
+              onSelect={submit}
+              chipStyle={{
+                paddingVertical: spacing.sm,
+                paddingHorizontal: spacing.md,
+                borderRadius: radius.pill,
+                backgroundColor: surface.scrim,
+              }}
+              textStyle={{ ...type.bodySm, color: t.ink2 }}
+              contentPadding={spacing.screenPad}
+              gap={spacing.sm - 2}
+            />
           </View>
         )}
 
@@ -354,6 +330,87 @@ function TypingDot({ delay, stoneColor }: { delay: number; stoneColor: string })
         backgroundColor: stoneColor,
         opacity: op,
       }}
+    />
+  );
+}
+
+// Infinite horizontal scroll for suggestion chips. Triples the data and
+// silently jumps from the outer copies back to the middle one when the
+// user crosses a boundary — so swiping in either direction loops forever
+// with no visible seam.
+type SuggestionsCarouselProps = {
+  suggestions: string[];
+  onSelect: (q: string) => void;
+  chipStyle: object;
+  textStyle: object;
+  contentPadding: number;
+  gap: number;
+};
+
+function SuggestionsCarousel({
+  suggestions,
+  onSelect,
+  chipStyle,
+  textStyle,
+  contentPadding,
+  gap,
+}: SuggestionsCarouselProps) {
+  const listRef = useRef<FlatList<string>>(null);
+  const contentWidth = useRef(0);
+  const initialised = useRef(false);
+
+  // Triple the array. Middle copy is the "live" one; outer copies are the
+  // bumpers we snap back from.
+  const data = useMemo(
+    () => [...suggestions, ...suggestions, ...suggestions],
+    [suggestions],
+  );
+
+  const onContentSizeChange = (w: number) => {
+    contentWidth.current = w;
+    if (!initialised.current && w > 0) {
+      initialised.current = true;
+      // Land in the middle copy on first layout.
+      listRef.current?.scrollToOffset({ offset: w / 3, animated: false });
+    }
+  };
+
+  const onMomentumScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const w = contentWidth.current;
+    if (w === 0) return;
+    const x = e.nativeEvent.contentOffset.x;
+    const oneCopy = w / 3;
+    if (x >= 2 * oneCopy) {
+      // In the trailing copy — jump back one copy width.
+      listRef.current?.scrollToOffset({ offset: x - oneCopy, animated: false });
+    } else if (x < oneCopy * 0.5) {
+      // In the leading copy — jump forward one copy width.
+      listRef.current?.scrollToOffset({ offset: x + oneCopy, animated: false });
+    }
+  };
+
+  return (
+    <FlatList
+      ref={listRef}
+      horizontal
+      data={data}
+      keyExtractor={(item, i) => `${i}-${item}`}
+      renderItem={({ item }) => (
+        <Pressable onPress={() => onSelect(item)}>
+          <View style={[{ flexDirection: 'row' }, chipStyle]}>
+            <Text style={textStyle}>{item}</Text>
+          </View>
+        </Pressable>
+      )}
+      ItemSeparatorComponent={() => <View style={{ width: gap }} />}
+      contentContainerStyle={{
+        paddingHorizontal: contentPadding,
+        alignItems: 'center',
+      }}
+      showsHorizontalScrollIndicator={false}
+      onContentSizeChange={onContentSizeChange}
+      onMomentumScrollEnd={onMomentumScrollEnd}
+      keyboardShouldPersistTaps="handled"
     />
   );
 }

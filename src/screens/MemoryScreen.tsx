@@ -18,6 +18,7 @@ import { plural } from '../utils/danish';
 import { useTheme } from '../design/useTheme';
 import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
+import { LiquidTabSwitcher } from '../components/LiquidTabSwitcher';
 import { TopBar } from '../design/primitives/TopBar';
 import { Stone } from '../components/Stone';
 
@@ -219,61 +220,62 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
             <Text style={{ ...type.displayXL, color: t.ink }}>
               {`Det jeg\nhusker.`}
             </Text>
-            <View style={{ flexDirection: 'row', gap: spacing.sm - 2, flexWrap: 'wrap' }}>
-              {MEMORY_TABS.map((tabDef) => {
-                const active = tab === tabDef.id;
+            <LiquidTabSwitcher
+              tabs={MEMORY_TABS.map((tabDef) => {
                 const count =
                   tabDef.id === 'noter' ? notes.length :
                   tabDef.id === 'fakta' ? facts.length :
                   chat.length;
-                return (
-                  <Pressable key={tabDef.id} onPress={() => setTab(tabDef.id)}>
-                    <View style={{
-                      paddingVertical: spacing.sm - 1,
-                      paddingHorizontal: spacing.md,
-                      borderRadius: radius.pill,
-                      backgroundColor: active ? t.ink : surface.scrim,
-                    }}>
-                      <Text style={{
-                        fontFamily: fonts.uiBold,
-                        fontSize: type.caption.fontSize,
-                        color: active ? '#FFFFFF' : t.ink, // #FFFFFF for contrast on dark ink pill
-                      }}>
-                        {tabDef.label} · <CountUp to={count} style={{
-                          fontFamily: fonts.uiBold,
-                          fontSize: type.caption.fontSize,
-                          color: active ? '#FFFFFF' : t.ink,
-                        }} />
-                      </Text>
-                    </View>
-                  </Pressable>
-                );
+                const labelStyle = {
+                  fontFamily: fonts.uiBold,
+                  fontSize: type.caption.fontSize,
+                };
+                return {
+                  id: tabDef.id,
+                  label: (
+                    <>
+                      {tabDef.label} · <CountUp to={count} style={labelStyle} />
+                    </>
+                  ),
+                };
               })}
-            </View>
+              active={tab}
+              onChange={setTab}
+              textStyle={{
+                fontFamily: fonts.uiBold,
+                fontSize: type.caption.fontSize,
+                color: t.ink2,
+              }}
+              activeTextStyle={{
+                fontFamily: fonts.uiBold,
+                fontSize: type.caption.fontSize,
+                color: t.ink,
+              }}
+              wrapStyle={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0 }}
+            />
           </GlassFrostedCard>
         </View>
 
         {/* ── Noter tab ── */}
         {tab === 'noter' && (
           <>
-            {/* Hint row with Stone */}
-            <View style={{
-              flexDirection: 'row',
-              gap: spacing.md,
-              paddingHorizontal: spacing.screenPad,
-              paddingTop: spacing.heroPad,
-              alignItems: 'flex-start',
-            }}>
-              <Stone mood="thinking" size={40} onPress={onOpenChat} />
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: fonts.display, fontSize: 18, lineHeight: 26, letterSpacing: -0.27, color: t.ink }}>
-                  Tilføj nye ved at skrive{' '}
-                  <Text style={{ color: t.mem }}>"mind mig om…"</Text>
-                  {' '}eller{' '}
-                  <Text style={{ color: t.mem }}>"husk at…"</Text>
-                  {' '}til mig.
-                </Text>
-              </View>
+            {/* Hint row with Stone — wrapped in a glass card backdrop so
+                the prompt reads as a unit instead of floating on bare paper. */}
+            <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
+              <GlassFrostedCard style={{ padding: spacing.lg }}>
+                <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' }}>
+                  <Stone mood="thinking" size={40} onPress={onOpenChat} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: fonts.display, fontSize: 18, lineHeight: 26, letterSpacing: -0.27, color: t.ink }}>
+                      Tilføj nye ved at skrive{' '}
+                      <Text style={{ color: t.mem }}>"mind mig om…"</Text>
+                      {' '}eller{' '}
+                      <Text style={{ color: t.mem }}>"husk at…"</Text>
+                      {' '}til mig.
+                    </Text>
+                  </View>
+                </View>
+              </GlassFrostedCard>
             </View>
 
             {/* Reminder sections */}
@@ -315,13 +317,15 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
                 NOTER
               </Text>
               {notes.length === 0 ? (
-                <EmptyState
-                  icon={false}
-                  title="Din anden hjerne er tom"
-                  body={'Sig "husk at vi vil prøve grøn te-leverandør" - jeg sorterer det selv.'}
-                  ctaLabel="Skriv til Zolva"
-                  onCta={onOpenChat}
-                />
+                <GlassFrostedCard style={{ paddingVertical: spacing.lg, paddingHorizontal: spacing.cardPad }}>
+                  <EmptyState
+                    icon={false}
+                    title="Din anden hjerne er tom"
+                    body={'Sig "husk at vi vil prøve grøn te-leverandør" - jeg sorterer det selv.'}
+                    ctaLabel="Skriv til Zolva"
+                    onCta={onOpenChat}
+                  />
+                </GlassFrostedCard>
               ) : (
                 CATEGORY_ORDER.filter((c) => notesByCategory[c].length > 0).map((category) => (
                   <View key={category} style={{ marginBottom: spacing.md }}>

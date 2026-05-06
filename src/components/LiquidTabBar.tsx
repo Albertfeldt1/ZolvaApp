@@ -157,7 +157,7 @@ export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: P
             >
               {TABS.map(({ id, label, Icon }) => {
                 const isActive = active === id;
-                const color = isActive ? colors.sage : colors.stone;
+                const color = isActive ? colors.ink : colors.stone;
                 return (
                   <Pressable key={id} style={styles.tab} onPress={() => onChange(id)}>
                     <Icon size={20} color={color} strokeWidth={isActive ? 1.7 : 1.4} />
@@ -171,7 +171,7 @@ export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: P
             <AnimatedGlassView
               glassEffectStyle="clear"
               isInteractive
-              tintColor="rgba(26,30,28,0.30)"
+              tintColor="rgba(255,255,255,0.30)"
               colorScheme="auto"
               style={[styles.activePill, pillStyle]}
               pointerEvents="none"

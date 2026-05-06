@@ -49,15 +49,20 @@ export const colors = {
   intro: '#EBE3D7',
 };
 
+// One font family everywhere — SpaceGrotesk. Aliases preserved so legacy
+// call sites still resolve, but every variant maps to a SpaceGrotesk weight.
+// Italic aliases lose their stylistic italic shape (SpaceGrotesk has no
+// italic cut loaded); pair them with `fontStyle: 'italic'` at the call site
+// if a slanted look is still wanted.
 export const fonts = {
-  display: 'Fraunces_500Medium',
-  displayItalic: 'PlayfairDisplay_400Regular_Italic',
-  displayItalicMedium: 'PlayfairDisplay_500Medium_Italic',
-  ui: 'Inter_500Medium',
-  uiSemi: 'Inter_600SemiBold',
-  uiRegular: 'Inter_400Regular',
-  mono: 'JetBrainsMono_400Regular',
-  monoSemi: 'JetBrainsMono_600SemiBold',
+  display: 'SpaceGrotesk_500Medium',
+  displayItalic: 'SpaceGrotesk_500Medium',
+  displayItalicMedium: 'SpaceGrotesk_600SemiBold',
+  ui: 'SpaceGrotesk_500Medium',
+  uiSemi: 'SpaceGrotesk_600SemiBold',
+  uiRegular: 'SpaceGrotesk_500Medium',
+  mono: 'SpaceGrotesk_500Medium',
+  monoSemi: 'SpaceGrotesk_600SemiBold',
 };
 
 export const radii = {

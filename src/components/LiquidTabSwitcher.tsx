@@ -1,7 +1,7 @@
 import { GlassContainer, GlassView } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { PanResponder, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { PanResponder, Platform, Pressable, StyleSheet, Text, TextStyle, View, ViewStyle } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -17,15 +17,29 @@ const PILL_SPRING = { damping: 22, stiffness: 260, mass: 1 };
 const PILL_INSET_H = 4;
 const PILL_INSET_V = 3;
 
-export type LiquidTabItem<T extends string> = { id: T; label: string };
+export type LiquidTabItem<T extends string> = { id: T; label: React.ReactNode };
 
 type Props<T extends string> = {
   tabs: ReadonlyArray<LiquidTabItem<T>>;
   active: T;
   onChange: (id: T) => void;
+  // Optional overrides — when supplied, replace the default uppercase
+  // text style. Used by surfaces that want the glass+pill structure but a
+  // different label voice (e.g. mixed-case labels with inline counts).
+  textStyle?: TextStyle;
+  activeTextStyle?: TextStyle;
+  // Optional outer wrap padding override.
+  wrapStyle?: ViewStyle;
 };
 
-export function LiquidTabSwitcher<T extends string>({ tabs, active, onChange }: Props<T>) {
+export function LiquidTabSwitcher<T extends string>({
+  tabs,
+  active,
+  onChange,
+  textStyle,
+  activeTextStyle,
+  wrapStyle,
+}: Props<T>) {
   const [rowWidth, setRowWidth] = useState(0);
   const tabWidth = rowWidth / tabs.length;
   const activeIndex = tabs.findIndex((t) => t.id === active);
@@ -89,7 +103,14 @@ export function LiquidTabSwitcher<T extends string>({ tabs, active, onChange }: 
         const isActive = active === id;
         return (
           <Pressable key={id} style={styles.tab} onPress={() => onChange(id)}>
-            <Text style={[styles.tabText, isActive && styles.tabTextActive]}>{label}</Text>
+            <Text
+              style={[
+                textStyle ?? styles.tabText,
+                isActive && (activeTextStyle ?? styles.tabTextActive),
+              ]}
+            >
+              {label}
+            </Text>
           </Pressable>
         );
       })}
@@ -98,7 +119,7 @@ export function LiquidTabSwitcher<T extends string>({ tabs, active, onChange }: 
 
   if (liquidGlassReady) {
     return (
-      <View style={styles.wrap}>
+      <View style={[styles.wrap, wrapStyle]}>
         <GlassContainer spacing={6} style={styles.barAnchor}>
           <GlassView glassEffectStyle="regular" colorScheme="auto" style={styles.bar}>
             {tabsRow}
@@ -107,7 +128,7 @@ export function LiquidTabSwitcher<T extends string>({ tabs, active, onChange }: 
             <AnimatedGlassView
               glassEffectStyle="clear"
               isInteractive
-              tintColor="rgba(92,115,85,0.32)"
+              tintColor="rgba(255,255,255,0.30)"
               colorScheme="auto"
               style={[styles.activePill, pillStyle]}
               pointerEvents="none"
@@ -120,7 +141,7 @@ export function LiquidTabSwitcher<T extends string>({ tabs, active, onChange }: 
 
   // Fallback for non-iOS-26: subtle sageSoft pill capsule with the same animated pill.
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, wrapStyle]}>
       <View style={[styles.barAnchor, styles.barFallback]}>
         {tabsRow}
         {rowWidth > 0 && activeIndex >= 0 && (
@@ -180,6 +201,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   activePillFallback: {
-    backgroundColor: colors.sageSoft,
+    backgroundColor: 'rgba(255,255,255,0.55)',
   },
 });

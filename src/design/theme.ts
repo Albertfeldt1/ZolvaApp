@@ -43,14 +43,17 @@ export const directions: Record<DirectionId, DirectionTokens> = {
 
 export const DEFAULT_DIRECTION: DirectionId = 'G';
 
+// One font family everywhere — SpaceGrotesk handles display, UI, and the
+// "mono" eyebrows. Aliases stay so existing call sites don't need to know
+// which variant they're getting; only the underlying weight differs.
 export const fontFamilies = {
   display: 'SpaceGrotesk_500Medium',
-  displayBold: 'SpaceGrotesk_600SemiBold',
-  ui: 'Inter_500Medium',
-  uiBold: 'Inter_600SemiBold',
-  uiRegular: 'Inter_400Regular',
-  mono: 'JetBrainsMono_400Regular',
-  monoBold: 'JetBrainsMono_600SemiBold',
+  displayBold: 'SpaceGrotesk_700Bold',
+  ui: 'SpaceGrotesk_500Medium',
+  uiBold: 'SpaceGrotesk_600SemiBold',
+  uiRegular: 'SpaceGrotesk_500Medium',
+  mono: 'SpaceGrotesk_500Medium',
+  monoBold: 'SpaceGrotesk_600SemiBold',
 } as const;
 
 export const typeScale = {

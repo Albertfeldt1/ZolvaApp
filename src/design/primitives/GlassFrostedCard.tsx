@@ -47,6 +47,14 @@ export function GlassFrostedCard({
       overlay === surface.glassWeak ||
       overlay === surface.glassAndroidFallback;
     const isDarkOverlay = overlay === surface.glassDark;
+    // Fill-style overlays don't pass through as native tintColor (their
+    // high opacity would wash out the glass effect). On a saturated /
+    // airbrushy background, however, pure clear glass renders cards
+    // nearly invisible — and iOS 26's native glass attenuates flat tint
+    // values further, so the opacity has to be cranked up to land in
+    // the right visible range.
+    const fallbackFrost =
+      t.mode === 'dark' ? 'rgba(20,22,28,0.72)' : 'rgba(255,255,255,0.78)';
     return (
       <View
         style={{
@@ -60,7 +68,7 @@ export function GlassFrostedCard({
         <GlassView
           glassEffectStyle={glassStyle}
           colorScheme={isDarkOverlay || t.mode === 'dark' ? 'dark' : 'light'}
-          tintColor={isFillOverlay ? undefined : overlay}
+          tintColor={isFillOverlay ? fallbackFrost : overlay}
         >
           <View style={style}>{children}</View>
         </GlassView>
