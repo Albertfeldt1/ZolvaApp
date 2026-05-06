@@ -25,9 +25,11 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  type StyleProp,
   Text,
   TextInput,
   View,
+  type ViewStyle,
 } from 'react-native';
 import Animated, {
   Easing,
@@ -50,6 +52,10 @@ import { LiquidToggle } from '../components/LiquidToggle';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { Stone } from '../components/Stone';
 import { TopRightActions } from '../components/TopRightActions';
+import { useTheme } from '../design/useTheme';
+import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
+import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
+import { Icon as DesignIcon } from '../design/primitives/Icon';
 import { useAuth } from '../lib/auth';
 import {
   useCalendarLabels,
@@ -189,6 +195,36 @@ function CollapsibleSection({
         </Animated.View>
       ) : null}
     </Animated.View>
+  );
+}
+
+function SettingsSectionCard({
+  title,
+  children,
+  style,
+}: {
+  title: string;
+  children: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const { t, type, surface, spacing } = useTheme();
+  return (
+    <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
+      <Text
+        style={{
+          ...type.eyebrow,
+          color: t.ink3,
+          fontWeight: '600',
+          paddingHorizontal: spacing.xs,
+          paddingBottom: spacing.sm,
+        }}
+      >
+        {title}
+      </Text>
+      <GlassFrostedCard overlay={surface.bone} style={[{ padding: spacing.lg, gap: spacing.md - 2 }, style]}>
+        {children}
+      </GlassFrostedCard>
+    </View>
   );
 }
 
@@ -1518,181 +1554,227 @@ export function SettingsScreen({
 
   const isLoggedIn = !!user;
   const { bottom: chromeBottom } = useChromeInsets();
+  const theme = useTheme();
+  const { t, type, fonts, radius, spacing, surface, shadows, blur } = theme;
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom }]}
-        showsVerticalScrollIndicator={false}
-        contentInsetAdjustmentBehavior="never"
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={styles.hero}>
-          <View style={styles.heroTopRow}>
-            <Pressable
-              onPress={onBack}
-              style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="Tilbage"
-            >
-              <ChevronLeft size={20} color={colors.ink} strokeWidth={1.75} />
-            </Pressable>
-            <TopRightActions onOpenNotifications={onOpenNotifications} />
-          </View>
-          <Text style={styles.eyebrow}>
-            {user ? `Konto · ${user.email}` : 'Konto'}
-          </Text>
-          <Text style={styles.heroH1}>Indstillinger</Text>
-        </View>
-
-        {userLoading ? (
-          <View style={styles.authLoading}>
-            <ActivityIndicator color={colors.sageDeep} />
-          </View>
-        ) : !isLoggedIn ? (
-          <LoginCard />
-        ) : (
-          <>
-            <View style={styles.speech}>
-              <Stone mood="calm" size={40} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.speechText}>
-                  Jeg arbejder sådan her. Skru på det du vil - resten passer jeg.
-                </Text>
+      <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
+        <GlassHaloLayer />
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: chromeBottom + spacing.xxl }}
+          showsVerticalScrollIndicator={false}
+          contentInsetAdjustmentBehavior="never"
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Hero: back button + eyebrow + "Indstillinger" — bone-white card */}
+          <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.statusBarFallback - spacing.xl }}>
+            <GlassFrostedCard overlay={surface.bone} radius={radius.card} style={{ padding: spacing.lg }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: spacing.md }}>
+                <Pressable
+                  onPress={onBack}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Tilbage"
+                  style={{ width: 34, height: 34, borderRadius: radius.pill, backgroundColor: surface.iconButton, alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <ChevronLeft size={20} color={t.ink} strokeWidth={1.75} />
+                </Pressable>
+                <TopRightActions onOpenNotifications={onOpenNotifications} />
               </View>
+              <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>
+                {user ? `Konto · ${user.email}` : 'Konto'}
+              </Text>
+              <Text style={{ ...type.displayXL, color: t.ink, marginTop: spacing.sm - 2 }}>
+                Indstillinger
+              </Text>
+            </GlassFrostedCard>
+          </View>
+
+          {userLoading ? (
+            <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
+              <GlassFrostedCard style={{ padding: spacing.xl, alignItems: 'center' }}>
+                <ActivityIndicator color={t.cal} />
+              </GlassFrostedCard>
             </View>
-
-            <CollapsibleSection title="Sådan arbejder jeg">
-              {workRows.map((r) =>
-                r.id === 'morning-brief' && briefVariant === 'icloud-only' ? (
-                  <View key={r.id} style={styles.disabledPrefRow}>
+          ) : !isLoggedIn ? (
+            <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
+              <LoginCard />
+            </View>
+          ) : (
+            <>
+              {/* Speech bubble — bone card with Stone */}
+              <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
+                <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.lg }}>
+                  <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' }}>
+                    <Stone mood="calm" size={40} />
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.workTitle}>{r.title}</Text>
-                      <Text style={styles.workMeta}>Kræver Gmail eller Outlook for nu</Text>
+                      <Text style={{ ...type.body, color: t.ink2 }}>
+                        Jeg arbejder sådan her. Skru på det du vil — resten passer jeg.
+                      </Text>
                     </View>
-                    <Pressable onPress={() => setBriefSheetOpen(true)} hitSlop={8} accessibilityRole="button">
-                      <Text style={styles.linkText}>Læs mere</Text>
-                    </Pressable>
                   </View>
-                ) : (
-                  <WorkPreferenceRow
-                    key={r.id}
-                    pref={r}
-                    sub={r.id === 'morning-brief' ? briefProviderSub : undefined}
-                    onChange={async (v) => {
-                      const result = await setWorkValue(r.id, v);
-                      if (result.ok) return;
-                      const message =
-                        result.reason === 'unauthenticated' || result.reason === 'rls'
-                          ? 'Kunne ikke gemme — log ind igen.'
-                          : 'Kunne ikke gemme. Prøv igen om lidt.';
-                      Alert.alert('Indstillinger', message);
-                    }}
-                  />
-                ),
-              )}
-            </CollapsibleSection>
+                </GlassFrostedCard>
+              </View>
 
-            <CollapsibleSection title="Forbundet" paddingTop={28}>
-              {allConnections.map((c, i) => {
-                const pillStyle =
-                  c.status === 'connected' ? styles.statusSage :
-                    c.status === 'pending' ? styles.statusWarn :
-                      c.status === 'expired' ? styles.statusWarn :
-                        styles.statusNeutral;
-                const textStyle =
-                  c.status === 'connected' ? styles.statusTextSage :
-                    c.status === 'pending' ? styles.statusTextWarn :
-                      c.status === 'expired' ? styles.statusTextWarn :
-                        styles.statusTextNeutral;
-                const isConnected = c.status === 'connected';
-                // iCloud's expired state is tappable (re-enter flow). Other
-                // providers' 'expired' remains non-interactive — no UI yet.
-                const tappable =
-                  isConnected ||
-                  c.status === 'disconnected' ||
-                  (c.id === 'icloud' && c.status === 'expired');
-                const isBusy = connectingId === c.id;
-                const onRowPress =
-                  c.id === 'icloud'
-                    ? (isConnected
-                        ? () => confirmIcloudDisconnect()
-                        : () => onOpenIcloudSetup?.(icloudEmail ?? undefined))
-                    : (isConnected
-                        ? () => handleDisconnect(c.id)
-                        : () => handleConnect(c.id));
-                return (
-                  <Pressable
-                    key={c.id}
-                    onPress={tappable ? onRowPress : undefined}
-                    disabled={!tappable || isBusy}
-                    style={({ pressed }) => [
-                      styles.connRow,
-                      i > 0 && styles.connBorder,
-                      tappable && pressed && styles.connRowPressed,
+              {/* Sådan arbejder jeg */}
+              <SettingsSectionCard title="Sådan arbejder jeg">
+                {workRows.map((r) =>
+                  r.id === 'morning-brief' && briefVariant === 'icloud-only' ? (
+                    <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontFamily: fonts.uiBold, fontSize: type.body.fontSize, color: t.ink }}>{r.title}</Text>
+                        <Text style={{ ...type.caption, color: t.ink3, marginTop: 2 }}>Kræver Gmail eller Outlook for nu</Text>
+                      </View>
+                      <Pressable onPress={() => setBriefSheetOpen(true)} hitSlop={8} accessibilityRole="button">
+                        <Text style={{ ...type.caption, color: t.cal }}>Læs mere</Text>
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <WorkPreferenceRow
+                      key={r.id}
+                      pref={r}
+                      sub={r.id === 'morning-brief' ? briefProviderSub : undefined}
+                      onChange={async (v) => {
+                        const result = await setWorkValue(r.id, v);
+                        if (result.ok) return;
+                        const message =
+                          result.reason === 'unauthenticated' || result.reason === 'rls'
+                            ? 'Kunne ikke gemme — log ind igen.'
+                            : 'Kunne ikke gemme. Prøv igen om lidt.';
+                        Alert.alert('Indstillinger', message);
+                      }}
+                    />
+                  ),
+                )}
+              </SettingsSectionCard>
+
+              {/* Forbundet */}
+              <SettingsSectionCard title="Forbundet" style={{ gap: 0 }}>
+                {allConnections.map((c, i) => {
+                  const isConnected = c.status === 'connected';
+                  // iCloud's expired state is tappable (re-enter flow). Other
+                  // providers' 'expired' remains non-interactive — no UI yet.
+                  const tappable =
+                    isConnected ||
+                    c.status === 'disconnected' ||
+                    (c.id === 'icloud' && c.status === 'expired');
+                  const isBusy = connectingId === c.id;
+                  const onRowPress =
+                    c.id === 'icloud'
+                      ? (isConnected
+                          ? () => confirmIcloudDisconnect()
+                          : () => onOpenIcloudSetup?.(icloudEmail ?? undefined))
+                      : (isConnected
+                          ? () => handleDisconnect(c.id)
+                          : () => handleConnect(c.id));
+
+                  // Status pill colors using design tokens
+                  const pillBg =
+                    c.status === 'connected' ? 'rgba(0,0,0,0.06)' :
+                    c.status === 'pending' || c.status === 'expired' ? surface.warningTint :
+                    surface.scrim;
+                  const pillColor =
+                    c.status === 'connected' ? t.cal :
+                    c.status === 'pending' || c.status === 'expired' ? t.today :
+                    t.ink3;
+
+                  return (
+                    <Pressable
+                      key={c.id}
+                      onPress={tappable ? onRowPress : undefined}
+                      disabled={!tappable || isBusy}
+                      style={({ pressed }) => [
+                        {
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: spacing.md,
+                          paddingVertical: spacing.sm,
+                        },
+                        i > 0 && { borderTopWidth: 1, borderTopColor: t.line },
+                        tappable && pressed && { opacity: 0.65 },
+                      ]}
+                    >
+                      <View style={styles.logoBox}>
+                        <Image
+                          source={LOGOS[c.logo]}
+                          style={[styles.logo, c.logo === 'gmail.png' && { transform: [{ scale: 1.35 }] }]}
+                          resizeMode="contain"
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontFamily: fonts.uiBold, fontSize: type.body.fontSize, color: t.ink }}>{c.title}</Text>
+                        <Text style={{ ...type.caption, color: t.ink3 }}>{c.sub}</Text>
+                      </View>
+                      {isBusy ? (
+                        <ActivityIndicator color={t.cal} />
+                      ) : c.status === 'disconnected' ? (
+                        <View style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, backgroundColor: t.ink }}>
+                          <Text style={{ ...type.caption, color: '#FFFFFF', fontFamily: fonts.uiBold }}>Forbind →</Text>
+                        </View>
+                      ) : (
+                        <View style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, backgroundColor: pillBg }}>
+                          <Text style={{ ...type.caption, color: pillColor, fontFamily: fonts.uiBold }}>{STATUS_LABEL[c.status]}</Text>
+                        </View>
+                      )}
+                    </Pressable>
+                  );
+                })}
+                {COMING_SOON_INTEGRATIONS.map((c, i) => (
+                  <View
+                    key={c.key}
+                    style={[
+                      { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm, opacity: 0.5 },
+                      { borderTopWidth: 1, borderTopColor: t.line },
                     ]}
                   >
                     <View style={styles.logoBox}>
-                      <Image
-                        source={LOGOS[c.logo]}
-                        style={[styles.logo, c.logo === 'gmail.png' && { transform: [{ scale: 1.35 }] }]}
-                        resizeMode="contain"
-                      />
+                      <Image source={LOGOS[c.logo]} style={styles.logo} resizeMode="contain" />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.connTitle}>{c.title}</Text>
-                      <Text style={styles.connSub}>{c.sub}</Text>
+                      <Text style={{ fontFamily: fonts.uiBold, fontSize: type.body.fontSize, color: t.ink }}>{c.title}</Text>
+                      <Text style={{ ...type.caption, color: t.ink3 }}>{c.sub}</Text>
                     </View>
-                    {isBusy ? (
-                      <ActivityIndicator color={colors.sageDeep} />
-                    ) : c.status === 'disconnected' ? (
-                      <View style={styles.connectPill}>
-                        <Text style={styles.connectPillText}>Forbind →</Text>
-                      </View>
-                    ) : (
-                      <View style={[styles.statusPill, pillStyle]}>
-                        <Text style={[styles.statusText, textStyle]}>{STATUS_LABEL[c.status]}</Text>
-                      </View>
-                    )}
-                  </Pressable>
-                );
-              })}
-              {COMING_SOON_INTEGRATIONS.map((c) => (
-                <View key={c.key} style={[styles.connRow, styles.connBorder, styles.connRowComingSoon]}>
-                  <View style={styles.logoBox}>
-                    <Image source={LOGOS[c.logo]} style={styles.logo} resizeMode="contain" />
+                    <View style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, backgroundColor: surface.scrim }}>
+                      <Text style={{ ...type.caption, color: t.ink3, fontFamily: fonts.uiBold }}>Kommer snart</Text>
+                    </View>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.connTitle}>{c.title}</Text>
-                    <Text style={styles.connSub}>{c.sub}</Text>
-                  </View>
-                  <View style={[styles.statusPill, styles.statusNeutral]}>
-                    <Text style={[styles.statusText, styles.statusTextNeutral]}>Kommer snart</Text>
-                  </View>
-                </View>
-              ))}
-            </CollapsibleSection>
+                ))}
+              </SettingsSectionCard>
 
-            <StemmestyringSection hasIcloud={hasIcloud} />
+              {/* Stemmestyring — wrapped in glass card from outside */}
+              <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
+                <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.lg }}>
+                  <StemmestyringSection hasIcloud={hasIcloud} />
+                </GlassFrostedCard>
+              </View>
 
-            <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
-              <Text style={styles.sectionTitle}>Abonnement</Text>
-              <View style={styles.inkRule} />
-              {subscription ? (
-                <View style={styles.planRow}>
-                  <Text style={styles.planPrice}>
-                    {subscription.priceKr}
-                    <Text style={styles.planUnit}> kr/md</Text>
-                  </Text>
-                  <Text style={styles.planMeta}>{`${subscription.plan} · fornyes ${subscription.renewalDate}`}</Text>
-                </View>
-              ) : (
-                <Text style={styles.emptyText}>Ingen aktiv plan.</Text>
-              )}
-              <View style={styles.planButtons}>
+              {/* Abonnement */}
+              <SettingsSectionCard title="Abonnement">
+                {subscription ? (
+                  <>
+                    <View>
+                      <Text style={{ fontFamily: fonts.display, fontSize: type.displayM.fontSize, lineHeight: type.displayM.lineHeight, color: t.ink }}>
+                        {subscription.priceKr}
+                        <Text style={{ ...type.body, color: t.ink3 }}> kr/md</Text>
+                      </Text>
+                      <Text style={{ ...type.caption, color: t.ink3, marginTop: spacing.xs }}>
+                        {`${subscription.plan} · fornyes ${subscription.renewalDate}`}
+                      </Text>
+                    </View>
+                  </>
+                ) : (
+                  <Text style={{ ...type.body, color: t.ink3 }}>Ingen aktiv plan.</Text>
+                )}
                 <Pressable
-                  style={styles.btnInk}
+                  style={({ pressed }) => ({
+                    alignSelf: 'flex-start',
+                    paddingHorizontal: spacing.lg,
+                    paddingVertical: spacing.sm,
+                    borderRadius: radius.pill,
+                    backgroundColor: t.ink,
+                    opacity: pressed ? 0.75 : 1,
+                  })}
                   onPress={() =>
                     Alert.alert(
                       subscription ? 'Skift plan' : 'Vælg plan',
@@ -1700,188 +1782,211 @@ export function SettingsScreen({
                     )
                   }
                 >
-                  <Text style={styles.btnInkText}>{subscription ? 'Skift plan' : 'Vælg plan'}</Text>
-                </Pressable>
-              </View>
-            </Animated.View>
-
-            <Animated.View layout={ROW_TRANSITION} style={styles.dark}>
-              <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
-                <Stone mood="thinking" size={36} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.darkTitle}>Privatliv</Text>
-                  {/* Copy fact-checked 2026-04-20:
-                     - Anthropic retention: workspace does NOT have ZDR, so default
-                       up to 30 days T&S retention applies. State that plainly.
-                     - Supabase region: eu-west-1 (Ireland) — EU. */}
-                  <Text style={styles.darkBody}>
-                    Indholdet af dine mails og kalender sendes til Anthropic (Claude) for at lave
-                    opsummeringer og udkast. Anthropic kan opbevare data i op til 30 dage til
-                    misbrugsovervågning. Dine mails bruges{' '}
-                    <Text style={styles.darkStrong}>ikke</Text> til at træne modeller. Konti og
-                    tokens hostes i EU hos Supabase.
+                  <Text style={{ ...type.body, color: '#FFFFFF', fontFamily: fonts.uiBold }}>
+                    {subscription ? 'Skift plan' : 'Vælg plan'}
                   </Text>
-                  <View style={{ marginTop: 16, gap: 10 }}>
-                    {toggles.map((t) => (
-                      <ToggleRow key={t.id} label={t.label} on={t.enabled} onPress={() => flip(t.id)} />
-                    ))}
+                </Pressable>
+              </SettingsSectionCard>
+
+              {/* Privatliv — dark glass card */}
+              <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
+                <GlassFrostedCard intensity={blur.glassStrong} overlay={surface.glassDark} style={{ padding: spacing.lg }}>
+                  <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' }}>
+                    <Stone mood="thinking" size={36} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ ...type.title, fontFamily: fonts.display, color: surface.glassDarkText }}>Privatliv</Text>
+                      {/* Copy fact-checked 2026-04-20:
+                         - Anthropic retention: workspace does NOT have ZDR, so default
+                           up to 30 days T&S retention applies. State that plainly.
+                         - Supabase region: eu-west-1 (Ireland) — EU. */}
+                      <Text style={{ ...type.body, color: surface.glassDarkTextSoft, marginTop: spacing.sm }}>
+                        Indholdet af dine mails og kalender sendes til Anthropic (Claude) for at lave
+                        opsummeringer og udkast. Anthropic kan opbevare data i op til 30 dage til
+                        misbrugsovervågning. Dine mails bruges{' '}
+                        <Text style={{ color: surface.glassDarkText, fontFamily: fonts.uiBold }}>ikke</Text> til at træne modeller.
+                        Konti og tokens hostes i EU hos Supabase.
+                      </Text>
+                      <View style={{ marginTop: spacing.lg, gap: spacing.md - 2 }}>
+                        {toggles.map((tg) => (
+                          <ToggleRow key={tg.id} label={tg.label} on={tg.enabled} onPress={() => flip(tg.id)} />
+                        ))}
+                      </View>
+                      {/* Export button removed: a fake Alert is a GDPR liability. Rewire to a real
+                          Edge Function (JSON bundle + Resend email) before bringing this back.
+
+                          T3 handoff — please add to legal/privacy-policy-da.md AND
+                          legal/privacy-policy-en.md:
+
+                            DA: "For at anmode om en kopi af dine data, skriv til
+                                 <contact email>. Vi svarer inden for 30 dage jf.
+                                 GDPR art. 15."
+                            EN: "To request a copy of your data, email <contact
+                                 email>. We respond within 30 days per GDPR Art. 15."
+
+                          Do NOT surface the email in app UI — it belongs in the
+                          privacy policy so it stays one authoritative source. */}
+                    </View>
                   </View>
-                  {/* Export button removed: a fake Alert is a GDPR liability. Rewire to a real
-                      Edge Function (JSON bundle + Resend email) before bringing this back.
-
-                      T3 handoff — please add to legal/privacy-policy-da.md AND
-                      legal/privacy-policy-en.md:
-
-                        DA: "For at anmode om en kopi af dine data, skriv til
-                             <contact email>. Vi svarer inden for 30 dage jf.
-                             GDPR art. 15."
-                        EN: "To request a copy of your data, email <contact
-                             email>. We respond within 30 days per GDPR Art. 15."
-
-                      Do NOT surface the email in app UI — it belongs in the
-                      privacy policy so it stays one authoritative source. */}
-                </View>
+                </GlassFrostedCard>
               </View>
-            </Animated.View>
 
-            <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
-              <Text style={styles.sectionTitle}>Notifikationer</Text>
-              <View style={styles.inkRule} />
-              {permission === 'denied' ? (
-                <Pressable style={styles.permissionBanner} onPress={() => Linking.openSettings()}>
-                  <Text style={styles.permissionBannerText}>
-                    Notifikationer er slået fra i systemindstillingerne. Tryk for at åbne.
-                  </Text>
+              {/* Notifikationer */}
+              <SettingsSectionCard title="Notifikationer">
+                {permission === 'denied' ? (
+                  <Pressable
+                    style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.cardSm, backgroundColor: surface.warningTint }}
+                    onPress={() => Linking.openSettings()}
+                  >
+                    <Text style={{ ...type.bodySm, color: t.ink, fontWeight: '600' }}>
+                      Notifikationer er slået fra i systemindstillingerne. Tryk for at åbne.
+                    </Text>
+                  </Pressable>
+                ) : null}
+                <NotificationToggleRow
+                  label="Påmindelser"
+                  value={notificationSettings.reminders}
+                  onChange={(v) => toggleNotificationSetting('reminders', v)}
+                />
+                <NotificationToggleRow
+                  label="Morgenoverblik"
+                  value={notificationSettings.digest}
+                  onChange={(v) => toggleNotificationSetting('digest', v)}
+                />
+                <NotificationToggleRow
+                  label="Kalender-påmindelse 15 min før"
+                  value={notificationSettings.preAlerts}
+                  onChange={(v) => toggleNotificationSetting('preAlerts', v)}
+                />
+                <NotificationToggleRow
+                  label="Nye mails"
+                  value={notificationSettings.newMail}
+                  onChange={(v) => toggleNotificationSetting('newMail', v)}
+                />
+              </SettingsSectionCard>
+
+              {/* Mail-signatur — wrapped in glass card from outside */}
+              <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
+                <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.lg }}>
+                  <MailSignatureSection />
+                </GlassFrostedCard>
+              </View>
+
+              {/* T4: the privacy copy + export-button live above in the dark
+                  "Privatliv" card. This Konto section is the account-deletion
+                  entry point; please don't move privacy/export into here. */}
+              <SettingsSectionCard title="Konto" style={{ gap: 0 }}>
+                <Pressable
+                  style={({ pressed }) => [
+                    { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm },
+                    pressed && { opacity: 0.65 },
+                  ]}
+                  onPress={openPrivacyPolicy}
+                  accessibilityRole="link"
+                >
+                  <Text style={{ ...type.body, color: t.ink, flex: 1 }}>Privatlivspolitik</Text>
+                  <Text style={{ ...type.body, color: t.ink3 }}>→</Text>
                 </Pressable>
-              ) : null}
-              <NotificationToggleRow
-                label="Påmindelser"
-                value={notificationSettings.reminders}
-                onChange={(v) => toggleNotificationSetting('reminders', v)}
-              />
-              <NotificationToggleRow
-                label="Morgenoverblik"
-                value={notificationSettings.digest}
-                onChange={(v) => toggleNotificationSetting('digest', v)}
-              />
-              <NotificationToggleRow
-                label="Kalender-påmindelse 15 min før"
-                value={notificationSettings.preAlerts}
-                onChange={(v) => toggleNotificationSetting('preAlerts', v)}
-              />
-              <NotificationToggleRow
-                label="Nye mails"
-                value={notificationSettings.newMail}
-                onChange={(v) => toggleNotificationSetting('newMail', v)}
-              />
-            </Animated.View>
+                <Pressable
+                  style={({ pressed }) => [
+                    { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: t.line },
+                    pressed && { opacity: 0.65 },
+                  ]}
+                  onPress={() => setDeleteOpen(true)}
+                  accessibilityRole="button"
+                >
+                  {/* No danger token in current design scheme — use inline hex.
+                      '#D14343' is the Zolva destructive red carried from the
+                      original design and consistent with DeleteAccountScreen. */}
+                  <Text style={{ ...type.body, color: '#D14343', flex: 1 }}>Slet konto</Text>
+                  <Text style={{ ...type.body, color: '#D14343' }}>→</Text>
+                </Pressable>
+              </SettingsSectionCard>
 
-            <MailSignatureSection />
+              {/* Dev buttons — only visible for albertfeldt1; keep dark style */}
+              {user?.email === 'albertfeldt1@gmail.com' && (
+                <Pressable
+                  onPress={async () => {
+                    const { data } = await supabase.auth.getSession();
+                    const token = data.session?.access_token;
+                    if (!token) {
+                      Alert.alert('Ikke logget ind', 'Log ind først.');
+                      return;
+                    }
+                    await Clipboard.setStringAsync(token);
+                    const minutesLeft = data.session?.expires_at
+                      ? Math.round((data.session.expires_at * 1000 - Date.now()) / 60000)
+                      : 0;
+                    Alert.alert('JWT kopieret', `Udløber om ${minutesLeft} min`);
+                  }}
+                  style={{ padding: 16, backgroundColor: '#333', borderRadius: 8, marginTop: 24, marginHorizontal: spacing.screenPad }}
+                >
+                  <Text style={{ color: '#fff' }}>Copy JWT (dev)</Text>
+                </Pressable>
+              )}
 
-            {/* T4: the privacy copy + export-button live above in the dark
-                "Privatliv" card. This Konto section is the account-deletion
-                entry point; please don't move privacy/export into here. */}
-            <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
-              <Text style={styles.sectionTitle}>Konto</Text>
-              <View style={styles.inkRule} />
+              {user?.email === 'albertfeldt1@gmail.com' && onOpenMicrosoftAdminConsent && (
+                <Pressable
+                  onPress={() => onOpenMicrosoftAdminConsent('it@contoso.com')}
+                  style={{ padding: 16, backgroundColor: '#333', borderRadius: 8, marginTop: 12, marginHorizontal: spacing.screenPad }}
+                >
+                  <Text style={{ color: '#fff' }}>Test admin consent screen (dev)</Text>
+                </Pressable>
+              )}
+
+              {/* Sign out — full-width destructive pill */}
               <Pressable
-                style={({ pressed }) => [styles.accountRow, pressed && styles.accountRowPressed]}
-                onPress={openPrivacyPolicy}
-                accessibilityRole="link"
-              >
-                <Text style={styles.accountRowLabel}>Privatlivspolitik</Text>
-                <Text style={styles.accountRowChevron}>→</Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.accountRow,
-                  styles.accountRowBorder,
-                  pressed && styles.accountRowPressed,
-                ]}
-                onPress={() => setDeleteOpen(true)}
-                accessibilityRole="button"
-              >
-                <Text style={[styles.accountRowLabel, styles.accountRowDestructive]}>
-                  Slet konto
-                </Text>
-                <Text style={[styles.accountRowChevron, styles.accountRowDestructive]}>→</Text>
-              </Pressable>
-            </Animated.View>
-
-            {user?.email === 'albertfeldt1@gmail.com' && (
-              <Pressable
-                onPress={async () => {
-                  const { data } = await supabase.auth.getSession();
-                  const token = data.session?.access_token;
-                  if (!token) {
-                    Alert.alert('Ikke logget ind', 'Log ind først.');
-                    return;
-                  }
-                  await Clipboard.setStringAsync(token);
-                  const minutesLeft = data.session?.expires_at
-                    ? Math.round((data.session.expires_at * 1000 - Date.now()) / 60000)
-                    : 0;
-                  Alert.alert('JWT kopieret', `Udløber om ${minutesLeft} min`);
-                }}
-                style={{ padding: 16, backgroundColor: '#333', borderRadius: 8, marginTop: 24 }}
-              >
-                <Text style={{ color: '#fff' }}>Copy JWT (dev)</Text>
-              </Pressable>
-            )}
-
-            {user?.email === 'albertfeldt1@gmail.com' && onOpenMicrosoftAdminConsent && (
-              <Pressable
-                onPress={() => onOpenMicrosoftAdminConsent('it@contoso.com')}
-                style={{ padding: 16, backgroundColor: '#333', borderRadius: 8, marginTop: 12 }}
-              >
-                <Text style={{ color: '#fff' }}>Test admin consent screen (dev)</Text>
-              </Pressable>
-            )}
-
-            <AnimatedPressable
-              layout={ROW_TRANSITION}
-              style={styles.signOutRow}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                Alert.alert(
-                  'Log ud',
-                  'Er du sikker på, at du vil logge ud?',
-                  [
-                    { text: 'Annullér', style: 'cancel' },
-                    {
-                      text: 'Log ud',
-                      style: 'destructive',
-                      onPress: () => {
-                        void signOut();
+                style={({ pressed }) => ({
+                  marginHorizontal: spacing.screenPad,
+                  marginTop: spacing.lg,
+                  paddingVertical: spacing.md,
+                  borderRadius: radius.pill,
+                  backgroundColor: surface.warningTint,
+                  alignItems: 'center',
+                  opacity: pressed ? 0.75 : 1,
+                })}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  Alert.alert(
+                    'Log ud',
+                    'Er du sikker på, at du vil logge ud?',
+                    [
+                      { text: 'Annullér', style: 'cancel' },
+                      {
+                        text: 'Log ud',
+                        style: 'destructive',
+                        onPress: () => {
+                          void signOut();
+                        },
                       },
-                    },
-                  ],
-                );
-              }}
-            >
-              <Text style={styles.signOutText}>Log ud</Text>
-            </AnimatedPressable>
-          </>
-        )}
-      </ScrollView>
+                    ],
+                  );
+                }}
+              >
+                {/* '#D14343' — no danger token in current scheme; matches Slet konto and DeleteAccountScreen red */}
+                <Text style={{ ...type.body, fontFamily: fonts.uiBold, color: '#D14343' }}>Log ud</Text>
+              </Pressable>
+            </>
+          )}
+        </ScrollView>
 
-      <Modal
-        visible={deleteOpen}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setDeleteOpen(false)}
-      >
-        <DeleteAccountScreen
-          onClose={() => setDeleteOpen(false)}
-          onDeleted={() => setDeleteOpen(false)}
+        <Modal
+          visible={deleteOpen}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setDeleteOpen(false)}
+        >
+          <DeleteAccountScreen
+            onClose={() => setDeleteOpen(false)}
+            onDeleted={() => setDeleteOpen(false)}
+          />
+        </Modal>
+
+        <IcloudBriefSheet
+          visible={briefSheetOpen}
+          onClose={() => setBriefSheetOpen(false)}
+          onConnectGmail={() => handleConnect('gmail')}
         />
-      </Modal>
-
-      <IcloudBriefSheet
-        visible={briefSheetOpen}
-        onClose={() => setBriefSheetOpen(false)}
-        onConnectGmail={() => handleConnect('gmail')}
-      />
+      </View>
     </KeyboardAvoidingView>
   );
 }
