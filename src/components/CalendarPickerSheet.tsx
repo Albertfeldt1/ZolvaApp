@@ -19,7 +19,9 @@ import {
   type ProviderCalendar,
 } from '../lib/calendar-providers';
 import { useIcloudConnected } from '../lib/hooks';
-import { colors, fonts } from '../theme';
+import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
+import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
+import { useTheme } from '../design/useTheme';
 
 // When the calendarList endpoint returns 403 it almost always means the
 // user authorized Google before we added calendar.calendarlist.readonly to
@@ -31,12 +33,6 @@ function isScopeError(state: ProviderState): boolean {
 type Props = {
   visible: boolean;
   onClose: () => void;
-};
-
-const PROVIDER_LABEL: Record<ProviderCalendar['provider'], string> = {
-  google: 'Google',
-  microsoft: 'Outlook',
-  icloud: 'iCloud',
 };
 
 type ProviderState =
@@ -55,6 +51,8 @@ type ProviderState =
 // "no calendars found" — the user needs to know which provider broke.
 export function CalendarPickerSheet({ visible, onClose }: Props) {
   const { user, googleAccessToken, microsoftAccessToken, signInWithGoogle, signInWithMicrosoft } = useAuth();
+  const { t, type, fonts, radius, spacing, surface } = useTheme();
+
   const userId = user?.id ?? '';
   const icloudConnected = useIcloudConnected(userId);
   const { visibility, setHidden } = useCalendarVisibility(userId);
@@ -119,23 +117,97 @@ export function CalendarPickerSheet({ visible, onClose }: Props) {
       entering={SlideInDown.duration(320)}
       exiting={SlideOutDown.duration(260)}
     >
-      <SafeAreaView style={styles.root}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Kalendere</Text>
-          <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button">
-            <Text style={styles.close}>Færdig</Text>
-          </Pressable>
+      {/* Halo background */}
+      <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+        <GlassHaloLayer />
+      </View>
+
+      <SafeAreaView style={[styles.root, { backgroundColor: t.paper }]}>
+        {/* Header glass card */}
+        <View
+          style={{
+            paddingHorizontal: spacing.screenPad,
+            paddingTop: spacing.lg,
+            paddingBottom: spacing.sm,
+          }}
+        >
+          <GlassFrostedCard
+            radius={radius.card}
+            style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              <Pressable
+                onPress={onClose}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Luk"
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: radius.pill,
+                  backgroundColor: surface.iconButton,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text style={{ fontFamily: fonts.ui, fontSize: 18, color: t.ink2 }}>×</Text>
+              </Pressable>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    fontFamily: fonts.display,
+                    fontSize: 20,
+                    fontWeight: '600',
+                    letterSpacing: -0.4,
+                    color: t.ink,
+                  }}
+                >
+                  Vælg kalendere
+                </Text>
+              </View>
+              {/* "Færdig" action */}
+              <Pressable
+                onPress={onClose}
+                hitSlop={8}
+                accessibilityRole="button"
+              >
+                <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: t.inbox }}>
+                  Færdig
+                </Text>
+              </Pressable>
+            </View>
+          </GlassFrostedCard>
         </View>
-        <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+
+        {/* Calendar list */}
+        <ScrollView
+          contentContainerStyle={{
+            paddingHorizontal: spacing.screenPad,
+            paddingBottom: spacing.xxl + 16,
+            gap: spacing.lg,
+          }}
+          showsVerticalScrollIndicator={false}
+        >
           {allIdle && (
-            <Text style={styles.empty}>Ingen forbundne konti. Forbind Google, Outlook eller iCloud først.</Text>
+            <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.lg }}>
+              <Text style={{ ...type.body, color: t.ink3, textAlign: 'center' }}>
+                Ingen forbundne konti. Forbind Google, Outlook eller iCloud først.
+              </Text>
+            </GlassFrostedCard>
           )}
+
           <ProviderSection
             label="Google"
             state={google}
             visibility={visibility.google ?? []}
             onToggle={(id, hidden) => setHidden('google', id, hidden)}
             onReauthorize={isScopeError(google) ? () => { void signInWithGoogle(); } : undefined}
+            t={t}
+            type={type}
+            fonts={fonts}
+            radius={radius}
+            spacing={spacing}
+            surface={surface}
           />
           <ProviderSection
             label="Outlook"
@@ -143,12 +215,24 @@ export function CalendarPickerSheet({ visible, onClose }: Props) {
             visibility={visibility.microsoft ?? []}
             onToggle={(id, hidden) => setHidden('microsoft', id, hidden)}
             onReauthorize={isScopeError(microsoft) ? () => { void signInWithMicrosoft(); } : undefined}
+            t={t}
+            type={type}
+            fonts={fonts}
+            radius={radius}
+            spacing={spacing}
+            surface={surface}
           />
           <ProviderSection
             label="iCloud"
             state={icloud}
             visibility={visibility.icloud ?? []}
             onToggle={(id, hidden) => setHidden('icloud', id, hidden)}
+            t={t}
+            type={type}
+            fonts={fonts}
+            radius={radius}
+            spacing={spacing}
+            surface={surface}
           />
         </ScrollView>
       </SafeAreaView>
@@ -156,119 +240,154 @@ export function CalendarPickerSheet({ visible, onClose }: Props) {
   );
 }
 
+// ── ProviderSection ───────────────────────────────────────────────────────────
+
+type ThemeSlice = {
+  t: ReturnType<typeof useTheme>['t'];
+  type: ReturnType<typeof useTheme>['type'];
+  fonts: ReturnType<typeof useTheme>['fonts'];
+  radius: ReturnType<typeof useTheme>['radius'];
+  spacing: ReturnType<typeof useTheme>['spacing'];
+  surface: ReturnType<typeof useTheme>['surface'];
+};
+
 function ProviderSection({
   label,
   state,
   visibility,
   onToggle,
   onReauthorize,
+  t,
+  type,
+  fonts,
+  radius,
+  spacing,
+  surface,
 }: {
   label: string;
   state: ProviderState;
   visibility: string[];
   onToggle: (calendarId: string, hidden: boolean) => Promise<void>;
   onReauthorize?: () => void;
-}) {
+} & ThemeSlice) {
   if (state.kind === 'idle') return null;
 
   return (
-    <View style={styles.group}>
-      <Text style={styles.groupHeading}>{label}</Text>
-      {state.kind === 'loading' && (
-        <View style={styles.center}><ActivityIndicator color={colors.fg3} /></View>
-      )}
-      {state.kind === 'error' && (
-        <View style={styles.errorBlock}>
-          <Text style={styles.error}>
-            {onReauthorize
-              ? `${label} mangler tilladelse til at vise kalenderlisten. Genaktivér forbindelsen.`
-              : `Kunne ikke hente ${label}: ${state.message}`}
-          </Text>
-          {onReauthorize && (
-            <Pressable onPress={onReauthorize} style={styles.errorCta} accessibilityRole="button">
-              <Text style={styles.errorCtaText}>Genaktivér {label}</Text>
-            </Pressable>
-          )}
-        </View>
-      )}
-      {state.kind === 'ok' && state.calendars.length === 0 && (
-        <Text style={styles.empty}>Ingen kalendere fundet i {label}.</Text>
-      )}
-      {state.kind === 'ok' && state.calendars
-        .slice()
-        .sort((a, b) => {
-          if (a.isMainAccount !== b.isMainAccount) return a.isMainAccount ? -1 : 1;
-          return a.name.localeCompare(b.name);
-        })
-        .map((c) => {
-          const hidden = visibility.includes(c.id);
-          return (
-            <View key={`${c.provider}:${c.id}`} style={styles.row}>
-              <View style={[styles.dot, { backgroundColor: c.color ?? colors.fg4 }]} />
-              <Text style={styles.rowName} numberOfLines={1}>{c.name}</Text>
-              <Switch
-                value={!hidden}
-                onValueChange={(next) => { void onToggle(c.id, !next); }}
-                trackColor={{ false: colors.line, true: colors.sage }}
-                thumbColor={colors.paper}
-              />
+    <View style={{ gap: spacing.sm }}>
+      <Text
+        style={{
+          ...type.eyebrow,
+          color: t.ink3,
+          fontWeight: '600',
+          paddingHorizontal: spacing.xs,
+        }}
+      >
+        {label}
+      </Text>
+
+      <GlassFrostedCard overlay={surface.bone} style={{ paddingVertical: 0, paddingHorizontal: spacing.lg }}>
+        {state.kind === 'loading' && (
+          <View style={{ paddingVertical: spacing.xl, alignItems: 'center' }}>
+            <ActivityIndicator color={t.ink3} />
+          </View>
+        )}
+
+        {state.kind === 'error' && (
+          <View style={{ paddingVertical: spacing.lg, gap: spacing.md }}>
+            <View
+              style={{
+                padding: spacing.md,
+                borderRadius: radius.cardSm,
+                backgroundColor: surface.warningTint,
+              }}
+            >
+              <Text style={{ ...type.bodySm, color: t.today, lineHeight: 18 }}>
+                {onReauthorize
+                  ? `${label} mangler tilladelse til at vise kalenderlisten. Genaktivér forbindelsen.`
+                  : `Kunne ikke hente ${label}: ${state.message}`}
+              </Text>
             </View>
-          );
-        })}
+            {onReauthorize && (
+              <Pressable
+                onPress={onReauthorize}
+                style={{
+                  alignSelf: 'flex-start',
+                  paddingHorizontal: 14,
+                  paddingVertical: 8,
+                  borderRadius: radius.pill,
+                  backgroundColor: t.ink,
+                }}
+                accessibilityRole="button"
+              >
+                <Text style={{ fontFamily: fonts.uiBold, fontSize: 13, color: surface.glassDarkText }}>
+                  Genaktivér {label}
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        {state.kind === 'ok' && state.calendars.length === 0 && (
+          <View style={{ paddingVertical: spacing.lg }}>
+            <Text style={{ ...type.body, color: t.ink3 }}>
+              Ingen kalendere fundet i {label}.
+            </Text>
+          </View>
+        )}
+
+        {state.kind === 'ok' && state.calendars
+          .slice()
+          .sort((a, b) => {
+            if (a.isMainAccount !== b.isMainAccount) return a.isMainAccount ? -1 : 1;
+            return a.name.localeCompare(b.name);
+          })
+          .map((c, i, arr) => {
+            const hidden = visibility.includes(c.id);
+            return (
+              <View
+                key={`${c.provider}:${c.id}`}
+                style={[
+                  {
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: spacing.md,
+                    paddingVertical: 12,
+                  },
+                  i > 0 && {
+                    borderTopWidth: StyleSheet.hairlineWidth,
+                    borderTopColor: t.line,
+                  },
+                ]}
+              >
+                <View
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: 6,
+                    backgroundColor: c.color ?? t.ink4,
+                  }}
+                />
+                <Text
+                  style={{ flex: 1, fontFamily: fonts.ui, fontSize: 15, color: t.ink }}
+                  numberOfLines={1}
+                >
+                  {c.name}
+                </Text>
+                <Switch
+                  value={!hidden}
+                  onValueChange={(next) => { void onToggle(c.id, !next); }}
+                  trackColor={{ false: t.line, true: surface.successTint }}
+                  thumbColor={surface.glassRim}
+                />
+              </View>
+            );
+          })}
+      </GlassFrostedCard>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   absoluteFill: { ...StyleSheet.absoluteFillObject, zIndex: 100 },
-  root: { flex: 1, backgroundColor: colors.paper },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
-  },
-  title: { fontFamily: fonts.displayItalic, fontSize: 22, letterSpacing: -0.3, color: colors.ink },
-  close: { fontFamily: fonts.uiSemi, fontSize: 15, color: colors.sageDeep },
-  body: { padding: 20, gap: 24, paddingBottom: 40 },
-  center: { paddingVertical: 24, alignItems: 'center' },
-  error: { fontFamily: fonts.ui, fontSize: 13, lineHeight: 18, color: colors.warningInk },
-  errorBlock: {
-    gap: 10,
-    padding: 12,
-    backgroundColor: colors.warningSoft,
-    borderRadius: 10,
-  },
-  errorCta: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: colors.ink,
-  },
-  errorCtaText: { fontFamily: fonts.uiSemi, fontSize: 13, color: colors.paper },
-  empty: { fontFamily: fonts.ui, fontSize: 14, color: colors.fg3 },
-  group: { gap: 8 },
-  groupHeading: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.fg3,
-    marginBottom: 4,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.line,
-  },
-  dot: { width: 12, height: 12, borderRadius: 6 },
-  rowName: { flex: 1, fontFamily: fonts.ui, fontSize: 15, color: colors.ink },
+  root: { flex: 1 },
 });

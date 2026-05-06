@@ -1,6 +1,7 @@
 // src/screens/IcloudSetupScreen.tsx
 import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   AppState,
   Dimensions,
@@ -21,7 +22,10 @@ import { useAuth } from '../lib/auth';
 import { saveCredential, IcloudLinkFailure } from '../lib/icloud-credentials';
 import { validate as validateImap } from '../lib/icloud-mail';
 import { probeCredential as probeCalDav } from '../lib/icloud-calendar';
-import { colors, fonts } from '../theme';
+import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
+import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
+import { Stone } from '../design/primitives/Stone';
+import { useTheme } from '../design/useTheme';
 
 type Props = {
   prefilledEmail?: string;
@@ -46,6 +50,8 @@ type SubmitError =
 export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
   const { bottom: chromeBottom } = useChromeInsets();
   const { user } = useAuth();
+  const { t, type, fonts, radius, spacing, surface } = useTheme();
+
   const [email, setEmail] = useState(prefilledEmail ?? '');
   const [password, setPassword] = useState('');
   const [showPwd, setShowPwd] = useState(false);
@@ -187,145 +193,412 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
 
   return (
     <Animated.View
-      style={[styles.flex, { transform: [{ translateY }] }]}
+      style={[styles.flex, { backgroundColor: t.paper, transform: [{ translateY }] }]}
       {...panResponder.panHandlers}
     >
-    <ScrollView
-      contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom + 32 }]}
-      showsVerticalScrollIndicator={false}
-      keyboardShouldPersistTaps="handled"
-      automaticallyAdjustKeyboardInsets
-      bounces={false}
-      overScrollMode="never"
-      scrollEventThrottle={16}
-      onScroll={(e) => {
-        atTopRef.current = e.nativeEvent.contentOffset.y <= 0;
-      }}
-    >
-      <View style={styles.hero}>
-        <Text style={styles.eyebrow}>FORBIND ICLOUD</Text>
-        <Text style={styles.heroH1}>Forbind iCloud</Text>
+      {/* Halo background */}
+      <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+        <GlassHaloLayer />
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.body}>
-          Apple kræver en særlig adgangskode (én til hver app), så Zolva kan læse din mail og kalender. Du laver den selv på Apples side — det tager omkring et minut.
-        </Text>
-
-        <View style={styles.guide}>
-          <Step n="1" title="Åbn Apples side">
-            <Pressable style={styles.primaryBtn} onPress={openAppleId} accessibilityRole="button">
-              <Text style={styles.primaryBtnText}>Åbn appleid.apple.com</Text>
-            </Pressable>
-          </Step>
-          <Step n="2" title='Find "App-specifikke adgangskoder" under "Login og sikkerhed"'>
-            <Image
-              source={require('../../assets/icloud-step-1-find.png')}
-              style={styles.screenshot}
-              resizeMode="contain"
-              accessibilityLabel="Apple-konto siden hvor App-specifikke adgangskoder er fremhævet"
-            />
-          </Step>
-          <Step n="3" title='Generér en ny adgangskode og navngiv den "Zolva"'>
-            <Image
-              source={require('../../assets/icloud-step-2-name.png')}
-              style={styles.screenshot}
-              resizeMode="contain"
-              accessibilityLabel="Apples dialog hvor app-navnet skrives — vi har skrevet Zolva"
-            />
-          </Step>
-          <Step n="4" title="Kopiér adgangskoden Apple viser dig">
-            <Image
-              source={require('../../assets/icloud-step-3-reveal.png')}
-              style={styles.screenshot}
-              resizeMode="contain"
-              accessibilityLabel="Apples dialog der viser den nye app-specifikke adgangskode"
-            />
-            <Text style={styles.warn}>Apple viser kun adgangskoden én gang. Kopiér den nu — du kan ikke se den igen senere.</Text>
-          </Step>
-          <Step n="5" title="Skift tilbage til Zolva og udfyld nedenfor" />
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom + 32 }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+        bounces={false}
+        overScrollMode="never"
+        scrollEventThrottle={16}
+        onScroll={(e) => {
+          atTopRef.current = e.nativeEvent.contentOffset.y <= 0;
+        }}
+      >
+        {/* Header glass card */}
+        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.xl + 12 }}>
+          <GlassFrostedCard
+            radius={radius.card}
+            style={{ paddingVertical: spacing.lg, paddingHorizontal: spacing.cardPad }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              <Pressable
+                onPress={onCancel}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Gå tilbage"
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: radius.pill,
+                  backgroundColor: surface.iconButton,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text style={{ fontFamily: fonts.ui, fontSize: 18, color: t.ink2 }}>←</Text>
+              </Pressable>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    ...type.eyebrow,
+                    color: t.ink3,
+                  }}
+                >
+                  FORBIND ICLOUD
+                </Text>
+                <Text
+                  style={{
+                    fontFamily: fonts.display,
+                    fontSize: 20,
+                    letterSpacing: -0.4,
+                    color: t.ink,
+                    marginTop: 2,
+                  }}
+                >
+                  Forbind iCloud
+                </Text>
+              </View>
+            </View>
+          </GlassFrostedCard>
         </View>
 
-        <View style={styles.field}>
-          <Text style={styles.label}>iCloud-email</Text>
-          <TextInput
-            style={styles.input}
-            value={email}
-            onChangeText={(t) => { setEmail(t); setSubmitError(null); }}
-            onBlur={onEmailBlur}
-            placeholder="navn@me.com / @icloud.com"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            autoComplete="email"
-          />
-          {emailWarning && <Text style={styles.warn}>{emailWarning}</Text>}
-        </View>
-
-        <View style={styles.field}>
-          <Text style={styles.label}>App-specifik adgangskode</Text>
-          <View style={styles.pwdRow}>
-            <TextInput
-              style={[styles.input, styles.pwdInput]}
-              value={password}
-              onChangeText={onPwdChange}
-              placeholder="xxxx-xxxx-xxxx-xxxx"
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="off"
-              secureTextEntry={!showPwd}
-            />
-            <Pressable
-              onPress={() => setShowPwd((v) => !v)}
-              style={styles.eyeBtn}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={showPwd ? 'Skjul adgangskode' : 'Vis adgangskode'}
+        {/* Hero explainer card */}
+        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
+          <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.xl, gap: spacing.lg }}>
+            <View style={{ alignItems: 'center' }}>
+              <Stone size={48} jumpOnTap={false} />
+            </View>
+            <Text
+              style={{
+                fontFamily: fonts.display,
+                fontSize: 22,
+                lineHeight: 28,
+                letterSpacing: -0.6,
+                color: t.ink,
+              }}
             >
-              {showPwd ? <EyeOff size={18} color={colors.fg3} /> : <Eye size={18} color={colors.fg3} />}
-            </Pressable>
-          </View>
-          {pwdWarning && <Text style={styles.warn}>{pwdWarning}</Text>}
+              App-specifik adgangskode
+            </Text>
+            <Text style={{ ...type.body, color: t.ink2, lineHeight: 22 }}>
+              Apple kræver en særlig adgangskode (én til hver app), så Zolva kan læse din mail og
+              kalender. Du laver den selv på Apples side — det tager omkring et minut.
+            </Text>
+          </GlassFrostedCard>
         </View>
 
-        {submitError && (
-          <Text style={styles.errorBox}>{messageFor(submitError)}</Text>
-        )}
-        {__DEV__ && devDebugError && (
-          <Text selectable style={styles.devDebugBox}>{devDebugError}</Text>
-        )}
+        {/* Step-by-step guide card */}
+        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
+          <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.xl, gap: spacing.lg }}>
+            <Step
+              n="1"
+              title="Åbn Apples side"
+              fonts={fonts}
+              t={t}
+              type={type}
+            >
+              <Pressable
+                style={{
+                  backgroundColor: t.ink,
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  borderRadius: radius.soft,
+                  alignItems: 'center',
+                  alignSelf: 'flex-start',
+                }}
+                onPress={openAppleId}
+                accessibilityRole="button"
+              >
+                <Text style={{ fontFamily: fonts.uiBold, fontSize: 14, color: surface.glassDarkText }}>
+                  Åbn appleid.apple.com
+                </Text>
+              </Pressable>
+            </Step>
 
-        <Pressable
-          onPress={onSubmit}
-          disabled={submitDisabled}
-          style={[styles.submitBtn, submitDisabled && styles.submitBtnDisabled]}
-          accessibilityRole="button"
-        >
-          <Text style={styles.submitBtnText}>
-            {busy ? 'Tester forbindelse…' : 'Forbind'}
-          </Text>
-        </Pressable>
+            <Step
+              n="2"
+              title='Find "App-specifikke adgangskoder" under "Login og sikkerhed"'
+              fonts={fonts}
+              t={t}
+              type={type}
+            >
+              <Image
+                source={require('../../assets/icloud-step-1-find.png')}
+                style={{
+                  width: '100%',
+                  height: 200,
+                  borderRadius: radius.cardSm,
+                  // Apple's modal scrim — matches letterbox so it's visually invisible
+                  backgroundColor: 'rgba(15,16,20,0.05)',
+                }}
+                resizeMode="contain"
+                accessibilityLabel="Apple-konto siden hvor App-specifikke adgangskoder er fremhævet"
+              />
+            </Step>
 
-        <Pressable onPress={onCancel} style={styles.cancelBtn} accessibilityRole="button">
-          <Text style={styles.cancelBtnText}>Annullér</Text>
-        </Pressable>
-      </View>
-    </ScrollView>
+            <Step
+              n="3"
+              title='Generér en ny adgangskode og navngiv den "Zolva"'
+              fonts={fonts}
+              t={t}
+              type={type}
+            >
+              <Image
+                source={require('../../assets/icloud-step-2-name.png')}
+                style={{
+                  width: '100%',
+                  height: 200,
+                  borderRadius: radius.cardSm,
+                  backgroundColor: 'rgba(15,16,20,0.05)',
+                }}
+                resizeMode="contain"
+                accessibilityLabel="Apples dialog hvor app-navnet skrives — vi har skrevet Zolva"
+              />
+            </Step>
+
+            <Step
+              n="4"
+              title="Kopiér adgangskoden Apple viser dig"
+              fonts={fonts}
+              t={t}
+              type={type}
+            >
+              <Image
+                source={require('../../assets/icloud-step-3-reveal.png')}
+                style={{
+                  width: '100%',
+                  height: 200,
+                  borderRadius: radius.cardSm,
+                  backgroundColor: 'rgba(15,16,20,0.05)',
+                }}
+                resizeMode="contain"
+                accessibilityLabel="Apples dialog der viser den nye app-specifikke adgangskode"
+              />
+              <Text
+                style={{
+                  marginTop: spacing.sm,
+                  ...type.bodySm,
+                  color: t.today,
+                  lineHeight: 18,
+                }}
+              >
+                Apple viser kun adgangskoden én gang. Kopiér den nu — du kan ikke se den igen
+                senere.
+              </Text>
+            </Step>
+
+            <Step
+              n="5"
+              title="Skift tilbage til Zolva og udfyld nedenfor"
+              fonts={fonts}
+              t={t}
+              type={type}
+            />
+          </GlassFrostedCard>
+        </View>
+
+        {/* Input fields card */}
+        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
+          <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.xl, gap: spacing.lg }}>
+            {/* Email field */}
+            <View style={{ gap: spacing.xs }}>
+              <Text style={{ ...type.eyebrow, color: t.ink3 }}>iCloud-email</Text>
+              <TextInput
+                style={{
+                  fontFamily: fonts.ui,
+                  fontSize: 15,
+                  color: t.ink,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: t.line,
+                  borderRadius: radius.cardSm,
+                  paddingHorizontal: 12,
+                  paddingVertical: 12,
+                  backgroundColor: '#FFFFFF',
+                }}
+                value={email}
+                onChangeText={(tx) => { setEmail(tx); setSubmitError(null); }}
+                onBlur={onEmailBlur}
+                placeholder="navn@me.com / @icloud.com"
+                placeholderTextColor={t.ink4}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="email"
+              />
+              {emailWarning && (
+                <Text style={{ ...type.bodySm, color: t.today, lineHeight: 18 }}>
+                  {emailWarning}
+                </Text>
+              )}
+            </View>
+
+            {/* Password field */}
+            <View style={{ gap: spacing.xs }}>
+              <Text style={{ ...type.eyebrow, color: t.ink3 }}>App-specifik adgangskode</Text>
+              <View style={{ position: 'relative' }}>
+                <TextInput
+                  style={{
+                    fontFamily: fonts.mono,
+                    fontSize: 15,
+                    color: t.ink,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: t.line,
+                    borderRadius: radius.cardSm,
+                    paddingHorizontal: 12,
+                    paddingVertical: 12,
+                    paddingRight: 44,
+                    backgroundColor: '#FFFFFF',
+                  }}
+                  value={password}
+                  onChangeText={onPwdChange}
+                  placeholder="xxxx-xxxx-xxxx-xxxx"
+                  placeholderTextColor={t.ink4}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="off"
+                  secureTextEntry={!showPwd}
+                />
+                <Pressable
+                  onPress={() => setShowPwd((v) => !v)}
+                  style={{
+                    position: 'absolute',
+                    right: 8,
+                    top: 0,
+                    bottom: 0,
+                    width: 36,
+                    backgroundColor: surface.iconButton,
+                    borderRadius: radius.cardSm,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPwd ? 'Skjul adgangskode' : 'Vis adgangskode'}
+                >
+                  {showPwd
+                    ? <EyeOff size={18} color={t.ink3} />
+                    : <Eye size={18} color={t.ink3} />}
+                </Pressable>
+              </View>
+              {pwdWarning && (
+                <Text style={{ ...type.bodySm, color: t.today, lineHeight: 18 }}>
+                  {pwdWarning}
+                </Text>
+              )}
+            </View>
+
+            {/* Submit error */}
+            {submitError && (
+              <View
+                style={{
+                  padding: spacing.md,
+                  borderRadius: radius.cardSm,
+                  backgroundColor: surface.warningTint,
+                }}
+              >
+                <Text style={{ ...type.bodySm, color: t.today, lineHeight: 19 }}>
+                  {messageFor(submitError)}
+                </Text>
+              </View>
+            )}
+
+            {/* DEV debug box */}
+            {__DEV__ && devDebugError && (
+              <Text
+                selectable
+                style={{
+                  padding: spacing.md,
+                  borderRadius: radius.cardSm,
+                  backgroundColor: '#1a1a1a',
+                  fontFamily: 'Menlo',
+                  fontSize: 11,
+                  lineHeight: 15,
+                  // DEV-only green debug text — intentional inline hex
+                  color: '#7fffaf',
+                }}
+              >
+                {devDebugError}
+              </Text>
+            )}
+
+            {/* Submit button */}
+            <Pressable
+              onPress={onSubmit}
+              disabled={submitDisabled}
+              style={{
+                backgroundColor: t.ink,
+                paddingVertical: 14,
+                borderRadius: radius.soft,
+                alignItems: 'center',
+                opacity: submitDisabled ? 0.4 : 1,
+                flexDirection: 'row',
+                justifyContent: 'center',
+                gap: spacing.sm,
+              }}
+              accessibilityRole="button"
+            >
+              {busy && <ActivityIndicator color="#FFFFFF" size="small" />}
+              <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: surface.glassDarkText }}>
+                {busy ? 'Tester forbindelse…' : 'Forbind'}
+              </Text>
+            </Pressable>
+
+            {/* Cancel ghost */}
+            <Pressable
+              onPress={onCancel}
+              style={{ paddingVertical: 12, alignItems: 'center' }}
+              accessibilityRole="button"
+            >
+              <Text style={{ fontFamily: fonts.ui, fontSize: 14, color: t.ink3 }}>Annullér</Text>
+            </Pressable>
+          </GlassFrostedCard>
+        </View>
+      </ScrollView>
     </Animated.View>
   );
 }
 
-function Step({ n, title, children }: { n: string; title: string; children?: React.ReactNode }) {
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+type StepProps = {
+  n: string;
+  title: string;
+  children?: React.ReactNode;
+  fonts: ReturnType<typeof useTheme>['fonts'];
+  t: ReturnType<typeof useTheme>['t'];
+  type: ReturnType<typeof useTheme>['type'];
+};
+
+function Step({ n, title, children, fonts, t, type }: StepProps) {
   return (
-    <View style={styles.step}>
-      <View style={styles.stepHeadRow}>
-        <Text style={styles.stepNum}>{n}</Text>
-        <Text style={styles.stepTitle}>{title}</Text>
+    <View style={{ gap: 8 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 12 }}>
+        <Text
+          style={{
+            fontFamily: fonts.display,
+            fontSize: 22,
+            color: t.today,
+            width: 22,
+          }}
+        >
+          {n}
+        </Text>
+        <Text
+          style={{
+            flex: 1,
+            fontFamily: fonts.uiBold,
+            fontSize: 14,
+            lineHeight: 20,
+            color: t.ink,
+          }}
+        >
+          {title}
+        </Text>
       </View>
-      {children && <View style={styles.stepBody}>{children}</View>}
+      {children && <View style={{ paddingLeft: 34 }}>{children}</View>}
     </View>
   );
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function mapToSubmitError(code: string): SubmitError {
   if (
@@ -357,93 +630,6 @@ function messageFor(e: SubmitError): string {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.paper },
-  scroll: { flexGrow: 1, backgroundColor: colors.paper },
-  hero: {
-    backgroundColor: colors.sageSoft,
-    paddingTop: 56, paddingBottom: 22, paddingHorizontal: 20,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line,
-  },
-  eyebrow: {
-    fontFamily: fonts.mono, fontSize: 11, letterSpacing: 0.88,
-    textTransform: 'uppercase', color: colors.sageDeep,
-  },
-  heroH1: {
-    marginTop: 12, fontFamily: fonts.displayItalic, fontSize: 36,
-    lineHeight: 40, letterSpacing: -1.08, color: colors.ink,
-  },
-  section: { paddingHorizontal: 20, paddingTop: 24 },
-  body: { fontFamily: fonts.ui, fontSize: 15, lineHeight: 22, color: colors.ink },
-  guide: { marginTop: 24, gap: 18 },
-  step: { gap: 8 },
-  stepHeadRow: { flexDirection: 'row', alignItems: 'baseline', gap: 12 },
-  stepNum: {
-    fontFamily: fonts.display, fontSize: 22, color: colors.sageDeep, width: 22,
-  },
-  stepTitle: {
-    flex: 1, fontFamily: fonts.uiSemi, fontSize: 14, lineHeight: 20, color: colors.ink,
-  },
-  stepBody: { paddingLeft: 34 },
-  primaryBtn: {
-    backgroundColor: colors.sageDeep,
-    paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8,
-    alignItems: 'center', alignSelf: 'flex-start',
-  },
-  primaryBtnText: {
-    fontFamily: fonts.uiSemi, fontSize: 14, color: colors.paper,
-  },
-  // Apple-ID flow screenshots — fixed height so all three render at the same
-  // visual size regardless of source aspect (the find-page crop is ~1.6:1,
-  // the dialog crops are ~1.1:1). resizeMode="contain" letterboxes the
-  // narrower ones; backgroundColor matches Apple's modal scrim so the
-  // letterboxing is visually invisible.
-  screenshot: {
-    width: '100%',
-    height: 200,
-    borderRadius: 8,
-    backgroundColor: colors.mist,
-  },
-  field: { marginTop: 24, gap: 6 },
-  label: {
-    fontFamily: fonts.uiSemi, fontSize: 12, letterSpacing: 0.4,
-    textTransform: 'uppercase', color: colors.fg3,
-  },
-  input: {
-    fontFamily: fonts.ui, fontSize: 15, color: colors.ink,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line,
-    borderRadius: 8, paddingHorizontal: 12, paddingVertical: 12,
-    backgroundColor: colors.paper,
-  },
-  pwdRow: { position: 'relative' },
-  pwdInput: { fontFamily: fonts.mono, paddingRight: 44 },
-  eyeBtn: {
-    position: 'absolute', right: 8, top: 0, bottom: 0,
-    width: 36, alignItems: 'center', justifyContent: 'center',
-  },
-  warn: {
-    marginTop: 4,
-    fontFamily: fonts.ui, fontSize: 12, lineHeight: 18, color: colors.warningInk,
-  },
-  errorBox: {
-    marginTop: 16, padding: 12, borderRadius: 8,
-    backgroundColor: colors.warningSoft,
-    fontFamily: fonts.ui, fontSize: 13, lineHeight: 19, color: colors.warningInk,
-  },
-  devDebugBox: {
-    marginTop: 8, padding: 12, borderRadius: 8,
-    backgroundColor: '#1a1a1a',
-    fontFamily: 'Menlo', fontSize: 11, lineHeight: 15, color: '#7fffaf',
-  },
-  submitBtn: {
-    marginTop: 24, backgroundColor: colors.ink,
-    paddingVertical: 14, borderRadius: 8, alignItems: 'center',
-  },
-  submitBtnDisabled: { opacity: 0.4 },
-  submitBtnText: {
-    fontFamily: fonts.uiSemi, fontSize: 15, color: colors.paper,
-  },
-  cancelBtn: { marginTop: 12, paddingVertical: 12, alignItems: 'center' },
-  cancelBtnText: {
-    fontFamily: fonts.ui, fontSize: 14, color: colors.fg3,
-  },
+  flex: { flex: 1 },
+  scroll: { flexGrow: 1 },
 });
