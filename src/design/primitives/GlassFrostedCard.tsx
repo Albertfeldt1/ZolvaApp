@@ -29,21 +29,23 @@ export function GlassFrostedCard({
   const overlayColor =
     Platform.OS === 'android' ? surface.glassAndroidFallback : (overlay ?? surface.glass);
 
+  // The caller's style is applied to the INNER content view, not the outer
+  // wrapper. The outer carries borderRadius/rim/shadow only. If we put
+  // padding on the outer instead, the BlurView+overlay would shrink inward
+  // and the padding ring would render transparent — letting halos bleed
+  // through and breaking the card's visual containment.
   return (
     <View
-      style={[
-        {
-          borderRadius: r,
-          overflow: 'hidden',
-          borderWidth: 1,
-          borderColor: surface.glassRim,
-          ...shadows.softCard,
-        },
-        style,
-      ]}
+      style={{
+        borderRadius: r,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: surface.glassRim,
+        ...shadows.softCard,
+      }}
     >
       <BlurView intensity={blurIntensity} tint={t.mode === 'dark' ? 'dark' : 'light'} style={{ flex: 1 }}>
-        <View style={{ flex: 1, backgroundColor: overlayColor }}>{children}</View>
+        <View style={[{ flex: 1, backgroundColor: overlayColor }, style]}>{children}</View>
       </BlurView>
     </View>
   );
