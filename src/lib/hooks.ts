@@ -3634,6 +3634,12 @@ async function runMailComposeTool(
       isError: true,
     };
   }
+  if (provider === 'icloud' && !ctx.icloud) {
+    return {
+      text: 'Brugeren har ikke forbundet en iCloud-konto. Foreslå at forbinde iCloud under Indstillinger.',
+      isError: true,
+    };
+  }
 
   // For replies, resolve the original message id from the unified id. We
   // also reject mismatched providers (e.g. provider=google with a microsoft:
@@ -3649,6 +3655,15 @@ async function runMailComposeTool(
       };
     }
     providerReplyId = split?.id ?? replyToUnifiedId;
+  }
+
+  let providerReplyIdNum: number | undefined;
+  if (provider === 'icloud' && providerReplyId !== undefined) {
+    const n = Number(providerReplyId);
+    if (!Number.isFinite(n)) {
+      return { text: 'Ugyldigt iCloud reply-ID.', isError: true };
+    }
+    providerReplyIdNum = n;
   }
 
   try {
@@ -3682,6 +3697,37 @@ async function runMailComposeTool(
       }
       await gmailSendMail({ to, cc, subject, body, ...threadHeaders });
       return { text: 'Mailen er sendt fra Gmail.', isError: false };
+    }
+
+    if (provider === 'icloud') {
+      if (!ctx.userId) {
+        return { text: 'Ingen bruger-session.', isError: true };
+      }
+      if (name === 'create_draft') {
+        const r = await icloudAppendDraft(ctx.userId, {
+          to,
+          cc,
+          subject,
+          body,
+          replyToUid: providerReplyIdNum,
+        });
+        if (!r.ok) return { text: mapIcloudComposeError(r.error), isError: true };
+        return { text: 'Udkast oprettet i iCloud.', isError: false };
+      }
+      const r = await icloudSendMail(ctx.userId, {
+        to,
+        cc,
+        subject,
+        body,
+        replyToUid: providerReplyIdNum,
+      });
+      if (!r.ok) return { text: mapIcloudComposeError(r.error), isError: true };
+      return {
+        text: providerReplyIdNum
+          ? 'Svaret er sendt fra iCloud.'
+          : 'Mailen er sendt fra iCloud.',
+        isError: false,
+      };
     }
 
     // Microsoft
