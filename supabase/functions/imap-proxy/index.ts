@@ -36,11 +36,14 @@ async function getImapFlow(): Promise<typeof ImapFlow> {
   return _ImapFlowCtor;
 }
 
-// SMTP target. We speak the protocol directly via Deno.connect + Deno.startTls
-// rather than pulling a denomailer / nodemailer dependency — both of those
-// pushed our edge-function cold-start past Supabase's 12s gateway timeout.
+// SMTP target. We speak the protocol directly rather than pulling a
+// denomailer / nodemailer dependency. Apple supports both 587 (STARTTLS)
+// and 465 (implicit TLS); we use 465 because Supabase Edge appears to
+// block or rate-limit outbound TCP on 587 (sends to that port hung past
+// the 12s gateway timeout). Implicit TLS via Deno.connectTls also skips
+// the STARTTLS dance, which simplifies the protocol code.
 const SMTP_HOST = 'smtp.mail.me.com';
-const SMTP_PORT = 587;
+const SMTP_PORT = 465;
 const SMTP_CONNECT_TIMEOUT_MS = 5_000;
 const SMTP_COMMAND_TIMEOUT_MS = 15_000;
 
@@ -995,9 +998,9 @@ function toAddressList(addrs: string[]): string[] {
 // timeout and produced sporadic 503s on first send. Hand-rolling keeps
 // cold-start at zero added cost and keeps the auth path readable.
 //
-// Flow: connect → read greeting (220) → EHLO → STARTTLS → upgrade TLS
-// → EHLO (again) → AUTH PLAIN → MAIL FROM → RCPT TO (each) → DATA →
-// payload → "." → QUIT. Per-command timeout via AbortSignal.
+// Flow (port 465, implicit TLS): connectTls → read greeting (220) →
+// EHLO → AUTH PLAIN → MAIL FROM → RCPT TO (each) → DATA → payload →
+// "." → QUIT. Per-command timeout enforced via Promise.race.
 
 function readLineFromBuffer(buf: Uint8Array): { line: string; rest: Uint8Array } | null {
   for (let i = 0; i < buf.length - 1; i++) {
@@ -1031,25 +1034,15 @@ class SmtpConnection {
   ) {}
 
   static async connect(host: string, port: number, timeoutMs: number): Promise<SmtpConnection> {
+    // connectTls = implicit TLS handshake, suitable for port 465 (SMTPS).
+    // Avoids a separate STARTTLS round-trip and uses an outbound TLS port
+    // that Supabase Edge accepts (port 587 was being blocked / hung).
     const conn = await withTimeout(
-      Deno.connect({ hostname: host, port }),
+      Deno.connectTls({ hostname: host, port }),
       timeoutMs,
-      'smtp connect',
+      'smtp connectTls',
     );
     return new SmtpConnection(conn, SMTP_COMMAND_TIMEOUT_MS);
-  }
-
-  async upgradeTls(host: string): Promise<void> {
-    // RFC 3207: after STARTTLS, the buffer must be flushed and a fresh
-    // TLS handshake performed. We discard any bytes pipelined past the
-    // STARTTLS response — Apple doesn't pipeline, but defensively this
-    // closes a known TLS-stripping vector.
-    this.buffer = new Uint8Array(0);
-    this.conn = await withTimeout(
-      Deno.startTls(this.conn as Deno.TcpConn, { hostname: host }),
-      this.timeoutMs,
-      'starttls',
-    );
   }
 
   async write(data: string | Uint8Array): Promise<void> {
@@ -1149,7 +1142,7 @@ async function sendViaSmtp(args: {
       }
     };
 
-    // Greeting
+    // Greeting (already over TLS — port 465 is implicit TLS)
     const greet = await expect([220]);
     if (!greet.ok) { console.warn('[smtp] greeting failed', greet.result); return greet.result; }
     console.log('[smtp] greeting ok', { elapsed_ms: Date.now() - t0 });
@@ -1157,32 +1150,9 @@ async function sendViaSmtp(args: {
     // EHLO. The hostname Zolva announces is informational; Apple doesn't
     // verify it. "zolva.io" matches the org domain in case anyone audits.
     await conn.write('EHLO zolva.io\r\n');
-    const ehlo1 = await expect([250]);
-    if (!ehlo1.ok) { console.warn('[smtp] EHLO1 failed', ehlo1.result); return ehlo1.result; }
-
-    // STARTTLS — only attempt if the server advertised it (it always
-    // does on 587 for Apple, but check defensively).
-    if (!ehlo1.lines.some((l) => /STARTTLS/i.test(l))) {
-      console.warn('[smtp] STARTTLS not advertised', ehlo1.lines);
-      return { ok: false, code: 'protocol', detail: 'server does not support STARTTLS' };
-    }
-    await conn.write('STARTTLS\r\n');
-    const startTlsResp = await expect([220]);
-    if (!startTlsResp.ok) { console.warn('[smtp] STARTTLS rejected', startTlsResp.result); return startTlsResp.result; }
-    try {
-      await conn.upgradeTls(SMTP_HOST);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.warn('[smtp] TLS upgrade failed', msg);
-      return { ok: false, code: 'network', detail: `STARTTLS upgrade failed: ${msg.slice(0, 150)}` };
-    }
-    console.log('[smtp] tls upgraded', { elapsed_ms: Date.now() - t0 });
-
-    // EHLO again on the encrypted channel. Required by the spec; some
-    // servers reject auth without it.
-    await conn.write('EHLO zolva.io\r\n');
-    const ehlo2 = await expect([250]);
-    if (!ehlo2.ok) { console.warn('[smtp] EHLO2 failed', ehlo2.result); return ehlo2.result; }
+    const ehlo = await expect([250]);
+    if (!ehlo.ok) { console.warn('[smtp] EHLO failed', ehlo.result); return ehlo.result; }
+    console.log('[smtp] ehlo ok', { elapsed_ms: Date.now() - t0 });
 
     // AUTH PLAIN — payload is base64 of "\0username\0password". This is
     // the standard mechanism Apple's iCloud SMTP accepts for app-specific
