@@ -137,6 +137,11 @@ export default function App() {
   }, [authInitializing, user]);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatDraft, setChatDraft] = useState<string | undefined>(undefined);
+  // When true, ChatScreen fires send() once on mount with the prefilled
+  // draft. Used by observation CTAs ("Accepter invitation", "Gennemgå
+  // sikkerhed") so tapping them performs the action instead of just
+  // dropping the user into a chat with text waiting for a second tap.
+  const [chatAutoSend, setChatAutoSend] = useState(false);
   const [openMail, setOpenMail] = useState<InboxMail | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [icloudSetupOpen, setIcloudSetupOpen] = useState(false);
@@ -303,7 +308,10 @@ export default function App() {
   }, [migrationsDone]);
 
   useEffect(() => {
-    if (!chatOpen) setChatDraft(undefined);
+    if (!chatOpen) {
+      setChatDraft(undefined);
+      setChatAutoSend(false);
+    }
   }, [chatOpen]);
 
   // Keep `previousTab` in sync with `tab` whenever the user lands on any
@@ -412,9 +420,10 @@ export default function App() {
     setChatOpen(true);
   };
 
-  const openChatWithPrompt = (prompt: string) => {
+  const openChatWithPrompt = (prompt: string, opts?: { autoSend?: boolean }) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setChatDraft(prompt);
+    setChatAutoSend(opts?.autoSend === true);
     setChatOpen(true);
   };
 
@@ -593,7 +602,7 @@ export default function App() {
             entering={SlideInDown.duration(320)}
             exiting={SlideOutDown.duration(260)}
           >
-            <ChatScreen onBack={closeChat} initialDraft={chatDraft} />
+            <ChatScreen onBack={closeChat} initialDraft={chatDraft} initialDraftAutoSend={chatAutoSend} />
           </Animated.View>
         )}
         {openMail && !chatOpen && (

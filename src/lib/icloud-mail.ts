@@ -3,7 +3,28 @@
 // Client for the imap-proxy edge function. Calls validate (during setup)
 // and listInbox (during inbox fetch). On auth-failed from listInbox, flips
 // the stored credential to 'invalid' state.
+//
+// Stale-while-revalidate cache for listInbox:
+// iCloud goes through IMAP via Supabase edge functions, both of which are
+// shakier than the Google/Microsoft REST APIs (IMAP login latency, edge
+// cold-start 502/503 storms, Apple-side throttling on parallel logins).
+// Without a cache, every gateway flake produces an empty inbox until the
+// next user-initiated refresh.
+//
+// Strategy:
+//   1. Module-level Map keyed by `${userId}:${limit}` holds the last
+//      successful response per (user, page-size).
+//   2. AsyncStorage backs it so cache survives cold start.
+//   3. listInbox returns cached data IMMEDIATELY when present and fires a
+//      background revalidation. Subscribers (useMailItems) bump their
+//      refresh tick on cache update so the UI re-paints once fresh data
+//      arrives without user interaction.
+//   4. Revalidation failures keep the cache intact — we never blank the
+//      inbox just because the gateway hiccuped. The credential-rejected
+//      banner still surfaces for true auth-failed responses, so users see
+//      both their cached mails AND know to re-enter their ASP.
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { loadCredential, markInvalid } from './icloud-credentials';
 import { parseFromHeader } from './gmail';
@@ -83,21 +104,221 @@ export async function validate(
 // IMAP logins per refresh — iCloud throttles per-account and the Supabase
 // gateway 502s when it can't keep up. Concurrent listInbox calls for the
 // same user with the same limit share one in-flight Promise.
-const inflightListInbox = new Map<string, Promise<IcloudResult<IcloudMessage[]>>>();
+// Dedup map shared by fetchAndStore and revalidate so concurrent calls
+// for the same (user, limit) — including a foreground fetch overlapping
+// a background revalidation — never produce parallel IMAP logins. The
+// foreground variant resolves to IcloudResult; the background variant
+// resolves to void, hence the union.
+const inflightListInbox = new Map<string, Promise<IcloudResult<IcloudMessage[]> | void>>();
+
+// ─── Stale-while-revalidate cache ──────────────────────────────────────────
+
+type SwrEntry = {
+  // Stored as ISO strings on disk so JSON.parse/stringify roundtrip is
+  // lossless; rehydrated to Date objects in memory before handing to
+  // callers (IcloudMessage.date is a Date).
+  data: IcloudMessage[];
+  cachedAt: number;
+};
+
+// Sanity ceiling. If a cache entry is somehow ancient (laptop closed
+// for weeks, app went unused), surface fresh data on next call rather
+// than serving year-old mails as "current". The 7-day window is long
+// enough that any reasonable user comes back to recent data.
+const SWR_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+const swrCache = new Map<string, SwrEntry>();
+const swrSubscribers = new Set<(key: string) => void>();
+let swrHydratedForUser: string | null = null;
+let swrHydrationPromise: Promise<void> | null = null;
+
+const swrStorageKey = (userId: string) => `zolva.icloud.inbox.swr.${userId}`;
+
+async function hydrateSwrCache(userId: string): Promise<void> {
+  // Hydrate per-user. If user changes (sign out / sign in), reset and
+  // re-hydrate the new user's cache. Avoids cross-account leakage.
+  if (swrHydratedForUser === userId && swrHydrationPromise) {
+    return swrHydrationPromise;
+  }
+  if (swrHydratedForUser !== userId) {
+    swrCache.clear();
+    swrHydratedForUser = userId;
+  }
+  swrHydrationPromise = (async () => {
+    try {
+      const raw = await AsyncStorage.getItem(swrStorageKey(userId));
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, { data: Array<Omit<IcloudMessage, 'date'> & { date: string }>; cachedAt: number }>;
+      const now = Date.now();
+      for (const [key, entry] of Object.entries(parsed)) {
+        if (
+          !entry ||
+          !Array.isArray(entry.data) ||
+          typeof entry.cachedAt !== 'number'
+        ) continue;
+        if (now - entry.cachedAt > SWR_MAX_AGE_MS) continue;
+        swrCache.set(key, {
+          cachedAt: entry.cachedAt,
+          data: entry.data.map((m) => ({ ...m, date: new Date(m.date) })),
+        });
+      }
+    } catch {
+      // Swallow — corrupted cache shouldn't block fresh fetches.
+    }
+  })();
+  return swrHydrationPromise;
+}
+
+let swrPersistTimer: ReturnType<typeof setTimeout> | null = null;
+function persistSwrSoon(userId: string): void {
+  // Debounce — multiple updates in the same render tick collapse into
+  // one storage write.
+  if (swrPersistTimer) clearTimeout(swrPersistTimer);
+  swrPersistTimer = setTimeout(() => {
+    swrPersistTimer = null;
+    if (swrHydratedForUser !== userId) return;
+    const snapshot: Record<string, SwrEntry> = {};
+    for (const [key, entry] of swrCache.entries()) {
+      if (key.startsWith(`${userId}:`)) snapshot[key] = entry;
+    }
+    AsyncStorage.setItem(swrStorageKey(userId), JSON.stringify(snapshot)).catch(() => {});
+  }, 250);
+}
+
+function notifySwrUpdate(key: string): void {
+  for (const cb of swrSubscribers) cb(key);
+}
+
+// Subscribe to cache updates. Used by useMailItems to bump its refresh
+// tick when background revalidation lands fresh data, so the UI repaints
+// without user action.
+export function subscribeToIcloudInboxCache(cb: (key: string) => void): () => void {
+  swrSubscribers.add(cb);
+  return () => {
+    swrSubscribers.delete(cb);
+  };
+}
+
+// Cheap signature for change detection — only the top 12 message uids +
+// unread state. Misses preview/subject edits but catches the cases that
+// matter (new mail, mail read elsewhere, mail deleted).
+function signatureOf(messages: IcloudMessage[]): string {
+  return messages
+    .slice(0, 12)
+    .map((m) => `${m.uid}|${m.unread ? '1' : '0'}`)
+    .join(',');
+}
+
+// Public: drop cached inbox for a user. Called when iCloud is fully
+// disconnected (clearCredential) so a different Apple ID on the same
+// device doesn't inherit the prior account's mails.
+export async function clearInboxCache(userId: string): Promise<void> {
+  for (const key of [...swrCache.keys()]) {
+    if (key.startsWith(`${userId}:`)) swrCache.delete(key);
+  }
+  if (swrHydratedForUser === userId) {
+    swrHydratedForUser = null;
+    swrHydrationPromise = null;
+  }
+  try {
+    await AsyncStorage.removeItem(swrStorageKey(userId));
+  } catch {
+    // best-effort
+  }
+}
+
+// ─── listInbox ────────────────────────────────────────────────────────────
 
 export async function listInbox(
   userId: string,
   limit = 12,
 ): Promise<IcloudResult<IcloudMessage[]>> {
   const key = `${userId}:${limit}`;
-  const existing = inflightListInbox.get(key);
-  if (existing) return existing;
+  await hydrateSwrCache(userId);
 
-  const promise = listInboxImpl(userId, limit).finally(() => {
-    inflightListInbox.delete(key);
-  });
+  const cached = swrCache.get(key);
+  if (cached) {
+    // Stale-while-revalidate: hand back cache instantly, refresh in the
+    // background. Subscribers re-render once fresh data lands.
+    void revalidate(userId, limit, key, cached.data);
+    return { ok: true, data: cached.data };
+  }
+
+  // No cache yet — fall through to a synchronous fetch and cache it.
+  return fetchAndStore(userId, limit, key);
+}
+
+async function fetchAndStore(
+  userId: string,
+  limit: number,
+  key: string,
+): Promise<IcloudResult<IcloudMessage[]>> {
+  const existing = inflightListInbox.get(key);
+  if (existing) {
+    // Could be a foreground fetch (returns IcloudResult) or a background
+    // revalidate (returns void). Wait for it either way; afterward, an
+    // IcloudResult is the foreground caller's result, while void means
+    // the revalidate either cached fresh data or failed silently. Check
+    // the cache before falling through to a fresh fetch.
+    const r = await existing;
+    if (r && typeof r === 'object' && 'ok' in r) return r;
+    const cached = swrCache.get(key);
+    if (cached) return { ok: true, data: cached.data };
+    // Revalidate finished without populating cache → it failed. Fall
+    // through to our own fetch so the caller gets a real error.
+  }
+
+  const promise = listInboxImpl(userId, limit)
+    .then((res) => {
+      if (res.ok) {
+        swrCache.set(key, { data: res.data, cachedAt: Date.now() });
+        persistSwrSoon(userId);
+        // First-fetch case: subscribers fire so any UI listening gets
+        // notified the cache now exists for this key.
+        notifySwrUpdate(key);
+      }
+      return res;
+    })
+    .finally(() => {
+      inflightListInbox.delete(key);
+    });
   inflightListInbox.set(key, promise);
   return promise;
+}
+
+async function revalidate(
+  userId: string,
+  limit: number,
+  key: string,
+  prevData: IcloudMessage[],
+): Promise<void> {
+  // Don't pile revalidations on top of an in-flight fetch — let the in-
+  // flight one settle, callers will pick up the new cache on next call.
+  if (inflightListInbox.has(key)) return;
+
+  const promise = listInboxImpl(userId, limit)
+    .then((res) => {
+      if (!res.ok) {
+        // Revalidation failure: keep the cache. The error propagates to
+        // its own caller (the fetchAndStore path triggered by a forced
+        // refresh) but background revalidation never blanks the inbox.
+        // auth-failed already flipped credential to invalid via
+        // listInboxImpl, so the credential-rejected banner surfaces
+        // independently.
+        return;
+      }
+      const prevSig = signatureOf(prevData);
+      const nextSig = signatureOf(res.data);
+      swrCache.set(key, { data: res.data, cachedAt: Date.now() });
+      persistSwrSoon(userId);
+      if (prevSig !== nextSig) {
+        notifySwrUpdate(key);
+      }
+    })
+    .finally(() => {
+      inflightListInbox.delete(key);
+    });
+  inflightListInbox.set(key, promise);
 }
 
 async function listInboxImpl(

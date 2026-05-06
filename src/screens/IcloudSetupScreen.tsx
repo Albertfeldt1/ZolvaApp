@@ -20,6 +20,7 @@ import { Eye, EyeOff } from 'lucide-react-native';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { useAuth } from '../lib/auth';
 import { saveCredential, IcloudLinkFailure } from '../lib/icloud-credentials';
+import { setIntegrationEnabled } from '../lib/integration-flags';
 import { validate as validateImap } from '../lib/icloud-mail';
 import { probeCredential as probeCalDav } from '../lib/icloud-calendar';
 import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
@@ -160,6 +161,13 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
       if (!calRes.ok)  { setSubmitError(mapToSubmitError(calRes.error)); return; }
       try {
         await saveCredential(user.id, email, password);
+        // Re-enable the iCloud integration flag whenever creds are
+        // successfully (re-)entered. Users who reach this screen via the
+        // Inbox "Apple afviste adgangskoden" banner never touch the
+        // Settings toggle, so without this the flag can stay 'false' from
+        // a prior toggle-off and the row stays visually disconnected even
+        // though the credential is now valid.
+        await setIntegrationEnabled('icloud', true);
       } catch (linkErr) {
         if (linkErr instanceof IcloudLinkFailure) {
           if (linkErr.code === 'reauth-required') { setSubmitError('reauth-required'); return; }

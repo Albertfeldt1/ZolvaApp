@@ -92,7 +92,7 @@ import {
   GENERIC_CONFUSED_FALLBACK,
   CHAT_GUARD_DEBUG_TAG,
 } from './chat-claim-guard';
-import { getMessageBody as getIcloudMessageBody, listInbox as listIcloudMessages, getInboxCounts as getIcloudInboxCounts } from './icloud-mail';
+import { getMessageBody as getIcloudMessageBody, listInbox as listIcloudMessages, getInboxCounts as getIcloudInboxCounts, subscribeToIcloudInboxCache } from './icloud-mail';
 import { listEvents as listIcloudEvents } from './icloud-calendar';
 import {
   readCalendarLabels,
@@ -895,6 +895,21 @@ function useMailItems(): {
     return () => {
       mailRefreshListeners.delete(setRefreshTick);
     };
+  }, []);
+
+  // SWR fold-in: when the iCloud cache lands fresh data behind our back
+  // (background revalidation), bump the same refresh tick so this hook
+  // re-runs and re-renders the inbox with the new data. Subscribers fire
+  // only when the message-list signature actually changed, so we don't
+  // re-render on no-op revalidations.
+  useEffect(() => {
+    const unsub = subscribeToIcloudInboxCache(() => {
+      // Reuse the global tick so existing observers (this hook + any
+      // others listening to mail refresh) all wake up together.
+      mailRefreshTick += 1;
+      mailRefreshListeners.forEach((l) => l(mailRefreshTick));
+    });
+    return unsub;
   }, []);
 
   useEffect(() => {

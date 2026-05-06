@@ -274,5 +274,15 @@ export async function clearCredential(userId: string): Promise<void> {
   // local clear — the user explicitly asked to disconnect.
   await callRevokeEndpoint();
   await secureStorage.deleteItem(credKey(userId));
+  // Wipe the SWR inbox cache too — otherwise the next Apple ID on the
+  // same device (or this user reconnecting with a different account)
+  // would see the previous account's mails until the first successful
+  // fetch lands.
+  try {
+    const { clearInboxCache } = await import('./icloud-mail');
+    await clearInboxCache(userId);
+  } catch (err) {
+    if (__DEV__) console.warn('[icloud-creds] clear inbox cache failed:', err);
+  }
   notifyCredsChanged();
 }

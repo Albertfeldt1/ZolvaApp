@@ -1758,8 +1758,11 @@ export function SettingsScreen({
                   const isBusy = connectingId === c.id;
                   const isExpired = c.status === 'expired';
                   // The switch is ON when this integration is fully usable.
-                  // 'expired' (iCloud creds rejected) shows OFF + an inline
-                  // warning so the user knows toggling ON re-opens setup.
+                  // 'expired' (iCloud creds rejected) needs a distinct visual:
+                  // a flipped-off switch alone is indistinguishable from
+                  // "user toggled it off" or "never connected". We add a
+                  // warning pill + tinted backdrop + bolder sub copy so the
+                  // user can tell at a glance that this row needs attention.
                   const switchValue = isConnected;
 
                   return (
@@ -1771,8 +1774,12 @@ export function SettingsScreen({
                           alignItems: 'center',
                           gap: spacing.md,
                           paddingVertical: spacing.sm,
+                          paddingHorizontal: isExpired ? spacing.sm : 0,
+                          marginHorizontal: isExpired ? -spacing.sm : 0,
+                          borderRadius: isExpired ? radius.soft : 0,
+                          backgroundColor: isExpired ? surface.warningTint : 'transparent',
                         },
-                        i > 0 && { borderTopWidth: 1, borderTopColor: t.line },
+                        i > 0 && !isExpired && { borderTopWidth: 1, borderTopColor: t.line },
                       ]}
                     >
                       <View style={styles.logoBox}>
@@ -1783,9 +1790,34 @@ export function SettingsScreen({
                         />
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontFamily: fonts.uiBold, fontSize: type.body.fontSize, color: t.ink }}>{c.title}</Text>
-                        <Text style={{ ...type.caption, color: isExpired ? t.today : t.ink3 }}>
-                          {isExpired ? 'Adgangskoden er afvist — slå til igen for at rette' : c.sub}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                          <Text style={{ fontFamily: fonts.uiBold, fontSize: type.body.fontSize, color: t.ink }}>{c.title}</Text>
+                          {isExpired && (
+                            <View style={{
+                              paddingHorizontal: spacing.sm,
+                              paddingVertical: 2,
+                              borderRadius: radius.pill,
+                              backgroundColor: t.today,
+                            }}>
+                              <Text style={{
+                                ...type.caption,
+                                color: '#FFFFFF',
+                                fontFamily: fonts.uiBold,
+                                fontSize: 11,
+                                letterSpacing: 0.3,
+                              }}>
+                                AFVIST
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={{
+                          ...type.caption,
+                          color: isExpired ? t.today : t.ink3,
+                          fontFamily: isExpired ? fonts.uiBold : fonts.ui,
+                          marginTop: 1,
+                        }}>
+                          {isExpired ? 'Adgangskoden er afvist af Apple. Slå til igen for at indtaste en ny.' : c.sub}
                         </Text>
                       </View>
                       {isBusy ? (

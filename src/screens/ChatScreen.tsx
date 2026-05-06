@@ -23,9 +23,9 @@ import { formatClock, formatToday } from '../lib/date';
 import { useChat, useChatSuggestions } from '../lib/hooks';
 import type { ChatMessage } from '../lib/types';
 
-type Props = { onBack: () => void; initialDraft?: string };
+type Props = { onBack: () => void; initialDraft?: string; initialDraftAutoSend?: boolean };
 
-export function ChatScreen({ onBack, initialDraft }: Props) {
+export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props) {
   const today = useMemo(() => new Date(), []);
   const dateInfo = useMemo(() => formatToday(today), [today]);
   const clock = useMemo(() => formatClock(today), [today]);
@@ -37,11 +37,35 @@ export function ChatScreen({ onBack, initialDraft }: Props) {
   const [input, setInput] = useState(initialDraft ?? '');
   const scrollRef = useRef<ScrollView>(null);
 
+  // Auto-send the seeded draft once on mount when callers (e.g. observation
+  // CTAs from the Today screen) want the chat to act, not just open with
+  // text waiting. Guarded by a ref so a re-render with the same prop
+  // doesn't double-fire.
+  const autoSentRef = useRef(false);
+  useEffect(() => {
+    if (autoSentRef.current) return;
+    if (!initialDraftAutoSend) return;
+    if (!initialDraft || !initialDraft.trim()) return;
+    autoSentRef.current = true;
+    // Defer one frame so the ChatScreen is fully mounted before send fires
+    // its tool-call loop — otherwise the typing indicator can race the
+    // initial scroll layout and look like the message never sent.
+    requestAnimationFrame(() => {
+      send(initialDraft);
+      setInput('');
+    });
+  }, [initialDraft, initialDraftAutoSend, send]);
+
   useEffect(() => {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
   }, [messages, typing]);
 
   const submit = (text: string) => {
+    // Hard gate: never fire a second send while the previous one is still
+    // running. Prevents users from spam-tapping suggestion chips (or the
+    // send button) and queuing up a stack of in-flight chat turns, which
+    // races the tool-call loop and corrupts the message history.
+    if (typing) return;
     send(text);
     setInput('');
   };
@@ -158,10 +182,11 @@ export function ChatScreen({ onBack, initialDraft }: Props) {
             back to the middle copy when the user scrolls past it, so
             either direction loops forever without a visible seam. */}
         {suggestions.length > 0 && (
-          <View style={{ paddingBottom: spacing.xs }}>
+          <View style={{ paddingBottom: spacing.xs, opacity: typing ? 0.4 : 1 }}>
             <SuggestionsCarousel
               suggestions={suggestions}
               onSelect={submit}
+              disabled={typing}
               chipStyle={{
                 paddingVertical: spacing.sm,
                 paddingHorizontal: spacing.md,
@@ -192,21 +217,25 @@ export function ChatScreen({ onBack, initialDraft }: Props) {
                   color: t.ink,
                   paddingVertical: 0,
                 }}
-                onSubmitEditing={() => input.trim() && submit(input.trim())}
+                onSubmitEditing={() => !typing && input.trim() && submit(input.trim())}
                 returnKeyType="send"
+                editable={true}
               />
               <Pressable
-                onPress={() => input.trim() && submit(input.trim())}
-                style={{
+                onPress={() => !typing && input.trim() && submit(input.trim())}
+                disabled={typing || input.trim().length === 0}
+                style={({ pressed }) => ({
                   width: 32,
                   height: 32,
                   borderRadius: radius.pill,
                   backgroundColor: t.ink,
                   alignItems: 'center',
                   justifyContent: 'center',
-                }}
+                  opacity: typing || input.trim().length === 0 ? 0.4 : pressed ? 0.7 : 1,
+                })}
                 accessibilityRole="button"
                 accessibilityLabel="Send"
+                accessibilityState={{ disabled: typing || input.trim().length === 0 }}
               >
                 <DesignIcon.send size={14} color="#FFFFFF" />
               </Pressable>
@@ -341,6 +370,9 @@ function TypingDot({ delay, stoneColor }: { delay: number; stoneColor: string })
 type SuggestionsCarouselProps = {
   suggestions: string[];
   onSelect: (q: string) => void;
+  // True while the AI is still answering the previous turn. Chips ignore
+  // taps so users can't spam-queue messages mid-response.
+  disabled?: boolean;
   chipStyle: object;
   textStyle: object;
   contentPadding: number;
@@ -350,6 +382,7 @@ type SuggestionsCarouselProps = {
 function SuggestionsCarousel({
   suggestions,
   onSelect,
+  disabled = false,
   chipStyle,
   textStyle,
   contentPadding,
@@ -396,7 +429,11 @@ function SuggestionsCarousel({
       data={data}
       keyExtractor={(item, i) => `${i}-${item}`}
       renderItem={({ item }) => (
-        <Pressable onPress={() => onSelect(item)}>
+        <Pressable
+          onPress={() => onSelect(item)}
+          disabled={disabled}
+          style={({ pressed }) => [pressed && !disabled && { opacity: 0.6 }]}
+        >
           <View style={[{ flexDirection: 'row' }, chipStyle]}>
             <Text style={textStyle}>{item}</Text>
           </View>
