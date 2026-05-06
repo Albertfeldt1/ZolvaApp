@@ -69,25 +69,36 @@ type RawMessage = {
   payload?: RawMessagePart & { headers?: RawHeader[] };
 };
 
-// Server-reported INBOX counts. Gmail's labels/INBOX endpoint returns
-// messagesTotal and messagesUnread — exact, not estimates — so the
-// number stays stable across reloads regardless of the per-fetch window.
+// Server-reported INBOX counts. Total comes from labels/INBOX
+// (messagesTotal — exact, all-time inbox size). Unread is scoped to
+// the past 7 days to keep the headline number actionable: long-tail
+// unread newsletters from years ago shouldn't dominate the "venter på
+// dig" stat. Uses messages.list?q=is:unread+newer_than:7d&maxResults=1
+// where resultSizeEstimate is Gmail's server-side count for the query.
 export async function getInboxCounts(): Promise<{ total: number; unread: number }> {
   return tryWithRefresh('google', async (accessToken) => {
-    const res = await fetchListWithRetry(
-      `${BASE}/labels/INBOX`,
-      { headers: { Authorization: `Bearer ${accessToken}` } },
-    );
-    if (res.status === 401 || res.status === 403) {
-      throw new ProviderAuthError('google', `Gmail afvist (${res.status}).`);
+    const headers = { Authorization: `Bearer ${accessToken}` };
+    const [labelRes, recentUnreadRes] = await Promise.all([
+      fetchListWithRetry(`${BASE}/labels/INBOX`, { headers }),
+      fetchListWithRetry(
+        `${BASE}/messages?q=${encodeURIComponent('is:unread newer_than:7d in:inbox')}&maxResults=1`,
+        { headers },
+      ),
+    ]);
+    if (labelRes.status === 401 || labelRes.status === 403) {
+      throw new ProviderAuthError('google', `Gmail afvist (${labelRes.status}).`);
     }
-    if (!res.ok) {
-      throw new Error(`Gmail label fetch failed: ${res.status} ${await res.text()}`);
+    if (!labelRes.ok) {
+      throw new Error(`Gmail label fetch failed: ${labelRes.status} ${await labelRes.text()}`);
     }
-    const data = (await res.json()) as { messagesTotal?: number; messagesUnread?: number };
+    if (!recentUnreadRes.ok) {
+      throw new Error(`Gmail unread query failed: ${recentUnreadRes.status} ${await recentUnreadRes.text()}`);
+    }
+    const labelData = (await labelRes.json()) as { messagesTotal?: number };
+    const recentData = (await recentUnreadRes.json()) as { resultSizeEstimate?: number };
     return {
-      total: data.messagesTotal ?? 0,
-      unread: data.messagesUnread ?? 0,
+      total: labelData.messagesTotal ?? 0,
+      unread: recentData.resultSizeEstimate ?? 0,
     };
   });
 }

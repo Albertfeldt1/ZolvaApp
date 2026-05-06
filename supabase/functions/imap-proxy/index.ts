@@ -831,14 +831,26 @@ async function handleCount(
   try {
     client = await newImapClient(email, password);
     await client.connect();
-    // STATUS doesn't take a mailbox lock and doesn't change \Seen — it
-    // returns the same metadata SELECT would, without requiring the
-    // mailbox to be open.
-    const status = await client.status('INBOX', { messages: true, unseen: true });
+    // STATUS gives the all-time INBOX total cheaply (no lock, no \Seen
+    // change). For unread we want only mail received in the past 7
+    // days — STATUS can't filter by date, so we EXAMINE (read-only)
+    // and run SEARCH UNSEEN SINCE. EXAMINE matches list-inbox's
+    // readOnly behavior, so opening INBOX here doesn't mark anything
+    // \Seen.
+    const status = await client.status('INBOX', { messages: true });
+    const lock = await client.getMailboxLock('INBOX', { readOnly: true });
+    let recentUnreadCount = 0;
+    try {
+      const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const uids = await client.search({ unseen: true, since }, { uid: true });
+      recentUnreadCount = Array.isArray(uids) ? uids.length : 0;
+    } finally {
+      lock.release();
+    }
     return Response.json({
       ok: true,
       total: status.messages ?? 0,
-      unread: status.unseen ?? 0,
+      unread: recentUnreadCount,
     });
   } catch (e) {
     return mapImapError(e);

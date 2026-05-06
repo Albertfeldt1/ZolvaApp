@@ -217,19 +217,29 @@ async function listFetchWithRetry<T>(token: string, path: string): Promise<T> {
   }
 }
 
-// Server-reported INBOX counts. /mailFolders/inbox returns
-// totalItemCount + unreadItemCount as stable values that don't depend
-// on the page size — so the displayed inbox total stays consistent
-// across reloads.
+// Server-reported INBOX counts. Total is the all-time totalItemCount
+// from /mailFolders/inbox; unread is scoped to the past 7 days via a
+// $filter on receivedDateTime so long-tail unread newsletters don't
+// inflate the "venter på dig" stat. $count=true with the eventual
+// consistency header is required for filtered counts on Graph.
 export async function getInboxCounts(): Promise<{ total: number; unread: number }> {
   return tryWithRefresh('microsoft', async (token) => {
-    const data = await graphFetch<{ totalItemCount?: number; unreadItemCount?: number }>(
-      token,
-      `/me/mailFolders/inbox?$select=totalItemCount,unreadItemCount`,
-    );
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const filter = encodeURIComponent(`isRead eq false and receivedDateTime ge ${since}`);
+    const [folder, recent] = await Promise.all([
+      graphFetch<{ totalItemCount?: number }>(
+        token,
+        `/me/mailFolders/inbox?$select=totalItemCount`,
+      ),
+      graphFetch<{ '@odata.count'?: number }>(
+        token,
+        `/me/mailFolders/inbox/messages?$filter=${filter}&$count=true&$top=1&$select=id`,
+        { headers: { ConsistencyLevel: 'eventual' } },
+      ),
+    ]);
     return {
-      total: data.totalItemCount ?? 0,
-      unread: data.unreadItemCount ?? 0,
+      total: folder.totalItemCount ?? 0,
+      unread: recent['@odata.count'] ?? 0,
     };
   });
 }
