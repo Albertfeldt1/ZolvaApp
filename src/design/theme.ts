@@ -157,6 +157,11 @@ export type SurfaceTokens = {
   tabActive: string;
   warningTint: string;
   ribbonTrack: string;
+  /** Semantic state — connected / OK / done. Direction G has no green
+   *  signal, so success is encoded here as a universally-understood
+   *  state cue instead of being derived from a direction signal hue. */
+  successText: string;
+  successTint: string;
 };
 
 const SURFACES_LIGHT: SurfaceTokens = {
@@ -177,6 +182,8 @@ const SURFACES_LIGHT: SurfaceTokens = {
   tabActive:            'rgba(255,255,255,0.9)',
   warningTint:          'rgba(255,193,127,0.55)',
   ribbonTrack:          'rgba(15,16,20,0.05)',
+  successText:          '#3D5A40',
+  successTint:          'rgba(74,124,78,0.14)',
 };
 
 const SURFACES_DARK: SurfaceTokens = {
@@ -197,6 +204,8 @@ const SURFACES_DARK: SurfaceTokens = {
   tabActive:            'rgba(255,255,255,0.12)',
   warningTint:          'rgba(255,193,127,0.45)',
   ribbonTrack:          'rgba(255,255,255,0.08)',
+  successText:          '#A8E063',
+  successTint:          'rgba(168,224,99,0.20)',
 };
 
 export function getSurfaces(t: DirectionTokens): SurfaceTokens {

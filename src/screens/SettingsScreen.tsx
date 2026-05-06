@@ -1669,13 +1669,16 @@ export function SettingsScreen({
                           ? () => handleDisconnect(c.id)
                           : () => handleConnect(c.id));
 
-                  // Status pill colors using design tokens
+                  // Status pill colors using design tokens. "Connected"
+                  // uses the semantic success state (green) — direction G's
+                  // signal palette has no green, so success doesn't ride on
+                  // a direction hue.
                   const pillBg =
-                    c.status === 'connected' ? 'rgba(0,0,0,0.06)' :
+                    c.status === 'connected' ? surface.successTint :
                     c.status === 'pending' || c.status === 'expired' ? surface.warningTint :
                     surface.scrim;
                   const pillColor =
-                    c.status === 'connected' ? t.cal :
+                    c.status === 'connected' ? surface.successText :
                     c.status === 'pending' || c.status === 'expired' ? t.today :
                     t.ink3;
 
