@@ -991,6 +991,50 @@ async function handleClearBinding(
   return Response.json({ ok: true });
 }
 
+type ThreadingHeaders = {
+  inReplyTo?: string;
+  references?: string;
+};
+
+async function fetchThreadingHeaders(
+  email: string,
+  password: string,
+  uid: number,
+): Promise<ThreadingHeaders> {
+  let client: ImapFlow | null = null;
+  try {
+    client = await newImapClient(email, password);
+    await client.connect();
+    const lock = await client.getMailboxLock('INBOX', { readOnly: true });
+    try {
+      const meta = await client.fetchOne(
+        String(uid),
+        { envelope: true, headers: ['references'] },
+        { uid: true },
+      );
+      const messageId = (meta?.envelope as { messageId?: string } | undefined)?.messageId ?? '';
+      // imapflow returns headers as a Map<string, string[]> when requested by name.
+      const refsHeader = meta?.headers
+        ? (meta.headers as Map<string, string[]>).get('references')?.join(' ').trim() ?? ''
+        : '';
+      const inReplyTo = messageId || undefined;
+      const references = refsHeader
+        ? `${refsHeader}${messageId ? ' ' + messageId : ''}`.trim()
+        : (messageId || undefined);
+      return { inReplyTo, references };
+    } finally {
+      try { lock.release(); } catch { /* secondary */ }
+    }
+  } finally {
+    if (client) {
+      try { await client.logout(); } catch { /* ignore */ }
+      if (client.usable) {
+        try { await client.close(); } catch { /* ignore */ }
+      }
+    }
+  }
+}
+
 async function handleSendMail(
   body: SendMailReq,
   userId: string,
@@ -1038,6 +1082,15 @@ async function handleSendMail(
     },
   });
 
+  let threading: ThreadingHeaders = {};
+  if (typeof body.reply_to_uid === 'number' && Number.isFinite(body.reply_to_uid)) {
+    try {
+      threading = await fetchThreadingHeaders(email, password, body.reply_to_uid);
+    } catch (e) {
+      console.warn('[imap-proxy] send-mail threading-header fetch failed (continuing without):', e instanceof Error ? e.message : String(e));
+    }
+  }
+
   try {
     const sendOpts: Parameters<typeof client.send>[0] = {
       from: email,
@@ -1045,6 +1098,8 @@ async function handleSendMail(
       cc: body.cc ? toAddressList(body.cc) : undefined,
       subject: body.subject,
       attachments: attachments.length > 0 ? attachments : undefined,
+      inReplyTo: threading.inReplyTo,
+      references: threading.references,
     };
     if (body.content_type === 'html') {
       sendOpts.html = body.content;
