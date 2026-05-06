@@ -40,7 +40,6 @@ import { InboxDetailScreen } from './src/screens/InboxDetailScreen';
 import { InboxScreen } from './src/screens/InboxScreen';
 import { MemoryScreen } from './src/screens/MemoryScreen';
 import { NotificationsScreen } from './src/screens/NotificationsScreen';
-import { SentMailScreen } from './src/screens/SentMailScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { TodayScreen } from './src/screens/TodayScreen';
 import { runStartupMigrations } from './src/lib/migrations';
@@ -145,7 +144,6 @@ export default function App() {
   const [chatAutoSend, setChatAutoSend] = useState(false);
   const [openMail, setOpenMail] = useState<InboxMail | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [sentMailsOpen, setSentMailsOpen] = useState(false);
   const [icloudSetupOpen, setIcloudSetupOpen] = useState(false);
   const [icloudPrefilledEmail, setIcloudPrefilledEmail] = useState<string | undefined>(undefined);
   const [adminConsentOpen, setAdminConsentOpen] = useState(false);
@@ -593,7 +591,6 @@ export default function App() {
               onOpenMicrosoftAdminConsent={openAdminConsent}
               icloudRefreshVersion={icloudRefreshVersion}
               onOpenNotifications={openNotifications}
-              onOpenSentMails={() => setSentMailsOpen(true)}
               onBack={() => switchTab(previousTab)}
             />
           )}
@@ -631,17 +628,7 @@ export default function App() {
             />
           </Animated.View>
         )}
-        {sentMailsOpen && !chatOpen && !openMail && !notificationsOpen && (
-          <Animated.View
-            key="sent-mails"
-            style={StyleSheet.absoluteFill}
-            entering={SlideInDown.duration(320)}
-            exiting={SlideOutDown.duration(260)}
-          >
-            <SentMailScreen onClose={() => setSentMailsOpen(false)} />
-          </Animated.View>
-        )}
-        {icloudSetupOpen && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && (
+        {icloudSetupOpen && !chatOpen && !openMail && !notificationsOpen && (
           <Animated.View
             key="icloud-setup"
             style={StyleSheet.absoluteFill}
@@ -655,7 +642,7 @@ export default function App() {
             />
           </Animated.View>
         )}
-        {adminConsentOpen && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && (
+        {adminConsentOpen && !chatOpen && !openMail && !notificationsOpen && !icloudSetupOpen && (
           <Animated.View
             key="admin-consent"
             style={StyleSheet.absoluteFill}
@@ -668,7 +655,7 @@ export default function App() {
             />
           </Animated.View>
         )}
-        {onboardingOpen && user?.id && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && (
+        {onboardingOpen && user?.id && !chatOpen && !openMail && !notificationsOpen && !icloudSetupOpen && !adminConsentOpen && (
           <Animated.View
             key="onboarding-backfill"
             style={StyleSheet.absoluteFill}
@@ -747,7 +734,7 @@ export default function App() {
           }}
         />
       )}
-      {!chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && !loggedOut && (
+      {!chatOpen && !openMail && !notificationsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && !loggedOut && (
         <View
           style={styles.chrome}
           pointerEvents="box-none"

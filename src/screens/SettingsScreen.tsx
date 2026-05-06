@@ -1341,7 +1341,6 @@ type SettingsScreenProps = {
   // screen reloads the credential state without remounting.
   icloudRefreshVersion?: number;
   onOpenNotifications: () => void;
-  onOpenSentMails: () => void;
   onBack: () => void;
 };
 
@@ -1350,7 +1349,6 @@ export function SettingsScreen({
   onOpenMicrosoftAdminConsent,
   icloudRefreshVersion = 0,
   onOpenNotifications,
-  onOpenSentMails,
   onBack,
 }: SettingsScreenProps) {
   const { data: user, loading: userLoading } = useUser();
@@ -2030,24 +2028,6 @@ export function SettingsScreen({
                   <MailSignatureSection />
                 </GlassFrostedCard>
               </View>
-
-              {/* In-app log of mails Zolva has sent on the user's behalf —
-                  primary value: confirmable record for iCloud sends, which
-                  do NOT land in Apple Mail's Sent folder (see
-                  2026-05-06-icloud-send-mail-design.md non-goals). */}
-              <SettingsSectionCard title="Sendt af Zolva" style={{ gap: 0 }}>
-                <Pressable
-                  style={({ pressed }) => [
-                    { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm },
-                    pressed && { opacity: 0.65 },
-                  ]}
-                  onPress={onOpenSentMails}
-                  accessibilityRole="button"
-                >
-                  <Text style={{ ...type.body, color: t.ink, flex: 1 }}>Sendte mails</Text>
-                  <Text style={{ ...type.body, color: t.ink3 }}>→</Text>
-                </Pressable>
-              </SettingsSectionCard>
 
               {/* T4: the privacy copy + export-button live above in the dark
                   "Privatliv" card. This Konto section is the account-deletion

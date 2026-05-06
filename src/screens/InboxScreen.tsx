@@ -20,6 +20,7 @@ import { SkeletonRow } from '../components/Skeleton';
 import { formatClock, formatToday } from '../lib/date';
 import { refreshMailNow, useHasProvider, useInboxCounts, useInboxWaiting } from '../lib/hooks';
 import type { MailProviderError } from '../lib/hooks';
+import { listSentMails, subscribeSentMails, type SentMailRecord } from '../lib/sent-mails';
 import type { InboxMail, MailProvider } from '../lib/types';
 import { translateProviderError } from '../utils/danish';
 import { useTheme } from '../design/useTheme';
@@ -132,6 +133,25 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
   const [newslettersOpen, setNewslettersOpen] = useState(false);
   const [autoMailsOpen, setAutoMailsOpen] = useState(false);
   const [readOpen, setReadOpen] = useState(false);
+  const [sentOpen, setSentOpen] = useState(false);
+
+  // Local log of mails Zolva sent on this user's behalf — provider-
+  // agnostic, primarily exists because iCloud sends don't land in Apple
+  // Mail's Sent folder (see 2026-05-06-icloud-send-mail-design.md).
+  const [sentRecords, setSentRecords] = useState<SentMailRecord[]>([]);
+  const [expandedSentId, setExpandedSentId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!userId) { setSentRecords([]); return; }
+    let cancelled = false;
+    const reload = () => {
+      void listSentMails(userId).then((list) => {
+        if (!cancelled) setSentRecords(list);
+      });
+    };
+    reload();
+    const unsub = subscribeSentMails((id) => { if (id === userId) reload(); });
+    return () => { cancelled = true; unsub(); };
+  }, [userId]);
 
   const sections = useMemo(() => {
     const tier0: InboxMail[] = [];
@@ -470,6 +490,30 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
                   )}
                 </View>
               )}
+              {/* Sendt — Zolva's local log of outgoing mail. Tap a row to
+                  expand the body inline. Provider-agnostic. */}
+              {sentRecords.length > 0 && (
+                <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
+                  {renderHeader('Sendt', sentRecords.length, {
+                    open: sentOpen,
+                    onToggle: () => setSentOpen((v) => !v),
+                  })}
+                  {sentOpen && (
+                    <View style={{ gap: spacing.sm }}>
+                      {sentRecords.map((r) => (
+                        <SentRow
+                          key={r.id}
+                          record={r}
+                          expanded={expandedSentId === r.id}
+                          onPress={() =>
+                            setExpandedSentId((cur) => (cur === r.id ? null : r.id))
+                          }
+                        />
+                      ))}
+                    </View>
+                  )}
+                </View>
+              )}
             </>
           );
         })()}
@@ -481,6 +525,62 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
         onOpenMail={onOpenMail}
       />
     </View>
+  );
+}
+
+// Row for the local "Sendt" section. Renders subject + recipients + a
+// short timestamp; expands inline to show the full body when tapped.
+function SentRow({
+  record,
+  expanded,
+  onPress,
+}: {
+  record: SentMailRecord;
+  expanded: boolean;
+  onPress: () => void;
+}) {
+  const { t, type, fonts, spacing, radius, surface } = useTheme();
+  const sent = new Date(record.sentAt);
+  const timeLabel = sent.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
+  const recipients = record.to.join(', ') || '—';
+  const providerLabel =
+    record.provider === 'google' ? 'Gmail' :
+    record.provider === 'microsoft' ? 'Outlook' : 'iCloud';
+
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button">
+      <GlassFrostedCard
+        radius={radius.cardSm}
+        overlay={surface.bone}
+        style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}
+      >
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <Text
+            style={{ fontFamily: fonts.uiBold, fontSize: 14, color: t.ink, flex: 1, marginRight: spacing.md }}
+            numberOfLines={1}
+          >
+            {record.subject || '(uden emne)'}
+          </Text>
+          <Text style={{ ...type.eyebrow, color: t.ink3 }}>{timeLabel}</Text>
+        </View>
+        <Text style={{ ...type.body, color: t.ink2, marginTop: 2 }} numberOfLines={1}>
+          Til: {recipients}
+        </Text>
+        <Text style={{ ...type.eyebrow, color: t.ink3, marginTop: 4 }}>
+          {providerLabel}{record.replyToId ? ' · svar' : ''}
+        </Text>
+        {expanded ? (
+          <View style={{ marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: t.ink3 + '22' }}>
+            {record.cc && record.cc.length > 0 ? (
+              <Text style={{ ...type.body, color: t.ink2 }}>Cc: {record.cc.join(', ')}</Text>
+            ) : null}
+            <Text style={{ ...type.body, color: t.ink, marginTop: spacing.sm, lineHeight: 20 }}>
+              {record.body}
+            </Text>
+          </View>
+        ) : null}
+      </GlassFrostedCard>
+    </Pressable>
   );
 }
 
