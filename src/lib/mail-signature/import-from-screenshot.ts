@@ -73,7 +73,7 @@ Return your output via the import_signature tool with three fields:
 - html: the Outlook-safe HTML (typically wrapped in a <table>)
 - plaintext: a plain-text version of the signature for multipart/alt
 - logoBox: if a company logo or person photo is visible, an object { x, y, w, h } in pixel coordinates of the image you were shown (where (0,0) is the top-left).
-  · Be VERY GENEROUS with the bounding box — include a comfortable margin around the logo on every side so the edges aren't clipped.
+  · Be VERY GENEROUS with the bounding box — include AT LEAST 25% extra margin around the visible logo/photo on EVERY side (top, bottom, left, AND right). It is BETTER to include a small slice of surrounding whitespace or background than to clip the photo. Do NOT box "tightly" to the visible edge — extend each side by ~25% of the logo's dimension. A 200×240 photo should be boxed as roughly 300×360 with the logo centered inside. The most common failure is under-shooting the bottom of a portrait photo or the right edge of a wordmark — leave generous padding there.
   · If a logo SYMBOL appears with a company NAME / wordmark / tagline next to it (left, right, above, or below) as a unit, BOX BOTH TOGETHER — the box must include the full wordmark text, not just the iconography. A logo "Logox" with an octagon glyph + "Logox" text + tagline is one bounding box covering all three.
   · If multiple icons or images are visible, choose the most prominent / largest one (typically the main company logo or person photo, NOT small social-media icons or tiny inline contact-line markers).
   · If no logo or photo is visible, null.
@@ -213,15 +213,15 @@ async function cropLogo(
   imgH: number,
   box: { x: number; y: number; w: number; h: number },
 ): Promise<InlineImage | null> {
-  // Vision models are imprecise at exact pixel coordinates AND tend to
-  // box just the iconography while a wordmark sits right next to it.
-  // Pad horizontally by 35% (min 16 px) to capture adjacent wordmarks,
-  // and 18% vertically (min 10 px) for clean top/bottom edges. Clamps
-  // to image bounds so the crop never overruns. Generous padding picks
-  // up some whitespace from the screenshot — fine since signatures
-  // typically live on a paper-colored background.
-  const padX = Math.max(16, Math.round(box.w * 0.35));
-  const padY = Math.max(10, Math.round(box.h * 0.18));
+  // Vision models are imprecise at exact pixel coordinates and consistently
+  // under-shoot at least one edge — typically the bottom of a portrait
+  // photo or the sides of a horizontal logo wordmark. Pad generously on
+  // every side; the extra whitespace is negligible since signatures live
+  // on a paper-colored background, but a clipped photo is immediately
+  // ugly. 50% padding with bigger minimums catches the common
+  // off-by-15px cases where smaller padding still produced a haircut.
+  const padX = Math.max(32, Math.round(box.w * 0.5));
+  const padY = Math.max(32, Math.round(box.h * 0.5));
   const x = Math.max(0, Math.round(box.x - padX));
   const y = Math.max(0, Math.round(box.y - padY));
   const w = Math.min(imgW - x, Math.round(box.w + 2 * padX));
