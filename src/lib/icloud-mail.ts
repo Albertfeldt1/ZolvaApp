@@ -38,6 +38,8 @@ const PROXY_URL = `${SUPABASE_URL}/functions/v1/imap-proxy`;
 const VALIDATE_TIMEOUT_MS = 30_000;
 const LIST_INBOX_TIMEOUT_MS = 25_000;
 const GET_BODY_TIMEOUT_MS = 25_000;
+const SEND_MAIL_TIMEOUT_MS = 35_000;     // SMTP connect+send + IMAP APPEND headroom
+const APPEND_DRAFT_TIMEOUT_MS = 25_000;
 
 // Codes the edge function may return on the wire. 'network', 'not-connected'
 // and 'credential-rejected' are client-synthesized and must not be accepted
@@ -438,7 +440,7 @@ type RawMessage = {
 const GATEWAY_RETRY_BACKOFF_MS = [1_500, 4_000];
 
 async function call<T>(
-  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding',
+  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding' | 'send-mail' | 'append-draft',
   body: Record<string, unknown>,
 ): Promise<IcloudResult<T>> {
   // Retry on Supabase gateway 5xx — cold-start contention on the edge
@@ -469,7 +471,7 @@ type CallOnceResult<T> =
   | { ok: false; error: IcloudErrorCode; gatewayFlake?: boolean };
 
 async function callOnce<T>(
-  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding',
+  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding' | 'send-mail' | 'append-draft',
   body: Record<string, unknown>,
 ): Promise<CallOnceResult<T>> {
   const session = await supabase.auth.getSession();
@@ -481,7 +483,9 @@ async function callOnce<T>(
     op === 'validate' ? VALIDATE_TIMEOUT_MS
     : op === 'list-inbox' ? LIST_INBOX_TIMEOUT_MS
     : op === 'get-body' ? GET_BODY_TIMEOUT_MS
-    : VALIDATE_TIMEOUT_MS; // clear-binding: same 30s ceiling as validate
+    : op === 'send-mail' ? SEND_MAIL_TIMEOUT_MS
+    : op === 'append-draft' ? APPEND_DRAFT_TIMEOUT_MS
+    : VALIDATE_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
@@ -508,8 +512,16 @@ async function callOnce<T>(
   }
   clearTimeout(timer);
   if (res.status === 200) {
-    // validate + clear-binding return only `{ok: true}` — no payload.
-    if (op === 'validate' || op === 'clear-binding') return { ok: true, data: null as T };
+    // validate + clear-binding + send-mail + append-draft return only `{ok: true, ...}`
+    // — caller doesn't consume any payload field.
+    if (
+      op === 'validate' ||
+      op === 'clear-binding' ||
+      op === 'send-mail' ||
+      op === 'append-draft'
+    ) {
+      return { ok: true, data: null as T };
+    }
     const j = (await res.json()) as Record<string, unknown>;
     // Strip the wire envelope's `ok` so it doesn't leak into IcloudResult.data.
     const { ok: _wire, ...payload } = j;
