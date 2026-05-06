@@ -58,3 +58,7 @@ supabase/.temp/
 # The committed template is supabase/schedule-poll-mail.sql.template.
 supabase/schedule-poll-mail.sql
 
+# Stray scratch files dropped by supabase CLI shell mishaps (e.g. malformed
+# `supabase secrets unset ...` lines that get redirected into a file).
+supabase/Untitled
+
