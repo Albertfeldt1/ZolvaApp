@@ -896,24 +896,28 @@ const styles = StyleSheet.create({
   noticedText: { fontFamily: legacyFonts.ui, fontSize: 14.5, lineHeight: 21, color: colors.paperOn95 },
   noticedActions: { marginTop: 6, flexDirection: 'row', gap: 8, alignItems: 'center' },
   noticedActionPressed: { opacity: 0.55 },
-  // Primary CTA — pill button with sage tint. paddingVertical:10 +
-  // fontSize:14 lands the button height at ~38pt before the hitSlop:8
-  // adds another 16pt of forgiveness, comfortably clearing the 44pt iOS
-  // tap-target minimum. The visible bg makes the tap target obvious.
+  // Primary CTA — pill button. The default styling targets a dark
+  // glass-dark backdrop (translucent white pill + white text). The
+  // Light variant rides on top for the light bone-cream backdrop
+  // and switches to a sage-tinted pill with sage-deep text. Naming
+  // matches the rest of this file: "Light" suffix = light backdrop.
+  // paddingVertical:10 + fontSize:14 lands the button height at ~38pt
+  // before the hitSlop:8 adds another 16pt of forgiveness, comfortably
+  // clearing the 44pt iOS tap-target minimum.
   noticedCtaBtn: {
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 999,
-    backgroundColor: colors.sageSoft,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(72,107,75,0.18)',
-  },
-  noticedCtaBtnLight: {
     backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.32)',
   },
-  noticedCtaBtnText: { fontFamily: legacyFonts.uiSemi, fontSize: 14, color: colors.sageDeep },
-  noticedCtaBtnTextLight: { color: colors.paper },
+  noticedCtaBtnLight: {
+    backgroundColor: colors.sageSoft,
+    borderColor: 'rgba(72,107,75,0.18)',
+  },
+  noticedCtaBtnText: { fontFamily: legacyFonts.uiSemi, fontSize: 14, color: colors.paper },
+  noticedCtaBtnTextLight: { color: colors.sageDeep },
   // Secondary "Afvis"/"Nej" — text only with generous padding+hitSlop so
   // it stays easy to hit despite being visually subordinate.
   noticedDismissBtn: { paddingVertical: 10, paddingHorizontal: 8 },
