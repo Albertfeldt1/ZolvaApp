@@ -1,16 +1,17 @@
-import { X } from 'lucide-react-native';
 import React from 'react';
 import {
   Modal,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
+import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
+import type { SurfaceTokens } from '../design/theme';
+import { useTheme } from '../design/useTheme';
 import { useObservationHistory } from '../lib/hooks';
 import type { StoredObservation } from '../lib/hooks';
-import { colors, fonts } from '../theme';
 
 type Props = {
   visible: boolean;
@@ -21,8 +22,8 @@ export function ObservationHistoryModal({ visible, onClose }: Props) {
   return (
     <Modal
       visible={visible}
-      animationType="fade"
-      transparent
+      animationType="slide"
+      presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
       {visible ? <ObservationHistoryContent onClose={onClose} /> : null}
@@ -31,57 +32,144 @@ export function ObservationHistoryModal({ visible, onClose }: Props) {
 }
 
 function ObservationHistoryContent({ onClose }: { onClose: () => void }) {
+  const { t, type, fonts, radius, spacing, surface } = useTheme();
   const { items, loading } = useObservationHistory();
   const today = new Date();
 
   return (
-    <Pressable style={styles.backdrop} onPress={onClose}>
-      <Pressable style={styles.card} onPress={() => {}}>
-        <View style={styles.topBar}>
-          <Text style={styles.title}>Bemærket</Text>
-          <Pressable
-            onPress={onClose}
-            style={styles.closeBtn}
-            hitSlop={12}
-            accessibilityLabel="Luk"
-          >
-            <X size={18} color={colors.ink} strokeWidth={1.75} />
-          </Pressable>
-        </View>
+    <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
+      <GlassHaloLayer />
 
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          showsVerticalScrollIndicator={false}
+      {/* Header */}
+      <View
+        style={{
+          paddingTop: spacing.lg,
+          paddingHorizontal: spacing.screenPad,
+          paddingBottom: spacing.md,
+          position: 'relative',
+          zIndex: 1,
+        }}
+      >
+        <GlassFrostedCard
+          radius={radius.card}
+          style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}
         >
-          {items.length === 0 && !loading && (
-            <Text style={styles.empty}>Ingen tidligere observationer endnu.</Text>
-          )}
-          {items.map((o, i) => {
-            const showDate = i === 0 || items[i - 1].sourceDate !== o.sourceDate;
-            return (
-              <View key={o.id}>
-                {showDate && (
-                  <Text style={[styles.dateEyebrow, i > 0 && styles.dateEyebrowSpaced]}>
-                    {formatSourceDate(o.sourceDate, today)}
-                  </Text>
-                )}
-                <View style={[styles.row, !showDate && styles.rowBorder]}>
-                  <View style={[styles.moodDot, moodDotStyle(o)]} />
-                  <Text style={styles.rowText}>{o.text}</Text>
-                </View>
-              </View>
-            );
-          })}
-        </ScrollView>
-      </Pressable>
-    </Pressable>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+            <Pressable
+              onPress={onClose}
+              hitSlop={8}
+              accessibilityLabel="Luk"
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: radius.pill,
+                backgroundColor: surface.iconButton,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text style={{ fontFamily: fonts.ui, fontSize: 18, color: t.ink2 }}>×</Text>
+            </Pressable>
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  fontFamily: fonts.display,
+                  fontSize: 20,
+                  fontWeight: '600',
+                  letterSpacing: -0.4,
+                  color: t.ink,
+                }}
+              >
+                Bemærket
+              </Text>
+            </View>
+          </View>
+        </GlassFrostedCard>
+      </View>
+
+      {/* List */}
+      <ScrollView
+        contentContainerStyle={{
+          paddingHorizontal: spacing.screenPad,
+          paddingBottom: spacing.xxl,
+        }}
+        showsVerticalScrollIndicator={false}
+      >
+        {items.length === 0 && !loading ? (
+          <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.lg }}>
+            <Text
+              style={{
+                ...type.body,
+                color: t.ink3,
+                textAlign: 'center',
+              }}
+            >
+              Ingen tidligere observationer endnu.
+            </Text>
+          </GlassFrostedCard>
+        ) : (
+          <View style={{ gap: spacing.md }}>
+            {(() => {
+              let lastDate: string | null = null;
+              return items.map((o, i) => {
+                const showDate = o.sourceDate !== lastDate;
+                lastDate = o.sourceDate;
+                return (
+                  <React.Fragment key={o.id}>
+                    {showDate && (
+                      <Text
+                        style={{
+                          ...type.eyebrow,
+                          color: t.ink3,
+                          paddingTop: i > 0 ? spacing.sm : 0,
+                        }}
+                      >
+                        {formatSourceDate(o.sourceDate, today)}
+                      </Text>
+                    )}
+                    <GlassFrostedCard
+                      overlay={surface.bone}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'flex-start',
+                        gap: spacing.md,
+                        padding: spacing.md,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: 999,
+                          marginTop: 7,
+                          backgroundColor: moodDotColor(o, surface),
+                        }}
+                      />
+                      <Text
+                        style={{
+                          flex: 1,
+                          ...type.body,
+                          color: t.ink,
+                        }}
+                      >
+                        {o.text}
+                      </Text>
+                    </GlassFrostedCard>
+                  </React.Fragment>
+                );
+              });
+            })()}
+          </View>
+        )}
+      </ScrollView>
+    </View>
   );
 }
 
-function moodDotStyle(o: StoredObservation) {
-  if (o.mood === 'happy') return { backgroundColor: colors.sage };
-  if (o.mood === 'thinking') return { backgroundColor: colors.clay };
-  return { backgroundColor: colors.stone };
+function moodDotColor(o: StoredObservation, surface: SurfaceTokens): string {
+  if (o.mood === 'happy') return surface.successText;  // green — positive observation
+  if (o.mood === 'thinking') return '#C17A5B';          // clay amber — requires a decision
+  return 'rgba(120,122,130,0.6)';                       // neutral grey — calm observation
 }
 
 const DANISH_MONTHS = [
@@ -108,99 +196,3 @@ function sameDay(a: Date, b: Date): boolean {
     a.getDate() === b.getDate()
   );
 }
-
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 60,
-  },
-  card: {
-    width: '100%',
-    maxWidth: 480,
-    maxHeight: '100%',
-    backgroundColor: colors.paper,
-    borderRadius: 24,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 20,
-    elevation: 12,
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 20,
-    paddingHorizontal: 22,
-    paddingBottom: 14,
-  },
-  title: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.sageDeep,
-  },
-  closeBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 999,
-    backgroundColor: colors.mist,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scroll: {
-    paddingHorizontal: 22,
-    paddingBottom: 24,
-  },
-  empty: {
-    fontFamily: fonts.ui,
-    fontSize: 14,
-    color: colors.fg3,
-    paddingVertical: 24,
-    textAlign: 'center',
-  },
-  dateEyebrow: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.sageDeep,
-    paddingTop: 4,
-    paddingBottom: 8,
-  },
-  dateEyebrowSpaced: {
-    paddingTop: 18,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.line,
-    marginTop: 6,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    paddingVertical: 10,
-  },
-  rowBorder: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.line,
-  },
-  moodDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 999,
-    marginTop: 7,
-  },
-  rowText: {
-    flex: 1,
-    fontFamily: fonts.ui,
-    fontSize: 14,
-    lineHeight: 20,
-    color: colors.ink,
-  },
-});

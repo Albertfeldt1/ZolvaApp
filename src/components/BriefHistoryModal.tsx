@@ -1,16 +1,17 @@
-import { Moon, Sun, Sunrise, X } from 'lucide-react-native';
+import { Moon, Sun, Sunrise } from 'lucide-react-native';
 import React from 'react';
 import {
   Modal,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
+import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
+import { useTheme } from '../design/useTheme';
 import type { Brief } from '../lib/briefs';
 import { useBriefHistory } from '../lib/briefs';
-import { colors, fonts } from '../theme';
 
 type BriefKind = 'morning' | 'midday' | 'evening';
 
@@ -24,8 +25,8 @@ export function BriefHistoryModal({ kind, onClose, onSelect }: Props) {
   return (
     <Modal
       visible={kind !== null}
-      animationType="fade"
-      transparent
+      animationType="slide"
+      presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
       {kind !== null ? (
@@ -44,59 +45,139 @@ function BriefHistoryContent({
   onClose: () => void;
   onSelect: (brief: Brief) => void;
 }) {
+  const { t, type, fonts, radius, spacing, surface } = useTheme();
   const { items, loading } = useBriefHistory(kind);
-  const Icon = kind === 'evening' ? Moon : kind === 'midday' ? Sun : Sunrise;
+
+  const KindIcon = kind === 'evening' ? Moon : kind === 'midday' ? Sun : Sunrise;
   const title =
-    kind === 'evening' ? 'Aftenbriefs' :
-    kind === 'midday' ? 'Middagsbriefs' :
-    'Morgenbriefs';
+    kind === 'evening'
+      ? 'Aftenbriefs'
+      : kind === 'midday'
+      ? 'Middagsbriefs'
+      : 'Morgenbriefs';
   const today = new Date();
   const emptyLabel =
-    kind === 'evening' ? 'aftenbriefs' :
-    kind === 'midday' ? 'middagsbriefs' :
-    'morgenbriefs';
+    kind === 'evening'
+      ? 'aftenbriefs'
+      : kind === 'midday'
+      ? 'middagsbriefs'
+      : 'morgenbriefs';
 
   return (
-    <Pressable style={styles.backdrop} onPress={onClose}>
-      <Pressable style={styles.card} onPress={() => {}}>
-        <View style={styles.topBar}>
-          <View style={styles.titleRow}>
-            <Icon size={18} color={colors.sageDeep} strokeWidth={1.75} />
-            <Text style={styles.title}>{title}</Text>
-          </View>
-          <Pressable
-            onPress={onClose}
-            style={styles.closeBtn}
-            hitSlop={12}
-            accessibilityLabel="Luk"
-          >
-            <X size={18} color={colors.ink} strokeWidth={1.75} />
-          </Pressable>
-        </View>
+    <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
+      <GlassHaloLayer />
 
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          showsVerticalScrollIndicator={false}
+      {/* Header */}
+      <View
+        style={{
+          paddingTop: spacing.lg,
+          paddingHorizontal: spacing.screenPad,
+          paddingBottom: spacing.md,
+          position: 'relative',
+          zIndex: 1,
+        }}
+      >
+        <GlassFrostedCard
+          radius={radius.card}
+          style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}
         >
-          {items.length === 0 && !loading && (
-            <Text style={styles.empty}>Ingen {emptyLabel} endnu.</Text>
-          )}
-          {items.map((b, i) => (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
             <Pressable
-              key={b.id}
-              onPress={() => onSelect(b)}
-              style={[styles.row, i > 0 && styles.rowBorder]}
-              android_ripple={{ color: colors.mist }}
+              onPress={onClose}
+              hitSlop={8}
+              accessibilityLabel="Luk"
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: radius.pill,
+                backgroundColor: surface.iconButton,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
             >
-              <Text style={styles.rowDate}>{formatBriefDate(b.generatedAt, today)}</Text>
-              <Text style={styles.rowHeadline} numberOfLines={2}>
-                {b.headline}
-              </Text>
+              <Text style={{ fontFamily: fonts.ui, fontSize: 18, color: t.ink2 }}>×</Text>
             </Pressable>
-          ))}
-        </ScrollView>
-      </Pressable>
-    </Pressable>
+            <KindIcon size={18} color={t.ink2} strokeWidth={1.75} />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  fontFamily: fonts.display,
+                  fontSize: 20,
+                  fontWeight: '600',
+                  letterSpacing: -0.4,
+                  color: t.ink,
+                }}
+              >
+                {title}
+              </Text>
+            </View>
+          </View>
+        </GlassFrostedCard>
+      </View>
+
+      {/* List */}
+      <ScrollView
+        contentContainerStyle={{
+          paddingHorizontal: spacing.screenPad,
+          paddingBottom: spacing.xxl,
+        }}
+        showsVerticalScrollIndicator={false}
+      >
+        {items.length === 0 && !loading ? (
+          <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.lg }}>
+            <Text
+              style={{
+                ...type.body,
+                color: t.ink3,
+                textAlign: 'center',
+              }}
+            >
+              Ingen {emptyLabel} endnu.
+            </Text>
+          </GlassFrostedCard>
+        ) : (
+          <GlassFrostedCard overlay={surface.bone} style={{ paddingVertical: 0, paddingHorizontal: spacing.lg }}>
+            {items.map((b, i) => (
+              <Pressable
+                key={b.id}
+                onPress={() => onSelect(b)}
+                style={[
+                  {
+                    paddingVertical: spacing.md,
+                  },
+                  i > 0 && {
+                    borderTopWidth: 1,
+                    borderTopColor: t.line,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    ...type.eyebrow,
+                    color: t.ink3,
+                    marginBottom: spacing.xs,
+                  }}
+                >
+                  {formatBriefDate(b.generatedAt, today)}
+                </Text>
+                <Text
+                  style={{
+                    fontFamily: fonts.display,
+                    fontSize: 20,
+                    lineHeight: 26,
+                    letterSpacing: -0.4,
+                    color: t.ink,
+                  }}
+                  numberOfLines={2}
+                >
+                  {b.headline}
+                </Text>
+              </Pressable>
+            ))}
+          </GlassFrostedCard>
+        )}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -123,82 +204,3 @@ function sameDay(a: Date, b: Date): boolean {
     a.getDate() === b.getDate()
   );
 }
-
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 60,
-  },
-  card: {
-    width: '100%',
-    maxWidth: 480,
-    maxHeight: '100%',
-    backgroundColor: colors.paper,
-    borderRadius: 24,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 20,
-    elevation: 12,
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 20,
-    paddingHorizontal: 22,
-    paddingBottom: 14,
-  },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  title: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.sageDeep,
-  },
-  closeBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 999,
-    backgroundColor: colors.mist,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scroll: {
-    paddingHorizontal: 22,
-    paddingBottom: 24,
-  },
-  empty: {
-    fontFamily: fonts.ui,
-    fontSize: 14,
-    color: colors.fg3,
-    paddingVertical: 24,
-    textAlign: 'center',
-  },
-  row: { paddingVertical: 14 },
-  rowBorder: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.line,
-  },
-  rowDate: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.sageDeep,
-    marginBottom: 4,
-  },
-  rowHeadline: {
-    fontFamily: fonts.display,
-    fontSize: 20,
-    lineHeight: 26,
-    letterSpacing: -0.4,
-    color: colors.ink,
-  },
-});

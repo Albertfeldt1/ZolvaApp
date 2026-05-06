@@ -1,15 +1,15 @@
-import { X } from 'lucide-react-native';
 import React from 'react';
 import {
   Modal,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
+import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
+import { useTheme } from '../design/useTheme';
 import type { Brief } from '../lib/briefs';
-import { colors, fonts } from '../theme';
 
 type Props = {
   brief: Brief | null;
@@ -18,132 +18,129 @@ type Props = {
 };
 
 export function BriefModal({ brief, visible, onClose }: Props) {
+  const { t, type, fonts, radius, spacing, surface } = useTheme();
+
   const weatherLine = brief?.weather
     ? `${brief.weather.tempC.toFixed(0)}°C · ${brief.weather.conditionLabel}`
     : null;
 
+  const kindLabel =
+    brief?.kind === 'morning'
+      ? 'Morgenbrief'
+      : brief?.kind === 'midday'
+      ? 'Middagsbrief'
+      : 'Aftenbrief';
+
   return (
     <Modal
       visible={visible && !!brief}
-      animationType="fade"
-      transparent
+      animationType="slide"
+      presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.card} onPress={() => {}}>
-          <View style={styles.topBar}>
-            <View style={styles.eyebrowWrap}>
-              <Text style={styles.eyebrow}>
-                {brief?.kind === 'morning' ? 'Morgenbrief' : brief?.kind === 'midday' ? 'Middagsbrief' : 'Aftenbrief'}
-              </Text>
-              {weatherLine && <Text style={styles.weather}>{weatherLine}</Text>}
-            </View>
-            <Pressable
-              onPress={onClose}
-              style={styles.closeBtn}
-              hitSlop={12}
-              accessibilityLabel="Luk brief"
-            >
-              <X size={18} color={colors.ink} strokeWidth={1.75} />
-            </Pressable>
-          </View>
+      <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
+        <GlassHaloLayer />
 
-          <ScrollView
-            contentContainerStyle={styles.scroll}
-            showsVerticalScrollIndicator={false}
+        {/* Header */}
+        <View
+          style={{
+            paddingTop: spacing.lg,
+            paddingHorizontal: spacing.screenPad,
+            paddingBottom: spacing.md,
+            position: 'relative',
+            zIndex: 1,
+          }}
+        >
+          <GlassFrostedCard
+            radius={radius.card}
+            style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}
           >
-            {brief && (
-              <>
-                <Text style={styles.headline}>{brief.headline}</Text>
-                <View style={styles.inkRule} />
-                {brief.body.map((line, i) => (
-                  <Text key={i} style={styles.body}>
-                    {line}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              <Pressable
+                onPress={onClose}
+                hitSlop={8}
+                accessibilityLabel="Luk brief"
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: radius.pill,
+                  backgroundColor: surface.iconButton,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text style={{ fontFamily: fonts.ui, fontSize: 18, color: t.ink2 }}>×</Text>
+              </Pressable>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    fontFamily: fonts.display,
+                    fontSize: 20,
+                    fontWeight: '600',
+                    letterSpacing: -0.4,
+                    color: t.ink,
+                  }}
+                >
+                  {kindLabel}
+                </Text>
+                {weatherLine && (
+                  <Text style={{ ...type.eyebrow, color: t.ink3, textTransform: 'none' }}>
+                    {weatherLine}
                   </Text>
-                ))}
-              </>
-            )}
-          </ScrollView>
-        </Pressable>
-      </Pressable>
+                )}
+              </View>
+            </View>
+          </GlassFrostedCard>
+        </View>
+
+        {/* Body */}
+        <ScrollView
+          contentContainerStyle={{
+            paddingHorizontal: spacing.screenPad,
+            paddingBottom: spacing.xxl,
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          {brief && (
+            <GlassFrostedCard
+              overlay={surface.bone}
+              style={{ padding: spacing.lg }}
+            >
+              <Text
+                style={{
+                  fontFamily: fonts.display,
+                  fontSize: 28,
+                  lineHeight: 34,
+                  letterSpacing: -0.5,
+                  color: t.ink,
+                }}
+              >
+                {brief.headline}
+              </Text>
+              <View
+                style={{
+                  marginTop: spacing.md,
+                  marginBottom: spacing.md,
+                  height: 1,
+                  backgroundColor: t.line,
+                }}
+              />
+              {brief.body.map((line, i) => (
+                <Text
+                  key={i}
+                  style={{
+                    ...type.body,
+                    color: t.ink2,
+                    marginBottom: spacing.md,
+                  }}
+                >
+                  {line}
+                </Text>
+              ))}
+            </GlassFrostedCard>
+          )}
+        </ScrollView>
+      </View>
     </Modal>
   );
 }
-
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 60,
-  },
-  card: {
-    width: '100%',
-    maxWidth: 480,
-    maxHeight: '100%',
-    backgroundColor: colors.paper,
-    borderRadius: 24,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 20,
-    elevation: 12,
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    paddingTop: 20,
-    paddingHorizontal: 22,
-    paddingBottom: 10,
-  },
-  eyebrowWrap: { gap: 4, flex: 1 },
-  eyebrow: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.sageDeep,
-  },
-  weather: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: colors.fg3,
-  },
-  closeBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 999,
-    backgroundColor: colors.mist,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scroll: {
-    paddingHorizontal: 22,
-    paddingBottom: 28,
-  },
-  headline: {
-    fontFamily: fonts.display,
-    fontSize: 30,
-    lineHeight: 36,
-    letterSpacing: -0.6,
-    color: colors.ink,
-  },
-  inkRule: {
-    marginTop: 18,
-    marginBottom: 18,
-    height: 1,
-    backgroundColor: colors.ink,
-    opacity: 0.45,
-  },
-  body: {
-    fontFamily: fonts.ui,
-    fontSize: 16,
-    lineHeight: 25,
-    color: colors.fg2,
-    marginBottom: 14,
-  },
-});
