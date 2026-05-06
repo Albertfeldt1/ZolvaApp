@@ -36,6 +36,16 @@ async function getImapFlow(): Promise<typeof ImapFlow> {
   return _ImapFlowCtor;
 }
 
+let _SmtpClientCtor: typeof import('denomailer').SMTPClient | null = null;
+async function getSmtpClient(): Promise<typeof import('denomailer').SMTPClient> {
+  if (_SmtpClientCtor) return _SmtpClientCtor;
+  const mod = await import('denomailer');
+  _SmtpClientCtor = mod.SMTPClient;
+  return _SmtpClientCtor;
+}
+const SMTP_HOST = 'smtp.mail.me.com';
+const SMTP_PORT = 587;
+
 const IMAP_HOST = 'imap.mail.me.com';
 const IMAP_PORT = 993;
 const CONNECT_TIMEOUT_MS = 5_000;
@@ -181,7 +191,8 @@ serve(async (req) => {
       body.op !== 'list-inbox' &&
       body.op !== 'get-body' &&
       body.op !== 'count' &&
-      body.op !== 'clear-binding')
+      body.op !== 'clear-binding' &&
+      body.op !== 'send-mail')
   ) {
     return err('bad-request', 400);
   }
@@ -219,6 +230,9 @@ serve(async (req) => {
   if (body.op === 'clear-binding') {
     return await handleClearBinding(userId, supabaseUrl, serviceKey);
   }
+  if (body.op === 'send-mail') {
+    return await handleSendMail(body, userId, pepper, supabaseUrl, serviceKey);
+  }
   return err('bad-request', 400);
 });
 
@@ -226,7 +240,7 @@ async function checkRateLimit(
   serviceKey: string,
   supabaseUrl: string,
   userId: string,
-  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding',
+  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding' | 'send-mail',
 ): Promise<boolean> {
   // clear-binding doesn't need rate limiting — the JWT already authorizes,
   // and a malicious user can only delete their OWN row. Skipping the check
@@ -240,6 +254,8 @@ async function checkRateLimit(
       ? RATE_LIMIT_VALIDATE
       : op === 'list-inbox' || op === 'count'
       ? RATE_LIMIT_LIST_INBOX
+      : op === 'send-mail'
+      ? RATE_LIMIT_SEND_MAIL
       : RATE_LIMIT_GET_BODY;
   const svc = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false },
@@ -409,6 +425,27 @@ function mapImapError(caughtErr: unknown): Response {
   // Return the truncated context to the client so __DEV__ logs reveal the
   // actual IMAP failure without a function-logs dive.
   return err('protocol', 502, ctx);
+}
+
+function mapSmtpError(caughtErr: unknown): Response {
+  const msg = caughtErr instanceof Error ? caughtErr.message : String(caughtErr);
+  // denomailer throws with various shapes — match by message content as it
+  // doesn't expose structured error codes the way imapflow does.
+  if (/535|authentication failed|auth.*failed/i.test(msg)) {
+    return err('auth-failed', 422);
+  }
+  if (/AbortError|aborted|timeout/i.test(msg)) {
+    return err('timeout', 504);
+  }
+  if (/ENOTFOUND|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|TLS/i.test(msg)) {
+    return err('network', 503);
+  }
+  if (/4\d\d|5\d\d|smtp/i.test(msg)) {
+    // 4xx/5xx SMTP responses — recipient rejected, message too large, etc.
+    return err('protocol', 502, msg.slice(0, 200));
+  }
+  console.warn('[imap-proxy] unmapped smtp error:', msg);
+  return err('protocol', 502, msg.slice(0, 200));
 }
 
 function clampLimit(n: number | undefined): number {
@@ -892,6 +929,43 @@ async function handleCount(
   }
 }
 
+function decodeAttachments(specs: AttachmentSpec[] | undefined): Array<{
+  filename: string;
+  contentType: string;
+  content: Uint8Array;
+  encoding: 'base64';
+  contentDisposition: 'inline';
+  contentID: string;
+}> {
+  if (!specs || specs.length === 0) return [];
+  const out: ReturnType<typeof decodeAttachments> = [];
+  for (const a of specs) {
+    let bin: string;
+    try {
+      bin = atob(a.content_b64);
+    } catch {
+      throw new Error(`attachment ${a.filename} has invalid base64`);
+    }
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    out.push({
+      filename: a.filename,
+      contentType: a.mime_type,
+      content: bytes,
+      encoding: 'base64',
+      contentDisposition: 'inline',
+      contentID: a.content_id,
+    });
+  }
+  return out;
+}
+
+// Map "Niels Hansen <niels@example.com>" or "niels@example.com" into the
+// shape denomailer accepts. Bare addresses pass through unchanged.
+function toAddressList(addrs: string[]): string[] {
+  return addrs.map((a) => a.trim()).filter((a) => a.length > 0);
+}
+
 // --- clear-binding ----------------------------------------------------------
 //
 // Lets the user wipe their own binding row so a fresh app-specific password
@@ -915,4 +989,74 @@ async function handleClearBinding(
     return err('internal', 500);
   }
   return Response.json({ ok: true });
+}
+
+async function handleSendMail(
+  body: SendMailReq,
+  userId: string,
+  pepper: string,
+  supabaseUrl: string,
+  serviceKey: string,
+): Promise<Response> {
+  const password = normalizePassword(body.password);
+  const email = body.email.trim().toLowerCase();
+
+  // Same binding-check posture as list-inbox: row must exist and hash must match.
+  const hash = await hashCredential(pepper, email, password);
+  const svc = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false },
+  });
+  const { data: existing, error: bindReadErr } = await svc
+    .from('icloud_credential_bindings')
+    .select('credential_hash')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (bindReadErr) {
+    console.warn('[imap-proxy] send-mail binding read failed:', bindReadErr.message);
+    return err('internal', 500);
+  }
+  if (!existing || existing.credential_hash !== hash) {
+    return err('auth-failed', 422);
+  }
+
+  // Decode signature attachments before opening SMTP — bad base64 should fail
+  // fast without burning a connect-attempt to Apple.
+  let attachments: ReturnType<typeof decodeAttachments>;
+  try {
+    attachments = decodeAttachments(body.attachments);
+  } catch (e) {
+    return err('bad-request', 400, e instanceof Error ? e.message : String(e));
+  }
+
+  const SMTPClient = await getSmtpClient();
+  const client = new SMTPClient({
+    connection: {
+      hostname: SMTP_HOST,
+      port: SMTP_PORT,
+      tls: false, // STARTTLS upgrade — denomailer handles it via `tls: false` on 587
+      auth: { username: email, password },
+    },
+  });
+
+  try {
+    const sendOpts: Parameters<typeof client.send>[0] = {
+      from: email,
+      to: toAddressList(body.to),
+      cc: body.cc ? toAddressList(body.cc) : undefined,
+      subject: body.subject,
+      attachments: attachments.length > 0 ? attachments : undefined,
+    };
+    if (body.content_type === 'html') {
+      sendOpts.html = body.content;
+    } else {
+      sendOpts.content = body.content;
+    }
+    await client.send(sendOpts);
+  } catch (e) {
+    return mapSmtpError(e);
+  } finally {
+    try { await client.close(); } catch { /* ignore */ }
+  }
+
+  return Response.json({ ok: true, sent_appended: false });
 }
