@@ -3422,13 +3422,13 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'create_draft',
     description:
-      'Opret et udkast til en mail. Brug når brugeren siger "lav et udkast", "skriv en mail", "udarbejd et svar" eller lignende. Udkastet gemmes i brugerens mailkonto (Gmail eller Outlook) — det bliver IKKE sendt. BEKRÆFT ALTID modtager, emne og indhold med brugeren før du kalder værktøjet. Brugerens signatur tilføjes automatisk. Hvis udkastet er et svar på en eksisterende mail, send det fulde unified-ID i `reply_to_id` (fx "google:abc" eller "microsoft:abc") — så bevares tråden. iCloud understøttes ikke.',
+      'Opret et udkast til en mail. Brug når brugeren siger "lav et udkast", "skriv en mail", "udarbejd et svar" eller lignende. Udkastet gemmes i brugerens mailkonto (Gmail, Outlook eller iCloud) — det bliver IKKE sendt. BEKRÆFT ALTID modtager, emne og indhold med brugeren før du kalder værktøjet. Brugerens signatur tilføjes automatisk. Hvis udkastet er et svar på en eksisterende mail, send det fulde unified-ID i `reply_to_id` (fx "google:abc", "microsoft:abc" eller "icloud:123") — så bevares tråden.',
     input_schema: {
       type: 'object',
       properties: {
         provider: {
           type: 'string',
-          enum: ['google', 'microsoft'],
+          enum: ['google', 'microsoft', 'icloud'],
           description: 'Hvilken konto udkastet lægges på. Vælg ud fra hvor brugeren har konteksten.',
         },
         to: {
@@ -3447,11 +3447,11 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'send_mail',
     description:
-      'Send en mail med det samme. Brug KUN når brugeren udtrykkeligt siger "send", "afsend" eller "send afsted" — IKKE ved "udkast", "skriv", eller "lav et svar". Når i tvivl, brug create_draft. BEKRÆFT ALTID modtager, emne og indhold med brugeren før du kalder værktøjet. Brugerens signatur tilføjes automatisk. iCloud understøttes ikke.',
+      'Send en mail med det samme. Brug KUN når brugeren udtrykkeligt siger "send", "afsend" eller "send afsted" — IKKE ved "udkast", "skriv", eller "lav et svar". Når i tvivl, brug create_draft. BEKRÆFT ALTID modtager, emne og indhold med brugeren før du kalder værktøjet. Brugerens signatur tilføjes automatisk.',
     input_schema: {
       type: 'object',
       properties: {
-        provider: { type: 'string', enum: ['google', 'microsoft'] },
+        provider: { type: 'string', enum: ['google', 'microsoft', 'icloud'] },
         to: { type: 'array', items: { type: 'string' } },
         cc: { type: 'array', items: { type: 'string' } },
         subject: { type: 'string' },
