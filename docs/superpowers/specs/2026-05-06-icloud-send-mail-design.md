@@ -16,11 +16,16 @@ The 2026-04-25 iCloud mail/calendar design shipped read-only iCloud mail. Allan 
 
 ## Non-goals
 
-- HTML mail bodies. Plain text only; Danish UTF-8 via quoted-printable.
-- Attachments.
+- User-supplied attachments. The only attachments produced are inline signature images via the existing `buildOutgoingBody` pipeline.
 - Send-from alias picker (e.g. choosing between `@me.com` / `@icloud.com` / custom domain). v1 sends from whatever email Allan entered in `IcloudSetupScreen`.
 - BCC. CC only. (Easy to add later if needed; deferred to keep schema and UX minimal.)
 - iCloud calendar invites / iTIP — already deferred from the read design.
+
+## Body format
+
+Same pipeline Gmail and Outlook already use: `runMailComposeTool` passes the raw user-typed body into `icloudSendMail` / `icloudAppendDraft`, which call `buildOutgoingBody(rawBody)` from `src/lib/mail-signature/`. That returns `{ contentType: 'text' | 'html', content: string, attachments: InlineAttachmentSpec[] }`. Plain text when no signature is configured; HTML with inline image attachments when a structured or imported signature exists.
+
+The new edge-function ops accept `content_type`, `content`, and an optional `attachments` array. denomailer natively supports HTML bodies and inline (`cid:`) attachments via `html` + `attachments` parameters on its `send` call. Danish characters round-trip via UTF-8 in either format (quoted-printable for text, base64 for HTML).
 
 ## Architecture summary
 
@@ -50,6 +55,13 @@ Three changes only:
 Request:
 
 ```ts
+type AttachmentSpec = {
+  filename: string;
+  mime_type: string;
+  content_b64: string;   // base64-encoded bytes
+  content_id: string;    // for inline reference via cid:<content_id>
+};
+
 {
   op: 'send-mail';
   email: string;
@@ -57,8 +69,10 @@ Request:
   to: string[];
   cc?: string[];
   subject: string;
-  body: string;          // plain text, signature already appended client-side
-  reply_to_uid?: number; // IMAP UID of original mail in INBOX
+  content_type: 'text' | 'html';
+  content: string;          // produced by buildOutgoingBody on the client
+  attachments?: AttachmentSpec[];  // inline signature image, when present
+  reply_to_uid?: number;    // IMAP UID of original mail in INBOX
 }
 ```
 
@@ -71,7 +85,7 @@ Flow:
    - LOGIN, EXAMINE INBOX (read-only — keeps `\Seen` clean), `FETCH <uid> (BODY.PEEK[HEADER.FIELDS (MESSAGE-ID REFERENCES SUBJECT FROM)])`, LOGOUT.
    - Build the threading strings: `inReplyTo = messageIdHeader`, `references = (origReferences ? origReferences + ' ' : '') + messageIdHeader`.
    - On any failure (UID gone, IMAP error, timeout): warn-log, continue without threading. Don't fail the whole call — the user's intent is "send the mail," and an unthreaded send is strictly better than a rejected one.
-4. Lazy-load denomailer. Connect to `smtp.mail.me.com:587`, STARTTLS, AUTH PLAIN with `email` + `password`. Send the message with the threading headers (if any). Connection timeout 5s, command timeout 10s — same constants as IMAP path.
+4. Lazy-load denomailer. Connect to `smtp.mail.me.com:587`, STARTTLS, AUTH PLAIN with `email` + `password`. Send the message: pass `content_type === 'html' ? { html: content } : { content }` to denomailer, plus `attachments` decoded from base64 with `contentDisposition: 'inline'` and the supplied `content_id`. Add the threading headers (if any) via denomailer's `inReplyTo` / `references` / custom-headers options. Connection timeout 5s, command timeout 10s — same constants as IMAP path.
 5. On SMTP success, best-effort IMAP `APPEND` to the Sent folder:
    - Open a fresh IMAP connection (denomailer doesn't share with imapflow).
    - Resolve the Sent folder name by trying in order: `Sent Messages`, `Sent`, then any folder reported with the `\Sent` special-use flag.
@@ -94,7 +108,7 @@ Error mapping:
 
 #### `op: 'append-draft'`
 
-Request: same shape as `send-mail` minus `reply_to_uid` is optional and used only for embedding threading headers into the stored draft.
+Request: same shape as `send-mail`. `reply_to_uid` is optional and used only for embedding threading headers into the stored draft.
 
 Flow:
 
@@ -131,15 +145,17 @@ export type IcloudComposeInput = {
   to: string[];
   cc?: string[];
   subject: string;
-  body: string;
+  body: string;            // RAW body text from the user / agent
   replyToUid?: number;
 };
 
-export async function icloudSendMail(input: IcloudComposeInput): Promise<void>;
-export async function icloudAppendDraft(input: IcloudComposeInput): Promise<void>;
+export async function icloudSendMail(userId: string, input: IcloudComposeInput): Promise<IcloudResult<null>>;
+export async function icloudAppendDraft(userId: string, input: IcloudComposeInput): Promise<IcloudResult<null>>;
 ```
 
-Both call a shared `callIcloudProxy` helper (already used by the read paths) with the new ops. Credentials come from the existing `getIcloudCredentials()` flow — same path the read ops use, including the credential-expired UI hook on `auth-failed`.
+Both functions call `buildOutgoingBody(input.body)` from `mail-signature/` to render signature + attachments, then forward `content_type`, `content`, and serialized `attachments` (bytes → base64) to the proxy via the existing `call(...)` helper in `icloud-mail.ts`. Credentials come from the existing `loadCredential(userId)` flow — same path the read ops use, including the `markInvalid` flip on `auth-failed`.
+
+The shared `call<T>` helper's op union (`'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding'`) widens to include `'send-mail'` and `'append-draft'`. `KNOWN_WIRE_CODES` gains no new entries — the new ops use the existing error codes.
 
 On success, both call the SWR cache invalidator (s5934) so the inbox view refreshes next time it's read.
 
@@ -162,11 +178,14 @@ Dispatch:
 
 ```ts
 if (provider === 'icloud') {
+  if (!ctx.userId) return { text: 'Ingen bruger-session.', isError: true };
   if (name === 'create_draft') {
-    await icloudAppendDraft({ to, cc, subject, body, replyToUid: providerReplyIdNum });
+    const r = await icloudAppendDraft(ctx.userId, { to, cc, subject, body, replyToUid: providerReplyIdNum });
+    if (!r.ok) return { text: mapIcloudComposeError(r.error), isError: true };
     return { text: 'Udkast oprettet i iCloud.', isError: false };
   }
-  await icloudSendMail({ to, cc, subject, body, replyToUid: providerReplyIdNum });
+  const r = await icloudSendMail(ctx.userId, { to, cc, subject, body, replyToUid: providerReplyIdNum });
+  if (!r.ok) return { text: mapIcloudComposeError(r.error), isError: true };
   return {
     text: providerReplyIdNum ? 'Svaret er sendt fra iCloud.' : 'Mailen er sendt fra iCloud.',
     isError: false,
@@ -174,9 +193,11 @@ if (provider === 'icloud') {
 }
 ```
 
+`mapIcloudComposeError` is a small new helper in `hooks.ts` that maps `IcloudErrorCode` → Danish strings per the error table below.
+
 #### Signature
 
-The signature is appended to `body` upstream of `runMailComposeTool` for Gmail and Outlook. During implementation, verify the signature path applies for iCloud too. If a provider gate exists around signature loading, lift it (one-line fix). No design change — flagged as a check item.
+`buildOutgoingBody` is called inside `icloudSendMail` / `icloudAppendDraft` themselves (mirroring how Gmail and Outlook call it inside their own send/draft functions). The raw body passed from `runMailComposeTool` is unchanged — providers handle signature rendering internally. No upstream changes needed; signature config in `src/lib/mail-signature/storage.ts` is provider-agnostic and already powers Gmail/Outlook.
 
 ### 4. Error handling
 
@@ -240,12 +261,13 @@ No automated test harness for edge functions or the chat tool layer exists in th
 
 **Server side (against deployed function):**
 
-- Plain ASCII send Allan → himself, confirm receipt and Sent folder copy in Apple Mail.
+- Plain ASCII send Allan → himself with no signature configured, confirm receipt and Sent folder copy in Apple Mail.
 - Danish characters: subject and body with `æ ø å`, confirm correct rendering on receipt.
+- Rich signature: configure a structured signature with logo image, send → confirm recipient sees the signature with the inline image, NOT as a broken `cid:` reference or a separate attachment.
 - Reply threading: send reply with `reply_to_uid`, confirm Apple Mail threads it (not a new conversation).
 - Sent-folder edge case: rename `Sent Messages` server-side → confirm SMTP send succeeds, APPEND silently fails, response still 200.
 - Auth failure: send with wrong password → confirm `auth-failed` surfaces and triggers the expired-credential UI.
-- Draft: APPEND a draft → confirm Apple Mail shows it in Drafts and lets you finish/send.
+- Draft: APPEND a draft → confirm Apple Mail shows it in Drafts and lets you finish/send, including any inline signature.
 
 **Client side (in-app via chat):**
 
