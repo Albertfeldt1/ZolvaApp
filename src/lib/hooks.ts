@@ -2124,7 +2124,12 @@ export function useMailDetail(
               from: r.data.from,
               subject: r.data.subject,
               body: r.data.body,
-              replyContext: { provider: 'icloud', uid, subject: r.data.subject },
+              replyContext: {
+                provider: 'icloud',
+                uid,
+                subject: r.data.subject,
+                fromEmail: r.data.fromEmail,
+              },
             };
           })();
 
@@ -2176,10 +2181,18 @@ export function useSendReply() {
         } else if (ctx.provider === 'microsoft') {
           await graphReplyToMessage(ctx.messageId, body);
         } else {
-          // iCloud reply requires SMTP — not implemented in v1. Surface a
-          // recoverable error so the UI can show a Danish message rather
-          // than crashing. User can copy text + send from Apple Mail.
-          throw new Error('Svar på iCloud-mail er ikke understøttet endnu. Brug Apple Mail.');
+          if (!user?.id) throw new Error('Ikke logget ind.');
+          if (!ctx.fromEmail) throw new Error('Manglende afsender-adresse.');
+          const replySubject = /^re:/i.test(ctx.subject.trim())
+            ? ctx.subject.trim()
+            : `Re: ${ctx.subject.trim()}`;
+          const r = await icloudSendMail(user.id, {
+            to: [ctx.fromEmail],
+            subject: replySubject,
+            body,
+            replyToUid: ctx.uid,
+          });
+          if (!r.ok) throw new Error(`icloud:${r.error}`);
         }
       } catch (err) {
         const e = err instanceof Error ? err : new Error(String(err));
