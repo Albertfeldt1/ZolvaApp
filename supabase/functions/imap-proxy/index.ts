@@ -1106,108 +1106,93 @@ class SmtpConnection {
   }
 }
 
-async function sendViaSmtp(args: {
+// nodemailer goes through Deno's npm-compat layer (same path imapflow
+// uses successfully for IMAP). The hand-rolled Deno.connectTls path was
+// hitting consistent connect timeouts to smtp.mail.me.com:465 from
+// Supabase Edge IPs — possibly Apple-side rate-limiting on the raw TCP
+// path. nodemailer's Node-net.Socket implementation behaves differently
+// on the same runtime and gets through.
+let _NodemailerMod: typeof import('nodemailer') | null = null;
+async function getNodemailer(): Promise<typeof import('nodemailer')> {
+  if (_NodemailerMod) return _NodemailerMod;
+  _NodemailerMod = await import('nodemailer');
+  return _NodemailerMod;
+}
+
+type SendInput = {
   email: string;
   password: string;
-  rcptTo: string[];   // envelope recipients (to + cc, deduplicated)
-  rfc5322: Uint8Array;
-}): Promise<SmtpResult> {
+  to: string[];
+  cc?: string[];
+  subject: string;
+  contentType: 'text' | 'html';
+  content: string;
+  attachments: ReturnType<typeof decodeAttachments>;
+  threading: ThreadingHeaders;
+};
+
+async function sendViaSmtp(input: SendInput): Promise<SmtpResult> {
   const t0 = Date.now();
-  let conn: SmtpConnection | null = null;
+  console.log('[smtp] start (nodemailer)');
+  let nodemailer: typeof import('nodemailer');
   try {
-    console.log('[smtp] connect start');
-    try {
-      conn = await SmtpConnection.connect(SMTP_HOST, SMTP_PORT, SMTP_CONNECT_TIMEOUT_MS);
-      console.log('[smtp] connected', { elapsed_ms: Date.now() - t0 });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.warn('[smtp] connect failed', msg);
-      if (/abort|timeout/i.test(msg)) return { ok: false, code: 'timeout', detail: msg };
-      return { ok: false, code: 'network', detail: msg };
-    }
+    nodemailer = await getNodemailer();
+  } catch (e) {
+    return { ok: false, code: 'protocol', detail: `nodemailer load failed: ${e instanceof Error ? e.message : String(e)}` };
+  }
 
-    const expect = async (
-      okCodes: number[],
-    ): Promise<{ ok: true; code: number; lines: string[] } | { ok: false; result: SmtpResult }> => {
-      try {
-        const r = await conn!.readResponse();
-        if (okCodes.includes(r.code)) return { ok: true, code: r.code, lines: r.lines };
-        // Auth failures are 535 (or sometimes 530/534/538). Treat anything
-        // 5xx during AUTH PLAIN as auth-failed — the caller knows context.
-        if (r.code === 535 || r.code === 534 || r.code === 538 || r.code === 530) {
-          return { ok: false, result: { ok: false, code: 'auth-failed', detail: r.lines.join(' | ') } };
-        }
-        return { ok: false, result: { ok: false, code: 'protocol', detail: `${r.code} ${r.lines.join(' | ')}`.slice(0, 200) } };
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (/abort|timeout/i.test(msg)) return { ok: false, result: { ok: false, code: 'timeout', detail: msg } };
-        return { ok: false, result: { ok: false, code: 'network', detail: msg } };
-      }
-    };
+  const transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: true, // implicit TLS on 465
+    auth: { user: input.email, pass: input.password },
+    connectionTimeout: SMTP_CONNECT_TIMEOUT_MS,
+    greetingTimeout: SMTP_CONNECT_TIMEOUT_MS,
+    socketTimeout: SMTP_COMMAND_TIMEOUT_MS,
+    name: 'zolva.io', // EHLO hostname
+  });
 
-    // Greeting (already over TLS — port 465 is implicit TLS)
-    const greet = await expect([220]);
-    if (!greet.ok) { console.warn('[smtp] greeting failed', greet.result); return greet.result; }
-    console.log('[smtp] greeting ok', { elapsed_ms: Date.now() - t0 });
+  // Map our internal AttachmentSpec → nodemailer attachment shape. content
+  // is a Buffer for nodemailer; decodeAttachments already gave us bytes.
+  const naAttachments = input.attachments.map((a) => ({
+    filename: a.filename,
+    content: a.content, // Uint8Array — nodemailer accepts this for Node Buffer compat
+    contentType: a.contentType,
+    cid: a.contentID,
+    contentDisposition: 'inline' as const,
+  }));
 
-    // EHLO. The hostname Zolva announces is informational; Apple doesn't
-    // verify it. "zolva.io" matches the org domain in case anyone audits.
-    await conn.write('EHLO zolva.io\r\n');
-    const ehlo = await expect([250]);
-    if (!ehlo.ok) { console.warn('[smtp] EHLO failed', ehlo.result); return ehlo.result; }
-    console.log('[smtp] ehlo ok', { elapsed_ms: Date.now() - t0 });
-
-    // AUTH PLAIN — payload is base64 of "\0username\0password". This is
-    // the standard mechanism Apple's iCloud SMTP accepts for app-specific
-    // passwords.
-    const authBlob = btoa(`\0${args.email}\0${args.password}`);
-    await conn.write(`AUTH PLAIN ${authBlob}\r\n`);
-    const auth = await expect([235]);
-    if (!auth.ok) { console.warn('[smtp] AUTH failed', auth.result); return auth.result; }
-    console.log('[smtp] auth ok', { elapsed_ms: Date.now() - t0 });
-
-    // MAIL FROM. Apple requires the envelope sender to match the
-    // authenticated user (or one of their aliases). v1 always uses the
-    // auth email.
-    await conn.write(`MAIL FROM:<${args.email}>\r\n`);
-    const mailFrom = await expect([250]);
-    if (!mailFrom.ok) { console.warn('[smtp] MAIL FROM rejected', mailFrom.result); return mailFrom.result; }
-
-    // RCPT TO — once per recipient. If any one is rejected, the whole
-    // send fails — partial-recipient acceptance produces a confusing UX
-    // (some recipients get the mail, some don't, and the user sees only
-    // a single status string).
-    for (const rcpt of args.rcptTo) {
-      await conn.write(`RCPT TO:<${rcpt}>\r\n`);
-      const r = await expect([250, 251]);
-      if (!r.ok) { console.warn('[smtp] RCPT rejected', { rcpt, result: r.result }); return r.result; }
-    }
-
-    // DATA — server replies 354, then we send the message followed by
-    // the bare-line "." terminator. We must dot-stuff: any line in the
-    // payload that starts with "." gets an extra "." prepended (the
-    // server strips one back off when delivering).
-    await conn.write('DATA\r\n');
-    const dataResp = await expect([354]);
-    if (!dataResp.ok) { console.warn('[smtp] DATA rejected', dataResp.result); return dataResp.result; }
-
-    const payload = dotStuffMessage(args.rfc5322);
-    await conn.write(payload);
-    await conn.write('\r\n.\r\n');
-    const sent = await expect([250]);
-    if (!sent.ok) { console.warn('[smtp] DATA payload rejected', sent.result); return sent.result; }
-    console.log('[smtp] payload accepted', { elapsed_ms: Date.now() - t0 });
-
-    // Best-effort QUIT. We ignore the response — message is already
-    // delivered at this point.
-    try {
-      await conn.write('QUIT\r\n');
-      await conn.readResponse();
-    } catch { /* ignore */ }
-
+  try {
+    await transporter.sendMail({
+      from: input.email,
+      to: input.to,
+      cc: input.cc,
+      subject: input.subject,
+      text: input.contentType === 'text' ? input.content : undefined,
+      html: input.contentType === 'html' ? input.content : undefined,
+      attachments: naAttachments.length > 0 ? naAttachments : undefined,
+      inReplyTo: input.threading.inReplyTo,
+      references: input.threading.references,
+    });
+    console.log('[smtp] sent ok (nodemailer)', { elapsed_ms: Date.now() - t0 });
     return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const code = (e as { code?: string }).code ?? '';
+    const responseCode = (e as { responseCode?: number }).responseCode;
+    console.warn('[smtp] sendMail failed', { msg: msg.slice(0, 200), code, responseCode });
+    if (responseCode === 535 || responseCode === 534 || responseCode === 530 || /EAUTH|535/i.test(code) || /535|authentication/i.test(msg)) {
+      return { ok: false, code: 'auth-failed', detail: msg.slice(0, 200) };
+    }
+    if (/ETIMEDOUT|timeout/i.test(code) || /timeout/i.test(msg)) {
+      return { ok: false, code: 'timeout', detail: msg.slice(0, 200) };
+    }
+    if (/ECONNECTION|ECONN|ENOTFOUND|ESOCKET|EDNS/i.test(code) || /network|getaddrinfo|ECONN/i.test(msg)) {
+      return { ok: false, code: 'network', detail: msg.slice(0, 200) };
+    }
+    return { ok: false, code: 'protocol', detail: msg.slice(0, 200) };
   } finally {
-    if (conn) await conn.close();
+    try { transporter.close(); } catch { /* ignore */ }
   }
 }
 
@@ -1557,17 +1542,24 @@ async function handleSendMailInner(
     threading,
     date: new Date(),
   });
-  console.log('[send-mail] rfc5322 built', { bytes: raw.length, elapsed_ms: Date.now() - t0 });
+  console.log('[send-mail] rfc5322 built (for Sent APPEND)', { bytes: raw.length, elapsed_ms: Date.now() - t0 });
 
-  // Envelope recipients = to + cc (deduplicated, normalized). Bcc is
-  // explicitly out of scope for v1.
-  const rcptTo = Array.from(new Set([
-    ...toAddressList(body.to),
-    ...(body.cc ? toAddressList(body.cc) : []),
-  ]));
-
-  console.log('[send-mail] starting smtp', { rcpt_count: rcptTo.length, elapsed_ms: Date.now() - t0 });
-  const smtpResult = await sendViaSmtp({ email, password, rcptTo, rfc5322: raw });
+  // nodemailer constructs its own RFC 5322 from the typed fields below.
+  // The `raw` we built above is used only for the post-success Sent APPEND,
+  // so the recipient sees nodemailer's bytes and the Sent folder copy uses
+  // ours — both valid RFC 5322, just different MIME boundaries.
+  console.log('[send-mail] starting smtp', { to_count: body.to.length, elapsed_ms: Date.now() - t0 });
+  const smtpResult = await sendViaSmtp({
+    email,
+    password,
+    to: toAddressList(body.to),
+    cc: body.cc ? toAddressList(body.cc) : undefined,
+    subject: body.subject,
+    contentType: body.content_type,
+    content: body.content,
+    attachments,
+    threading,
+  });
   console.log('[send-mail] smtp done', {
     ok: smtpResult.ok,
     code: smtpResult.ok ? null : smtpResult.code,
