@@ -1,10 +1,22 @@
-import { Bell, BookmarkPlus, Calendar, CheckCircle2, ChevronLeft, Hourglass, Mail, Sun, Sunrise } from 'lucide-react-native';
+import {
+  Bell,
+  BookmarkPlus,
+  Calendar,
+  CheckCircle2,
+  ChevronLeft,
+  Hourglass,
+  Mail,
+  Sun,
+  Sunrise,
+} from 'lucide-react-native';
 import React, { useMemo } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { EmptyState } from '../components/EmptyState';
+import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
+import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
+import { Stone } from '../design/primitives/Stone';
+import { useTheme } from '../design/useTheme';
 import { useNotificationFeed } from '../lib/hooks';
 import type { FeedEntry, NotificationPayload } from '../lib/types';
-import { colors, fonts } from '../theme';
 
 type Props = {
   onClose: () => void;
@@ -12,6 +24,7 @@ type Props = {
 };
 
 export function NotificationsScreen({ onClose, onNavigate }: Props) {
+  const { t, type, fonts, radius, spacing, surface } = useTheme();
   const { data: entries, markRead, markAll } = useNotificationFeed();
   const now = useMemo(() => new Date(), []);
   const groups = useMemo(() => groupByDay(entries, now), [entries, now]);
@@ -23,55 +36,135 @@ export function NotificationsScreen({ onClose, onNavigate }: Props) {
   };
 
   return (
-    <View style={styles.flex}>
-      <View style={styles.topBar}>
-        <Pressable
-          onPress={onClose}
-          style={styles.roundBtn}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="Tilbage"
+    <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
+      <GlassHaloLayer />
+
+      {/* Top bar */}
+      <View
+        style={{
+          paddingTop: Platform.OS === 'ios' ? 58 : 40,
+          paddingBottom: spacing.md,
+          paddingHorizontal: spacing.screenPad,
+          position: 'relative',
+          zIndex: 1,
+        }}
+      >
+        <GlassFrostedCard
+          radius={radius.card}
+          style={{
+            paddingVertical: spacing.md,
+            paddingHorizontal: spacing.cardPad,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: spacing.md,
+          }}
         >
-          <ChevronLeft size={18} color={colors.ink} strokeWidth={1.75} />
-        </Pressable>
-        <Text style={styles.topTitle}>Notifikationer</Text>
-        <Pressable
-          onPress={markAll}
-          disabled={!hasUnread}
-          hitSlop={8}
-          style={({ pressed }) => [
-            styles.markAll,
-            !hasUnread && styles.markAllDisabled,
-            pressed && hasUnread && styles.markAllPressed,
-          ]}
-        >
-          <Text style={[styles.markAllText, !hasUnread && styles.markAllTextDisabled]}>
-            Markér alle
-          </Text>
-        </Pressable>
+          {/* Back button */}
+          <Pressable
+            onPress={onClose}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Tilbage"
+            style={({ pressed }) => ({
+              width: 34,
+              height: 34,
+              borderRadius: radius.pill,
+              backgroundColor: surface.iconButton,
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: pressed ? 0.6 : 1,
+            })}
+          >
+            <ChevronLeft size={18} color={t.ink2} strokeWidth={1.75} />
+          </Pressable>
+
+          {/* Title */}
+          <View style={{ flex: 1 }}>
+            <Text style={{ ...type.eyebrow, color: t.ink3 }}>NOTIFIKATIONER</Text>
+          </View>
+
+          {/* Mark all read */}
+          <Pressable
+            onPress={markAll}
+            disabled={!hasUnread}
+            hitSlop={8}
+            style={({ pressed }) => ({
+              paddingHorizontal: spacing.md,
+              paddingVertical: spacing.sm - 1,
+              borderRadius: radius.pill,
+              backgroundColor: hasUnread ? surface.glassWeak : 'transparent',
+              opacity: !hasUnread ? 0.35 : pressed ? 0.6 : 1,
+            })}
+          >
+            <Text
+              style={{
+                fontFamily: fonts.uiBold,
+                fontSize: 12,
+                color: hasUnread ? t.ink : t.ink3,
+              }}
+            >
+              Markér alle
+            </Text>
+          </Pressable>
+        </GlassFrostedCard>
       </View>
 
+      {/* List */}
       <ScrollView
-        style={styles.flex}
-        contentContainerStyle={styles.scrollContent}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 48 }}
         showsVerticalScrollIndicator={false}
       >
         {entries.length === 0 ? (
-          <View style={styles.emptyWrap}>
-            <EmptyState
-              mood="calm"
-              title="Ingen notifikationer endnu"
-              body="Når jeg planlægger noget for dig, dukker det op her."
-            />
+          <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
+            <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.xl, alignItems: 'center', gap: spacing.lg }}>
+              <Stone size={56} jumpOnTap={false} />
+              <Text
+                style={{
+                  fontFamily: fonts.display,
+                  fontSize: 20,
+                  letterSpacing: -0.4,
+                  color: t.ink,
+                  textAlign: 'center',
+                }}
+              >
+                Ingen notifikationer endnu
+              </Text>
+              <Text style={{ ...type.body, color: t.ink3, textAlign: 'center' }}>
+                Når jeg planlægger noget for dig, dukker det op her.
+              </Text>
+            </GlassFrostedCard>
           </View>
         ) : (
           groups.map((group) => (
-            <View key={group.key} style={styles.group}>
-              <Text style={styles.groupHeader}>{group.label}</Text>
-              <View style={styles.inkRule} />
-              {group.entries.map((entry) => (
-                <Row key={entry.id} entry={entry} onPress={() => handleRowPress(entry)} />
-              ))}
+            <View key={group.key} style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
+              {/* Day label eyebrow */}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'baseline',
+                  justifyContent: 'space-between',
+                  paddingHorizontal: spacing.xs,
+                  paddingBottom: spacing.sm,
+                }}
+              >
+                <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>
+                  {group.label}
+                </Text>
+                <Text style={{ ...type.eyebrow, color: t.ink3 }}>{group.entries.length}</Text>
+              </View>
+
+              {/* Group card */}
+              <GlassFrostedCard style={{ overflow: 'hidden' }}>
+                {group.entries.map((entry, idx) => (
+                  <NotifRow
+                    key={entry.id}
+                    entry={entry}
+                    onPress={() => handleRowPress(entry)}
+                    showDivider={idx < group.entries.length - 1}
+                  />
+                ))}
+              </GlassFrostedCard>
             </View>
           ))
         )}
@@ -80,27 +173,94 @@ export function NotificationsScreen({ onClose, onNavigate }: Props) {
   );
 }
 
-function Row({ entry, onPress }: { entry: FeedEntry; onPress: () => void }) {
-  const Icon = iconFor(entry.type);
+type RowProps = {
+  entry: FeedEntry;
+  onPress: () => void;
+  showDivider: boolean;
+};
+
+function NotifRow({ entry, onPress, showDivider }: RowProps) {
+  const { t, type, fonts, radius, spacing, surface } = useTheme();
+  const LucideIcon = iconFor(entry.type);
   const unread = entry.readAt == null;
+
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
-      <View style={styles.dotCol}>{unread && <View style={styles.unreadDot} />}</View>
-      <View style={styles.iconWrap}>
-        <Icon size={16} color={colors.sageDeep} strokeWidth={1.75} />
-      </View>
-      <View style={styles.body}>
-        <Text style={[styles.title, !unread && styles.titleRead]} numberOfLines={1}>
-          {entry.title}
-        </Text>
-        {entry.body && (
-          <Text style={styles.subtitle} numberOfLines={2}>
-            {entry.body}
+    <>
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => ({
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingVertical: spacing.md,
+          paddingHorizontal: spacing.cardPad,
+          gap: spacing.md,
+          opacity: pressed ? 0.6 : 1,
+        })}
+      >
+        {/* Unread dot column */}
+        <View style={{ width: 8, alignItems: 'center', justifyContent: 'center' }}>
+          {unread && (
+            <View
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: 4,
+                backgroundColor: t.today,
+              }}
+            />
+          )}
+        </View>
+
+        {/* Icon badge */}
+        <View
+          style={{
+            width: 34,
+            height: 34,
+            borderRadius: radius.pill,
+            backgroundColor: surface.glassWeak,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <LucideIcon size={16} color={t.ink2} strokeWidth={1.75} />
+        </View>
+
+        {/* Text */}
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text
+            style={{
+              fontFamily: unread ? fonts.uiBold : fonts.ui,
+              fontSize: 14,
+              color: unread ? t.ink : t.ink2,
+            }}
+            numberOfLines={1}
+          >
+            {entry.title}
           </Text>
-        )}
-      </View>
-      <Text style={styles.time}>{shortTime(entry.firesAt)}</Text>
-    </Pressable>
+          {entry.body && (
+            <Text
+              style={{ ...type.bodySm, color: t.ink3, lineHeight: 18 }}
+              numberOfLines={2}
+            >
+              {entry.body}
+            </Text>
+          )}
+        </View>
+
+        {/* Time */}
+        <Text style={{ ...type.caption, color: t.ink3 }}>{shortTime(entry.firesAt)}</Text>
+      </Pressable>
+
+      {showDivider && (
+        <View
+          style={{
+            height: 1,
+            marginLeft: spacing.cardPad + 8 + spacing.md + 34 + spacing.md,
+            backgroundColor: t.line,
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -175,112 +335,3 @@ function pad(n: number): string {
 function shortTime(d: Date): string {
   return `${pad(d.getHours())}.${pad(d.getMinutes())}`;
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.paper },
-
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingTop: Platform.OS === 'ios' ? 58 : 40,
-    paddingBottom: 10,
-    paddingHorizontal: 16,
-    backgroundColor: colors.paper,
-  },
-  roundBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 999,
-    backgroundColor: colors.mist,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  topTitle: {
-    flex: 1,
-    fontFamily: fonts.uiSemi,
-    fontSize: 15,
-    color: colors.ink,
-  },
-  markAll: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: colors.mist,
-  },
-  markAllDisabled: { opacity: 0.4 },
-  markAllPressed: { opacity: 0.7 },
-  markAllText: {
-    fontFamily: fonts.uiSemi,
-    fontSize: 12,
-    color: colors.ink,
-  },
-  markAllTextDisabled: { color: colors.fg3 },
-
-  scrollContent: { paddingBottom: 40 },
-
-  emptyWrap: { paddingTop: 48 },
-
-  group: { paddingHorizontal: 22, paddingTop: 20 },
-  groupHeader: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.fg3,
-  },
-  inkRule: {
-    marginTop: 8,
-    marginBottom: 4,
-    height: 1,
-    backgroundColor: colors.ink,
-    opacity: 0.45,
-  },
-
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
-    gap: 12,
-  },
-  rowPressed: { opacity: 0.6 },
-  dotCol: {
-    width: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  unreadDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: colors.clay,
-  },
-  iconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 999,
-    backgroundColor: colors.sageSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  body: { flex: 1, gap: 2 },
-  title: {
-    fontFamily: fonts.uiSemi,
-    fontSize: 14,
-    color: colors.ink,
-  },
-  titleRead: { color: colors.fg2, fontFamily: fonts.ui },
-  subtitle: {
-    fontFamily: fonts.ui,
-    fontSize: 12.5,
-    lineHeight: 18,
-    color: colors.fg3,
-  },
-  time: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: colors.fg3,
-  },
-});
