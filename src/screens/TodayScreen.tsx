@@ -17,6 +17,7 @@ import {
 import { useAuth } from '../lib/auth';
 import { loadCredential } from '../lib/icloud-credentials';
 import { BriefBanner } from '../components/BriefBanner';
+import { CountUp } from '../components/CountUp';
 import { BriefHistoryModal } from '../components/BriefHistoryModal';
 import { BriefModal } from '../components/BriefModal';
 import { ObservationHistoryModal } from '../components/ObservationHistoryModal';
@@ -257,9 +258,6 @@ export function TodayScreen({
     };
   }, [onOverDarkChange]);
 
-  // `plural(n, sing, plur)` already returns "<n> <word>" — don't prefix the
-  // count again or it renders "0 0 møder, 12 12 mails venter…".
-  const summaryLine = `${plural(todayMeetingCount, 'møde', 'møder')}, ${plural(waiting.length, 'mail venter', 'mails venter')}, og ${plural(pendingReminders.length, 'påmindelse', 'påmindelser')}.`;
 
   return (
     <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
@@ -294,7 +292,9 @@ export function TodayScreen({
               {user ? `${hello},\n${user.name}.` : `${hello}.`}
             </Text>
             <Text style={{ ...type.body, color: t.ink2, marginTop: spacing.md - 2, maxWidth: 300 }}>
-              {summaryLine}
+              <CountUp to={todayMeetingCount} /> {todayMeetingCount === 1 ? 'møde' : 'møder'},{' '}
+              <CountUp to={waiting.length} /> {waiting.length === 1 ? 'mail venter' : 'mails venter'},
+              og <CountUp to={pendingReminders.length} /> {pendingReminders.length === 1 ? 'påmindelse' : 'påmindelser'}.
             </Text>
           </GlassFrostedCard>
         </View>
@@ -321,7 +321,8 @@ export function TodayScreen({
               {/* Big number + secondary stats */}
               <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.lg }}>
                 <View>
-                  <Text
+                  <CountUp
+                    to={todayMeetingCount}
                     style={{
                       fontFamily: fonts.display,
                       fontSize: heroStat.bigSize,
@@ -330,15 +331,14 @@ export function TodayScreen({
                       letterSpacing: heroStat.bigLetterSpacing,
                       color: t.ink,
                     }}
-                  >
-                    {todayMeetingCount}
-                  </Text>
+                  />
                   <Text style={{ ...type.eyebrow, color: t.ink2, marginTop: spacing.xs, fontWeight: '600' }}>Møder</Text>
                 </View>
                 <View style={{ flex: 1, paddingBottom: spacing.xs + 2 }}>
                   <View style={{ flexDirection: 'row', gap: spacing.cardPad }}>
                     <View>
-                      <Text
+                      <CountUp
+                        to={waiting.length}
                         style={{
                           fontFamily: fonts.display,
                           fontSize: heroStat.midSize,
@@ -346,14 +346,13 @@ export function TodayScreen({
                           letterSpacing: heroStat.midLetterSpacing,
                           color: t.ink,
                         }}
-                      >
-                        {waiting.length}
-                      </Text>
+                      />
                       <Text style={{ ...type.eyebrow, color: t.ink3, marginTop: 2 }}>Mails</Text>
                     </View>
                     <View style={{ width: 1, backgroundColor: t.line }} />
                     <View>
-                      <Text
+                      <CountUp
+                        to={pendingReminders.length}
                         style={{
                           fontFamily: fonts.display,
                           fontSize: heroStat.midSize,
@@ -361,9 +360,7 @@ export function TodayScreen({
                           letterSpacing: heroStat.midLetterSpacing,
                           color: t.ink,
                         }}
-                      >
-                        {pendingReminders.length}
-                      </Text>
+                      />
                       <Text style={{ ...type.eyebrow, color: t.ink3, marginTop: 2 }}>Påmindelser</Text>
                     </View>
                   </View>
@@ -451,7 +448,9 @@ export function TodayScreen({
               }}
             >
               <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>Næste</Text>
-              <Text style={{ ...type.eyebrow, color: t.ink3 }}>{upcoming.length > 0 ? `${upcoming.length} i dag` : '—'}</Text>
+              <Text style={{ ...type.eyebrow, color: t.ink3 }}>
+                {upcoming.length > 0 ? (<><CountUp to={upcoming.length} /> i dag</>) : '—'}
+              </Text>
             </View>
 
             {upcoming.length === 0 ? (

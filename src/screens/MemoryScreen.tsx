@@ -1,6 +1,7 @@
 import { Check, Trash2 } from 'lucide-react-native';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { CountUp } from '../components/CountUp';
 import { EmptyState } from '../components/EmptyState';
 import { FactRow } from '../components/FactRow';
 import { useChromeInsets } from '../components/PhoneChrome';
@@ -238,7 +239,11 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
                         fontSize: type.caption.fontSize,
                         color: active ? '#FFFFFF' : t.ink, // #FFFFFF for contrast on dark ink pill
                       }}>
-                        {tabDef.label} · {count}
+                        {tabDef.label} · <CountUp to={count} style={{
+                          fontFamily: fonts.uiBold,
+                          fontSize: type.caption.fontSize,
+                          color: active ? '#FFFFFF' : t.ink,
+                        }} />
                       </Text>
                     </View>
                   </Pressable>

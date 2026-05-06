@@ -13,6 +13,7 @@ import { useAuth } from '../lib/auth';
 import { loadCredential } from '../lib/icloud-credentials';
 import { ArchiveModal } from '../components/ArchiveModal';
 import { Avatar } from '../components/Avatar';
+import { CountUp } from '../components/CountUp';
 import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { SkeletonRow } from '../components/Skeleton';
@@ -169,11 +170,11 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
             style={{ paddingVertical: spacing.lg, paddingHorizontal: spacing.lg }}
           >
             <Text style={{ ...type.displayXL, color: t.ink }}>
-              {`${waiting.length} venter\npå dig.`}
+              <CountUp to={waiting.length} style={{ ...type.displayXL, color: t.ink }} /> venter{'\n'}på dig.
             </Text>
             {(waiting.length + read.length) > 0 && (
               <Text style={{ ...type.body, color: t.ink2, marginTop: spacing.md - 2 }}>
-                {`${waiting.length + read.length} mails i alt. Jeg har sorteret dem efter, hvad der haster.`}
+                <CountUp to={waiting.length + read.length} /> mails i alt. Jeg har sorteret dem efter, hvad der haster.
               </Text>
             )}
           </GlassFrostedCard>
@@ -230,7 +231,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
         <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: spacing.xs, paddingBottom: spacing.sm }}>
             <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>Venter på dig</Text>
-            <Text style={{ ...type.eyebrow, color: t.ink3 }}>{waiting.length}</Text>
+            <CountUp to={waiting.length} style={{ ...type.eyebrow, color: t.ink3 }} />
           </View>
 
           {waiting.length === 0 ? (
@@ -344,7 +345,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
           <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: spacing.xs, paddingBottom: spacing.sm }}>
               <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>Læst</Text>
-              <Text style={{ ...type.eyebrow, color: t.ink3 }}>{read.length}</Text>
+              <CountUp to={read.length} style={{ ...type.eyebrow, color: t.ink3 }} />
             </View>
             <View style={{ gap: spacing.sm }}>
               {read.map((m) => (
