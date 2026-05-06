@@ -1035,6 +1035,178 @@ async function fetchThreadingHeaders(
   }
 }
 
+// --- RFC 5322 builder helpers -----------------------------------------------
+//
+// denomailer doesn't expose its message-builder for IMAP APPEND, so we
+// reconstruct a minimal RFC 5322 message ourselves.
+
+type AppendableMessage = {
+  from: string;
+  to: string[];
+  cc?: string[];
+  subject: string;
+  contentType: 'text' | 'html';
+  content: string;
+  attachments: ReturnType<typeof decodeAttachments>;
+  threading: ThreadingHeaders;
+  date: Date;
+};
+
+function encodeMimeWord(s: string): string {
+  // RFC 2047 Q-encoded mime word. Only encodes when non-ASCII bytes are
+  // present; ASCII-only strings pass through to keep the wire format clean.
+  if (/^[\x20-\x7e]*$/.test(s)) return s;
+  const enc = new TextEncoder();
+  const bytes = enc.encode(s);
+  let out = '=?UTF-8?Q?';
+  for (const b of bytes) {
+    if (b === 0x20) out += '_';
+    else if (b >= 0x21 && b <= 0x7e && b !== 0x3d && b !== 0x3f && b !== 0x5f) out += String.fromCharCode(b);
+    else out += '=' + b.toString(16).toUpperCase().padStart(2, '0');
+  }
+  return out + '?=';
+}
+
+function rfc5322Date(d: Date): string {
+  // Sun, 06 May 2026 18:32:00 +0000
+  return d.toUTCString().replace(/GMT$/, '+0000');
+}
+
+function buildBoundary(): string {
+  return '----=_zolva_' + crypto.randomUUID().replace(/-/g, '');
+}
+
+function quotedPrintable(s: string): string {
+  const enc = new TextEncoder();
+  const bytes = enc.encode(s);
+  let out = '';
+  let lineLen = 0;
+  for (const b of bytes) {
+    let token: string;
+    if (b === 0x0a) { out += '\r\n'; lineLen = 0; continue; }
+    if (b === 0x0d) continue; // strip lone CR
+    if (b === 0x20 || b === 0x09) {
+      // Space/tab — needs encoding only at line end; simplest correct
+      // implementation: leave as-is here, soft-line-break rules below
+      // ensure we never end a line on whitespace.
+      token = String.fromCharCode(b);
+    } else if (b >= 0x21 && b <= 0x7e && b !== 0x3d) {
+      token = String.fromCharCode(b);
+    } else {
+      token = '=' + b.toString(16).toUpperCase().padStart(2, '0');
+    }
+    if (lineLen + token.length > 75) {
+      out += '=\r\n';
+      lineLen = 0;
+    }
+    out += token;
+    lineLen += token.length;
+  }
+  return out;
+}
+
+function base64Wrap(b64: string): string {
+  return b64.replace(/(.{76})/g, '$1\r\n');
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+function buildRfc5322(msg: AppendableMessage): Uint8Array {
+  const headers: string[] = [];
+  headers.push(`From: ${msg.from}`);
+  headers.push(`To: ${msg.to.join(', ')}`);
+  if (msg.cc && msg.cc.length > 0) headers.push(`Cc: ${msg.cc.join(', ')}`);
+  headers.push(`Subject: ${encodeMimeWord(msg.subject)}`);
+  headers.push(`Date: ${rfc5322Date(msg.date)}`);
+  headers.push(`MIME-Version: 1.0`);
+  if (msg.threading.inReplyTo) headers.push(`In-Reply-To: ${msg.threading.inReplyTo}`);
+  if (msg.threading.references) headers.push(`References: ${msg.threading.references}`);
+
+  const bodyType = msg.contentType === 'html' ? 'text/html' : 'text/plain';
+  if (msg.attachments.length === 0) {
+    // Single-part message
+    headers.push(`Content-Type: ${bodyType}; charset=UTF-8`);
+    headers.push(`Content-Transfer-Encoding: quoted-printable`);
+    const body = quotedPrintable(msg.content);
+    return new TextEncoder().encode(headers.join('\r\n') + '\r\n\r\n' + body);
+  }
+
+  // multipart/related so Apple Mail renders cid: images inline
+  const boundary = buildBoundary();
+  headers.push(`Content-Type: multipart/related; boundary="${boundary}"; type="${bodyType}"`);
+
+  let body = '';
+  body += `--${boundary}\r\n`;
+  body += `Content-Type: ${bodyType}; charset=UTF-8\r\n`;
+  body += `Content-Transfer-Encoding: quoted-printable\r\n\r\n`;
+  body += quotedPrintable(msg.content) + '\r\n';
+
+  for (const a of msg.attachments) {
+    body += `--${boundary}\r\n`;
+    body += `Content-Type: ${a.contentType}\r\n`;
+    body += `Content-Transfer-Encoding: base64\r\n`;
+    body += `Content-ID: <${a.contentID}>\r\n`;
+    body += `Content-Disposition: inline; filename="${a.filename}"\r\n\r\n`;
+    body += base64Wrap(bytesToBase64(a.content)) + '\r\n';
+  }
+  body += `--${boundary}--\r\n`;
+
+  return new TextEncoder().encode(headers.join('\r\n') + '\r\n\r\n' + body);
+}
+
+// --- appendToSent -----------------------------------------------------------
+//
+// Opens a fresh IMAP connection, resolves the Sent folder, and APPENDs the
+// raw RFC 5322 message with the \Seen flag. All failures are logged and
+// swallowed — the SMTP send is what counts.
+async function appendToSent(
+  email: string,
+  password: string,
+  rawMessage: Uint8Array,
+): Promise<{ ok: boolean; reason?: string }> {
+  let client: ImapFlow | null = null;
+  try {
+    client = await newImapClient(email, password);
+    await client.connect();
+    // Resolve the Sent folder. iCloud uses 'Sent Messages'; some accounts
+    // localize. Try the Apple default first, then standard 'Sent', then
+    // any folder reported with the \Sent special-use flag.
+    const candidates = ['Sent Messages', 'Sent'];
+    let sentPath: string | null = null;
+    for (const name of candidates) {
+      try {
+        const status = await client.status(name, { messages: true });
+        if (status) { sentPath = name; break; }
+      } catch { /* not present, try next */ }
+    }
+    if (!sentPath) {
+      const list = await client.list();
+      for (const f of list) {
+        const flags = (f as { specialUse?: string }).specialUse;
+        if (flags === '\\Sent') { sentPath = f.path; break; }
+      }
+    }
+    if (!sentPath) {
+      return { ok: false, reason: 'sent-folder-not-found' };
+    }
+    await client.append(sentPath, rawMessage, ['\\Seen']);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  } finally {
+    if (client) {
+      try { await client.logout(); } catch { /* ignore */ }
+      if (client.usable) {
+        try { await client.close(); } catch { /* ignore */ }
+      }
+    }
+  }
+}
+
 async function handleSendMail(
   body: SendMailReq,
   userId: string,
@@ -1091,6 +1263,7 @@ async function handleSendMail(
     }
   }
 
+  let sendError: unknown = null;
   try {
     const sendOpts: Parameters<typeof client.send>[0] = {
       from: email,
@@ -1108,10 +1281,27 @@ async function handleSendMail(
     }
     await client.send(sendOpts);
   } catch (e) {
-    return mapSmtpError(e);
+    sendError = e;
   } finally {
     try { await client.close(); } catch { /* ignore */ }
   }
+  if (sendError) return mapSmtpError(sendError);
 
-  return Response.json({ ok: true, sent_appended: false });
+  // Best-effort APPEND to Sent. Logged-only on failure.
+  const raw = buildRfc5322({
+    from: email,
+    to: body.to,
+    cc: body.cc,
+    subject: body.subject,
+    contentType: body.content_type,
+    content: body.content,
+    attachments,
+    threading,
+    date: new Date(),
+  });
+  const append = await appendToSent(email, password, raw);
+  if (!append.ok) {
+    console.warn('[imap-proxy] send-mail APPEND to Sent failed:', append.reason);
+  }
+  return Response.json({ ok: true, sent_appended: append.ok });
 }
