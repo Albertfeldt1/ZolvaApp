@@ -13,13 +13,15 @@ import {
   View,
 } from 'react-native';
 import { Avatar } from '../components/Avatar';
-import { Stone } from '../components/Stone';
+import { useTheme } from '../design/useTheme';
+import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
+import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
+import { Stone } from '../design/primitives/Stone';
 import { useAuth } from '../lib/auth';
 import { useMailDetail, useSendReply } from '../lib/hooks';
 import { recordMailEvent } from '../lib/mail-events';
 import { runExtractor } from '../lib/profile-extractor';
 import type { InboxMail } from '../lib/types';
-import { colors, fonts } from '../theme';
 import { translateProviderError } from '../utils/danish';
 
 type Props = {
@@ -29,6 +31,7 @@ type Props = {
 
 export function InboxDetailScreen({ mail, onClose }: Props) {
   const { user } = useAuth();
+  const { t, type, fonts, radius, spacing, surface } = useTheme();
   const { data: detail, loading, error } = useMailDetail(mail.id, mail.provider);
   const { send, archive, sending, error: sendError } = useSendReply();
   const [draft, setDraft] = useState(mail.aiDraft ?? '');
@@ -113,402 +116,412 @@ export function InboxDetailScreen({ mail, onClose }: Props) {
 
   return (
     <KeyboardAvoidingView
-      style={styles.flex}
+      style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={styles.topBar}>
-        <Pressable
-          onPress={onClose}
-          style={styles.roundBtn}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="Tilbage"
+      <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
+        <GlassHaloLayer />
+
+        {/* Header — glass card with back button + eyebrow */}
+        <View
+          style={{
+            paddingTop: spacing.statusBarFallback,
+            paddingHorizontal: spacing.screenPad,
+            paddingBottom: spacing.cardPad,
+            position: 'relative',
+            zIndex: 1,
+          }}
         >
-          <ChevronLeft size={18} color={colors.ink} strokeWidth={1.75} />
-        </Pressable>
-        <Text style={styles.topEyebrow}>Indbakke</Text>
-        <View style={styles.topBarSpacer} />
-      </View>
-
-      <ScrollView
-        style={styles.flex}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.hero}>
-          <Text style={styles.eyebrow}>{`Mail · ${mail.time}`}</Text>
-          <Text style={styles.subject}>{mail.subject}</Text>
-
-          <View style={styles.inkRule} />
-
-          <View style={styles.fromRow}>
-            <Avatar initials={mail.initials} tone={mail.tone} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.fromLabel}>Fra</Text>
-              <Text style={styles.fromName} numberOfLines={1}>{mail.from}</Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.bodyWrap}>
-          <View style={styles.quoteRule} />
-          <View style={styles.bodyContent}>
-            {loading && (
-              <View style={styles.bodyLoading}>
-                <ActivityIndicator color={colors.fg3} />
-                <Text style={styles.bodyLoadingText}>Henter mailen…</Text>
-              </View>
-            )}
-            {error && (
-              <Text style={styles.bodyError}>
-                Kunne ikke hente mailen. Du kan stadig skrive et svar.
-              </Text>
-            )}
-            {detail && (
+          <GlassFrostedCard
+            radius={radius.card}
+            style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
               <Pressable
-                onPress={() => {
-                  if (detail.body.length > 0) setBodyExpanded((v) => !v);
+                onPress={onClose}
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: radius.pill,
+                  backgroundColor: surface.iconButton,
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
-                style={({ pressed }) => [pressed && detail.body.length > 0 && styles.bodyPressed]}
+                accessibilityRole="button"
+                accessibilityLabel="Tilbage"
               >
-                <Text
-                  style={styles.bodyText}
-                  numberOfLines={bodyExpanded ? undefined : 3}
-                >
-                  {detail.body || '(tom besked)'}
-                </Text>
-                {detail.body.length > 0 && (
-                  <View style={styles.expandBtn}>
-                    <Text style={styles.expandBtnText}>
-                      {bodyExpanded ? 'Vis mindre' : 'Vis mere'}
-                    </Text>
-                    {bodyExpanded ? (
-                      <ChevronUp size={13} color={colors.sageDeep} strokeWidth={2} />
-                    ) : (
-                      <ChevronDown size={13} color={colors.sageDeep} strokeWidth={2} />
-                    )}
-                  </View>
-                )}
+                <ChevronLeft size={18} color={t.ink} strokeWidth={1.75} />
               </Pressable>
-            )}
-          </View>
+              <Text
+                style={{
+                  fontFamily: fonts.mono,
+                  fontSize: 11,
+                  letterSpacing: 0.88,
+                  textTransform: 'uppercase',
+                  color: t.ink3,
+                }}
+              >
+                Indbakke
+              </Text>
+            </View>
+          </GlassFrostedCard>
         </View>
 
-        <View style={styles.replyBlock}>
-          <View style={styles.replyHead}>
-            <Text style={styles.replyHeading}>Dit svar</Text>
-            {hasAiDraft && (
-              <View style={styles.aiHint}>
-                <Stone size={18} mood="thinking" />
-                <Text style={styles.aiHintText}>Zolva har skrevet et udkast</Text>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: 32 }}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Hero — bone glass card: eyebrow + subject + sender */}
+          <View style={{ paddingHorizontal: spacing.screenPad, paddingBottom: spacing.cardPad }}>
+            <GlassFrostedCard
+              overlay={surface.bone}
+              radius={radius.card}
+              style={{ padding: spacing.lg }}
+            >
+              <Text
+                style={{
+                  fontFamily: fonts.mono,
+                  fontSize: 11,
+                  letterSpacing: 0.88,
+                  textTransform: 'uppercase',
+                  color: t.ink3,
+                }}
+              >
+                {`Mail · ${mail.time}`}
+              </Text>
+
+              <Text
+                style={{
+                  marginTop: 10,
+                  fontFamily: fonts.display,
+                  fontSize: 30,
+                  lineHeight: 36,
+                  letterSpacing: -0.9,
+                  color: t.ink,
+                }}
+              >
+                {mail.subject}
+              </Text>
+
+              <View
+                style={{
+                  marginTop: 18,
+                  height: 1,
+                  backgroundColor: t.ink,
+                  opacity: 0.45,
+                }}
+              />
+
+              <View
+                style={{
+                  marginTop: 14,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                }}
+              >
+                <Avatar initials={mail.initials} tone={mail.tone} />
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      fontFamily: fonts.mono,
+                      fontSize: 10.5,
+                      letterSpacing: 0.88,
+                      textTransform: 'uppercase',
+                      color: t.ink3,
+                    }}
+                  >
+                    Fra
+                  </Text>
+                  <Text
+                    style={{
+                      marginTop: 2,
+                      fontFamily: fonts.uiBold,
+                      fontSize: 14,
+                      color: t.ink,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {mail.from}
+                  </Text>
+                </View>
+              </View>
+            </GlassFrostedCard>
+          </View>
+
+          {/* Mail body — bone glass card with quote accent */}
+          <View style={{ paddingHorizontal: spacing.screenPad, paddingBottom: spacing.cardPad }}>
+            <GlassFrostedCard overlay={surface.bone} radius={radius.card} style={{ padding: spacing.lg }}>
+              <View style={{ flexDirection: 'row' }}>
+                {/* Vertical quote rule */}
+                <View
+                  style={{
+                    width: 2,
+                    backgroundColor: t.ink,
+                    opacity: 0.2,
+                    marginRight: 14,
+                    marginTop: 4,
+                    marginBottom: 4,
+                    borderRadius: 1,
+                  }}
+                />
+                <View style={{ flex: 1 }}>
+                  {loading && (
+                    <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center', paddingVertical: 6 }}>
+                      <ActivityIndicator color={t.ink3} />
+                      <Text style={{ fontFamily: fonts.ui, fontSize: 13, color: t.ink3 }}>
+                        Henter mailen…
+                      </Text>
+                    </View>
+                  )}
+                  {error && (
+                    <Text
+                      style={{
+                        fontFamily: fonts.ui,
+                        fontSize: 13,
+                        color: t.ink3,
+                        paddingVertical: 6,
+                        fontStyle: 'italic',
+                      }}
+                    >
+                      Kunne ikke hente mailen. Du kan stadig skrive et svar.
+                    </Text>
+                  )}
+                  {detail && (
+                    <Pressable
+                      onPress={() => {
+                        if (detail.body.length > 0) setBodyExpanded((v) => !v);
+                      }}
+                      style={({ pressed }) => [
+                        pressed && detail.body.length > 0 && { opacity: 0.65 },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: fonts.ui,
+                          fontSize: 13.5,
+                          lineHeight: 21,
+                          color: t.ink2,
+                        }}
+                        numberOfLines={bodyExpanded ? undefined : 3}
+                      >
+                        {detail.body || '(tom besked)'}
+                      </Text>
+                      {detail.body.length > 0 && (
+                        <View
+                          style={{
+                            marginTop: 10,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            alignSelf: 'flex-start',
+                            gap: 5,
+                            paddingHorizontal: 10,
+                            paddingVertical: 5,
+                            borderRadius: radius.pill,
+                            backgroundColor: surface.scrim,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontFamily: fonts.mono,
+                              fontSize: 10.5,
+                              letterSpacing: 0.6,
+                              textTransform: 'uppercase',
+                              color: t.ink3,
+                            }}
+                          >
+                            {bodyExpanded ? 'Vis mindre' : 'Vis mere'}
+                          </Text>
+                          {bodyExpanded ? (
+                            <ChevronUp size={13} color={t.ink3} strokeWidth={2} />
+                          ) : (
+                            <ChevronDown size={13} color={t.ink3} strokeWidth={2} />
+                          )}
+                        </View>
+                      )}
+                    </Pressable>
+                  )}
+                </View>
+              </View>
+            </GlassFrostedCard>
+          </View>
+
+          {/* Reply / AI draft section — bone glass card + chat-style input dock */}
+          <View style={{ paddingHorizontal: spacing.screenPad }}>
+            {/* Section header */}
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 10,
+                gap: 10,
+                paddingHorizontal: spacing.xs,
+              }}
+            >
+              <Text
+                style={{
+                  fontFamily: fonts.display,
+                  fontStyle: 'italic',
+                  fontSize: 24,
+                  lineHeight: 28,
+                  letterSpacing: -0.48,
+                  color: t.ink,
+                }}
+              >
+                Dit svar
+              </Text>
+              {hasAiDraft && (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderRadius: radius.pill,
+                    backgroundColor: surface.scrim,
+                  }}
+                >
+                  <Stone size={18} jumpOnTap={false} />
+                  <Text
+                    style={{
+                      fontFamily: fonts.ui,
+                      fontSize: 11.5,
+                      color: t.ink2,
+                      fontStyle: 'italic',
+                    }}
+                  >
+                    Zolva har skrevet et udkast
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Draft input — glass pill, white fill + hairline border (Chat input dock pattern) */}
+            <GlassFrostedCard radius={radius.card} style={{ padding: spacing.sm }}>
+              <TextInput
+                value={draft}
+                onChangeText={setDraft}
+                multiline
+                placeholder="Skriv dit svar…"
+                placeholderTextColor={t.ink4}
+                style={{
+                  fontFamily: fonts.ui,
+                  fontSize: 14.5,
+                  lineHeight: 22,
+                  color: t.ink,
+                  padding: 14,
+                  minHeight: 150,
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: radius.card - 4,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: t.line,
+                  textAlignVertical: 'top',
+                }}
+                editable={!sending}
+              />
+            </GlassFrostedCard>
+
+            {/* Send error banner */}
+            {sendError && (
+              <View style={{ marginTop: 12 }}>
+                <GlassFrostedCard
+                  overlay={surface.warningTint}
+                  radius={radius.card}
+                  style={{ padding: spacing.cardPad, gap: 4 }}
+                >
+                  <Text style={{ ...type.bodySm, color: t.ink, fontWeight: '600' }}>
+                    Kunne ikke sende — prøv igen.
+                  </Text>
+                  <Text
+                    style={{ fontFamily: fonts.mono, fontSize: 10.5, color: t.ink2, opacity: 0.75 }}
+                    numberOfLines={2}
+                  >
+                    {translateProviderError(sendError).message}
+                  </Text>
+                </GlassFrostedCard>
               </View>
             )}
           </View>
+        </ScrollView>
 
-          <View style={styles.draftCard}>
-            <TextInput
-              value={draft}
-              onChangeText={setDraft}
-              multiline
-              placeholder="Skriv dit svar…"
-              placeholderTextColor={colors.fg3}
-              style={styles.draftInput}
-              textAlignVertical="top"
-              editable={!sending}
-            />
-          </View>
+        {/* Action bar — archive ghost + send dark-ink pill */}
+        <View
+          style={{
+            flexDirection: 'row',
+            gap: 10,
+            alignItems: 'center',
+            paddingHorizontal: spacing.screenPad,
+            paddingTop: 12,
+            paddingBottom: Platform.OS === 'ios' ? 28 : 16,
+            backgroundColor: t.paper,
+            borderTopWidth: StyleSheet.hairlineWidth,
+            borderTopColor: t.line,
+          }}
+        >
+          <Pressable
+            onPress={handleArchive}
+            disabled={sending}
+            style={({ pressed }) => [
+              {
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                paddingHorizontal: 18,
+                paddingVertical: 14,
+                borderRadius: radius.pill,
+              },
+              sending && { opacity: 0.4 },
+              pressed && { opacity: 0.75 },
+            ]}
+          >
+            <Archive size={15} color={t.ink2} strokeWidth={1.75} />
+            <Text style={{ fontFamily: fonts.uiBold, fontSize: 13, color: t.ink2 }}>Arkivér</Text>
+          </Pressable>
 
-          {sendError && (
-            <View style={styles.errorBanner}>
-              <Text style={styles.errorText}>Kunne ikke sende — prøv igen.</Text>
-              <Text style={styles.errorDetail} numberOfLines={2}>
-                {translateProviderError(sendError).message}
-              </Text>
-            </View>
-          )}
+          {/* Dark-ink send pill */}
+          <Pressable
+            onPress={handleSend}
+            disabled={!canSend}
+            style={({ pressed }) => [
+              {
+                flex: 1,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                paddingHorizontal: 18,
+                paddingVertical: 14,
+                borderRadius: radius.pill,
+                backgroundColor: t.ink,
+              },
+              !canSend && { opacity: 0.4 },
+              pressed && { opacity: 0.82 },
+            ]}
+          >
+            {sending ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <>
+                <Text
+                  style={{
+                    fontFamily: fonts.uiBold,
+                    fontSize: 14.5,
+                    letterSpacing: -0.1,
+                    color: '#FFFFFF',
+                  }}
+                >
+                  Send svar
+                </Text>
+                <Send size={15} color="#FFFFFF" strokeWidth={1.75} />
+              </>
+            )}
+          </Pressable>
         </View>
-      </ScrollView>
-
-      <View style={styles.actionBar}>
-        <Pressable
-          onPress={handleArchive}
-          disabled={sending}
-          style={({ pressed }) => [
-            styles.ghostBtn,
-            sending && styles.btnDisabled,
-            pressed && styles.btnPressed,
-          ]}
-        >
-          <Archive size={15} color={colors.fg2} strokeWidth={1.75} />
-          <Text style={styles.ghostBtnText}>Arkivér</Text>
-        </Pressable>
-        <Pressable
-          onPress={handleSend}
-          disabled={!canSend}
-          style={({ pressed }) => [
-            styles.primaryBtn,
-            !canSend && styles.btnDisabled,
-            pressed && styles.btnPressed,
-          ]}
-        >
-          {sending ? (
-            <ActivityIndicator color={colors.paper} />
-          ) : (
-            <>
-              <Text style={styles.primaryBtnText}>Send svar</Text>
-              <Send size={15} color={colors.paper} strokeWidth={1.75} />
-            </>
-          )}
-        </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.paper },
-
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingTop: Platform.OS === 'ios' ? 58 : 40,
-    paddingBottom: 10,
-    paddingHorizontal: 16,
-    backgroundColor: colors.paper,
-  },
-  roundBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 999,
-    backgroundColor: colors.mist,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  topEyebrow: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.fg3,
-  },
-  topBarSpacer: { width: 34 },
-
-  scrollContent: { paddingBottom: 32 },
-
-  hero: {
-    backgroundColor: colors.sageSoft,
-    paddingHorizontal: 22,
-    paddingTop: 22,
-    paddingBottom: 22,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
-  },
-  eyebrow: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.sageDeep,
-  },
-  subject: {
-    marginTop: 10,
-    fontFamily: fonts.display,
-    fontSize: 32,
-    lineHeight: 38,
-    letterSpacing: -0.96,
-    color: colors.ink,
-  },
-  inkRule: {
-    marginTop: 18,
-    height: 1,
-    backgroundColor: colors.ink,
-    opacity: 0.45,
-  },
-  fromRow: {
-    marginTop: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  fromLabel: {
-    fontFamily: fonts.mono,
-    fontSize: 10.5,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.sageDeep,
-  },
-  fromName: {
-    marginTop: 2,
-    fontFamily: fonts.uiSemi,
-    fontSize: 14,
-    color: colors.ink,
-  },
-
-  bodyWrap: {
-    flexDirection: 'row',
-    paddingHorizontal: 22,
-    paddingTop: 22,
-  },
-  quoteRule: {
-    width: 2,
-    backgroundColor: colors.ink,
-    opacity: 0.2,
-    marginRight: 14,
-    marginTop: 4,
-    marginBottom: 4,
-    borderRadius: 1,
-  },
-  bodyContent: { flex: 1 },
-  bodyLoading: { flexDirection: 'row', gap: 10, alignItems: 'center', paddingVertical: 6 },
-  bodyLoadingText: { fontFamily: fonts.ui, fontSize: 13, color: colors.fg3 },
-  bodyError: {
-    fontFamily: 'Inter_500Medium_Italic',
-    fontSize: 13,
-    color: colors.fg3,
-    paddingVertical: 6,
-  },
-  bodyText: {
-    fontFamily: fonts.ui,
-    fontSize: 13.5,
-    lineHeight: 21,
-    color: colors.fg2,
-  },
-  bodyPressed: { opacity: 0.65 },
-  expandBtn: {
-    marginTop: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: colors.sageSoft,
-  },
-  expandBtnText: {
-    fontFamily: fonts.monoSemi,
-    fontSize: 10.5,
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    color: colors.sageDeep,
-  },
-
-  replyBlock: {
-    marginTop: 28,
-    paddingHorizontal: 22,
-  },
-  replyHead: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-    gap: 10,
-  },
-  replyHeading: {
-    fontFamily: fonts.displayItalic,
-    fontSize: 24,
-    lineHeight: 28,
-    letterSpacing: -0.48,
-    color: colors.ink,
-  },
-  aiHint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: colors.mist,
-  },
-  aiHintText: {
-    fontFamily: 'Inter_500Medium_Italic',
-    fontSize: 11.5,
-    color: colors.fg2,
-  },
-  draftCard: {
-    backgroundColor: colors.paperDeep,
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.line,
-    padding: 4,
-  },
-  draftInput: {
-    fontFamily: fonts.ui,
-    fontSize: 14.5,
-    lineHeight: 22,
-    color: colors.ink,
-    padding: 14,
-    minHeight: 150,
-  },
-
-  errorBanner: {
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: colors.warningSoft,
-    gap: 4,
-  },
-  errorText: {
-    fontFamily: fonts.uiSemi,
-    fontSize: 12.5,
-    color: colors.warningInk,
-  },
-  errorDetail: {
-    fontFamily: fonts.mono,
-    fontSize: 10.5,
-    color: colors.warningInk,
-    opacity: 0.75,
-  },
-
-  actionBar: {
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 16,
-    backgroundColor: colors.paper,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.line,
-  },
-  ghostBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    borderRadius: 999,
-    backgroundColor: 'transparent',
-  },
-  ghostBtnText: {
-    fontFamily: fonts.uiSemi,
-    fontSize: 13,
-    color: colors.fg2,
-  },
-  primaryBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    borderRadius: 999,
-    backgroundColor: colors.sage,
-    shadowColor: colors.sageDeep,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  primaryBtnText: {
-    fontFamily: fonts.uiSemi,
-    fontSize: 14.5,
-    letterSpacing: -0.1,
-    color: colors.paper,
-  },
-  btnDisabled: { opacity: 0.4, shadowOpacity: 0 },
-  btnPressed: { opacity: 0.82 },
-});
