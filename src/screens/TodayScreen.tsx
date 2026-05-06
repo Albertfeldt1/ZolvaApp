@@ -825,15 +825,15 @@ function NoticedRow({
         <View style={styles.noticedActions}>
           <Pressable
             onPress={onAction}
-            hitSlop={8}
-            style={({ pressed }) => [styles.noticedCtaBtn, light && styles.noticedCtaBtnLight, pressed && styles.noticedActionPressed]}
+            hitSlop={{ top: 10, bottom: 10, left: 0, right: 0 }}
+            style={({ pressed }) => [styles.noticedActionHit, pressed && styles.noticedActionPressed]}
           >
-            <Text style={[styles.noticedCtaBtnText, light && styles.noticedCtaBtnTextLight]}>{item.cta} →</Text>
+            <Text style={[styles.noticedCta, light && styles.noticedCtaLight]}>{item.cta} →</Text>
           </Pressable>
           <Pressable
             onPress={() => animateOut(onDismiss)}
-            hitSlop={12}
-            style={({ pressed }) => [styles.noticedDismissBtn, pressed && styles.noticedActionPressed]}
+            hitSlop={{ top: 10, bottom: 10, left: 0, right: 0 }}
+            style={({ pressed }) => [styles.noticedActionHit, pressed && styles.noticedActionPressed]}
           >
             <Text style={[styles.noticedDismiss, light && styles.noticedDismissLight]}>Afvis</Text>
           </Pressable>
@@ -862,15 +862,15 @@ function PendingFactRow({
         <View style={styles.noticedActions}>
           <Pressable
             onPress={onAccept}
-            hitSlop={8}
-            style={({ pressed }) => [styles.noticedCtaBtn, light && styles.noticedCtaBtnLight, pressed && styles.noticedActionPressed]}
+            hitSlop={{ top: 10, bottom: 10, left: 0, right: 0 }}
+            style={({ pressed }) => [styles.noticedActionHit, pressed && styles.noticedActionPressed]}
           >
-            <Text style={[styles.noticedCtaBtnText, light && styles.noticedCtaBtnTextLight]}>Ja, husk det</Text>
+            <Text style={[styles.noticedCta, light && styles.noticedCtaLight]}>Ja, husk det</Text>
           </Pressable>
           <Pressable
             onPress={onReject}
-            hitSlop={12}
-            style={({ pressed }) => [styles.noticedDismissBtn, pressed && styles.noticedActionPressed]}
+            hitSlop={{ top: 10, bottom: 10, left: 0, right: 0 }}
+            style={({ pressed }) => [styles.noticedActionHit, pressed && styles.noticedActionPressed]}
           >
             <Text style={[styles.noticedDismiss, light && styles.noticedDismissLight]}>Nej</Text>
           </Pressable>
@@ -894,33 +894,25 @@ const styles = StyleSheet.create({
   // Observation rows (NoticedRow / PendingFactRow)
   noticedRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
   noticedText: { fontFamily: legacyFonts.ui, fontSize: 14.5, lineHeight: 21, color: colors.paperOn95 },
-  noticedActions: { marginTop: 6, flexDirection: 'row', gap: 8, alignItems: 'center' },
+  noticedActions: { marginTop: 4, flexDirection: 'row', gap: 16 },
+  // Per-button wrapper. paddingVertical + paddingHorizontal extend the
+  // visible tap area; negative margins keep the surrounding layout
+  // unchanged. Horizontal hitSlop is intentionally zero — the gap between
+  // CTA and Afvis is only 16px, and slop on both sides would make the hit
+  // zones overlap, leading to ambiguous taps. Vertical hitSlop adds the
+  // extra forgiveness needed to clear the 44pt iOS minimum.
+  noticedActionHit: {
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    marginVertical: -8,
+    marginHorizontal: -4,
+  },
   noticedActionPressed: { opacity: 0.55 },
-  // Primary CTA — pill button. The default styling targets a dark
-  // glass-dark backdrop (translucent white pill + white text). The
-  // Light variant rides on top for the light bone-cream backdrop
-  // and switches to a sage-tinted pill with sage-deep text. Naming
-  // matches the rest of this file: "Light" suffix = light backdrop.
-  // paddingVertical:10 + fontSize:14 lands the button height at ~38pt
-  // before the hitSlop:8 adds another 16pt of forgiveness, comfortably
-  // clearing the 44pt iOS tap-target minimum.
-  noticedCtaBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.32)',
-  },
-  noticedCtaBtnLight: {
-    backgroundColor: colors.sageSoft,
-    borderColor: 'rgba(72,107,75,0.18)',
-  },
-  noticedCtaBtnText: { fontFamily: legacyFonts.uiSemi, fontSize: 14, color: colors.paper },
-  noticedCtaBtnTextLight: { color: colors.sageDeep },
-  // Secondary "Afvis"/"Nej" — text only with generous padding+hitSlop so
-  // it stays easy to hit despite being visually subordinate.
-  noticedDismissBtn: { paddingVertical: 10, paddingHorizontal: 8 },
+  // Primary CTA reads in ink (dark) on both light and dark backdrops —
+  // the user wanted a single emphatic black tone here rather than a sage
+  // accent that could blend with the halo.
+  noticedCta: { fontFamily: legacyFonts.uiSemi, fontSize: 14, color: colors.paperOn95 },
+  noticedCtaLight: { color: colors.ink },
   noticedDismiss: { fontFamily: legacyFonts.ui, fontSize: 14, color: colors.paperOn50 },
 
   // "Vis alle" row inside dark card
