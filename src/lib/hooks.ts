@@ -3112,17 +3112,13 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       'spørg "Skal jeg gemme det som udkast?" eller "Skal jeg sende det nu?".',
     'Hvis udkastet/sendingen er et SVAR på en eksisterende mail (brugeren henviser ' +
       'til en mail de har modtaget), så send det fulde unified-ID i `reply_to_id` ' +
-      '(fx "google:abc" eller "microsoft:abc") — så bevares tråden korrekt. ' +
+      '(fx "google:abc", "microsoft:abc" eller "icloud:123") — så bevares tråden korrekt. ' +
       'Brug list_recent_mail eller read_mail_thread til at finde det rigtige ID.',
     'Skriv ALDRIG en signatur/underskrift selv i `body` — Zolva tilføjer ' +
       'automatisk brugerens egen signatur. Skriv kun selve beskeden.',
-    'SKRIVE-værktøjerne (create_draft og send_mail) understøtter kun Gmail ' +
-      '(provider="google") og Outlook (provider="microsoft") — IKKE iCloud. ' +
-      'Hvis brugeren beder dig sende eller udkaste fra deres iCloud-konto, ' +
-      'forklar at det ikke er muligt endnu og foreslå Apple Mail-appen i stedet, ' +
-      'eller tilbyd at lægge udkastet på Gmail/Outlook hvis det er forbundet. ' +
-      'Denne begrænsning gælder KUN skrivning — list_recent_mail og read_mail_thread ' +
-      'kan stadig læse iCloud-mails.',
+    'SKRIVE-værktøjerne (create_draft og send_mail) understøtter Gmail ' +
+      '(provider="google"), Outlook (provider="microsoft") og iCloud ' +
+      '(provider="icloud"). Vælg ud fra hvor brugeren har konteksten.',
   ]
     .filter(Boolean)
     .join(' ');
