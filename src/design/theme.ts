@@ -94,9 +94,11 @@ export const stoneTokens = {
 } as const;
 
 // Hero stat card — pulled out so consumers don't carry literals.
+// `bigLineHeight` must be >= `bigSize` or RN clips the top of large
+// display digits (notably "0" / "8" rendered in Space Grotesk 64pt).
 export const heroStat = {
   bigSize: 64,
-  bigLineHeight: 60,
+  bigLineHeight: 72,
   bigLetterSpacing: -3,
   midSize: 28,
   midLetterSpacing: -1,
@@ -144,6 +146,9 @@ export type SurfaceTokens = {
   glassDark: string;
   glassDarkText: string;
   glassDarkTextSoft: string;
+  /** Near-opaque card surface — for "bone white" hero/section backdrops
+   *  where translucency would let halos bleed through too aggressively. */
+  bone: string;
   scrim: string;
   fab: string;
   fabText: string;
@@ -163,6 +168,7 @@ const SURFACES_LIGHT: SurfaceTokens = {
   glassDark:            'rgba(15,16,20,0.78)',
   glassDarkText:        '#F5F4F0',
   glassDarkTextSoft:    'rgba(245,244,240,0.7)',
+  bone:                 'rgba(252,251,248,0.95)',
   scrim:                'rgba(15,16,20,0.05)',
   fab:                  'rgba(21,23,26,0.78)',
   fabText:              '#FFFFFF',
@@ -182,6 +188,7 @@ const SURFACES_DARK: SurfaceTokens = {
   glassDark:            'rgba(0,0,0,0.55)',
   glassDarkText:        '#F5F4F0',
   glassDarkTextSoft:    'rgba(245,244,240,0.7)',
+  bone:                 'rgba(20,22,28,0.92)',
   scrim:                'rgba(255,255,255,0.05)',
   fab:                  'rgba(242,239,232,0.92)',
   fabText:              '#0E1117',

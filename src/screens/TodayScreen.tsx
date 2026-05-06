@@ -281,11 +281,12 @@ export function TodayScreen({
           onGear={onGoToSettings}
         />
 
-        {/* Hero text block — wrapped in a soft glass backdrop so the
-            headline doesn't float bare over the halo paper. */}
+        {/* Hero text block — bone-white backdrop so the headline reads
+            crisply against the halo paper. */}
         <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
           <GlassFrostedCard
             radius={radius.card}
+            overlay={surface.bone}
             style={{ paddingVertical: spacing.lg, paddingHorizontal: spacing.lg }}
           >
             <Text style={{ ...type.displayXL, color: t.ink }}>
@@ -297,7 +298,8 @@ export function TodayScreen({
           </GlassFrostedCard>
         </View>
 
-        {/* Frosted hero stat card */}
+        {/* Frosted hero stat card — bone backdrop so big digits read
+            crisply without halo bleed-through. */}
         <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
           <BlurView
             intensity={blur.hero}
@@ -309,7 +311,7 @@ export function TodayScreen({
               borderColor: surface.glassWeak,
             }}
           >
-            <View style={{ backgroundColor: surface.glassStrong, padding: spacing.screenPad }}>
+            <View style={{ backgroundColor: surface.bone, padding: spacing.screenPad }}>
               {/* Top eyebrow row: "LIGE NU" + clock */}
               <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: spacing.cardPad }}>
                 <Text style={{ ...type.eyebrow, color: t.ink2, fontWeight: '600' }}>Lige nu</Text>
@@ -436,62 +438,72 @@ export function TodayScreen({
           </View>
         )}
 
-        {/* "Næste" section */}
+        {/* "Næste" section — bone-white backdrop card hosting the
+            section header + the events list (or empty state). */}
         <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'baseline',
-              justifyContent: 'space-between',
-              paddingHorizontal: spacing.xs,
-              paddingBottom: spacing.sm,
-            }}
+          <GlassFrostedCard
+            radius={radius.card}
+            overlay={surface.bone}
+            style={{ paddingVertical: spacing.lg, paddingHorizontal: spacing.lg }}
           >
-            <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>Næste</Text>
-            <Text style={{ ...type.eyebrow, color: t.ink3 }}>{upcoming.length > 0 ? `${upcoming.length} i dag` : '—'}</Text>
-          </View>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'baseline',
+                justifyContent: 'space-between',
+                paddingBottom: spacing.md,
+              }}
+            >
+              <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>Næste</Text>
+              <Text style={{ ...type.eyebrow, color: t.ink3 }}>{upcoming.length > 0 ? `${upcoming.length} i dag` : '—'}</Text>
+            </View>
 
-          {upcoming.length === 0 ? (
-            upcomingLoading && hasProvider && !upcomingError ? (
-              <View>
-                <SkeletonRow />
-                <SkeletonRow />
-                <SkeletonRow />
-              </View>
-            ) : hasProvider ? (
-              (() => {
-                const err = upcomingError ? translateProviderError(upcomingError) : null;
-                const isAuth = err?.kind === 'auth';
-                return (
-                  <EmptyState
-                    mood="calm"
-                    title={
-                      err
-                        ? err.kind === 'network'
-                          ? 'Ingen forbindelse'
-                          : 'Kunne ikke hente kalender'
-                        : 'Ingen aftaler i dag'
-                    }
-                    body={err ? err.message : 'Du har en rolig dag foran dig.'}
-                    ctaLabel={isAuth ? 'Gå til indstillinger' : undefined}
-                    onCta={isAuth ? onGoToSettings : undefined}
-                  />
-                );
-              })()
+            {upcoming.length === 0 ? (
+              upcomingLoading && hasProvider && !upcomingError ? (
+                <View>
+                  <SkeletonRow />
+                  <SkeletonRow />
+                  <SkeletonRow />
+                </View>
+              ) : hasProvider ? (
+                (() => {
+                  const err = upcomingError ? translateProviderError(upcomingError) : null;
+                  const isAuth = err?.kind === 'auth';
+                  return (
+                    <EmptyState
+                      mood="calm"
+                      title={
+                        err
+                          ? err.kind === 'network'
+                            ? 'Ingen forbindelse'
+                            : 'Kunne ikke hente kalender'
+                          : 'Ingen aftaler i dag'
+                      }
+                      body={err ? err.message : 'Du har en rolig dag foran dig.'}
+                      ctaLabel={isAuth ? 'Gå til indstillinger' : undefined}
+                      onCta={isAuth ? onGoToSettings : undefined}
+                    />
+                  );
+                })()
+              ) : (
+                <EmptyState
+                  mood="calm"
+                  title="Ingen aftaler i dag"
+                  body="Forbind din kalender, så samler jeg dagens møder her."
+                  ctaLabel="Forbind kalender"
+                  onCta={onGoToSettings}
+                />
+              )
             ) : (
-              <EmptyState
-                mood="calm"
-                title="Ingen aftaler i dag"
-                body="Forbind din kalender, så samler jeg dagens møder her."
-                ctaLabel="Forbind kalender"
-                onCta={onGoToSettings}
-              />
-            )
-          ) : (
-            <View style={{ gap: spacing.md - 2 }}>
-              {upcoming.slice(0, 5).map((e) => (
-                <GlassFrostedCard key={e.id} style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.cardPad }}>
+              <View style={{ gap: spacing.md - 2 }}>
+                {upcoming.slice(0, 5).map((e, i) => (
+                  <View
+                    key={e.id}
+                    style={[
+                      { flexDirection: 'row', alignItems: 'center', gap: spacing.cardPad, paddingVertical: spacing.md },
+                      i > 0 && { borderTopWidth: 1, borderTopColor: t.line },
+                    ]}
+                  >
                     <View style={{ width: 6, alignSelf: 'stretch', borderRadius: radius.pill, backgroundColor: toneColor(e.tone) }} />
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
@@ -502,10 +514,10 @@ export function TodayScreen({
                     </View>
                     <DesignIcon.chev size={SMALL_GLYPH} color={t.ink4} />
                   </View>
-                </GlassFrostedCard>
-              ))}
-            </View>
-          )}
+                ))}
+              </View>
+            )}
+          </GlassFrostedCard>
         </View>
 
         {/* BriefBanner */}
