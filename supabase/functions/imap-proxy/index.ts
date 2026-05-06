@@ -1110,12 +1110,16 @@ async function sendViaSmtp(args: {
   rcptTo: string[];   // envelope recipients (to + cc, deduplicated)
   rfc5322: Uint8Array;
 }): Promise<SmtpResult> {
+  const t0 = Date.now();
   let conn: SmtpConnection | null = null;
   try {
+    console.log('[smtp] connect start');
     try {
       conn = await SmtpConnection.connect(SMTP_HOST, SMTP_PORT, SMTP_CONNECT_TIMEOUT_MS);
+      console.log('[smtp] connected', { elapsed_ms: Date.now() - t0 });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      console.warn('[smtp] connect failed', msg);
       if (/abort|timeout/i.test(msg)) return { ok: false, code: 'timeout', detail: msg };
       return { ok: false, code: 'network', detail: msg };
     }
@@ -1141,34 +1145,38 @@ async function sendViaSmtp(args: {
 
     // Greeting
     const greet = await expect([220]);
-    if (!greet.ok) return greet.result;
+    if (!greet.ok) { console.warn('[smtp] greeting failed', greet.result); return greet.result; }
+    console.log('[smtp] greeting ok', { elapsed_ms: Date.now() - t0 });
 
     // EHLO. The hostname Zolva announces is informational; Apple doesn't
     // verify it. "zolva.io" matches the org domain in case anyone audits.
     await conn.write('EHLO zolva.io\r\n');
     const ehlo1 = await expect([250]);
-    if (!ehlo1.ok) return ehlo1.result;
+    if (!ehlo1.ok) { console.warn('[smtp] EHLO1 failed', ehlo1.result); return ehlo1.result; }
 
     // STARTTLS — only attempt if the server advertised it (it always
     // does on 587 for Apple, but check defensively).
     if (!ehlo1.lines.some((l) => /STARTTLS/i.test(l))) {
+      console.warn('[smtp] STARTTLS not advertised', ehlo1.lines);
       return { ok: false, code: 'protocol', detail: 'server does not support STARTTLS' };
     }
     await conn.write('STARTTLS\r\n');
     const startTlsResp = await expect([220]);
-    if (!startTlsResp.ok) return startTlsResp.result;
+    if (!startTlsResp.ok) { console.warn('[smtp] STARTTLS rejected', startTlsResp.result); return startTlsResp.result; }
     try {
       await conn.upgradeTls(SMTP_HOST);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      console.warn('[smtp] TLS upgrade failed', msg);
       return { ok: false, code: 'network', detail: `STARTTLS upgrade failed: ${msg.slice(0, 150)}` };
     }
+    console.log('[smtp] tls upgraded', { elapsed_ms: Date.now() - t0 });
 
     // EHLO again on the encrypted channel. Required by the spec; some
     // servers reject auth without it.
     await conn.write('EHLO zolva.io\r\n');
     const ehlo2 = await expect([250]);
-    if (!ehlo2.ok) return ehlo2.result;
+    if (!ehlo2.ok) { console.warn('[smtp] EHLO2 failed', ehlo2.result); return ehlo2.result; }
 
     // AUTH PLAIN — payload is base64 of "\0username\0password". This is
     // the standard mechanism Apple's iCloud SMTP accepts for app-specific
@@ -1176,14 +1184,15 @@ async function sendViaSmtp(args: {
     const authBlob = btoa(`\0${args.email}\0${args.password}`);
     await conn.write(`AUTH PLAIN ${authBlob}\r\n`);
     const auth = await expect([235]);
-    if (!auth.ok) return auth.result;
+    if (!auth.ok) { console.warn('[smtp] AUTH failed', auth.result); return auth.result; }
+    console.log('[smtp] auth ok', { elapsed_ms: Date.now() - t0 });
 
     // MAIL FROM. Apple requires the envelope sender to match the
     // authenticated user (or one of their aliases). v1 always uses the
     // auth email.
     await conn.write(`MAIL FROM:<${args.email}>\r\n`);
     const mailFrom = await expect([250]);
-    if (!mailFrom.ok) return mailFrom.result;
+    if (!mailFrom.ok) { console.warn('[smtp] MAIL FROM rejected', mailFrom.result); return mailFrom.result; }
 
     // RCPT TO — once per recipient. If any one is rejected, the whole
     // send fails — partial-recipient acceptance produces a confusing UX
@@ -1192,7 +1201,7 @@ async function sendViaSmtp(args: {
     for (const rcpt of args.rcptTo) {
       await conn.write(`RCPT TO:<${rcpt}>\r\n`);
       const r = await expect([250, 251]);
-      if (!r.ok) return r.result;
+      if (!r.ok) { console.warn('[smtp] RCPT rejected', { rcpt, result: r.result }); return r.result; }
     }
 
     // DATA — server replies 354, then we send the message followed by
@@ -1201,13 +1210,14 @@ async function sendViaSmtp(args: {
     // server strips one back off when delivering).
     await conn.write('DATA\r\n');
     const dataResp = await expect([354]);
-    if (!dataResp.ok) return dataResp.result;
+    if (!dataResp.ok) { console.warn('[smtp] DATA rejected', dataResp.result); return dataResp.result; }
 
     const payload = dotStuffMessage(args.rfc5322);
     await conn.write(payload);
     await conn.write('\r\n.\r\n');
     const sent = await expect([250]);
-    if (!sent.ok) return sent.result;
+    if (!sent.ok) { console.warn('[smtp] DATA payload rejected', sent.result); return sent.result; }
+    console.log('[smtp] payload accepted', { elapsed_ms: Date.now() - t0 });
 
     // Best-effort QUIT. We ignore the response — message is already
     // delivered at this point.
@@ -1494,6 +1504,8 @@ async function handleSendMail(
   supabaseUrl: string,
   serviceKey: string,
 ): Promise<Response> {
+  const t0 = Date.now();
+  console.log('[send-mail] start', { user: userId.slice(0, 8), to_count: body.to?.length ?? 0, has_cc: !!body.cc, ct: body.content_type, has_reply: typeof body.reply_to_uid === 'number' });
   const password = normalizePassword(body.password);
   const email = body.email.trim().toLowerCase();
 
@@ -1508,12 +1520,14 @@ async function handleSendMail(
     .eq('user_id', userId)
     .maybeSingle();
   if (bindReadErr) {
-    console.warn('[imap-proxy] send-mail binding read failed:', bindReadErr.message);
+    console.warn('[send-mail] binding read failed', bindReadErr.message);
     return err('internal', 500);
   }
   if (!existing || existing.credential_hash !== hash) {
+    console.warn('[send-mail] binding mismatch — auth-failed');
     return err('auth-failed', 422);
   }
+  console.log('[send-mail] binding ok', `+${Date.now() - t0}ms`);
 
   // Decode signature attachments before opening SMTP — bad base64 should fail
   // fast without burning a connect-attempt to Apple.
@@ -1523,13 +1537,14 @@ async function handleSendMail(
   } catch (e) {
     return err('bad-request', 400, e instanceof Error ? e.message : String(e));
   }
+  console.log('[send-mail] attachments decoded', { count: attachments.length });
 
   let threading: ThreadingHeaders = {};
   if (typeof body.reply_to_uid === 'number' && Number.isFinite(body.reply_to_uid)) {
     try {
       threading = await fetchThreadingHeaders(email, password, body.reply_to_uid);
     } catch (e) {
-      console.warn('[imap-proxy] send-mail threading-header fetch failed (continuing without):', e instanceof Error ? e.message : String(e));
+      console.warn('[send-mail] threading-header fetch failed (continuing without):', e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -1547,6 +1562,7 @@ async function handleSendMail(
     threading,
     date: new Date(),
   });
+  console.log('[send-mail] rfc5322 built', { bytes: raw.length, elapsed_ms: Date.now() - t0 });
 
   // Envelope recipients = to + cc (deduplicated, normalized). Bcc is
   // explicitly out of scope for v1.
@@ -1555,7 +1571,14 @@ async function handleSendMail(
     ...(body.cc ? toAddressList(body.cc) : []),
   ]));
 
+  console.log('[send-mail] starting smtp', { rcpt_count: rcptTo.length, elapsed_ms: Date.now() - t0 });
   const smtpResult = await sendViaSmtp({ email, password, rcptTo, rfc5322: raw });
+  console.log('[send-mail] smtp done', {
+    ok: smtpResult.ok,
+    code: smtpResult.ok ? null : smtpResult.code,
+    detail: smtpResult.ok ? null : smtpResult.detail?.slice(0, 200),
+    elapsed_ms: Date.now() - t0,
+  });
   if (!smtpResult.ok) return smtpResultToResponse(smtpResult);
 
   // Best-effort APPEND to Sent. Logged-only on failure.
