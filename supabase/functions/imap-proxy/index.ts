@@ -1504,6 +1504,22 @@ async function handleSendMail(
   supabaseUrl: string,
   serviceKey: string,
 ): Promise<Response> {
+  try {
+    return await handleSendMailInner(body, userId, pepper, supabaseUrl, serviceKey);
+  } catch (e) {
+    const stack = e instanceof Error ? `${e.message}\n${e.stack ?? ''}` : String(e);
+    console.error('[send-mail] UNCAUGHT', stack);
+    return err('protocol', 502, `uncaught: ${stack.slice(0, 240)}`);
+  }
+}
+
+async function handleSendMailInner(
+  body: SendMailReq,
+  userId: string,
+  pepper: string,
+  supabaseUrl: string,
+  serviceKey: string,
+): Promise<Response> {
   const t0 = Date.now();
   console.log('[send-mail] start', { user: userId.slice(0, 8), to_count: body.to?.length ?? 0, has_cc: !!body.cc, ct: body.content_type, has_reply: typeof body.reply_to_uid === 'number' });
   const password = normalizePassword(body.password);
