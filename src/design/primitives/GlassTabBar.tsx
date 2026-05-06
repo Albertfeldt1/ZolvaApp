@@ -1,6 +1,8 @@
 import { BlurView } from 'expo-blur';
+import { GlassView } from 'expo-glass-effect';
 import React from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
+import { liquidGlassReady } from '../../lib/liquid-glass';
 import { useTheme } from '../useTheme';
 import { Icon } from './Icon';
 import { Stone } from './Stone';
@@ -76,8 +78,58 @@ export function GlassTabBar({ active, onChange, onAskZolva, bottomInset }: Props
         </Pressable>
       </View>
 
-      {/* 4-tab pill */}
+      {/* 4-tab pill — native iOS 26+ Liquid Glass when available,
+          BlurView fallback otherwise. */}
       <View style={{ alignSelf: 'stretch', marginHorizontal: spacing.tabBarSideMargin }}>
+        {liquidGlassReady ? (
+          <GlassView
+            glassEffectStyle="regular"
+            colorScheme={t.mode === 'dark' ? 'dark' : 'light'}
+            style={{
+              borderRadius: radius.pill,
+              overflow: 'hidden',
+              ...shadows.tabBar,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: 'row',
+                padding: spacing.sm,
+              }}
+            >
+              {TABS.map((tab) => {
+                const isActive = active === tab.id;
+                const Ic = tab.I;
+                return (
+                  <Pressable
+                    key={tab.id}
+                    onPress={() => onChange(tab.id)}
+                    style={{
+                      flex: 1,
+                      alignItems: 'center',
+                      paddingVertical: spacing.sm,
+                      borderRadius: radius.pill,
+                      backgroundColor: isActive ? surface.tabActive : 'transparent',
+                    }}
+                  >
+                    <Ic size={TAB_ICON_SIZE} color={isActive ? tab.color : t.ink3} />
+                    <Text
+                      style={{
+                        fontFamily: fonts.uiBold,
+                        fontSize: TAB_LABEL_SIZE,
+                        color: isActive ? tab.color : t.ink3,
+                        marginTop: 2,
+                        letterSpacing: 0.1,
+                      }}
+                    >
+                      {tab.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </GlassView>
+        ) : (
         <BlurView
           intensity={Platform.OS === 'ios' ? blur.tabBarIos : blur.tabBarAndroid}
           tint={t.mode === 'dark' ? 'dark' : 'light'}
@@ -126,6 +178,7 @@ export function GlassTabBar({ active, onChange, onAskZolva, bottomInset }: Props
             })}
           </View>
         </BlurView>
+        )}
       </View>
     </View>
   );

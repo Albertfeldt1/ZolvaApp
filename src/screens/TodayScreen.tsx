@@ -1,4 +1,3 @@
-import { BlurView } from 'expo-blur';
 import { Bookmark, Moon, Sun, Sunrise, X } from 'lucide-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -300,20 +299,16 @@ export function TodayScreen({
           </GlassFrostedCard>
         </View>
 
-        {/* Frosted hero stat card — bone backdrop so big digits read
-            crisply without halo bleed-through. */}
+        {/* Frosted hero stat card — uses GlassFrostedCard so iOS 26+
+            renders the native Liquid Glass material; older iOS / Android
+            fall back to the BlurView+bone path inside the primitive. */}
         <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
-          <BlurView
+          <GlassFrostedCard
+            radius={radius.card}
+            overlay={surface.bone}
             intensity={blur.hero}
-            tint={t.mode === 'dark' ? 'dark' : 'light'}
-            style={{
-              borderRadius: radius.card,
-              overflow: 'hidden',
-              borderWidth: 1,
-              borderColor: surface.glassWeak,
-            }}
+            style={{ padding: spacing.screenPad }}
           >
-            <View style={{ backgroundColor: surface.bone, padding: spacing.screenPad }}>
               {/* Top eyebrow row: "LIGE NU" + clock */}
               <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: spacing.cardPad }}>
                 <Text style={{ ...type.eyebrow, color: t.ink2, fontWeight: '600' }}>Lige nu</Text>
@@ -400,8 +395,7 @@ export function TodayScreen({
                   />
                 ))}
               </View>
-            </View>
-          </BlurView>
+          </GlassFrostedCard>
         </View>
 
         {/* iCloud expired banner */}
