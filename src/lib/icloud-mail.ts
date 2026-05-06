@@ -6,6 +6,7 @@
 
 import { supabase } from './supabase';
 import { loadCredential, markInvalid } from './icloud-credentials';
+import { parseFromHeader } from './gmail';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
 if (!SUPABASE_URL) {
@@ -125,7 +126,10 @@ async function listInboxImpl(
     ok: true,
     data: res.data.messages.map((m) => ({
       uid: m.uid,
-      from: m.from,
+      // imap-proxy returns the raw RFC-2822 From header ("Name <addr>"
+      // or just "addr"). Strip the bracketed address so the inbox row
+      // shows just the display name, matching Gmail/Graph behavior.
+      from: parseFromHeader(m.from),
       subject: m.subject,
       date: new Date(m.date),
       unread: m.unread,
@@ -164,7 +168,10 @@ export async function getMessageBody(
     }
     return res;
   }
-  return { ok: true, data: res.data.message };
+  return {
+    ok: true,
+    data: { ...res.data.message, from: parseFromHeader(res.data.message.from) },
+  };
 }
 
 type RawMessage = {

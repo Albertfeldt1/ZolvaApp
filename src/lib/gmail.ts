@@ -499,7 +499,7 @@ function extractEmail(raw: string): string {
   return raw.trim();
 }
 
-function parseFromHeader(raw: string): string {
+export function parseFromHeader(raw: string): string {
   if (!raw) return '(ukendt afsender)';
   // "Display Name <email@example.com>" or just "email@example.com"
   const named = raw.match(/^"?([^"<]+?)"?\s*<.+>$/);
