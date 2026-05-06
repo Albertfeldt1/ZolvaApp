@@ -11,6 +11,12 @@
 //   - clear-binding: deletes the caller's binding row so a new app-specific
 //                    password can bind fresh. JWT-gated; no IMAP/Apple call.
 //
+// Five ops:
+//   - count:         hash-bind check + LOGIN + STATUS INBOX (MESSAGES UNSEEN)
+//                    + LOGOUT. Returns server-reported total + unread counts
+//                    so the client can show a stable inbox total that
+//                    doesn't depend on the per-fetch limit window.
+//
 // Hardcoded target imap.mail.me.com:993. No host param accepted.
 // JWT required for all calls. Per-user rate limits enforced server-side.
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
@@ -51,6 +57,11 @@ type GetBodyReq = {
   password: string;
   uid: number;
 };
+type CountReq = {
+  op: 'count';
+  email: string;
+  password: string;
+};
 // clear-binding doesn't need email/password — the JWT identifies the user
 // and the binding row is keyed by user_id. Email/password fields are
 // optional/ignored to keep the request shape uniform with the other ops.
@@ -63,7 +74,7 @@ type ClearBindingReq = {
 // touch — the only goal is to keep a worker from idling out, so the gateway
 // doesn't 502 on the next real cold-start.
 type PingReq = { op: 'ping' };
-type Req = ValidateReq | ListInboxReq | GetBodyReq | ClearBindingReq | PingReq;
+type Req = ValidateReq | ListInboxReq | GetBodyReq | CountReq | ClearBindingReq | PingReq;
 
 type ErrCode =
   | 'unauthorized'
@@ -137,7 +148,11 @@ serve(async (req) => {
 
   if (
     !body ||
-    (body.op !== 'validate' && body.op !== 'list-inbox' && body.op !== 'get-body' && body.op !== 'clear-binding')
+    (body.op !== 'validate' &&
+      body.op !== 'list-inbox' &&
+      body.op !== 'get-body' &&
+      body.op !== 'count' &&
+      body.op !== 'clear-binding')
   ) {
     return err('bad-request', 400);
   }
@@ -169,6 +184,9 @@ serve(async (req) => {
   if (body.op === 'get-body') {
     return await handleGetBody(body, userId, pepper, supabaseUrl, serviceKey);
   }
+  if (body.op === 'count') {
+    return await handleCount(body, userId, pepper, supabaseUrl, serviceKey);
+  }
   if (body.op === 'clear-binding') {
     return await handleClearBinding(userId, supabaseUrl, serviceKey);
   }
@@ -179,16 +197,19 @@ async function checkRateLimit(
   serviceKey: string,
   supabaseUrl: string,
   userId: string,
-  op: 'validate' | 'list-inbox' | 'get-body' | 'clear-binding',
+  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding',
 ): Promise<boolean> {
   // clear-binding doesn't need rate limiting — the JWT already authorizes,
   // and a malicious user can only delete their OWN row. Skipping the check
   // also means disconnect-then-reconnect doesn't false-trigger the limit.
   if (op === 'clear-binding') return true;
+  // count piggy-backs on the list-inbox bucket — both are read-only INBOX
+  // taps, and the count call is meaningfully cheaper (STATUS vs FETCH), so
+  // sharing the limit prevents a polling client from exhausting either.
   const limit =
     op === 'validate'
       ? RATE_LIMIT_VALIDATE
-      : op === 'list-inbox'
+      : op === 'list-inbox' || op === 'count'
       ? RATE_LIMIT_LIST_INBOX
       : RATE_LIMIT_GET_BODY;
   const svc = createClient(supabaseUrl, serviceKey, {
@@ -769,6 +790,63 @@ async function handleGetBody(
   } finally {
     if (client && client.usable) {
       try { await client.close(); } catch { /* ignore */ }
+    }
+  }
+}
+
+// --- count -----------------------------------------------------------------
+//
+// Returns server-reported INBOX message and unseen counts. Uses IMAP STATUS,
+// which is much cheaper than SELECT+FETCH and lets the client display a
+// stable inbox total that doesn't depend on the per-fetch limit window.
+async function handleCount(
+  body: CountReq,
+  userId: string,
+  pepper: string,
+  supabaseUrl: string,
+  serviceKey: string,
+): Promise<Response> {
+  const password = normalizePassword(body.password);
+  const email = body.email.trim().toLowerCase();
+  const hash = await hashCredential(pepper, email, password);
+  const svc = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false },
+  });
+  // Mirror handleListInbox's binding check — count is a read-only op but
+  // still needs to refuse if the bound password has rotated.
+  const { data: existing, error: bindReadErr } = await svc
+    .from('icloud_credential_bindings')
+    .select('credential_hash')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (bindReadErr) {
+    console.warn('[imap-proxy] binding read failed:', bindReadErr.message);
+    return err('internal', 500);
+  }
+  if (existing && existing.credential_hash !== hash) {
+    return err('auth-failed', 422);
+  }
+
+  let client: ImapFlow | null = null;
+  try {
+    client = await newImapClient(email, password);
+    await client.connect();
+    // STATUS doesn't take a mailbox lock and doesn't change \Seen — it
+    // returns the same metadata SELECT would, without requiring the
+    // mailbox to be open.
+    const status = await client.status('INBOX', { messages: true, unseen: true });
+    return Response.json({
+      ok: true,
+      total: status.messages ?? 0,
+      unread: status.unseen ?? 0,
+    });
+  } catch (e) {
+    return mapImapError(e);
+  } finally {
+    try {
+      await client?.logout();
+    } catch {
+      /* noop */
     }
   }
 }
