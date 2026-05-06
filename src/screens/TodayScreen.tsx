@@ -258,7 +258,9 @@ export function TodayScreen({
     };
   }, [onOverDarkChange]);
 
-  const summaryLine = `${todayMeetingCount} ${plural(todayMeetingCount, 'møde', 'møder')}, ${waiting.length} ${plural(waiting.length, 'mail venter', 'mails venter')}, og ${pendingReminders.length} ${plural(pendingReminders.length, 'påmindelse', 'påmindelser')}.`;
+  // `plural(n, sing, plur)` already returns "<n> <word>" — don't prefix the
+  // count again or it renders "0 0 møder, 12 12 mails venter…".
+  const summaryLine = `${plural(todayMeetingCount, 'møde', 'møder')}, ${plural(waiting.length, 'mail venter', 'mails venter')}, og ${plural(pendingReminders.length, 'påmindelse', 'påmindelser')}.`;
 
   return (
     <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
