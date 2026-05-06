@@ -1413,30 +1413,17 @@ async function handleSendMailInner(
   });
   if (!smtpResult.ok) return smtpResultToResponse(smtpResult);
 
-  // Sent-folder APPEND runs as a background task AFTER the response is
-  // returned. Wall-clock for SMTP send + IMAP login + APPEND was pushing
-  // past Supabase's 12s gateway timeout, so the response was being
-  // dropped even though the mail was already delivered. waitUntil keeps
-  // the work alive on the worker without blocking the response.
-  //
-  // EdgeRuntime is Supabase Edge's globalThis; fall back to fire-and-
-  // forget if it's missing (local dev `supabase functions serve`).
-  const appendPromise = (async () => {
-    try {
-      const r = await appendToSent(email, password, raw);
-      if (!r.ok) console.warn('[send-mail] background APPEND to Sent failed:', r.reason);
-    } catch (e) {
-      console.warn('[send-mail] background APPEND threw:', e instanceof Error ? e.message : String(e));
-    }
-  })();
-  const er = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
-  if (er?.waitUntil) {
-    er.waitUntil(appendPromise);
+  // APPEND to Sent synchronously. nodemailer's SMTP completes in ~3-5s,
+  // and the IMAP APPEND (login + folder resolve + append) takes another
+  // ~2-3s, so total fits in Supabase's 12s gateway window. Background
+  // execution via EdgeRuntime.waitUntil was tried first but the work
+  // never landed in iCloud — Supabase appears to recycle the worker
+  // immediately after the response, killing the in-flight promise.
+  const append = await appendToSent(email, password, raw);
+  if (!append.ok) {
+    console.warn('[send-mail] APPEND to Sent failed:', append.reason);
   }
-  // sent_appended is no longer known synchronously; the message is
-  // delivered either way, so the caller treats both true and undefined
-  // as success.
-  return Response.json({ ok: true, sent_appended: 'pending' });
+  return Response.json({ ok: true, sent_appended: append.ok });
 }
 
 async function handleAppendDraft(
