@@ -1568,12 +1568,31 @@ async function handleSendMailInner(
   });
   if (!smtpResult.ok) return smtpResultToResponse(smtpResult);
 
-  // Best-effort APPEND to Sent. Logged-only on failure.
-  const append = await appendToSent(email, password, raw);
-  if (!append.ok) {
-    console.warn('[imap-proxy] send-mail APPEND to Sent failed:', append.reason);
+  // Sent-folder APPEND runs as a background task AFTER the response is
+  // returned. Wall-clock for SMTP send + IMAP login + APPEND was pushing
+  // past Supabase's 12s gateway timeout, so the response was being
+  // dropped even though the mail was already delivered. waitUntil keeps
+  // the work alive on the worker without blocking the response.
+  //
+  // EdgeRuntime is Supabase Edge's globalThis; fall back to fire-and-
+  // forget if it's missing (local dev `supabase functions serve`).
+  const appendPromise = (async () => {
+    try {
+      const r = await appendToSent(email, password, raw);
+      if (!r.ok) console.warn('[send-mail] background APPEND to Sent failed:', r.reason);
+      else console.log('[send-mail] background APPEND to Sent ok');
+    } catch (e) {
+      console.warn('[send-mail] background APPEND threw:', e instanceof Error ? e.message : String(e));
+    }
+  })();
+  const er = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
+  if (er?.waitUntil) {
+    er.waitUntil(appendPromise);
   }
-  return Response.json({ ok: true, sent_appended: append.ok });
+  // sent_appended is no longer known synchronously; the message is
+  // delivered either way, so the caller treats both true and undefined
+  // as success.
+  return Response.json({ ok: true, sent_appended: 'pending' });
 }
 
 async function handleAppendDraft(
