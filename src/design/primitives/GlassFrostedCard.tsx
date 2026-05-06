@@ -1,7 +1,7 @@
 import { BlurView } from 'expo-blur';
 import { GlassView } from 'expo-glass-effect';
 import React from 'react';
-import { Platform, StyleProp, View, ViewStyle } from 'react-native';
+import { StyleProp, View, ViewStyle } from 'react-native';
 import { liquidGlassReady } from '../../lib/liquid-glass';
 import { useTheme } from '../useTheme';
 
@@ -11,13 +11,13 @@ type Props = {
   intensity?: number;
   /** Override card radius. Defaults to theme's small card radius. */
   radius?: number;
-  /** Override the rgba overlay color above the blur. On iOS 26+ this is
-   *  passed as the GlassView tint color; on older iOS / Android it's the
-   *  opaque fill above the BlurView. */
+  /** Background fill (when omitted, renders as a near-opaque bone-white
+   *  card). Pass a semantic tint like surface.warningTint or
+   *  surface.glassDark to ride the iOS 26 Liquid Glass material instead
+   *  of a flat fill. */
   overlay?: string;
-  /** Glass intensity preset. 'regular' is the default frosted look;
-   *  'clear' lets halos bleed through more aggressively. Maps directly
-   *  to the native glassEffectStyle on iOS 26+. */
+  /** Glass intensity preset. Only meaningful for non-fill tints that
+   *  flow through the native Liquid Glass / BlurView path. */
   glassStyle?: 'regular' | 'clear';
 };
 
@@ -32,29 +32,45 @@ export function GlassFrostedCard({
   const { radius: R, surface, shadows, blur, t } = useTheme();
   const r = radius ?? R.cardSm;
 
-  // Native iOS 26+ Liquid Glass — use UIGlassEffectView via expo-glass-effect.
-  // Halos bleed through with the real refractive material; only semantic
-  // overlays (warning, success, dark) ride as tintColor on the glass effect.
-  // The "fill"-style overlays (bone, glass, glassStrong, glassWeak,
-  // glassAndroidFallback) are skipped here because their high opacity would
-  // wash out the native glass effect — let GlassView do the work instead.
+  // Most callers want a near-opaque cream "card" surface, not a glass
+  // material. iOS 26's native UIGlassEffectView attenuates flat tint
+  // values further than expected, which made bone-white cards bleed
+  // through to nothing on saturated backdrops (only the rim survived).
+  // Detect the fill-style overlays and short-circuit to a plain View
+  // with the overlay as backgroundColor — no blur, no glass.
+  const isFillOverlay =
+    !overlay ||
+    overlay === surface.bone ||
+    overlay === surface.glass ||
+    overlay === surface.glassStrong ||
+    overlay === surface.glassWeak ||
+    overlay === surface.glassAndroidFallback;
+
+  if (isFillOverlay) {
+    return (
+      <View
+        style={[
+          {
+            backgroundColor: overlay ?? surface.bone,
+            borderRadius: r,
+            overflow: 'hidden',
+            borderWidth: 1,
+            borderColor: surface.glassRim,
+            ...shadows.softCard,
+          },
+          style,
+        ]}
+      >
+        {children}
+      </View>
+    );
+  }
+
+  // Semantic tints (warningTint, successTint, glassDark, …) ride the
+  // glass material. iOS 26+ uses native Liquid Glass; older iOS and
+  // Android fall back to BlurView + the tint as an opaque fill.
   if (liquidGlassReady) {
-    const isFillOverlay =
-      !overlay ||
-      overlay === surface.bone ||
-      overlay === surface.glass ||
-      overlay === surface.glassStrong ||
-      overlay === surface.glassWeak ||
-      overlay === surface.glassAndroidFallback;
     const isDarkOverlay = overlay === surface.glassDark;
-    // Fill-style overlays don't pass through as native tintColor (their
-    // high opacity would wash out the glass effect). On a saturated /
-    // airbrushy background, however, pure clear glass renders cards
-    // nearly invisible — and iOS 26's native glass attenuates flat tint
-    // values further, so the opacity has to be cranked up to land in
-    // the right visible range.
-    const fallbackFrost =
-      t.mode === 'dark' ? 'rgba(20,22,28,0.72)' : 'rgba(255,255,255,0.78)';
     return (
       <View
         style={{
@@ -68,7 +84,7 @@ export function GlassFrostedCard({
         <GlassView
           glassEffectStyle={glassStyle}
           colorScheme={isDarkOverlay || t.mode === 'dark' ? 'dark' : 'light'}
-          tintColor={isFillOverlay ? fallbackFrost : overlay}
+          tintColor={overlay}
         >
           <View style={style}>{children}</View>
         </GlassView>
@@ -76,13 +92,7 @@ export function GlassFrostedCard({
     );
   }
 
-  // Older iOS / Android fallback — BlurView + opaque overlay. Android's
-  // BlurView is weak/no-op on older devices, so the overlay opacity is
-  // bumped to keep the card legible.
   const blurIntensity = intensity ?? blur.card;
-  const overlayColor =
-    Platform.OS === 'android' ? surface.glassAndroidFallback : (overlay ?? surface.glass);
-
   return (
     <View
       style={{
@@ -94,7 +104,7 @@ export function GlassFrostedCard({
       }}
     >
       <BlurView intensity={blurIntensity} tint={t.mode === 'dark' ? 'dark' : 'light'}>
-        <View style={[{ backgroundColor: overlayColor }, style]}>{children}</View>
+        <View style={[{ backgroundColor: overlay }, style]}>{children}</View>
       </BlurView>
     </View>
   );
