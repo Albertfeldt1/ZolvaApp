@@ -11,10 +11,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
+import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
+import { useTheme } from '../design/useTheme';
 import { useAuth } from '../lib/auth';
 import { isDemoUser } from '../lib/demo';
 import { supabase } from '../lib/supabase';
-import { colors, fonts } from '../theme';
 
 const CONFIRMATION_WORD = 'SLET';
 
@@ -27,6 +29,7 @@ type DeleteError = { message: string; canRetry: boolean };
 
 export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
   const { user, signOut } = useAuth();
+  const { t, type, fonts, radius, spacing, surface } = useTheme();
   const [confirmation, setConfirmation] = useState('');
   const [stage, setStage] = useState<'intro' | 'confirm'>('intro');
   const [busy, setBusy] = useState(false);
@@ -96,120 +99,357 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
 
   return (
     <KeyboardAvoidingView
-      style={styles.root}
+      style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={styles.header}>
-        <Pressable
-          onPress={onClose}
-          hitSlop={10}
-          style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}
-          accessibilityLabel="Luk"
-          accessibilityRole="button"
-          disabled={busy}
+      <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
+        <GlassHaloLayer />
+
+        {/* Header — glass card with close button + eyebrow */}
+        <View
+          style={{
+            paddingTop: spacing.statusBarFallback,
+            paddingHorizontal: spacing.screenPad,
+            paddingBottom: spacing.cardPad,
+            position: 'relative',
+            zIndex: 1,
+          }}
         >
-          <X size={22} color={colors.ink} strokeWidth={2} />
-        </Pressable>
-      </View>
-
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={styles.eyebrow}>Slet konto</Text>
-        <Text style={styles.title}>Er du sikker?</Text>
-
-        <Text style={styles.body}>
-          Hvis du sletter din konto, fjerner vi permanent:
-        </Text>
-        <View style={styles.list}>
-          <BulletItem>Din Zolva-konto og login</BulletItem>
-          <BulletItem>Alle forbindelser til Google og Microsoft</BulletItem>
-          <BulletItem>Push-tokens så vi ikke kan sende dig notifikationer</BulletItem>
-          <BulletItem>Al data tilknyttet din bruger-ID hos os</BulletItem>
+          <GlassFrostedCard
+            radius={radius.card}
+            style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text
+                style={{
+                  fontFamily: fonts.mono,
+                  fontSize: 11,
+                  letterSpacing: 0.88,
+                  textTransform: 'uppercase',
+                  // '#D14343' — no danger token in current scheme; Zolva destructive red
+                  color: '#D14343',
+                }}
+              >
+                Slet konto
+              </Text>
+              <Pressable
+                onPress={onClose}
+                hitSlop={10}
+                style={({ pressed }) => [
+                  {
+                    width: 34,
+                    height: 34,
+                    borderRadius: radius.pill,
+                    backgroundColor: surface.iconButton,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  },
+                  pressed && { opacity: 0.6 },
+                ]}
+                accessibilityLabel="Luk"
+                accessibilityRole="button"
+                disabled={busy}
+              >
+                <X size={20} color={t.ink} strokeWidth={2} />
+              </Pressable>
+            </View>
+          </GlassFrostedCard>
         </View>
 
-        <Text style={[styles.body, { marginTop: 16 }]}>
-          Vi forsøger også at tilbagekalde dine OAuth-tokens hos Google.
-          Microsoft understøtter ikke tilbagekaldelse via API — du kan selv
-          fjerne adgangen i din Microsoft-konto bagefter.
-        </Text>
-
-        <Text style={[styles.body, styles.warn]}>
-          Handlingen kan ikke fortrydes.
-        </Text>
-
-        {stage === 'intro' ? (
-          <>
-            <Pressable
-              style={({ pressed }) => [styles.primaryDestructive, pressed && styles.pressed]}
-              onPress={() => setStage('confirm')}
-              accessibilityRole="button"
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            paddingHorizontal: spacing.screenPad,
+            paddingBottom: 48,
+            gap: spacing.cardPad,
+          }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Hero warning card */}
+          <GlassFrostedCard overlay={surface.bone} radius={radius.card} style={{ padding: spacing.lg }}>
+            <Text
+              style={{
+                fontFamily: fonts.display,
+                fontStyle: 'italic',
+                fontSize: 32,
+                lineHeight: 38,
+                letterSpacing: -0.96,
+                color: t.ink,
+              }}
             >
-              <Text style={styles.primaryDestructiveText}>Fortsæt til bekræftelse</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}
-              onPress={onClose}
-              accessibilityRole="button"
-            >
-              <Text style={styles.secondaryText}>Behold min konto</Text>
-            </Pressable>
-          </>
-        ) : (
-          <>
-            <Text style={[styles.body, { marginTop: 20 }]}>
-              Skriv <Text style={styles.bodyStrong}>SLET</Text> for at
-              bekræfte.
+              Er du sikker?
             </Text>
 
-            <TextInput
-              style={styles.input}
-              value={confirmation}
-              onChangeText={setConfirmation}
-              placeholder="SLET"
-              placeholderTextColor={colors.fg3}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              editable={!busy}
-              accessibilityLabel="Bekræftelse, skriv SLET"
+            <View
+              style={{
+                marginTop: spacing.md,
+                height: 1,
+                backgroundColor: t.ink,
+                opacity: 0.12,
+              }}
             />
 
-            {error && (
-              <Text style={styles.errorText}>{error.message}</Text>
-            )}
+            <Text
+              style={{
+                marginTop: spacing.md,
+                fontFamily: fonts.ui,
+                fontSize: 15,
+                lineHeight: 22,
+                color: t.ink2,
+              }}
+            >
+              Hvis du sletter din konto, fjerner vi permanent:
+            </Text>
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.primaryDestructive,
-                (!typedCorrectly || busy) && styles.disabled,
-                pressed && typedCorrectly && !busy && styles.pressed,
-              ]}
-              onPress={runDelete}
-              disabled={!typedCorrectly || busy}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: !typedCorrectly || busy }}
+            {/* Consequences list */}
+            <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
+              {[
+                'Din Zolva-konto og login',
+                'Alle forbindelser til Google og Microsoft',
+                'Push-tokens så vi ikke kan sende dig notifikationer',
+                'Al data tilknyttet din bruger-ID hos os',
+              ].map((item) => (
+                <View key={item} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+                  <View
+                    style={{
+                      width: 5,
+                      height: 5,
+                      borderRadius: 999,
+                      // '#D14343' — destructive bullet accent, no token
+                      backgroundColor: '#D14343',
+                      marginTop: 8,
+                    }}
+                  />
+                  <Text
+                    style={{
+                      flex: 1,
+                      fontFamily: fonts.ui,
+                      fontSize: 14.5,
+                      lineHeight: 21,
+                      color: t.ink2,
+                    }}
+                  >
+                    {item}
+                  </Text>
+                </View>
+              ))}
+            </View>
+
+            <View
+              style={{
+                marginTop: spacing.md,
+                height: 1,
+                backgroundColor: t.ink,
+                opacity: 0.12,
+              }}
+            />
+
+            <Text
+              style={{
+                marginTop: spacing.md,
+                fontFamily: fonts.ui,
+                fontSize: 15,
+                lineHeight: 22,
+                color: t.ink2,
+              }}
             >
-              {busy ? (
-                <ActivityIndicator color={colors.paper} />
-              ) : (
-                <Text style={styles.primaryDestructiveText}>
-                  Slet konto permanent
+              Vi forsøger også at tilbagekalde dine OAuth-tokens hos Google.
+              Microsoft understøtter ikke tilbagekaldelse via API — du kan selv
+              fjerne adgangen i din Microsoft-konto bagefter.
+            </Text>
+
+            <Text
+              style={{
+                marginTop: spacing.sm,
+                fontFamily: fonts.uiBold,
+                fontSize: 15,
+                lineHeight: 22,
+                // '#D14343' — irreversible warning, no token
+                color: '#D14343',
+              }}
+            >
+              Handlingen kan ikke fortrydes.
+            </Text>
+          </GlassFrostedCard>
+
+          {stage === 'intro' ? (
+            <>
+              {/* "Continue to confirmation" — destructive red pill */}
+              <Pressable
+                style={({ pressed }) => [
+                  {
+                    marginTop: spacing.sm,
+                    // '#D14343' — destructive CTA background, no token
+                    backgroundColor: '#D14343',
+                    paddingVertical: 14,
+                    borderRadius: radius.pill,
+                    alignItems: 'center',
+                  },
+                  pressed && { opacity: 0.82 },
+                ]}
+                onPress={() => setStage('confirm')}
+                accessibilityRole="button"
+              >
+                <Text
+                  style={{
+                    // '#FFFFFF' — white text on destructive red pill
+                    color: '#FFFFFF',
+                    fontFamily: fonts.uiBold,
+                    fontSize: 14.5,
+                  }}
+                >
+                  Fortsæt til bekræftelse
                 </Text>
+              </Pressable>
+
+              {/* Cancel — ghost */}
+              <Pressable
+                style={({ pressed }) => [
+                  { paddingVertical: 14, alignItems: 'center' },
+                  pressed && { opacity: 0.6 },
+                ]}
+                onPress={onClose}
+                accessibilityRole="button"
+              >
+                <Text
+                  style={{
+                    color: t.ink3,
+                    fontFamily: fonts.uiBold,
+                    fontSize: 13,
+                  }}
+                >
+                  Behold min konto
+                </Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              {/* Confirmation input card */}
+              <GlassFrostedCard overlay={surface.bone} radius={radius.card} style={{ padding: spacing.lg }}>
+                <Text
+                  style={{
+                    fontFamily: fonts.ui,
+                    fontSize: 15,
+                    lineHeight: 22,
+                    color: t.ink2,
+                  }}
+                >
+                  Skriv{' '}
+                  <Text style={{ fontFamily: fonts.uiBold, color: t.ink }}>SLET</Text>
+                  {' '}for at bekræfte.
+                </Text>
+
+                <TextInput
+                  style={{
+                    marginTop: spacing.md,
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: radius.card - 4,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: t.line,
+                    paddingHorizontal: 14,
+                    paddingVertical: 14,
+                    fontFamily: fonts.monoBold,
+                    fontSize: 16,
+                    letterSpacing: 2,
+                    color: t.ink,
+                  }}
+                  value={confirmation}
+                  onChangeText={setConfirmation}
+                  placeholder="SLET"
+                  placeholderTextColor={t.ink4}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  editable={!busy}
+                  accessibilityLabel="Bekræftelse, skriv SLET"
+                />
+              </GlassFrostedCard>
+
+              {/* Error banner */}
+              {error && (
+                <GlassFrostedCard
+                  overlay={surface.warningTint}
+                  radius={radius.card}
+                  style={{ padding: spacing.cardPad }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: fonts.ui,
+                      fontSize: 13,
+                      lineHeight: 19,
+                      // '#D14343' — error text, no token
+                      color: '#D14343',
+                    }}
+                  >
+                    {error.message}
+                  </Text>
+                </GlassFrostedCard>
               )}
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}
-              onPress={onClose}
-              disabled={busy}
-              accessibilityRole="button"
-            >
-              <Text style={styles.secondaryText}>Annullér</Text>
-            </Pressable>
-          </>
-        )}
-      </ScrollView>
+
+              {/* Delete permanently — destructive red pill (enabled) / glass pill (disabled) */}
+              <Pressable
+                style={({ pressed }) => [
+                  {
+                    paddingVertical: 14,
+                    borderRadius: radius.pill,
+                    alignItems: 'center',
+                    backgroundColor: typedCorrectly && !busy
+                      // '#D14343' — destructive CTA enabled, no token
+                      ? '#D14343'
+                      : surface.glass,
+                  },
+                  !typedCorrectly || busy
+                    ? { opacity: 0.5 }
+                    : pressed
+                    ? { opacity: 0.82 }
+                    : undefined,
+                ]}
+                onPress={runDelete}
+                disabled={!typedCorrectly || busy}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !typedCorrectly || busy }}
+              >
+                {busy ? (
+                  // '#FFFFFF' — spinner on dark destructive pill
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text
+                    style={{
+                      fontFamily: fonts.uiBold,
+                      fontSize: 14.5,
+                      // '#FFFFFF' when enabled (on red), t.ink3 when disabled (on glass)
+                      color: typedCorrectly ? '#FFFFFF' : t.ink3,
+                    }}
+                  >
+                    Slet konto permanent
+                  </Text>
+                )}
+              </Pressable>
+
+              {/* Cancel — ghost */}
+              <Pressable
+                style={({ pressed }) => [
+                  { paddingVertical: 14, alignItems: 'center' },
+                  pressed && { opacity: 0.6 },
+                ]}
+                onPress={onClose}
+                disabled={busy}
+                accessibilityRole="button"
+              >
+                <Text
+                  style={{
+                    color: t.ink3,
+                    fontFamily: fonts.uiBold,
+                    fontSize: 13,
+                  }}
+                >
+                  Annullér
+                </Text>
+              </Pressable>
+            </>
+          )}
+        </ScrollView>
+      </View>
     </KeyboardAvoidingView>
   );
 }
@@ -245,133 +485,3 @@ function safeParseJson(text: string): unknown {
     return null;
   }
 }
-
-function BulletItem({ children }: { children: React.ReactNode }) {
-  return (
-    <View style={styles.bulletRow}>
-      <View style={styles.bullet} />
-      <Text style={styles.bulletText}>{children}</Text>
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.paper },
-  header: {
-    paddingTop: 56,
-    paddingHorizontal: 20,
-    paddingBottom: 8,
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-  },
-  closeBtn: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 999,
-    backgroundColor: colors.mist,
-  },
-  pressed: { opacity: 0.6 },
-  scroll: {
-    paddingHorizontal: 20,
-    paddingBottom: 48,
-    gap: 12,
-  },
-  eyebrow: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.88,
-    textTransform: 'uppercase',
-    color: colors.danger,
-  },
-  title: {
-    fontFamily: fonts.displayItalic,
-    fontSize: 36,
-    lineHeight: 40,
-    letterSpacing: -1.08,
-    color: colors.ink,
-    marginBottom: 8,
-  },
-  body: {
-    fontFamily: fonts.ui,
-    fontSize: 15,
-    lineHeight: 22,
-    color: colors.fg2,
-  },
-  bodyStrong: {
-    fontFamily: fonts.uiSemi,
-    color: colors.ink,
-  },
-  warn: {
-    marginTop: 12,
-    color: colors.danger,
-    fontFamily: fonts.uiSemi,
-  },
-  list: {
-    marginTop: 12,
-    gap: 8,
-  },
-  bulletRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  bullet: {
-    width: 5,
-    height: 5,
-    borderRadius: 999,
-    backgroundColor: colors.danger,
-    marginTop: 9,
-  },
-  bulletText: {
-    flex: 1,
-    fontFamily: fonts.ui,
-    fontSize: 14.5,
-    lineHeight: 21,
-    color: colors.fg2,
-  },
-  input: {
-    marginTop: 10,
-    backgroundColor: colors.mist,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    fontFamily: fonts.monoSemi,
-    fontSize: 16,
-    letterSpacing: 2,
-    color: colors.ink,
-  },
-  errorText: {
-    marginTop: 10,
-    fontFamily: fonts.ui,
-    fontSize: 13,
-    lineHeight: 19,
-    color: colors.danger,
-  },
-  primaryDestructive: {
-    marginTop: 20,
-    backgroundColor: colors.danger,
-    paddingVertical: 14,
-    borderRadius: 999,
-    alignItems: 'center',
-  },
-  primaryDestructiveText: {
-    color: colors.paper,
-    fontFamily: fonts.uiSemi,
-    fontSize: 14.5,
-  },
-  disabled: {
-    opacity: 0.4,
-  },
-  secondary: {
-    marginTop: 8,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  secondaryText: {
-    color: colors.fg3,
-    fontFamily: fonts.uiSemi,
-    fontSize: 13,
-  },
-});
