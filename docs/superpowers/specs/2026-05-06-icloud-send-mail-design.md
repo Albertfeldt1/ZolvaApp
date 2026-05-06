@@ -20,6 +20,7 @@ The 2026-04-25 iCloud mail/calendar design shipped read-only iCloud mail. Allan 
 - Send-from alias picker (e.g. choosing between `@me.com` / `@icloud.com` / custom domain). v1 sends from whatever email Allan entered in `IcloudSetupScreen`.
 - BCC. CC only. (Easy to add later if needed; deferred to keep schema and UX minimal.)
 - iCloud calendar invites / iTIP — already deferred from the read design.
+- **Sent-folder population** (added 2026-05-06 after E2E). Sending via SMTP works; populating the iCloud Sent folder via IMAP `APPEND` was tried both synchronously and as a background task (`EdgeRuntime.waitUntil`) and neither landed reliably. Synchronous APPEND blew the Supabase 12s gateway timeout under Apple-side throttling; background APPEND got killed when Supabase recycled the worker post-response. Mail is still delivered to recipients; only the sender's Sent-folder copy is missing in Apple Mail. Revisit if it becomes a usability blocker.
 
 ## Body format
 
