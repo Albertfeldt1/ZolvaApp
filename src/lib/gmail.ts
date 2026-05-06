@@ -509,7 +509,15 @@ function parseFromHeader(raw: string): string {
 }
 
 export function initialsOf(name: string): string {
-  const parts = name.split(/\s+/).filter(Boolean);
+  // Strip MIME-encoding artefacts (<, >, ", quoted-printable markers) and
+  // anything that isn't a letter/digit before splitting on whitespace —
+  // otherwise senders like 'Lars <lars@x.com>' that slip past the From-
+  // header parser surface as initials like "L<".
+  const cleaned = name
+    .replace(/[<>"'`]/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .trim();
+  const parts = cleaned.split(/\s+/).filter(Boolean);
   if (parts.length === 0) return '?';
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
