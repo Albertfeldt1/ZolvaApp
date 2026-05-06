@@ -981,6 +981,12 @@ function decodeAttachments(specs: AttachmentSpec[] | undefined): Array<{
   return out;
 }
 
+// Trim and drop empty entries. Address list normalization for SMTP envelope
+// recipients and for the To:/Cc: headers in the RFC 5322 builder.
+function toAddressList(addrs: string[]): string[] {
+  return addrs.map((a) => a.trim()).filter((a) => a.length > 0);
+}
+
 // --- Hand-rolled SMTP -------------------------------------------------------
 //
 // We speak SMTP over Deno.connect + Deno.startTls instead of pulling
