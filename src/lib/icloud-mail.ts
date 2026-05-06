@@ -28,6 +28,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { loadCredential, markInvalid } from './icloud-credentials';
 import { parseFromHeader } from './gmail';
+import { buildOutgoingBody } from './mail-signature';
+import type { InlineAttachmentSpec } from './mail-signature';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
 if (!SUPABASE_URL) {
@@ -421,6 +423,88 @@ export async function getMessageBody(
     ok: true,
     data: { ...res.data.message, from: parseFromHeader(res.data.message.from) },
   };
+}
+
+export type IcloudComposeInput = {
+  to: string[];
+  cc?: string[];
+  subject: string;
+  body: string;          // raw user body — signature is applied below
+  replyToUid?: number;   // IMAP UID of original mail when replying
+};
+
+function attachmentsToWire(specs: InlineAttachmentSpec[]): Array<{
+  filename: string;
+  mime_type: string;
+  content_b64: string;
+  content_id: string;
+}> {
+  return specs.map((s) => ({
+    filename: s.filename,
+    mime_type: s.mimeType,
+    content_b64: s.contentBytes,
+    content_id: s.contentId,
+  }));
+}
+
+export async function icloudSendMail(
+  userId: string,
+  input: IcloudComposeInput,
+): Promise<IcloudResult<null>> {
+  const cred = await loadCredential(userId);
+  if (cred.kind === 'absent') return { ok: false, error: 'not-connected' };
+  if (cred.kind === 'invalid') return { ok: false, error: 'credential-rejected' };
+
+  const built = await buildOutgoingBody(input.body);
+  const reqBody: Record<string, unknown> = {
+    email: cred.credential.email,
+    password: cred.credential.password,
+    to: input.to,
+    cc: input.cc,
+    subject: input.subject,
+    content_type: built.contentType,
+    content: built.content,
+    attachments: built.attachments.length > 0 ? attachmentsToWire(built.attachments) : undefined,
+  };
+  if (typeof input.replyToUid === 'number' && Number.isFinite(input.replyToUid)) {
+    reqBody.reply_to_uid = input.replyToUid;
+  }
+
+  const res = await call<null>('send-mail', reqBody);
+  if (!res.ok && res.error === 'auth-failed') {
+    await markInvalid(userId, 'imap-rejected');
+  }
+  return res;
+}
+
+export async function icloudAppendDraft(
+  userId: string,
+  input: IcloudComposeInput,
+): Promise<IcloudResult<null>> {
+  const cred = await loadCredential(userId);
+  if (cred.kind === 'absent') return { ok: false, error: 'not-connected' };
+  if (cred.kind === 'invalid') return { ok: false, error: 'credential-rejected' };
+
+  const built = await buildOutgoingBody(input.body);
+  const reqBody: Record<string, unknown> = {
+    email: cred.credential.email,
+    password: cred.credential.password,
+    to: input.to,
+    cc: input.cc,
+    subject: input.subject,
+    content_type: built.contentType,
+    content: built.content,
+    attachments: built.attachments.length > 0 ? attachmentsToWire(built.attachments) : undefined,
+  };
+  if (typeof input.replyToUid === 'number' && Number.isFinite(input.replyToUid)) {
+    reqBody.reply_to_uid = input.replyToUid;
+  }
+
+  const res = await call<null>('append-draft', reqBody);
+  if (!res.ok && res.error === 'auth-failed') {
+    await markInvalid(userId, 'imap-rejected');
+  }
+  return res;
 }
 
 type RawMessage = {
