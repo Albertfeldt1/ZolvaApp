@@ -18,7 +18,7 @@ import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { SkeletonRow } from '../components/Skeleton';
 import { formatClock, formatToday } from '../lib/date';
-import { refreshMailNow, useHasProvider, useInboxWaiting } from '../lib/hooks';
+import { refreshMailNow, useHasProvider, useInboxCounts, useInboxWaiting } from '../lib/hooks';
 import type { MailProviderError } from '../lib/hooks';
 import type { InboxMail, MailProvider } from '../lib/types';
 import { translateProviderError } from '../utils/danish';
@@ -63,6 +63,9 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
   const { bottom: chromeBottom } = useChromeInsets();
 
   const { data: waiting, read, loading: waitingLoading, error: waitingError, providerErrors } = useInboxWaiting();
+  // Server-reported counts — stable across reloads, independent of the
+  // per-fetch limit window backing `waiting` / `read`.
+  const inboxCounts = useInboxCounts();
   const hasProvider = useHasProvider();
 
   const theme = useTheme();
@@ -194,11 +197,11 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
             style={{ paddingVertical: spacing.lg, paddingHorizontal: spacing.lg }}
           >
             <Text style={{ ...type.displayXL, color: t.ink }}>
-              <CountUp to={waiting.length} style={{ ...type.displayXL, color: t.ink }} /> venter{'\n'}på dig.
+              <CountUp to={inboxCounts.unread} style={{ ...type.displayXL, color: t.ink }} /> venter{'\n'}på dig.
             </Text>
-            {(waiting.length + read.length) > 0 && (
+            {inboxCounts.total > 0 && (
               <Text style={{ ...type.body, color: t.ink2, marginTop: spacing.md - 2 }}>
-                <CountUp to={waiting.length + read.length} /> mails i alt. Jeg har sorteret dem efter, hvad der haster.
+                <CountUp to={inboxCounts.total} /> mails i alt. Jeg har sorteret dem efter, hvad der haster.
               </Text>
             )}
           </GlassFrostedCard>

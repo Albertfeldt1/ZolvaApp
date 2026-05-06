@@ -29,6 +29,7 @@ import { useTodayBrief } from '../lib/briefs';
 import { formatToday, greeting } from '../lib/date';
 import {
   useHasProvider,
+  useInboxCounts,
   useInboxWaiting,
   useNotes,
   useObservations,
@@ -128,6 +129,10 @@ export function TodayScreen({
     todayEvents,
   } = useUpcoming();
   const { data: waiting, read: readMails } = useInboxWaiting();
+  // Headline counts come from server (Gmail labels API, Graph mailFolders,
+  // iCloud IMAP STATUS) so the displayed numbers don't drift with the
+  // per-fetch limit window. The list itself still flows through useInboxWaiting.
+  const inboxCounts = useInboxCounts();
   const { data: reminders } = useReminders();
   const { data: notes } = useNotes();
   const hasProvider = useHasProvider();
@@ -204,9 +209,37 @@ export function TodayScreen({
   const FEED_OBSERVATION_COUNT = 4;
   const feedFacts = pendingFacts.slice(0, FEED_OBSERVATION_COUNT);
   const remainingSlots = Math.max(0, FEED_OBSERVATION_COUNT - feedFacts.length);
-  const feedObservations = visibleObservations.slice(0, remainingSlots);
+  // Cross-dedup observations against the pending-fact texts that share the
+  // card. Without this the model can echo a fact ("Du arbejder med Mette på
+  // Q3-budget") as an observation in the same render and the user sees the
+  // same insight stacked twice. Normalize for comparison so trailing
+  // punctuation / casing differences still collapse.
+  const dedupedObservations = useMemo(() => {
+    const factKeys = new Set(
+      feedFacts.map((f) =>
+        f.text
+          .toLowerCase()
+          .replace(/\s+/g, ' ')
+          .replace(/[.!?…]+$/u, '')
+          .trim(),
+      ),
+    );
+    const seenObsKeys = new Set<string>();
+    return visibleObservations.filter((o) => {
+      const key = o.text
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .replace(/[.!?…]+$/u, '')
+        .trim();
+      if (factKeys.has(key)) return false;
+      if (seenObsKeys.has(key)) return false;
+      seenObsKeys.add(key);
+      return true;
+    });
+  }, [feedFacts, visibleObservations]);
+  const feedObservations = dedupedObservations.slice(0, remainingSlots);
   const hasMoreObservations =
-    pendingFacts.length + visibleObservations.length > FEED_OBSERVATION_COUNT;
+    pendingFacts.length + dedupedObservations.length > FEED_OBSERVATION_COUNT;
   const [observationsModalOpen, setObservationsModalOpen] = useState(false);
 
   // Match the MemoryScreen filter: pending + dueAt within 5min past — so a
@@ -341,7 +374,7 @@ export function TodayScreen({
             </Text>
             <Text style={{ ...type.body, color: t.ink2, marginTop: spacing.md - 2, maxWidth: 300 }}>
               <CountUp to={todayMeetingCount} /> {todayMeetingCount === 1 ? 'møde' : 'møder'},{' '}
-              <CountUp to={waiting.length} /> {waiting.length === 1 ? 'mail venter' : 'mails venter'},
+              <CountUp to={inboxCounts.unread} /> {inboxCounts.unread === 1 ? 'mail venter' : 'mails venter'},
               og <CountUp to={pendingReminders.length} /> {pendingReminders.length === 1 ? 'påmindelse' : 'påmindelser'}.
             </Text>
           </GlassFrostedCard>
@@ -386,7 +419,7 @@ export function TodayScreen({
                   <View style={{ flexDirection: 'row', gap: spacing.cardPad }}>
                     <View>
                       <CountUp
-                        to={waiting.length}
+                        to={inboxCounts.unread}
                         style={{
                           fontFamily: fonts.display,
                           fontSize: heroStat.midSize,
@@ -395,7 +428,7 @@ export function TodayScreen({
                           color: t.ink,
                         }}
                       />
-                      <Text style={{ ...type.eyebrow, color: t.ink3, marginTop: spacing.xs, fontWeight: '600' }}>{waiting.length === 1 ? 'Mail' : 'Mails'}</Text>
+                      <Text style={{ ...type.eyebrow, color: t.ink3, marginTop: spacing.xs, fontWeight: '600' }}>{inboxCounts.unread === 1 ? 'Mail' : 'Mails'}</Text>
                     </View>
                     <View style={{ width: 1, backgroundColor: t.line }} />
                     <View>
@@ -703,7 +736,7 @@ export function TodayScreen({
                     hitSlop={8}
                   >
                     <Text style={styles.showAllTextLight}>
-                      Vis alle ({visibleObservations.length}) →
+                      Vis alle ({dedupedObservations.length}) →
                     </Text>
                   </Pressable>
                 )}
@@ -737,10 +770,10 @@ export function TodayScreen({
                 contentContainerStyle={styles.modalBody}
                 showsVerticalScrollIndicator={false}
               >
-                {visibleObservations.length === 0 ? (
+                {dedupedObservations.length === 0 ? (
                   <Text style={styles.modalEmpty}>Ingen flere observationer lige nu.</Text>
                 ) : (
-                  visibleObservations.map((n, i) => (
+                  dedupedObservations.map((n, i) => (
                     <GlassFrostedCard key={n.id} style={styles.modalRowCardInner}>
                       <NoticedRow
                         light

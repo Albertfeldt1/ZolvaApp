@@ -138,6 +138,32 @@ async function listInboxImpl(
   };
 }
 
+// Server-reported INBOX counts via IMAP STATUS. Cheaper than list-inbox
+// (no FETCH) and stable across reloads — the displayed total/unread don't
+// drift with the per-fetch limit window.
+export async function getInboxCounts(
+  userId: string,
+): Promise<IcloudResult<{ total: number; unread: number }>> {
+  const cred = await loadCredential(userId);
+  if (cred.kind === 'absent') {
+    return { ok: false, error: 'not-connected' };
+  }
+  if (cred.kind === 'invalid') {
+    return { ok: false, error: 'credential-rejected' };
+  }
+  const res = await call<{ total: number; unread: number }>('count', {
+    email: cred.credential.email,
+    password: cred.credential.password,
+  });
+  if (!res.ok) {
+    if (res.error === 'auth-failed') {
+      await markInvalid(userId, 'imap-rejected');
+    }
+    return res;
+  }
+  return { ok: true, data: { total: res.data.total, unread: res.data.unread } };
+}
+
 // Best-effort wipe of the server-side binding row so a freshly-rotated
 // Apple-Specific password can bind cleanly. Failures are non-fatal — the
 // 90-day cron sweep is the eventual fallback. Caller should not block the
@@ -191,7 +217,7 @@ type RawMessage = {
 const GATEWAY_RETRY_BACKOFF_MS = [1_500, 4_000];
 
 async function call<T>(
-  op: 'validate' | 'list-inbox' | 'get-body' | 'clear-binding',
+  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding',
   body: Record<string, unknown>,
 ): Promise<IcloudResult<T>> {
   // Retry on Supabase gateway 5xx — cold-start contention on the edge
@@ -222,7 +248,7 @@ type CallOnceResult<T> =
   | { ok: false; error: IcloudErrorCode; gatewayFlake?: boolean };
 
 async function callOnce<T>(
-  op: 'validate' | 'list-inbox' | 'get-body' | 'clear-binding',
+  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding',
   body: Record<string, unknown>,
 ): Promise<CallOnceResult<T>> {
   const session = await supabase.auth.getSession();

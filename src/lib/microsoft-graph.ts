@@ -217,6 +217,23 @@ async function listFetchWithRetry<T>(token: string, path: string): Promise<T> {
   }
 }
 
+// Server-reported INBOX counts. /mailFolders/inbox returns
+// totalItemCount + unreadItemCount as stable values that don't depend
+// on the page size — so the displayed inbox total stays consistent
+// across reloads.
+export async function getInboxCounts(): Promise<{ total: number; unread: number }> {
+  return tryWithRefresh('microsoft', async (token) => {
+    const data = await graphFetch<{ totalItemCount?: number; unreadItemCount?: number }>(
+      token,
+      `/me/mailFolders/inbox?$select=totalItemCount,unreadItemCount`,
+    );
+    return {
+      total: data.totalItemCount ?? 0,
+      unread: data.unreadItemCount ?? 0,
+    };
+  });
+}
+
 export async function listInboxMessages(top = 12): Promise<GraphMessage[]> {
   return tryWithRefresh('microsoft', async (token) => {
     // Folder-scoped to /mailFolders/inbox/messages — /me/messages returns

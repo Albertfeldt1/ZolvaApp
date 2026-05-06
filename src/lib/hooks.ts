@@ -54,6 +54,7 @@ import {
   getMessageBody as gmailGetMessageBody,
   initialsOf,
   listInboxMessages as listGmailMessages,
+  getInboxCounts as getGmailInboxCounts,
   sendMail as gmailSendMail,
   sendReply as gmailSendReply,
 } from './gmail';
@@ -64,6 +65,7 @@ import {
   listCalendarEvents as listGraphEvents,
   listCalendarEventsForCalendars as listGraphEventsForCalendars,
   listInboxMessages as listGraphMessages,
+  getInboxCounts as getGraphInboxCounts,
   replyToMessage as graphReplyToMessage,
   sendMail as graphSendMail,
 } from './microsoft-graph';
@@ -90,7 +92,7 @@ import {
   GENERIC_CONFUSED_FALLBACK,
   CHAT_GUARD_DEBUG_TAG,
 } from './chat-claim-guard';
-import { getMessageBody as getIcloudMessageBody, listInbox as listIcloudMessages } from './icloud-mail';
+import { getMessageBody as getIcloudMessageBody, listInbox as listIcloudMessages, getInboxCounts as getIcloudInboxCounts } from './icloud-mail';
 import { listEvents as listIcloudEvents } from './icloud-calendar';
 import {
   readCalendarLabels,
@@ -188,13 +190,14 @@ const OBSERVATION_SCHEMA =
   '- cta: kort handlingsforslag på dansk (maks 4 ord), fx "Åbn mail", "Gennemgå senere" eller "Bloker tid".\n' +
   '- mood: "thinking" for noget der kræver beslutning, "calm" for rolig observation, "happy" for positivt.\n' +
   '- action (valgfri): hvad der skal ske når brugeren trykker på CTA\'en. Typer:\n' +
-  '  • {"kind":"openMail","mailId": string} — kun hvis observationen handler om en specifik mail. Brug mail-id\'et vist i [id:…] i mail-listen.\n' +
-  '  • {"kind":"prompt","prompt": string} — når brugeren skal notere noget eller følge op senere. "prompt" skal være en færdig 1. person-besked til Zolva på dansk, fx "Noter lige at jeg skal gennemgå Mettes kontrakt senere i dag." Så åbner chatten med beskeden klar til at sende.\n' +
+  '  • {"kind":"openMail","mailId": string} — KUN når CTA\'en bare er at læse/se mailen ("Åbn mail", "Læs den", "Tjek den"). Brug mail-id\'et vist i [id:…] i mail-listen.\n' +
+  '  • {"kind":"prompt","prompt": string} — når CTA\'en er en HANDLING der skal udføres ("Accepter invitation", "Svar Lars", "Bloker tid", "Gennemgå sikkerhed", "Ring tilbage", "Bekræft møde"). "prompt" skal være en færdig 1. person-besked til Zolva på dansk der instruerer hvad der skal ske. Eksempler: "Accepter mødet med Mette på torsdag." / "Svar Lars at jeg deltager." / "Bloker en time i kalenderen til Q3-budget i morgen." / "Gennemgå sikkerhedsadvarslen fra Google." Når brugeren trykker, sendes beskeden automatisk til chatten og Zolva udfører handlingen via sine værktøjer.\n' +
   '  • {"kind":"chat"} — generisk; bruges når intet af ovenstående passer. Udelad action for denne default.\n' +
   'REGLER FOR ACTION:\n' +
-  '1. Hvis observationen handler om en konkret mail i listen ovenfor (svare, læse, tjekke, åbne, arkivere) — fx CTA som "Svar nu", "Svar Lars", "Åbn mail", "Læs trådens svar" — SKAL action være {"kind":"openMail","mailId":...} med det rigtige [id:…]. Brug ALDRIG prompt eller chat til mail-handlinger; det dropper brugeren ind i en tom chat i stedet for at åbne mailen.\n' +
-  '2. Hvis du ikke kan finde et matchende mail-id i listen, skal CTA\'en omformuleres så den ikke lover at åbne en mail — fx "Følg op" med prompt-action i stedet for "Svar nu".\n' +
-  '3. prompt og chat er kun til observationer der ikke handler om en specifik mail (fx kalender-mønstre, opgaver, refleksioner).';
+  '1. STÆRK PRÆFERENCE FOR PROMPT: Hvis CTA\'en er et handlingsverbum ("Accepter", "Svar", "Bloker", "Gennemgå", "Ring", "Send", "Bekræft", "Slet", "Marker", "Arkiver", "Følg op", "Tilmeld") — SKAL action være {"kind":"prompt","prompt":...}. Skriv prompten som en konkret instruks Zolva kan udføre med sine kalender-/mail-værktøjer. Brug AFGØRENDE INFO (mailens emne, afsenderens navn, kalenderens titel, dato) i prompten så Zolva ved hvad den skal handle på.\n' +
+  '2. ÅBN-MAIL er KUN til ren læsning: "Åbn mail", "Læs", "Se mailen", "Tjek den". Hvis CTA\'en er læs-passiv, brug {"kind":"openMail","mailId":...} med det rigtige [id:…].\n' +
+  '3. {"kind":"chat"} bruges KUN til åbne refleksioner eller spørgsmål uden konkret handling — sjældent.\n' +
+  '4. Hvis CTA\'en lover en handling men der ikke er nok kontekst til at lave en konkret prompt, omformuler CTA\'en til ren læsning ("Åbn mail" + openMail) i stedet for at returnere noget vagt.';
 
 function summarizeDay(events: NormalizedEvent[], mails: NormalizedMail[]): string {
   const calendar = events.length
@@ -228,21 +231,42 @@ function sanitizeAction(raw: unknown): Observation['action'] {
   return undefined;
 }
 
+// Normalize a string for dedup comparisons: lowercase, collapse whitespace,
+// strip trailing punctuation. So "Du har 3 mails fra Lars." and "du har 3
+// mails fra lars" both reduce to the same key.
+function normalizeForDedup(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[.!?…]+$/u, '')
+    .trim();
+}
+
 function sanitizeObservations(raw: unknown): Observation[] {
   if (!Array.isArray(raw)) return [];
   const moods: Observation['mood'][] = ['calm', 'thinking', 'happy'];
+  // Two dedup keys: id (in case Claude reuses an id by accident, or generates
+  // the placeholder "obs-1" twice) and normalized text (the more common bug —
+  // the model paraphrases the same insight twice).
+  const seenIds = new Set<string>();
+  const seenTexts = new Set<string>();
   return raw.slice(0, OBSERVATION_MAX).flatMap((item, i): Observation[] => {
     if (!item || typeof item !== 'object') return [];
     const o = item as Partial<Observation> & { action?: unknown };
     const text = typeof o.text === 'string' ? o.text.trim() : '';
     if (!text) return [];
+    const textKey = normalizeForDedup(text);
+    if (seenTexts.has(textKey)) return [];
     const cta = typeof o.cta === 'string' ? o.cta.trim() : '';
     const mood = moods.includes(o.mood as Observation['mood'])
       ? (o.mood as Observation['mood'])
       : 'calm';
-    const id = typeof o.id === 'string' && o.id ? o.id : `obs-${i + 1}`;
+    const rawId = typeof o.id === 'string' && o.id ? o.id : `obs-${i + 1}`;
+    if (seenIds.has(rawId)) return [];
+    seenIds.add(rawId);
+    seenTexts.add(textKey);
     const action = sanitizeAction(o.action);
-    return [action ? { id, text, cta, mood, action } : { id, text, cta, mood }];
+    return [action ? { id: rawId, text, cta, mood, action } : { id: rawId, text, cta, mood }];
   });
 }
 
@@ -994,6 +1018,138 @@ function useMailItems(): {
   ]);
 
   return state;
+}
+
+// Per-provider, server-reported INBOX counts. The displayed total/unread
+// numbers come from this hook so they don't drift with the per-fetch
+// limit window in useMailItems. The list-of-mails still flows through
+// useMailItems (capped at MAIL_FETCH_PER_PROVIDER per provider) — this
+// hook only feeds the headline counts.
+//
+// On per-provider failure the previous successful count for that provider
+// is retained so transient flakes (e.g. an iCloud cold-start timeout)
+// don't visibly drop the displayed total to zero. A subsequent refetch
+// picks up real numbers again.
+type InboxCounts = { total: number; unread: number };
+type ProviderInboxCounts = {
+  google: InboxCounts | null;
+  microsoft: InboxCounts | null;
+  icloud: InboxCounts | null;
+};
+
+export function useInboxCounts(): {
+  total: number;
+  unread: number;
+  perProvider: ProviderInboxCounts;
+  loading: boolean;
+} {
+  const { user, googleAccessToken, microsoftAccessToken } = useAuth();
+  const userId = user?.id ?? '';
+  const icloudConnected = useIcloudConnected(userId);
+  const { isEnabled: isFlagEnabled, flags: integrationFlagsForCounts } = useIntegrationFlags();
+  const demo = isDemoUser(user);
+  const [perProvider, setPerProvider] = useState<ProviderInboxCounts>({
+    google: null,
+    microsoft: null,
+    icloud: null,
+  });
+  const [loading, setLoading] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(mailRefreshTick);
+  useEffect(() => {
+    mailRefreshListeners.add(setRefreshTick);
+    return () => {
+      mailRefreshListeners.delete(setRefreshTick);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (demo) return;
+    if (!user) {
+      setPerProvider({ google: null, microsoft: null, icloud: null });
+      return;
+    }
+    let cancelled = false;
+    const wantGoogle = !!googleAccessToken && isFlagEnabled('gmail', true);
+    const wantMicrosoft = !!microsoftAccessToken && isFlagEnabled('outlook-mail', true);
+    const wantIcloud = icloudConnected && !!userId && isFlagEnabled('icloud', true);
+    if (!wantGoogle && !wantMicrosoft && !wantIcloud) {
+      setPerProvider({ google: null, microsoft: null, icloud: null });
+      return;
+    }
+
+    setLoading(true);
+    void Promise.allSettled([
+      wantGoogle ? getGmailInboxCounts() : Promise.resolve(null),
+      wantMicrosoft ? getGraphInboxCounts() : Promise.resolve(null),
+      wantIcloud
+        ? getIcloudInboxCounts(userId).then((r) => (r.ok ? r.data : null))
+        : Promise.resolve(null),
+    ]).then((results) => {
+      if (cancelled) return;
+      setPerProvider((prev) => ({
+        // Retain the previous count on failure (or when the provider isn't
+        // connected). Replace with the fresh value only when the call
+        // succeeded — null means "no data yet"; failed calls keep the
+        // last-known good number visible.
+        google:
+          results[0].status === 'fulfilled' && results[0].value
+            ? results[0].value
+            : wantGoogle
+              ? prev.google
+              : null,
+        microsoft:
+          results[1].status === 'fulfilled' && results[1].value
+            ? results[1].value
+            : wantMicrosoft
+              ? prev.microsoft
+              : null,
+        icloud:
+          results[2].status === 'fulfilled' && results[2].value
+            ? results[2].value
+            : wantIcloud
+              ? prev.icloud
+              : null,
+      }));
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    demo,
+    user,
+    googleAccessToken,
+    microsoftAccessToken,
+    icloudConnected,
+    userId,
+    refreshTick,
+    integrationFlagsForCounts['gmail'],
+    integrationFlagsForCounts['outlook-mail'],
+    integrationFlagsForCounts['icloud'],
+  ]);
+
+  // In demo mode the inbox is fully synthesized client-side, so the count
+  // is exactly the demo data length. No async fetch involved.
+  if (demo) {
+    const w = demoInboxWaiting().length;
+    const a = demoInboxArchived().length;
+    return {
+      total: w + a,
+      unread: w,
+      perProvider: { google: { total: w + a, unread: w }, microsoft: null, icloud: null },
+      loading: false,
+    };
+  }
+
+  const total =
+    (perProvider.google?.total ?? 0) +
+    (perProvider.microsoft?.total ?? 0) +
+    (perProvider.icloud?.total ?? 0);
+  const unread =
+    (perProvider.google?.unread ?? 0) +
+    (perProvider.microsoft?.unread ?? 0) +
+    (perProvider.icloud?.unread ?? 0);
+  return { total, unread, perProvider, loading };
 }
 
 export function useHasProvider(): boolean {
@@ -3739,6 +3895,11 @@ export function useChat() {
   const { user, googleAccessToken, microsoftAccessToken } = useAuth();
   const demo = isDemoUser(user);
   const demoIndexRef = useRef(0);
+  // Sync guard against double-fire from spam taps. setTyping(true) is React
+  // state and won't reflect until the next render — two chip taps in the
+  // same frame both see typing=false and both fire a turn. The ref flips
+  // immediately so the second send aborts before any work happens.
+  const inFlightRef = useRef(false);
   const name = profile?.name ?? '';
   const userId = user?.id;
   const icloudConnected = useIcloudConnected(userId ?? '');
@@ -3796,6 +3957,11 @@ export function useChat() {
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
+      // Sync re-entry guard — see inFlightRef declaration above. Gate fires
+      // before any state mutation so a duplicate tap is a complete no-op,
+      // not a half-applied user-message-without-response.
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
       const userMsg: ChatMessage = {
         id: `u-${Date.now()}`,
         from: 'user',
@@ -3816,6 +3982,7 @@ export function useChat() {
             { id: `a-${Date.now()}`, from: 'zolva', text: reply, createdAt: new Date().toISOString() },
           ]);
           setTyping(false);
+          inFlightRef.current = false;
         }, 900);
         return;
       }
@@ -3935,7 +4102,10 @@ export function useChat() {
             { id: `e-${Date.now()}`, from: 'zolva', text: CHAT_ERROR_TEXT, createdAt: new Date().toISOString() },
           ]);
         })
-        .finally(() => setTyping(false));
+        .finally(() => {
+          setTyping(false);
+          inFlightRef.current = false;
+        });
     },
     [messages, name, userId, demo, googleAccessToken, microsoftAccessToken],
   );

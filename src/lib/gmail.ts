@@ -69,6 +69,29 @@ type RawMessage = {
   payload?: RawMessagePart & { headers?: RawHeader[] };
 };
 
+// Server-reported INBOX counts. Gmail's labels/INBOX endpoint returns
+// messagesTotal and messagesUnread — exact, not estimates — so the
+// number stays stable across reloads regardless of the per-fetch window.
+export async function getInboxCounts(): Promise<{ total: number; unread: number }> {
+  return tryWithRefresh('google', async (accessToken) => {
+    const res = await fetchListWithRetry(
+      `${BASE}/labels/INBOX`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (res.status === 401 || res.status === 403) {
+      throw new ProviderAuthError('google', `Gmail afvist (${res.status}).`);
+    }
+    if (!res.ok) {
+      throw new Error(`Gmail label fetch failed: ${res.status} ${await res.text()}`);
+    }
+    const data = (await res.json()) as { messagesTotal?: number; messagesUnread?: number };
+    return {
+      total: data.messagesTotal ?? 0,
+      unread: data.messagesUnread ?? 0,
+    };
+  });
+}
+
 export async function listInboxMessages(maxResults = 12): Promise<GmailMessage[]> {
   return tryWithRefresh('google', async (accessToken) => {
     const listRes = await fetchListWithRetry(
