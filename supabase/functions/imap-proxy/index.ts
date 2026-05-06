@@ -993,119 +993,6 @@ function toAddressList(addrs: string[]): string[] {
   return addrs.map((a) => a.trim()).filter((a) => a.length > 0);
 }
 
-// --- Hand-rolled SMTP -------------------------------------------------------
-//
-// We speak SMTP over Deno.connect + Deno.startTls instead of pulling
-// denomailer or nodemailer. Adding a third-party SMTP library to the
-// edge-function bundle pushed cold-start past Supabase's 12s gateway
-// timeout and produced sporadic 503s on first send. Hand-rolling keeps
-// cold-start at zero added cost and keeps the auth path readable.
-//
-// Flow (port 465, implicit TLS): connectTls → read greeting (220) →
-// EHLO → AUTH PLAIN → MAIL FROM → RCPT TO (each) → DATA → payload →
-// "." → QUIT. Per-command timeout enforced via Promise.race.
-
-function readLineFromBuffer(buf: Uint8Array): { line: string; rest: Uint8Array } | null {
-  for (let i = 0; i < buf.length - 1; i++) {
-    if (buf[i] === 0x0d && buf[i + 1] === 0x0a) {
-      const line = new TextDecoder('latin1').decode(buf.slice(0, i));
-      const rest = buf.slice(i + 2);
-      return { line, rest };
-    }
-  }
-  return null;
-}
-
-// Race a promise against a wall-clock timeout. Deno's Conn read/write/connect
-// don't accept AbortSignal, so this is the only way to bound an operation.
-// On timeout, the underlying conn is left dangling — caller must close().
-function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-    p.then(
-      (v) => { clearTimeout(t); resolve(v); },
-      (e) => { clearTimeout(t); reject(e); },
-    );
-  });
-}
-
-class SmtpConnection {
-  private buffer: Uint8Array = new Uint8Array(0);
-  constructor(
-    private conn: Deno.Conn,
-    private timeoutMs: number,
-  ) {}
-
-  static async connect(host: string, port: number, timeoutMs: number): Promise<SmtpConnection> {
-    // connectTls = implicit TLS handshake, suitable for port 465 (SMTPS).
-    // Avoids a separate STARTTLS round-trip and uses an outbound TLS port
-    // that Supabase Edge accepts (port 587 was being blocked / hung).
-    const conn = await withTimeout(
-      Deno.connectTls({ hostname: host, port }),
-      timeoutMs,
-      'smtp connectTls',
-    );
-    return new SmtpConnection(conn, SMTP_COMMAND_TIMEOUT_MS);
-  }
-
-  async write(data: string | Uint8Array): Promise<void> {
-    const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
-    let off = 0;
-    while (off < bytes.length) {
-      const n = await withTimeout(
-        this.conn.write(bytes.subarray(off)),
-        this.timeoutMs,
-        'smtp write',
-      );
-      if (n <= 0) throw new Error('socket closed during write');
-      off += n;
-    }
-  }
-
-  async readLine(): Promise<string> {
-    while (true) {
-      const got = readLineFromBuffer(this.buffer);
-      if (got) {
-        this.buffer = got.rest;
-        return got.line;
-      }
-      const chunk = new Uint8Array(4096);
-      const n = await withTimeout(this.conn.read(chunk), this.timeoutMs, 'smtp read');
-      if (n === null) throw new Error('connection closed by server');
-      const next = new Uint8Array(this.buffer.length + n);
-      next.set(this.buffer, 0);
-      next.set(chunk.subarray(0, n), this.buffer.length);
-      this.buffer = next;
-    }
-  }
-
-  // SMTP responses can be multi-line: intermediate lines start with
-  // "<code>-", the final line with "<code> ". Returns the numeric code and
-  // the joined message text (last line wins for the textual payload, but
-  // keeping all lines makes errors more diagnosable).
-  async readResponse(): Promise<{ code: number; lines: string[] }> {
-    const lines: string[] = [];
-    while (true) {
-      const line = await this.readLine();
-      lines.push(line);
-      // First three chars are the numeric code; char 4 is '-' (continuation)
-      // or ' ' (final line).
-      if (line.length < 4) throw new Error(`malformed smtp response: ${line}`);
-      const sep = line.charAt(3);
-      if (sep === ' ') {
-        const code = parseInt(line.slice(0, 3), 10);
-        if (!Number.isFinite(code)) throw new Error(`malformed smtp code: ${line}`);
-        return { code, lines };
-      }
-      if (sep !== '-') throw new Error(`malformed smtp response: ${line}`);
-    }
-  }
-
-  async close(): Promise<void> {
-    try { this.conn.close(); } catch { /* ignore */ }
-  }
-}
-
 // nodemailer goes through Deno's npm-compat layer (same path imapflow
 // uses successfully for IMAP). The hand-rolled Deno.connectTls path was
 // hitting consistent connect timeouts to smtp.mail.me.com:465 from
@@ -1132,8 +1019,6 @@ type SendInput = {
 };
 
 async function sendViaSmtp(input: SendInput): Promise<SmtpResult> {
-  const t0 = Date.now();
-  console.log('[smtp] start (nodemailer)');
   let nodemailer: typeof import('nodemailer');
   try {
     nodemailer = await getNodemailer();
@@ -1174,7 +1059,6 @@ async function sendViaSmtp(input: SendInput): Promise<SmtpResult> {
       inReplyTo: input.threading.inReplyTo,
       references: input.threading.references,
     });
-    console.log('[smtp] sent ok (nodemailer)', { elapsed_ms: Date.now() - t0 });
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -1194,29 +1078,6 @@ async function sendViaSmtp(input: SendInput): Promise<SmtpResult> {
   } finally {
     try { transporter.close(); } catch { /* ignore */ }
   }
-}
-
-// Dot-stuff per RFC 5321 §4.5.2: any line in the message body that begins
-// with a "." gets an extra "." prepended so the standalone "." terminator
-// stays unambiguous. Operates on the raw RFC 5322 bytes.
-function dotStuffMessage(bytes: Uint8Array): Uint8Array {
-  // Walk byte-by-byte, look for "\r\n." and insert "." after the CRLF.
-  const out: number[] = [];
-  for (let i = 0; i < bytes.length; i++) {
-    out.push(bytes[i]);
-    if (
-      bytes[i] === 0x0a && // LF
-      i >= 1 && bytes[i - 1] === 0x0d && // CR before
-      i + 1 < bytes.length && bytes[i + 1] === 0x2e // dot after
-    ) {
-      out.push(0x2e); // extra dot
-    }
-  }
-  // Edge: if the very first byte is '.', dot-stuff that too.
-  if (bytes.length > 0 && bytes[0] === 0x2e) {
-    out.unshift(0x2e);
-  }
-  return new Uint8Array(out);
 }
 
 // --- clear-binding ----------------------------------------------------------
@@ -1484,8 +1345,6 @@ async function handleSendMailInner(
   supabaseUrl: string,
   serviceKey: string,
 ): Promise<Response> {
-  const t0 = Date.now();
-  console.log('[send-mail] start', { user: userId.slice(0, 8), to_count: body.to?.length ?? 0, has_cc: !!body.cc, ct: body.content_type, has_reply: typeof body.reply_to_uid === 'number' });
   const password = normalizePassword(body.password);
   const email = body.email.trim().toLowerCase();
 
@@ -1504,10 +1363,8 @@ async function handleSendMailInner(
     return err('internal', 500);
   }
   if (!existing || existing.credential_hash !== hash) {
-    console.warn('[send-mail] binding mismatch — auth-failed');
     return err('auth-failed', 422);
   }
-  console.log('[send-mail] binding ok', `+${Date.now() - t0}ms`);
 
   // Decode signature attachments before opening SMTP — bad base64 should fail
   // fast without burning a connect-attempt to Apple.
@@ -1517,7 +1374,6 @@ async function handleSendMailInner(
   } catch (e) {
     return err('bad-request', 400, e instanceof Error ? e.message : String(e));
   }
-  console.log('[send-mail] attachments decoded', { count: attachments.length });
 
   let threading: ThreadingHeaders = {};
   if (typeof body.reply_to_uid === 'number' && Number.isFinite(body.reply_to_uid)) {
@@ -1528,9 +1384,10 @@ async function handleSendMailInner(
     }
   }
 
-  // Build the RFC 5322 message ONCE — same bytes go to SMTP DATA and the
-  // post-success Sent-folder APPEND. Guarantees the recipient and the
-  // sender's Sent copy are byte-identical.
+  // RFC 5322 bytes used by the background Sent-folder APPEND. nodemailer
+  // builds its own (slightly different) bytes for the SMTP transmission;
+  // both are valid RFC 5322, the recipient and Sent copy may differ in
+  // MIME boundaries but not in content.
   const raw = buildRfc5322({
     from: email,
     to: body.to,
@@ -1542,13 +1399,7 @@ async function handleSendMailInner(
     threading,
     date: new Date(),
   });
-  console.log('[send-mail] rfc5322 built (for Sent APPEND)', { bytes: raw.length, elapsed_ms: Date.now() - t0 });
 
-  // nodemailer constructs its own RFC 5322 from the typed fields below.
-  // The `raw` we built above is used only for the post-success Sent APPEND,
-  // so the recipient sees nodemailer's bytes and the Sent folder copy uses
-  // ours — both valid RFC 5322, just different MIME boundaries.
-  console.log('[send-mail] starting smtp', { to_count: body.to.length, elapsed_ms: Date.now() - t0 });
   const smtpResult = await sendViaSmtp({
     email,
     password,
@@ -1559,12 +1410,6 @@ async function handleSendMailInner(
     content: body.content,
     attachments,
     threading,
-  });
-  console.log('[send-mail] smtp done', {
-    ok: smtpResult.ok,
-    code: smtpResult.ok ? null : smtpResult.code,
-    detail: smtpResult.ok ? null : smtpResult.detail?.slice(0, 200),
-    elapsed_ms: Date.now() - t0,
   });
   if (!smtpResult.ok) return smtpResultToResponse(smtpResult);
 
@@ -1580,7 +1425,6 @@ async function handleSendMailInner(
     try {
       const r = await appendToSent(email, password, raw);
       if (!r.ok) console.warn('[send-mail] background APPEND to Sent failed:', r.reason);
-      else console.log('[send-mail] background APPEND to Sent ok');
     } catch (e) {
       console.warn('[send-mail] background APPEND threw:', e instanceof Error ? e.message : String(e));
     }
