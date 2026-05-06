@@ -60,7 +60,7 @@ const toneColor = (tone: UpcomingEvent['tone']) =>
 
 type Props = {
   onOpenChat: () => void;
-  onOpenChatWithPrompt: (prompt: string) => void;
+  onOpenChatWithPrompt: (prompt: string, opts?: { autoSend?: boolean }) => void;
   onOpenMail: (mail: InboxMail) => void;
   onGoToSettings: () => void;
   onGoToMemory: () => void;
@@ -127,7 +127,7 @@ export function TodayScreen({
     todayMeetingCount,
     todayEvents,
   } = useUpcoming();
-  const { data: waiting } = useInboxWaiting();
+  const { data: waiting, read: readMails } = useInboxWaiting();
   const { data: reminders } = useReminders();
   const { data: notes } = useNotes();
   const hasProvider = useHasProvider();
@@ -157,21 +157,43 @@ export function TodayScreen({
       return next;
     });
 
-  const handleObservationAction = (action: ObservationAction | undefined) => {
+  const handleObservationAction = (
+    action: ObservationAction | undefined,
+    observation?: { text: string; cta: string },
+  ) => {
     if (!action || action.kind === 'chat') {
       onOpenChat();
       return;
     }
     if (action.kind === 'prompt') {
-      onOpenChatWithPrompt(action.prompt);
+      // Prompt actions are agentic — the AI is expected to execute via its
+      // tools. Auto-send so the user doesn't have to tap a second time.
+      onOpenChatWithPrompt(action.prompt, { autoSend: true });
       return;
     }
-    const mail = waiting.find((m) => m.id === action.mailId);
+    // openMail — search across both waiting AND read so a mail the user
+    // already read still resolves. Without this, the action silently falls
+    // through to chat as soon as the mail leaves the unread bucket, which
+    // is what produced the inconsistent simulator-vs-phone behaviour.
+    const mail =
+      waiting.find((m) => m.id === action.mailId) ??
+      readMails.find((m) => m.id === action.mailId);
     if (mail) {
       onOpenMail(mail);
       return;
     }
-    onOpenChat();
+    // Mail isn't in either list — likely archived, dismissed, or the
+    // observation was generated against a stale fetch. Drop into chat
+    // with a synthesized prompt so something useful still happens. The
+    // chat AI can search/list mail to find what the observation meant.
+    if (observation) {
+      onOpenChatWithPrompt(
+        `${observation.cta}: ${observation.text}`,
+        { autoSend: true },
+      );
+    } else {
+      onOpenChat();
+    }
   };
 
   // The "Hvad jeg har bemærket" card caps the total displayed items —
@@ -670,7 +692,7 @@ export function TodayScreen({
                     key={n.id}
                     item={n}
                     index={i}
-                    onAction={() => handleObservationAction(n.action)}
+                    onAction={() => handleObservationAction(n.action, n)}
                     onDismiss={() => dismissObservation(n.id)}
                   />
                 ))}
@@ -726,7 +748,7 @@ export function TodayScreen({
                         index={i}
                         onAction={() => {
                           setObservationsModalOpen(false);
-                          handleObservationAction(n.action);
+                          handleObservationAction(n.action, n);
                         }}
                         onDismiss={() => dismissObservation(n.id)}
                       />
@@ -801,10 +823,18 @@ function NoticedRow({
       <View style={{ flex: 1 }}>
         <Text style={[styles.noticedText, light && styles.noticedTextLight]}>{item.text}</Text>
         <View style={styles.noticedActions}>
-          <Pressable onPress={onAction}>
-            <Text style={[styles.noticedCta, light && styles.noticedCtaLight]}>{item.cta} →</Text>
+          <Pressable
+            onPress={onAction}
+            hitSlop={8}
+            style={({ pressed }) => [styles.noticedCtaBtn, light && styles.noticedCtaBtnLight, pressed && styles.noticedActionPressed]}
+          >
+            <Text style={[styles.noticedCtaBtnText, light && styles.noticedCtaBtnTextLight]}>{item.cta} →</Text>
           </Pressable>
-          <Pressable onPress={() => animateOut(onDismiss)}>
+          <Pressable
+            onPress={() => animateOut(onDismiss)}
+            hitSlop={12}
+            style={({ pressed }) => [styles.noticedDismissBtn, pressed && styles.noticedActionPressed]}
+          >
             <Text style={[styles.noticedDismiss, light && styles.noticedDismissLight]}>Afvis</Text>
           </Pressable>
         </View>
@@ -830,10 +860,18 @@ function PendingFactRow({
       <View style={{ flex: 1 }}>
         <Text style={[styles.noticedText, light && styles.noticedTextLight]}>Skal jeg huske at {fact.text}?</Text>
         <View style={styles.noticedActions}>
-          <Pressable onPress={onAccept}>
-            <Text style={[styles.noticedCta, light && styles.noticedCtaLight]}>Ja, husk det</Text>
+          <Pressable
+            onPress={onAccept}
+            hitSlop={8}
+            style={({ pressed }) => [styles.noticedCtaBtn, light && styles.noticedCtaBtnLight, pressed && styles.noticedActionPressed]}
+          >
+            <Text style={[styles.noticedCtaBtnText, light && styles.noticedCtaBtnTextLight]}>Ja, husk det</Text>
           </Pressable>
-          <Pressable onPress={onReject}>
+          <Pressable
+            onPress={onReject}
+            hitSlop={12}
+            style={({ pressed }) => [styles.noticedDismissBtn, pressed && styles.noticedActionPressed]}
+          >
             <Text style={[styles.noticedDismiss, light && styles.noticedDismissLight]}>Nej</Text>
           </Pressable>
         </View>
@@ -856,9 +894,30 @@ const styles = StyleSheet.create({
   // Observation rows (NoticedRow / PendingFactRow)
   noticedRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
   noticedText: { fontFamily: legacyFonts.ui, fontSize: 14.5, lineHeight: 21, color: colors.paperOn95 },
-  noticedActions: { marginTop: 8, flexDirection: 'row', gap: 16 },
-  noticedCta: { fontFamily: legacyFonts.uiSemi, fontSize: 12.5, color: colors.sageDim },
-  noticedDismiss: { fontFamily: legacyFonts.ui, fontSize: 12.5, color: colors.paperOn50 },
+  noticedActions: { marginTop: 6, flexDirection: 'row', gap: 8, alignItems: 'center' },
+  noticedActionPressed: { opacity: 0.55 },
+  // Primary CTA — pill button with sage tint. paddingVertical:10 +
+  // fontSize:14 lands the button height at ~38pt before the hitSlop:8
+  // adds another 16pt of forgiveness, comfortably clearing the 44pt iOS
+  // tap-target minimum. The visible bg makes the tap target obvious.
+  noticedCtaBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: colors.sageSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(72,107,75,0.18)',
+  },
+  noticedCtaBtnLight: {
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderColor: 'rgba(255,255,255,0.32)',
+  },
+  noticedCtaBtnText: { fontFamily: legacyFonts.uiSemi, fontSize: 14, color: colors.sageDeep },
+  noticedCtaBtnTextLight: { color: colors.paper },
+  // Secondary "Afvis"/"Nej" — text only with generous padding+hitSlop so
+  // it stays easy to hit despite being visually subordinate.
+  noticedDismissBtn: { paddingVertical: 10, paddingHorizontal: 8 },
+  noticedDismiss: { fontFamily: legacyFonts.ui, fontSize: 14, color: colors.paperOn50 },
 
   // "Vis alle" row inside dark card
   showAllRow: {
@@ -894,7 +953,6 @@ const styles = StyleSheet.create({
   // modal — ink text reads against the light backdrop instead of the
   // legacy white-on-dark used by the inline glass-dark card.
   noticedTextLight: { color: colors.ink },
-  noticedCtaLight: { color: colors.sage },
   noticedDismissLight: { color: colors.fg3 },
 
   // "Vis alle" observations modal — light, airbrushy, blends with the rest
