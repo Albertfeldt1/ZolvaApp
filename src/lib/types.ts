@@ -50,6 +50,14 @@ export type UpcomingEvent = {
 
 export type MailProvider = 'google' | 'microsoft' | 'icloud';
 
+// Urgency tier assigned by the inbox sort. Drives the sectioned UI in
+// InboxScreen — tier 0 is always visible, the rest are collapsible.
+//   0 — haster (classifier confirmed reply needed, or subject keyword)
+//   1 — venter på dig (human-looking, undecided by classifier)
+//   2 — nyhedsbreve (body looks automated / classifier said no reply)
+//   3 — auto-mails (no-reply / mailer-daemon / marketing senders)
+export type UrgencyTier = 0 | 1 | 2 | 3;
+
 export type InboxMail = {
   id: string;
   provider: MailProvider;
@@ -59,6 +67,7 @@ export type InboxMail = {
   tone: 'sage' | 'clay' | 'mist';
   initials: string;
   aiDraft: string | null;
+  tier: UrgencyTier;
 };
 
 export type ReplyContext =

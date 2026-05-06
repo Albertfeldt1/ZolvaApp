@@ -1167,8 +1167,13 @@ function setDraftInCache(key: string, text: string): void {
 // without paying a Claude call, so we don't waste tokens classifying those.
 // Mails that pass this filter go to the LLM classifier below for content-based
 // verification before we spend an even bigger call drafting a reply.
+//
+// Kept intentionally narrow — earlier versions also blocked info@/support@/
+// notifications@/alerts@/updates@, but those prefixes catch too many legit
+// human senders (account managers writing from info@, vendor support agents
+// replying from support@). The classifier handles those cases now.
 const NO_REPLY_PATTERN =
-  /noreply|no-reply|no_reply|donotreply|do-not-reply|mailer-daemon|bounce@|newsletter|marketing|notifications?@|alerts?@|updates?@|info@|support@|no-reply@accounts\.google\.com|(no-reply|receipts|notifications|invoice\+.*)@stripe\.com/i;
+  /noreply|no-reply|no_reply|donotreply|do-not-reply|mailer-daemon|bounce@|newsletter|marketing|no-reply@accounts\.google\.com|(no-reply|receipts|notifications|invoice\+.*)@stripe\.com/i;
 
 function needsReply(from: string): boolean {
   return !NO_REPLY_PATTERN.test(from);
@@ -1208,6 +1213,145 @@ function looksLikeNonReplyContent(preview: string | null | undefined): boolean {
   if (!preview) return false;
   const window = preview.slice(0, 800);
   return NON_REPLY_BODY_PATTERNS.some((re) => re.test(window));
+}
+
+// Subject-line urgency keywords. Used by the inbox sort to bump mails to
+// tier 0 even before the AI-draft classifier reaches them. Word-boundary
+// matched so "vigtigste" (superlative form) doesn't fire on a partial
+// match against "vigtigt".
+const URGENCY_SUBJECT_PATTERN = new RegExp(
+  '\\b(' +
+    [
+      // Danish
+      'haster', 'akut', 'vigtigt', 'frist', 'sidste chance',
+      // English
+      'urgent', 'asap', 'important', 'deadline', 'reminder',
+    ].join('|') +
+  ')\\b',
+  'i',
+);
+
+function hasUrgentSubject(subject: string | null | undefined): boolean {
+  if (!subject) return false;
+  return URGENCY_SUBJECT_PATTERN.test(subject);
+}
+
+// Marketing / newsletter heuristic — broader than the strict NO_REPLY_PATTERN
+// (which only catches mailer-daemon-style senders) and broader than
+// looksLikeNonReplyContent (which only matches verification/unsubscribe
+// boilerplate in the preview). This catches the middle ground: mails from
+// human-looking sender addresses that are still bulk marketing — startup
+// digests, retailer promos, "weekly roundup" newsletters.
+//
+// We keep these patterns in their own function so a false positive only
+// demotes a mail one tier (1 → 2) without changing the strict no-reply
+// classification. If the existing reply classifier later disagrees the
+// classifier wins (its verdict is checked first in urgencyTier).
+
+const MARKETING_SENDER_PATTERN = new RegExp(
+  // Senders that are almost always automated mass mail. Kept conservative —
+  // the legit-human comment on NO_REPLY_PATTERN still applies (info@/
+  // support@/hello@ aren't here for the same reason). Anchored on '@' so
+  // we don't fire on personal addresses that happen to contain "news".
+  '(^|<|\\s|")(' +
+    [
+      'news(letter)?',
+      'nyt',
+      'nyhedsbrev',
+      'digest',
+      'broadcast',
+      'announcements?',
+      'updates?',
+      'alerts?',
+      'promo(tions?)?',
+      'offers?',
+      'deals?',
+      'sale',
+      'shop',
+      'mailing',
+      'campaigns?',
+      'kampagne',
+      'tilbud',
+    ].join('|') +
+  ')@',
+  'i',
+);
+
+const MARKETING_SUBJECT_PATTERN = new RegExp(
+  '(' +
+    [
+      // Discount / promo phrases
+      '\\d+\\s*%\\s*(off|rabat)',
+      '\\bsave\\s+\\d+',
+      '\\bspar\\s+\\d+',
+      '\\bup to\\s+\\d+\\s*%',
+      '\\bop til\\s+\\d+\\s*%',
+      '\\bfree shipping\\b',
+      '\\bfri fragt\\b',
+      '\\btoday only\\b',
+      '\\bkun i dag\\b',
+      // Newsletter framings
+      '\\b(weekly|monthly|daily) (digest|roundup|update)\\b',
+      '\\b(ugens|månedens|dagens) (nyt|nyheder|udvalg)\\b',
+      '\\b(this week|this month) in\\b',
+      '\\bnewsletter\\b',
+      '\\bnyhedsbrev\\b',
+      // Listicle / clickbait shapes common in marketing subjects
+      '^top\\s+\\d+',
+      '^the\\s+\\d+\\s+(best|top|things|ways)',
+      '^\\d+\\s+(ways|måder|tips|grunde)\\s+to',
+    ].join('|') +
+  ')',
+  'i',
+);
+
+const MARKETING_BODY_PATTERN = new RegExp(
+  '(' +
+    [
+      // Promo CTAs
+      'shop now', 'køb nu', 'buy now',
+      'save \\d+%', 'spar \\d+%',
+      '\\d+%\\s*off', '\\d+%\\s*rabat',
+      'exclusive offer', 'eksklusivt tilbud',
+      'limited time', 'tidsbegrænset',
+      'today only', 'kun i dag',
+      // Newsletter framings
+      'in this (issue|week|edition)', 'i (denne uge|denne udgave)',
+      'here\'?s what\'?s new', 'her er hvad der er nyt',
+      // Aggressive unsubscribe phrasings the existing pattern misses
+      'manage (your )?email preferences', 'administrer (dine )?(email|mail)-?(indstillinger|præferencer)',
+      'click here to unsubscribe', 'klik her for at afmelde',
+      'opt out of (these|future) (emails|messages|notifications?)',
+      'frameld dig (vores )?(nyhedsbrev|emails)',
+    ].join('|') +
+  ')',
+  'i',
+);
+
+function looksLikeMarketing(m: NormalizedMail): boolean {
+  if (MARKETING_SENDER_PATTERN.test(m.from)) return true;
+  if (m.subject && MARKETING_SUBJECT_PATTERN.test(m.subject)) return true;
+  if (m.preview && MARKETING_BODY_PATTERN.test(m.preview.slice(0, 1500))) return true;
+  return false;
+}
+
+// Combined tier for a single mail. Reads the verdict cache (free) plus
+// the from/preview/subject heuristics (also free). Intentionally pure of
+// React state so the sort recomputes deterministically on every render.
+function urgencyTier(m: NormalizedMail): 0 | 1 | 2 | 3 {
+  const verdict = getVerdictFromCache(m.id);
+  // Top tier: confirmed by classifier OR subject screams urgent.
+  if (verdict === true) return 0;
+  if (hasUrgentSubject(m.subject)) return 0;
+  // Bottom tier: hard no-reply sender — mail will never deserve a reply.
+  if (!needsReply(m.from)) return 3;
+  // Middle-low: classifier or body markers say "no reply", or our broader
+  // marketing heuristic catches a newsletter-shaped mail.
+  if (verdict === false) return 2;
+  if (looksLikeNonReplyContent(m.preview)) return 2;
+  if (looksLikeMarketing(m)) return 2;
+  // Default: human-looking, not yet classified.
+  return 1;
 }
 
 // Reply-verdict cache. Classifier output is deterministic for a given mail,
@@ -1429,8 +1573,8 @@ function draftSystemPrompt(tone: string, userName: string | null): string {
 
 const AUTONOMY_TARGETS: Record<string, number> = {
   'Spørg altid': 0,
-  'Lav udkast': 3,
-  'Handl selv': 6,
+  'Lav udkast': 6,
+  'Handl selv': 10,
 };
 
 // Drafts are user-facing Danish copy — Sonnet 4.6 is meaningfully better at
@@ -1484,6 +1628,11 @@ export function useInboxWaiting(): InboxWaitingResult {
   const quietHours = prefValue(workRows, 'quiet-hours');
   const userName = profile?.name?.trim() ? profile.name.trim() : null;
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  // Bumped when a classifier batch finishes (any verdict resolved). Used
+  // purely to retrigger the urgency sort: verdict=true already re-renders
+  // via setDrafts, but verdict=false silently updates the cache and would
+  // leave the sort stale otherwise.
+  const [verdictTick, setVerdictTick] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -1558,6 +1707,10 @@ export function useInboxWaiting(): InboxWaitingResult {
         );
         if (controller.signal.aborted) return;
         for (const m of results) if (m) confirmedTargets.push(m);
+        // New verdicts in the cache → re-render so the urgency sort picks
+        // them up. setDrafts further down only fires for needs-reply mails;
+        // newsletter classifications wouldn't otherwise reach React state.
+        setVerdictTick((t) => t + 1);
       }
 
       if (confirmedTargets.length === 0) return;
@@ -1613,21 +1766,44 @@ export function useInboxWaiting(): InboxWaitingResult {
 
   const now = new Date();
   const tones: InboxMail['tone'][] = ['sage', 'clay', 'mist'];
-  // No global truncation: items is already capped per-provider at the fetch
-  // layer (MAIL_FETCH_PER_PROVIDER = 50) and date-desc sorted. Show every
-  // unread fetched so all providers are visible regardless of recency skew.
-  const data: InboxMail[] = items
+  // Urgency tiers — drives the "sorteret efter hvad der haster" copy.
+  // Two signal sources, both free at runtime:
+  //   - Heuristics (sender pattern, body markers, subject keywords) — these
+  //     run on EVERY fetched mail with zero extra cost.
+  //   - Classifier verdicts from the AI-draft pipeline (cached per user
+  //     for 24h) — only available for the top maxDrafts mails, but they
+  //     trump the heuristics when present.
+  //
+  //   tier 0: classifier confirmed reply needed, OR subject contains a
+  //           hard-urgency keyword (haster, akut, frist, urgent, …)
+  //   tier 1: looks human, not yet classified — middle ground
+  //   tier 2: classifier said no reply OR body looks automated
+  //           (newsletter / verification / unsubscribe link)
+  //   tier 3: from a no-reply sender (mailer-daemon, marketing@, …)
+  // Date-desc within each tier.
+  const sortedWaiting = items
     .filter((m) => !m.isRead && !dismissed.has(m.id))
-    .map((m, i) => ({
-      id: m.id,
-      provider: m.provider,
-      from: m.from,
-      subject: m.subject,
-      time: shortTime(m.receivedAt, now),
-      tone: tones[i % tones.length],
-      initials: initialsOf(m.from),
-      aiDraft: drafts[m.id] ?? null,
-    }));
+    .slice() // don't mutate the upstream array
+    .sort((a, b) => {
+      const ta = urgencyTier(a);
+      const tb = urgencyTier(b);
+      if (ta !== tb) return ta - tb;
+      return b.receivedAt.getTime() - a.receivedAt.getTime();
+    });
+  // No global truncation: items is already capped per-provider at the fetch
+  // layer (MAIL_FETCH_PER_PROVIDER = 50). Show every unread fetched so all
+  // providers are visible regardless of recency skew.
+  const data: InboxMail[] = sortedWaiting.map((m, i) => ({
+    id: m.id,
+    provider: m.provider,
+    from: m.from,
+    subject: m.subject,
+    time: shortTime(m.receivedAt, now),
+    tone: tones[i % tones.length],
+    initials: initialsOf(m.from),
+    aiDraft: drafts[m.id] ?? null,
+    tier: urgencyTier(m),
+  }));
   const read: InboxMail[] = items
     .filter((m) => m.isRead && !dismissed.has(m.id))
     .map((m, i) => ({
@@ -1639,6 +1815,7 @@ export function useInboxWaiting(): InboxWaitingResult {
       tone: tones[i % tones.length],
       initials: initialsOf(m.from),
       aiDraft: null,
+      tier: urgencyTier(m),
     }));
   return { data, read, loading, error, providerErrors };
 }
@@ -1669,6 +1846,7 @@ export function useInboxArchived(): Result<InboxMail[]> {
       tone: tones[i % tones.length],
       initials: initialsOf(m.from),
       aiDraft: null,
+      tier: urgencyTier(m),
     }));
   return { data, loading, error };
 }

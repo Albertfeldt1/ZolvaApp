@@ -234,6 +234,7 @@ export function demoInboxWaiting(): InboxMail[] {
       tone: tones[i % tones.length],
       initials: initialsOf(m.from),
       aiDraft: m.aiDraft,
+      tier: 1 as const,
     }));
 }
 
@@ -259,6 +260,7 @@ export function demoInboxArchived(): InboxMail[] {
       tone: tones[i % tones.length],
       initials: initialsOf(m.from),
       aiDraft: m.aiDraft,
+      tier: 1 as const,
     }));
 }
 

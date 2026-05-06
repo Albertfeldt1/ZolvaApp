@@ -214,7 +214,7 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
         }}
       >
         {/* Header glass card */}
-        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.xl + 12 }}>
+        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.statusBarFallback }}>
           <GlassFrostedCard
             radius={radius.card}
             style={{ paddingVertical: spacing.lg, paddingHorizontal: spacing.cardPad }}

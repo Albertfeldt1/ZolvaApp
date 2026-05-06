@@ -28,6 +28,7 @@ import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { TopBar } from '../design/primitives/TopBar';
 import { Icon as DesignIcon } from '../design/primitives/Icon';
 import { Stone } from '../design/primitives/Stone';
+import { colors as legacyColors } from '../theme';
 
 const PROVIDER_LOGOS: Record<MailProvider, ReturnType<typeof require>> = {
   google: require('../../assets/logos/gmail.png'),
@@ -54,9 +55,10 @@ type Props = {
   onOverDarkChange?: (over: boolean) => void;
   onOpenIcloudSetup?: (prefilledEmail?: string) => void;
   onOpenNotifications: () => void;
+  isActive?: boolean;
 };
 
-export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOpenIcloudSetup, onOpenNotifications }: Props) {
+export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOpenIcloudSetup, onOpenNotifications, isActive = true }: Props) {
   const today = useMemo(() => new Date(), []);
   const { bottom: chromeBottom } = useChromeInsets();
 
@@ -119,13 +121,35 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
 
   const [archiveOpen, setArchiveOpen] = useState(false);
 
+  // Per-section collapse state. Tier 0 ("Haster") is always visible — no
+  // toggle. Tier 1 stays open by default since that's the main inbox; the
+  // bulk-noise tiers (2 newsletters, 3 auto-mails) and the read pile are
+  // closed by default so a 100-mail mailbox doesn't swamp the screen.
+  const [waitingOpen, setWaitingOpen] = useState(true);
+  const [newslettersOpen, setNewslettersOpen] = useState(false);
+  const [autoMailsOpen, setAutoMailsOpen] = useState(false);
+  const [readOpen, setReadOpen] = useState(false);
+
+  const sections = useMemo(() => {
+    const tier0: InboxMail[] = [];
+    const tier1: InboxMail[] = [];
+    const tier2: InboxMail[] = [];
+    const tier3: InboxMail[] = [];
+    for (const m of waiting) {
+      if (m.tier === 0) tier0.push(m);
+      else if (m.tier === 1) tier1.push(m);
+      else if (m.tier === 2) tier2.push(m);
+      else tier3.push(m);
+    }
+    return { tier0, tier1, tier2, tier3 };
+  }, [waiting]);
+
   // Inbox no longer has a dark section, so the chrome pill should always be
-  // in its light mode when this screen mounts. Report once on mount and clear
-  // on unmount so other screens aren't stuck in dark state after leaving here.
+  // in its light mode when this tab is visible. Tabs stay mounted across
+  // switches, so we sync on isActive flips rather than mount/unmount.
   useEffect(() => {
-    onOverDarkChange?.(false);
-    return () => onOverDarkChange?.(false);
-  }, [onOverDarkChange]);
+    if (isActive) onOverDarkChange?.(false);
+  }, [isActive, onOverDarkChange]);
 
   // Pull-to-refresh: latch on the user gesture, hold the spinner until the
   // backing fetch settles (waitingLoading flips back to false), then release.
@@ -184,11 +208,11 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
         {icloudExpired && (
           <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
             <Pressable onPress={() => onOpenIcloudSetup?.(icloudExpiredEmail ?? undefined)} accessibilityRole="button">
-              <GlassFrostedCard overlay={surface.warningTint} style={{ padding: spacing.cardPad }}>
+              <View style={{ padding: spacing.cardPad, borderRadius: radius.cardSm, backgroundColor: legacyColors.warningSoft, borderWidth: 1, borderColor: 'rgba(138,111,26,0.18)' }}>
                 <Text style={{ ...type.bodySm, color: t.ink, fontWeight: '600' }}>
                   Apple afviste adgangskoden — iCloud-mails vises ikke. Tryk for at genindtaste.
                 </Text>
-              </GlassFrostedCard>
+              </View>
             </Pressable>
           </View>
         )}
@@ -196,11 +220,11 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
         {needsMicrosoftReauth && (
           <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
             <Pressable onPress={() => { void signInWithMicrosoft(); }} accessibilityRole="button">
-              <GlassFrostedCard overlay={surface.warningTint} style={{ padding: spacing.cardPad }}>
+              <View style={{ padding: spacing.cardPad, borderRadius: radius.cardSm, backgroundColor: legacyColors.warningSoft, borderWidth: 1, borderColor: 'rgba(138,111,26,0.18)' }}>
                 <Text style={{ ...type.bodySm, color: t.ink, fontWeight: '600' }}>
                   Microsoft-forbindelsen er udløbet — Outlook-mails vises ikke. Tryk for at logge ind igen.
                 </Text>
-              </GlassFrostedCard>
+              </View>
             </Pressable>
           </View>
         )}
@@ -208,189 +232,244 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
         {needsGoogleReauth && (
           <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
             <Pressable onPress={() => { void signInWithGoogle(); }} accessibilityRole="button">
-              <GlassFrostedCard overlay={surface.warningTint} style={{ padding: spacing.cardPad }}>
+              <View style={{ padding: spacing.cardPad, borderRadius: radius.cardSm, backgroundColor: legacyColors.warningSoft, borderWidth: 1, borderColor: 'rgba(138,111,26,0.18)' }}>
                 <Text style={{ ...type.bodySm, color: t.ink, fontWeight: '600' }}>
                   Google-forbindelsen er udløbet — Gmail vises ikke. Tryk for at logge ind igen.
                 </Text>
-              </GlassFrostedCard>
+              </View>
             </Pressable>
           </View>
         )}
 
         {softFailures.map((e) => (
           <View key={e.provider} style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
-            <GlassFrostedCard overlay={surface.warningTint} style={{ padding: spacing.cardPad }}>
+            <View style={{ padding: spacing.cardPad, borderRadius: radius.cardSm, backgroundColor: legacyColors.warningSoft, borderWidth: 1, borderColor: 'rgba(138,111,26,0.18)' }}>
               <Text style={{ ...type.bodySm, color: t.ink }}>
                 {providerFailureCopy(e)}
               </Text>
-            </GlassFrostedCard>
+            </View>
           </View>
         ))}
 
-        {/* "Venter på dig" section */}
-        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
-          <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: spacing.xs, paddingBottom: spacing.sm }}>
-            <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>Venter på dig</Text>
-            <CountUp to={waiting.length} style={{ ...type.eyebrow, color: t.ink3 }} />
-          </View>
+        {/* Mail row renderer — used by every section. `muted` softens
+            already-read or low-priority rows (lighter type, reduced
+            opacity) so the eye glides over them. */}
+        {(() => {
+          const renderRow = (m: InboxMail, muted: boolean) => (
+            <GlassFrostedCard
+              key={m.id}
+              style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad, opacity: muted ? 0.75 : 1 }}
+            >
+              <Pressable
+                onPress={() => onOpenMail(m)}
+                style={({ pressed }) => [{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' }, pressed && { opacity: 0.6 }]}
+              >
+                <View style={{ position: 'relative', opacity: muted ? 0.7 : 1 }}>
+                  <Avatar initials={m.initials} tone={m.tone} />
+                  {PROVIDER_LOGOS[m.provider] != null && (
+                    <View style={{
+                      position: 'absolute',
+                      bottom: -2,
+                      right: -2,
+                      width: 16,
+                      height: 16,
+                      borderRadius: radius.pill,
+                      backgroundColor: t.paper,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      <Image
+                        source={PROVIDER_LOGOS[m.provider]}
+                        style={{ width: 12, height: 12 }}
+                        resizeMode="contain"
+                      />
+                    </View>
+                  )}
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
+                    <Text style={{ fontFamily: muted ? fonts.ui : fonts.uiBold, fontSize: type.bodySm.fontSize, color: muted ? t.ink2 : t.ink, flex: 0, flexShrink: 1 }} numberOfLines={1}>{m.from}</Text>
+                    <View style={{ flex: 1 }} />
+                    <Text style={{ ...type.eyebrow, color: t.ink3, textTransform: 'none' }}>{m.time}</Text>
+                  </View>
+                  <Text style={{ fontFamily: muted ? fonts.ui : fonts.uiBold, fontSize: type.bodySm.fontSize, color: muted ? t.ink3 : t.ink, marginTop: 2 }} numberOfLines={2}>{m.subject}</Text>
+                  {!muted && m.aiDraft && (
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, alignItems: 'flex-start' }}>
+                      <Stone size={22} jumpOnTap={false} />
+                      <Text style={{ ...type.caption, color: t.ink3, flex: 1 }} numberOfLines={2}>{m.aiDraft}</Text>
+                    </View>
+                  )}
+                </View>
+                <DesignIcon.chev size={14} color={t.ink4} />
+              </Pressable>
+            </GlassFrostedCard>
+          );
 
-          {waiting.length === 0 ? (
-            waitingLoading && hasProvider && !waitingError ? (
-              <View style={{ gap: spacing.sm }}>
-                <SkeletonRow />
-                <SkeletonRow />
-                <SkeletonRow />
-                <SkeletonRow />
-              </View>
-            ) : hasProvider ? (
-              (() => {
-                // When per-provider banners are already showing the failure(s), the
-                // empty-state error just duplicates them — and is less specific. Suppress
-                // the error copy here and show a quieter "pull to refresh" hint instead.
-                const anyProviderBanner =
-                  icloudExpired || needsMicrosoftReauth || needsGoogleReauth || softFailures.length > 0;
-                const dedupErr = !!waitingError && anyProviderBanner;
-                const err = !dedupErr && waitingError ? translateProviderError(waitingError) : null;
-                const isAuth = err?.kind === 'auth';
-                return (
+          // Collapsible section header. Tap toggles open/closed; chev
+          // rotates to give a click affordance. Tier 0 ("Haster") never
+          // collapses, so callers omit `onToggle` to render a static header.
+          const renderHeader = (
+            title: string,
+            count: number,
+            opts?: { open?: boolean; onToggle?: () => void },
+          ) => {
+            const isStatic = !opts?.onToggle;
+            const Wrapper: React.ComponentType<{ children: React.ReactNode }> = isStatic
+              ? ({ children }) => <View>{children}</View>
+              : ({ children }) => (
+                  <Pressable
+                    onPress={opts!.onToggle}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+                  >
+                    {children}
+                  </Pressable>
+                );
+            return (
+              <Wrapper>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.xs, paddingBottom: spacing.sm }}>
+                  <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>{title}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                    <Text style={{ ...type.eyebrow, color: t.ink3 }}>{count}</Text>
+                    {!isStatic && (
+                      <View style={{ transform: [{ rotate: opts?.open ? '90deg' : '0deg' }] }}>
+                        <DesignIcon.chev size={12} color={t.ink3} />
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </Wrapper>
+            );
+          };
+
+          // Empty / loading / no-provider state — only when the entire
+          // waiting list is empty AND we're not just skipping a section
+          // because it has zero items.
+          if (waiting.length === 0) {
+            return (
+              <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
+                {renderHeader('Venter på dig', 0)}
+                {waitingLoading && hasProvider && !waitingError ? (
+                  <View style={{ gap: spacing.sm }}>
+                    <SkeletonRow />
+                    <SkeletonRow />
+                    <SkeletonRow />
+                    <SkeletonRow />
+                  </View>
+                ) : hasProvider ? (
+                  (() => {
+                    const anyProviderBanner =
+                      icloudExpired || needsMicrosoftReauth || needsGoogleReauth || softFailures.length > 0;
+                    const dedupErr = !!waitingError && anyProviderBanner;
+                    const err = !dedupErr && waitingError ? translateProviderError(waitingError) : null;
+                    const isAuth = err?.kind === 'auth';
+                    return (
+                      <EmptyState
+                        mood="calm"
+                        title={
+                          err
+                            ? err.kind === 'network'
+                              ? 'Ingen forbindelse'
+                              : 'Kunne ikke hente indbakke'
+                            : dedupErr
+                              ? 'Træk ned for at prøve igen'
+                              : 'Indbakken er tom'
+                        }
+                        body={
+                          err
+                            ? err.message
+                            : dedupErr
+                              ? undefined
+                              : 'Intet venter på dig lige nu. Perfekt timing.'
+                        }
+                        ctaLabel={isAuth ? 'Gå til indstillinger' : undefined}
+                        onCta={isAuth ? onGoToSettings : undefined}
+                      />
+                    );
+                  })()
+                ) : (
                   <EmptyState
                     mood="calm"
-                    title={
-                      err
-                        ? err.kind === 'network'
-                          ? 'Ingen forbindelse'
-                          : 'Kunne ikke hente indbakke'
-                        : dedupErr
-                          ? 'Træk ned for at prøve igen'
-                          : 'Indbakken er tom'
-                    }
-                    body={
-                      // "Perfekt timing" replaces the Anglicism "God timing". Triggered when the
-                      // inbox has zero waiting mails — the intent is "lucky moment that nothing's
-                      // waiting", not "take a break". "Timing" is a naturalised loanword in Danish.
-                      err
-                        ? err.message
-                        : dedupErr
-                          ? undefined
-                          : 'Intet venter på dig lige nu. Perfekt timing.'
-                    }
-                    ctaLabel={isAuth ? 'Gå til indstillinger' : undefined}
-                    onCta={isAuth ? onGoToSettings : undefined}
+                    title="Indbakken er tom"
+                    body="Forbind Gmail eller Outlook, så viser jeg de mails der venter på dig."
+                    ctaLabel="Forbind indbakke"
+                    onCta={onGoToSettings}
                   />
-                );
-              })()
-            ) : (
-              <EmptyState
-                mood="calm"
-                title="Indbakken er tom"
-                body="Forbind Gmail eller Outlook, så viser jeg de mails der venter på dig."
-                ctaLabel="Forbind indbakke"
-                onCta={onGoToSettings}
-              />
-            )
-          ) : (
-            <View style={{ gap: spacing.sm }}>
-              {waiting.map((m) => (
-                <GlassFrostedCard key={m.id} style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}>
-                  <Pressable
-                    onPress={() => onOpenMail(m)}
-                    style={({ pressed }) => [{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' }, pressed && { opacity: 0.6 }]}
-                  >
-                    <View style={{ position: 'relative' }}>
-                      <Avatar initials={m.initials} tone={m.tone} />
-                      {PROVIDER_LOGOS[m.provider] != null && (
-                        <View style={{
-                          position: 'absolute',
-                          bottom: -2,
-                          right: -2,
-                          width: 16,
-                          height: 16,
-                          borderRadius: radius.pill,
-                          backgroundColor: t.paper,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}>
-                          <Image
-                            source={PROVIDER_LOGOS[m.provider]}
-                            style={{ width: 12, height: 12 }}
-                            resizeMode="contain"
-                          />
-                        </View>
-                      )}
-                    </View>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
-                        <Text style={{ fontFamily: fonts.uiBold, fontSize: type.bodySm.fontSize, color: t.ink, flex: 0, flexShrink: 1 }} numberOfLines={1}>{m.from}</Text>
-                        <View style={{ flex: 1 }} />
-                        <Text style={{ ...type.eyebrow, color: t.ink3, textTransform: 'none' }}>{m.time}</Text>
-                      </View>
-                      <Text style={{ fontFamily: fonts.uiBold, fontSize: type.bodySm.fontSize, color: t.ink, marginTop: 2 }} numberOfLines={2}>{m.subject}</Text>
-                      {m.aiDraft && (
-                        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, alignItems: 'flex-start' }}>
-                          <Stone size={22} jumpOnTap={false} />
-                          <Text style={{ ...type.caption, color: t.ink3, flex: 1 }} numberOfLines={2}>{m.aiDraft}</Text>
-                        </View>
-                      )}
-                    </View>
-                    <DesignIcon.chev size={14} color={t.ink4} />
-                  </Pressable>
-                </GlassFrostedCard>
-              ))}
-            </View>
-          )}
-        </View>
+                )}
+              </View>
+            );
+          }
 
-        {/* "Læst" section */}
-        {read.length > 0 && (
-          <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: spacing.xs, paddingBottom: spacing.sm }}>
-              <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>Læst</Text>
-              <CountUp to={read.length} style={{ ...type.eyebrow, color: t.ink3 }} />
-            </View>
-            <View style={{ gap: spacing.sm }}>
-              {read.map((m) => (
-                <GlassFrostedCard key={m.id} style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad, opacity: 0.75 }}>
-                  <Pressable
-                    onPress={() => onOpenMail(m)}
-                    style={({ pressed }) => [{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' }, pressed && { opacity: 0.6 }]}
-                  >
-                    <View style={{ position: 'relative', opacity: 0.7 }}>
-                      <Avatar initials={m.initials} tone={m.tone} />
-                      {PROVIDER_LOGOS[m.provider] != null && (
-                        <View style={{
-                          position: 'absolute',
-                          bottom: -2,
-                          right: -2,
-                          width: 16,
-                          height: 16,
-                          borderRadius: radius.pill,
-                          backgroundColor: t.paper,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}>
-                          <Image
-                            source={PROVIDER_LOGOS[m.provider]}
-                            style={{ width: 12, height: 12 }}
-                            resizeMode="contain"
-                          />
-                        </View>
-                      )}
+          return (
+            <>
+              {/* Tier 0 — always visible, no toggle. */}
+              {sections.tier0.length > 0 && (
+                <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
+                  {renderHeader('Haster', sections.tier0.length)}
+                  <View style={{ gap: spacing.sm }}>
+                    {sections.tier0.map((m) => renderRow(m, false))}
+                  </View>
+                </View>
+              )}
+              {/* Tier 1 — main inbox, collapsible, default open. */}
+              {sections.tier1.length > 0 && (
+                <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
+                  {renderHeader('Venter på dig', sections.tier1.length, {
+                    open: waitingOpen,
+                    onToggle: () => setWaitingOpen((v) => !v),
+                  })}
+                  {waitingOpen && (
+                    <View style={{ gap: spacing.sm }}>
+                      {sections.tier1.map((m) => renderRow(m, false))}
                     </View>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
-                        <Text style={{ fontFamily: fonts.ui, fontSize: type.bodySm.fontSize, color: t.ink2, flex: 0, flexShrink: 1 }} numberOfLines={1}>{m.from}</Text>
-                        <View style={{ flex: 1 }} />
-                        <Text style={{ ...type.eyebrow, color: t.ink3, textTransform: 'none' }}>{m.time}</Text>
-                      </View>
-                      <Text style={{ fontFamily: fonts.ui, fontSize: type.bodySm.fontSize, color: t.ink3, marginTop: 2 }} numberOfLines={2}>{m.subject}</Text>
+                  )}
+                </View>
+              )}
+              {/* Tier 2 — newsletters, collapsible, default closed. */}
+              {sections.tier2.length > 0 && (
+                <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
+                  {renderHeader('Nyhedsbreve', sections.tier2.length, {
+                    open: newslettersOpen,
+                    onToggle: () => setNewslettersOpen((v) => !v),
+                  })}
+                  {newslettersOpen && (
+                    <View style={{ gap: spacing.sm }}>
+                      {sections.tier2.map((m) => renderRow(m, true))}
                     </View>
-                    <DesignIcon.chev size={14} color={t.ink4} />
-                  </Pressable>
-                </GlassFrostedCard>
-              ))}
-            </View>
-          </View>
-        )}
+                  )}
+                </View>
+              )}
+              {/* Tier 3 — auto-mails / no-reply, collapsible, default closed. */}
+              {sections.tier3.length > 0 && (
+                <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
+                  {renderHeader('Notifikationer', sections.tier3.length, {
+                    open: autoMailsOpen,
+                    onToggle: () => setAutoMailsOpen((v) => !v),
+                  })}
+                  {autoMailsOpen && (
+                    <View style={{ gap: spacing.sm }}>
+                      {sections.tier3.map((m) => renderRow(m, true))}
+                    </View>
+                  )}
+                </View>
+              )}
+              {/* Læst — collapsible, default closed. */}
+              {read.length > 0 && (
+                <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
+                  {renderHeader('Læst', read.length, {
+                    open: readOpen,
+                    onToggle: () => setReadOpen((v) => !v),
+                  })}
+                  {readOpen && (
+                    <View style={{ gap: spacing.sm }}>
+                      {read.map((m) => renderRow(m, true))}
+                    </View>
+                  )}
+                </View>
+              )}
+            </>
+          );
+        })()}
       </ScrollView>
 
       <ArchiveModal
