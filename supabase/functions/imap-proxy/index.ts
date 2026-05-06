@@ -40,9 +40,11 @@ const IMAP_HOST = 'imap.mail.me.com';
 const IMAP_PORT = 993;
 const CONNECT_TIMEOUT_MS = 5_000;
 const COMMAND_TIMEOUT_MS = 10_000;
-const RATE_LIMIT_VALIDATE = 10;     // per hour per user
-const RATE_LIMIT_LIST_INBOX = 60;   // per hour per user
-const RATE_LIMIT_GET_BODY = 120;    // per hour per user (one fetch per opened mail)
+const RATE_LIMIT_VALIDATE = 10;       // per hour per user
+const RATE_LIMIT_LIST_INBOX = 60;     // per hour per user
+const RATE_LIMIT_GET_BODY = 120;      // per hour per user (one fetch per opened mail)
+const RATE_LIMIT_SEND_MAIL = 30;      // per hour per user — under Apple SMTP per-account throttle
+const RATE_LIMIT_APPEND_DRAFT = 60;   // per hour per user — cheap IMAP APPEND, shares list-inbox order of magnitude
 
 type ValidateReq = { op: 'validate'; email: string; password: string };
 type ListInboxReq = {
@@ -74,7 +76,34 @@ type ClearBindingReq = {
 // touch — the only goal is to keep a worker from idling out, so the gateway
 // doesn't 502 on the next real cold-start.
 type PingReq = { op: 'ping' };
-type Req = ValidateReq | ListInboxReq | GetBodyReq | CountReq | ClearBindingReq | PingReq;
+type AttachmentSpec = {
+  filename: string;
+  mime_type: string;
+  content_b64: string;     // base64-encoded bytes
+  content_id: string;      // for cid:<content_id> references in HTML
+};
+type ComposeBase = {
+  email: string;
+  password: string;
+  to: string[];
+  cc?: string[];
+  subject: string;
+  content_type: 'text' | 'html';
+  content: string;
+  attachments?: AttachmentSpec[];
+  reply_to_uid?: number;
+};
+type SendMailReq = ComposeBase & { op: 'send-mail' };
+type AppendDraftReq = ComposeBase & { op: 'append-draft' };
+type Req =
+  | ValidateReq
+  | ListInboxReq
+  | GetBodyReq
+  | CountReq
+  | ClearBindingReq
+  | PingReq
+  | SendMailReq
+  | AppendDraftReq;
 
 type ErrCode =
   | 'unauthorized'
