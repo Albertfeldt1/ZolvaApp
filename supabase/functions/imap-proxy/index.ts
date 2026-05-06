@@ -1305,3 +1305,90 @@ async function handleSendMail(
   }
   return Response.json({ ok: true, sent_appended: append.ok });
 }
+
+async function handleAppendDraft(
+  body: AppendDraftReq,
+  userId: string,
+  pepper: string,
+  supabaseUrl: string,
+  serviceKey: string,
+): Promise<Response> {
+  const password = normalizePassword(body.password);
+  const email = body.email.trim().toLowerCase();
+
+  const hash = await hashCredential(pepper, email, password);
+  const svc = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false },
+  });
+  const { data: existing, error: bindReadErr } = await svc
+    .from('icloud_credential_bindings')
+    .select('credential_hash')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (bindReadErr) {
+    console.warn('[imap-proxy] append-draft binding read failed:', bindReadErr.message);
+    return err('internal', 500);
+  }
+  if (!existing || existing.credential_hash !== hash) {
+    return err('auth-failed', 422);
+  }
+
+  let attachments: ReturnType<typeof decodeAttachments>;
+  try {
+    attachments = decodeAttachments(body.attachments);
+  } catch (e) {
+    return err('bad-request', 400, e instanceof Error ? e.message : String(e));
+  }
+
+  let threading: ThreadingHeaders = {};
+  if (typeof body.reply_to_uid === 'number' && Number.isFinite(body.reply_to_uid)) {
+    try {
+      threading = await fetchThreadingHeaders(email, password, body.reply_to_uid);
+    } catch (e) {
+      console.warn('[imap-proxy] append-draft threading-header fetch failed:', e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const raw = buildRfc5322({
+    from: email,
+    to: body.to,
+    cc: body.cc,
+    subject: body.subject,
+    contentType: body.content_type,
+    content: body.content,
+    attachments,
+    threading,
+    date: new Date(),
+  });
+
+  let client: ImapFlow | null = null;
+  try {
+    client = await newImapClient(email, password);
+    await client.connect();
+    // Resolve Drafts folder. iCloud's standard is 'Drafts'.
+    let draftsPath: string | null = null;
+    try {
+      await client.status('Drafts', { messages: true });
+      draftsPath = 'Drafts';
+    } catch { /* not present, try special-use */ }
+    if (!draftsPath) {
+      const list = await client.list();
+      for (const f of list) {
+        const flags = (f as { specialUse?: string }).specialUse;
+        if (flags === '\\Drafts') { draftsPath = f.path; break; }
+      }
+    }
+    if (!draftsPath) {
+      return err('protocol', 502, 'drafts-folder-not-found');
+    }
+    await client.append(draftsPath, raw, ['\\Draft']);
+    await client.logout();
+    return Response.json({ ok: true });
+  } catch (caughtErr) {
+    return mapImapError(caughtErr);
+  } finally {
+    if (client && client.usable) {
+      try { await client.close(); } catch { /* ignore */ }
+    }
+  }
+}
