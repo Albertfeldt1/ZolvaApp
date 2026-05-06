@@ -101,6 +101,7 @@ import {
   icloudAppendDraft,
   type IcloudErrorCode,
 } from './icloud-mail';
+import { recordSentMail, type RecordSentMailInput } from './sent-mails';
 import { listEvents as listIcloudEvents } from './icloud-calendar';
 import {
   readCalendarLabels,
@@ -2178,8 +2179,22 @@ export function useSendReply() {
             references: ctx.references,
             body,
           });
+          await recordSentMailSafe(user?.id ?? null, {
+            provider: 'google',
+            to: [ctx.replyTo],
+            subject: ctx.subject,
+            body,
+            replyToId: mailId,
+          });
         } else if (ctx.provider === 'microsoft') {
           await graphReplyToMessage(ctx.messageId, body);
+          await recordSentMailSafe(user?.id ?? null, {
+            provider: 'microsoft',
+            to: [],          // graphReplyToMessage uses the original recipients server-side
+            subject: '',     // not exposed via this code path; keep empty for the log
+            body,
+            replyToId: mailId,
+          });
         } else {
           if (!user?.id) throw new Error('Ikke logget ind.');
           if (!ctx.fromEmail) throw new Error('Manglende afsender-adresse.');
@@ -2193,6 +2208,13 @@ export function useSendReply() {
             replyToUid: ctx.uid,
           });
           if (!r.ok) throw new Error(`icloud:${r.error}`);
+          await recordSentMailSafe(user.id, {
+            provider: 'icloud',
+            to: [ctx.fromEmail],
+            subject: replySubject,
+            body,
+            replyToId: mailId,
+          });
         }
       } catch (err) {
         const e = err instanceof Error ? err : new Error(String(err));
@@ -3600,6 +3622,21 @@ function splitUnifiedId(unified: string): { provider: string; id: string } | nul
   return { provider: unified.slice(0, colon), id: unified.slice(colon + 1) };
 }
 
+// Record a successful send into the local sent-mails log without ever
+// throwing back into the caller. The send already succeeded — a logging
+// failure must not surface to the user as a send failure.
+async function recordSentMailSafe(
+  userId: string | null,
+  input: RecordSentMailInput,
+): Promise<void> {
+  if (!userId) return;
+  try {
+    await recordSentMail(userId, input);
+  } catch (e) {
+    if (__DEV__) console.warn('[hooks] recordSentMail failed:', e);
+  }
+}
+
 function mapIcloudComposeError(code: IcloudErrorCode): string {
   switch (code) {
     case 'auth-failed':
@@ -3705,6 +3742,7 @@ async function runMailComposeTool(
         return { text: `Udkast oprettet i Gmail (id: ${r.id || 'ukendt'}).`, isError: false };
       }
       await gmailSendMail({ to, cc, subject, body, ...threadHeaders });
+      void recordSentMailSafe(ctx.userId, { provider: 'google', to, cc, subject, body, replyToId: replyToUnifiedId });
       return { text: 'Mailen er sendt fra Gmail.', isError: false };
     }
 
@@ -3731,6 +3769,7 @@ async function runMailComposeTool(
         replyToUid: providerReplyIdNum,
       });
       if (!r.ok) return { text: mapIcloudComposeError(r.error), isError: true };
+      void recordSentMailSafe(ctx.userId, { provider: 'icloud', to, cc, subject, body, replyToId: replyToUnifiedId });
       return {
         text: providerReplyIdNum
           ? 'Svaret er sendt fra iCloud.'
@@ -3749,9 +3788,11 @@ async function runMailComposeTool(
       // server-side. graphSendMail with replyToId routes here too, but going
       // direct keeps the call shorter.
       await graphReplyToMessage(providerReplyId, body);
+      void recordSentMailSafe(ctx.userId, { provider: 'microsoft', to, cc, subject, body, replyToId: replyToUnifiedId });
       return { text: 'Svaret er sendt fra Outlook.', isError: false };
     }
     await graphSendMail({ to, cc, subject, body });
+    void recordSentMailSafe(ctx.userId, { provider: 'microsoft', to, cc, subject, body, replyToId: replyToUnifiedId });
     return { text: 'Mailen er sendt fra Outlook.', isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
