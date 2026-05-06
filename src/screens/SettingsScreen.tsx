@@ -26,6 +26,7 @@ import {
   ScrollView,
   StyleSheet,
   type StyleProp,
+  Switch,
   Text,
   TextInput,
   View,
@@ -35,6 +36,7 @@ import Animated, {
   Easing,
   FadeIn,
   FadeInDown,
+  FadeInUp,
   FadeOut,
   LinearTransition,
   useAnimatedStyle,
@@ -66,6 +68,7 @@ import {
   useWorkPreferences,
 } from '../lib/hooks';
 import { listWritableCalendars, type ProviderCalendar } from '../lib/calendar-providers';
+import { useIntegrationFlags, clearIntegrationFlags } from '../lib/integration-flags';
 import type { CalendarLabelKey } from '../lib/calendar-labels';
 import { supabase } from '../lib/supabase';
 import type { Connection, IntegrationStatus, WorkPreference } from '../lib/types';
@@ -133,12 +136,6 @@ const ROW_TRANSITION = LinearTransition.duration(220);
 const OPTIONS_ENTER = FadeIn.duration(180);
 const OPTIONS_EXIT = FadeOut.duration(140);
 const COLLAPSE_EASING = Easing.bezier(0.22, 1, 0.36, 1);
-// Slower than ROW_TRANSITION so the height interpolation has time to push the
-// next section down before the body becomes visible — without it, the body
-// renders at full size for a frame and overlaps the section below.
-const COLLAPSE_TRANSITION = LinearTransition.duration(320);
-const COLLAPSE_BODY_ENTER = FadeIn.duration(260).delay(60);
-const COLLAPSE_BODY_EXIT = FadeOut.duration(140);
 
 function CollapsibleSection({
   title,
@@ -152,23 +149,39 @@ function CollapsibleSection({
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  // Measure the body's natural size via onLayout. The body sits in absolute
+  // position so it can size itself regardless of the animated outer height.
+  const [contentHeight, setContentHeight] = useState(0);
+  const progress = useSharedValue(open ? 1 : 0);
   const rotation = useSharedValue(open ? 1 : 0);
 
   useEffect(() => {
-    rotation.value = withTiming(open ? 1 : 0, { duration: 260, easing: COLLAPSE_EASING });
-  }, [open, rotation]);
+    progress.value = withTiming(open ? 1 : 0, {
+      duration: 320,
+      easing: COLLAPSE_EASING,
+    });
+    rotation.value = withTiming(open ? 1 : 0, {
+      duration: 320,
+      easing: COLLAPSE_EASING,
+    });
+  }, [open, progress, rotation]);
 
   const chevronStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${rotation.value * 180}deg` }],
   }));
 
+  // Drive the body's height directly from progress * measured height — this
+  // is what gives the actual fold-out feel instead of the body popping in
+  // at full size and just being clipped.
+  const bodyStyle = useAnimatedStyle(() => ({
+    height: progress.value * contentHeight,
+    opacity: progress.value,
+  }));
+
   return (
-    <Animated.View
-      layout={COLLAPSE_TRANSITION}
+    <View
       style={[
         styles.section,
-        // overflow: hidden clips the body during the height transition so it
-        // can't bleed into the section below mid-animation.
         styles.sectionClip,
         paddingTop != null ? { paddingTop } : null,
       ]}
@@ -186,15 +199,18 @@ function CollapsibleSection({
         </Animated.View>
       </Pressable>
       <View style={styles.inkRule} />
-      {open ? (
-        <Animated.View
-          entering={COLLAPSE_BODY_ENTER}
-          exiting={COLLAPSE_BODY_EXIT}
+      <Animated.View style={[{ overflow: 'hidden' }, bodyStyle]}>
+        <View
+          style={{ position: 'absolute', left: 0, right: 0, top: 0 }}
+          onLayout={(e) => {
+            const h = e.nativeEvent.layout.height;
+            if (h > 0 && h !== contentHeight) setContentHeight(h);
+          }}
         >
           {children}
-        </Animated.View>
-      ) : null}
-    </Animated.View>
+        </View>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -234,6 +250,7 @@ const LOGOS: Record<string, ImageSourcePropType> = {
   'google-drive.png': require('../../assets/logos/google-drive.png'),
   'outlook-calendar.png': require('../../assets/logos/outlook-calendar.png'),
   'outlook-mail.png': require('../../assets/logos/outlook-mail.png'),
+  'onedrive.png': require('../../assets/logos/onedrive.png'),
   'icloud.png': require('../../assets/logos/icloud.png'),
   'slack.png': require('../../assets/logos/slack.png'),
   'notion.png': require('../../assets/logos/notion.png'),
@@ -1337,6 +1354,7 @@ export function SettingsScreen({
   const { data: user, loading: userLoading } = useUser();
   const { data: subscription } = useSubscription();
   const { data: connections, connect, disconnect } = useConnections();
+  const { flags: integrationFlags, setEnabled: setIntegrationEnabled } = useIntegrationFlags();
   const { data: workRows, setValue: setWorkValue } = useWorkPreferences();
   const { data: toggles, flip } = usePrivacyToggles();
   const { signOut, user: authUser, googleAccessToken, microsoftAccessToken } = useAuth();
@@ -1360,6 +1378,10 @@ export function SettingsScreen({
     return () => { cancelled = true; };
   }, [userId, icloudRefreshVersion]);
 
+  // iCloud status factors in the user's per-integration flag the same way
+  // useConnections does for Google/Microsoft: valid creds + flag !== false
+  // → 'connected'; flag === false → 'disconnected' (creds preserved).
+  const icloudFlagOff = integrationFlags['icloud'] === false;
   const icloudConnection: Connection = {
     id: 'icloud',
     title: 'iCloud',
@@ -1368,9 +1390,9 @@ export function SettingsScreen({
     : icloudCredState === 'invalid' ? 'Adgangskoden er afvist'
                                     : 'Mail og kalender',
     status:
-      icloudCredState === 'valid'   ? 'connected'
-    : icloudCredState === 'invalid' ? 'expired'
-                                    : 'disconnected',
+      icloudCredState === 'valid' && !icloudFlagOff ? 'connected'
+    : icloudCredState === 'invalid'                 ? 'expired'
+                                                    : 'disconnected',
     logo: 'icloud.png', // never read — row renderer special-cases iCloud to use the lucide Cloud icon (Apple trademark constraint).
   };
   const allConnections: Connection[] = [icloudConnection, ...connections];
@@ -1499,7 +1521,7 @@ export function SettingsScreen({
     }
     return {
       title: 'Frakobl Microsoft',
-      message: 'Zolva mister adgang til Outlook Mail og Kalender. Du kan forbinde igen når som helst.',
+      message: 'Zolva mister adgang til Outlook Mail, Kalender og OneDrive. Du kan forbinde igen når som helst.',
     };
   };
 
@@ -1523,6 +1545,9 @@ export function SettingsScreen({
             if (!r.ok && __DEV__) {
               console.warn('[settings] icloud clear-binding failed:', r.error);
             }
+            // Reset the per-integration flag so a fresh setup starts from
+            // default-on rather than inheriting a previous explicit "off".
+            await clearIntegrationFlags(['icloud']);
             setIcloudCredState('absent');
             setIcloudEmail(null);
           },
@@ -1552,6 +1577,78 @@ export function SettingsScreen({
     ]);
   };
 
+  // Per-integration toggle. Off → set the flag false (OAuth grant stays on
+  // the provider side, just locally disabled). On → if the parent OAuth
+  // grant is missing, run the sign-in flow; otherwise just flip the flag.
+  // iCloud is handled separately because it uses stored creds, not OAuth.
+  const handleToggleIntegration = async (
+    id: typeof connections[number]['id'],
+    next: boolean,
+  ) => {
+    if (id === 'icloud') {
+      if (next) {
+        // Need creds before we can enable. If creds are valid, just flip the
+        // flag. If creds are missing/invalid, open the setup overlay.
+        if (icloudCredState === 'valid') {
+          await setIntegrationEnabled('icloud', true);
+        } else {
+          await setIntegrationEnabled('icloud', true);
+          onOpenIcloudSetup?.(icloudEmail ?? undefined);
+        }
+      } else {
+        await setIntegrationEnabled('icloud', false);
+      }
+      return;
+    }
+
+    const isGoogle = id === 'gmail' || id === 'google-calendar' || id === 'google-drive';
+    const isMicrosoft = id === 'outlook-mail' || id === 'outlook-calendar' || id === 'onedrive';
+    const parentTokenPresent =
+      (isGoogle && !!googleAccessToken) || (isMicrosoft && !!microsoftAccessToken);
+
+    if (next) {
+      if (!parentTokenPresent) {
+        // First time enabling something on this provider — kick off the
+        // shared OAuth flow. After it succeeds the auth context updates and
+        // we flip the flag for the integration the user explicitly clicked.
+        // Sibling integrations (e.g. Calendar/Drive after Gmail) stay off
+        // until the user toggles them too.
+        if (connectingId) return;
+        setConnectingId(id);
+        const result = await connect(id);
+        setConnectingId(null);
+        if (result.adminConsent && onOpenMicrosoftAdminConsent) {
+          const hint = result.adminConsent.tenantHint ?? authUser?.email ?? undefined;
+          onOpenMicrosoftAdminConsent(hint);
+          return;
+        }
+        if (result.error) {
+          if (__DEV__) console.warn('[auth] sign-in failed during toggle:', id, result.error);
+          Alert.alert('Kunne ikke forbinde', translateProviderError(result.error).message);
+          return;
+        }
+        if (result.cancelled && isMicrosoft && onOpenMicrosoftAdminConsent) {
+          Alert.alert(
+            'Krævede din administrator godkendelse?',
+            'Hvis Microsoft viste en besked om at en administrator skal godkende Zolva, kan vi hjælpe dig med at sende en anmodning.',
+            [
+              { text: 'Nej, prøv igen', style: 'cancel' },
+              {
+                text: 'Ja, send anmodning',
+                onPress: () => onOpenMicrosoftAdminConsent(authUser?.email ?? undefined),
+              },
+            ],
+          );
+          return;
+        }
+        if (result.cancelled) return;
+      }
+      await setIntegrationEnabled(id, true);
+    } else {
+      await setIntegrationEnabled(id, false);
+    }
+  };
+
   const isLoggedIn = !!user;
   const { bottom: chromeBottom } = useChromeInsets();
   const theme = useTheme();
@@ -1567,8 +1664,12 @@ export function SettingsScreen({
           contentInsetAdjustmentBehavior="never"
           keyboardShouldPersistTaps="handled"
         >
-          {/* Hero: back button + eyebrow + "Indstillinger" — bone-white card */}
-          <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.statusBarFallback - spacing.xl }}>
+          {/* Hero: back button + eyebrow + "Indstillinger" — bone-white card.
+              Hidden when logged out so the LoginCard reads as a clean
+              standalone surface instead of being framed by an account
+              header for an account that doesn't exist yet. */}
+          {isLoggedIn && (
+          <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.statusBarFallback }}>
             <GlassFrostedCard overlay={surface.bone} radius={radius.card} style={{ padding: spacing.lg }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: spacing.md }}>
                 <Pressable
@@ -1590,6 +1691,7 @@ export function SettingsScreen({
               </Text>
             </GlassFrostedCard>
           </View>
+          )}
 
           {userLoading ? (
             <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
@@ -1653,41 +1755,17 @@ export function SettingsScreen({
               <SettingsSectionCard title="Forbundet" style={{ gap: 0 }}>
                 {allConnections.map((c, i) => {
                   const isConnected = c.status === 'connected';
-                  // iCloud's expired state is tappable (re-enter flow). Other
-                  // providers' 'expired' remains non-interactive — no UI yet.
-                  const tappable =
-                    isConnected ||
-                    c.status === 'disconnected' ||
-                    (c.id === 'icloud' && c.status === 'expired');
                   const isBusy = connectingId === c.id;
-                  const onRowPress =
-                    c.id === 'icloud'
-                      ? (isConnected
-                          ? () => confirmIcloudDisconnect()
-                          : () => onOpenIcloudSetup?.(icloudEmail ?? undefined))
-                      : (isConnected
-                          ? () => handleDisconnect(c.id)
-                          : () => handleConnect(c.id));
-
-                  // Status pill colors using design tokens. "Connected"
-                  // uses the semantic success state (green) — direction G's
-                  // signal palette has no green, so success doesn't ride on
-                  // a direction hue.
-                  const pillBg =
-                    c.status === 'connected' ? surface.successTint :
-                    c.status === 'pending' || c.status === 'expired' ? surface.warningTint :
-                    surface.scrim;
-                  const pillColor =
-                    c.status === 'connected' ? surface.successText :
-                    c.status === 'pending' || c.status === 'expired' ? t.today :
-                    t.ink3;
+                  const isExpired = c.status === 'expired';
+                  // The switch is ON when this integration is fully usable.
+                  // 'expired' (iCloud creds rejected) shows OFF + an inline
+                  // warning so the user knows toggling ON re-opens setup.
+                  const switchValue = isConnected;
 
                   return (
-                    <Pressable
+                    <View
                       key={c.id}
-                      onPress={tappable ? onRowPress : undefined}
-                      disabled={!tappable || isBusy}
-                      style={({ pressed }) => [
+                      style={[
                         {
                           flexDirection: 'row',
                           alignItems: 'center',
@@ -1695,7 +1773,6 @@ export function SettingsScreen({
                           paddingVertical: spacing.sm,
                         },
                         i > 0 && { borderTopWidth: 1, borderTopColor: t.line },
-                        tappable && pressed && { opacity: 0.65 },
                       ]}
                     >
                       <View style={styles.logoBox}>
@@ -1707,22 +1784,68 @@ export function SettingsScreen({
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontFamily: fonts.uiBold, fontSize: type.body.fontSize, color: t.ink }}>{c.title}</Text>
-                        <Text style={{ ...type.caption, color: t.ink3 }}>{c.sub}</Text>
+                        <Text style={{ ...type.caption, color: isExpired ? t.today : t.ink3 }}>
+                          {isExpired ? 'Adgangskoden er afvist — slå til igen for at rette' : c.sub}
+                        </Text>
                       </View>
                       {isBusy ? (
                         <ActivityIndicator color={t.cal} />
-                      ) : c.status === 'disconnected' ? (
-                        <View style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, backgroundColor: t.ink }}>
-                          <Text style={{ ...type.caption, color: '#FFFFFF', fontFamily: fonts.uiBold }}>Forbind →</Text>
-                        </View>
                       ) : (
-                        <View style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, backgroundColor: pillBg }}>
-                          <Text style={{ ...type.caption, color: pillColor, fontFamily: fonts.uiBold }}>{STATUS_LABEL[c.status]}</Text>
-                        </View>
+                        <Switch
+                          value={switchValue}
+                          onValueChange={(next) => {
+                            void handleToggleIntegration(c.id, next);
+                          }}
+                          disabled={isBusy}
+                          trackColor={{ false: surface.scrim, true: colors.success }}
+                          thumbColor="#FFFFFF"
+                          ios_backgroundColor={surface.scrim}
+                        />
                       )}
-                    </Pressable>
+                    </View>
                   );
                 })}
+                {/* Full-revoke escape hatches. Toggling individual switches
+                    off keeps the OAuth grant intact (so re-enabling is a
+                    flag flip, not another sign-in). These links revoke the
+                    grant entirely — useful if the user wants Zolva fully
+                    cut off from a provider. */}
+                {(googleAccessToken || microsoftAccessToken || icloudCredState !== 'absent') && (
+                  <View style={{ paddingTop: spacing.md, gap: spacing.xs, borderTopWidth: 1, borderTopColor: t.line, marginTop: spacing.xs }}>
+                    {googleAccessToken && (
+                      <Pressable
+                        onPress={() => handleDisconnect('gmail')}
+                        disabled={!!connectingId}
+                        style={({ pressed }) => [{ paddingVertical: spacing.xs }, pressed && { opacity: 0.6 }]}
+                      >
+                        <Text style={{ ...type.caption, color: t.ink3, fontFamily: fonts.uiBold }}>
+                          Fjern Google-konto helt
+                        </Text>
+                      </Pressable>
+                    )}
+                    {microsoftAccessToken && (
+                      <Pressable
+                        onPress={() => handleDisconnect('outlook-mail')}
+                        disabled={!!connectingId}
+                        style={({ pressed }) => [{ paddingVertical: spacing.xs }, pressed && { opacity: 0.6 }]}
+                      >
+                        <Text style={{ ...type.caption, color: t.ink3, fontFamily: fonts.uiBold }}>
+                          Fjern Microsoft-konto helt
+                        </Text>
+                      </Pressable>
+                    )}
+                    {icloudCredState !== 'absent' && (
+                      <Pressable
+                        onPress={confirmIcloudDisconnect}
+                        style={({ pressed }) => [{ paddingVertical: spacing.xs }, pressed && { opacity: 0.6 }]}
+                      >
+                        <Text style={{ ...type.caption, color: t.ink3, fontFamily: fonts.uiBold }}>
+                          Fjern iCloud-konto helt
+                        </Text>
+                      </Pressable>
+                    )}
+                  </View>
+                )}
                 {COMING_SOON_INTEGRATIONS.map((c, i) => (
                   <View
                     key={c.key}
@@ -1943,7 +2066,7 @@ export function SettingsScreen({
                   marginTop: spacing.lg,
                   paddingVertical: spacing.md,
                   borderRadius: radius.pill,
-                  backgroundColor: surface.warningTint,
+                  backgroundColor: t.ink,
                   alignItems: 'center',
                   opacity: pressed ? 0.75 : 1,
                 })}
@@ -1965,8 +2088,7 @@ export function SettingsScreen({
                   );
                 }}
               >
-                {/* '#D14343' — no danger token in current scheme; matches Slet konto and DeleteAccountScreen red */}
-                <Text style={{ ...type.body, fontFamily: fonts.uiBold, color: '#D14343' }}>Log ud</Text>
+                <Text style={{ ...type.body, fontFamily: fonts.uiBold, color: '#FFFFFF' }}>Log ud</Text>
               </Pressable>
             </>
           )}
@@ -2042,7 +2164,7 @@ function StemmestyringSection({ hasIcloud }: { hasIcloud: boolean }) {
 
   if (!hasAnyProvider) {
     return (
-      <CollapsibleSection title="Stemmestyring" paddingTop={28}>
+      <CollapsibleSection title="Stemmestyring" paddingTop={0}>
         <Text style={styles.sectionBody}>
           Forbind Google, Outlook eller iCloud for at sætte møder med Siri.
         </Text>
@@ -2051,7 +2173,7 @@ function StemmestyringSection({ hasIcloud }: { hasIcloud: boolean }) {
   }
 
   return (
-    <CollapsibleSection title="Stemmestyring (Voice)" paddingTop={28}>
+    <CollapsibleSection title="Stemmestyring (Voice)" paddingTop={0}>
       <Text style={styles.sectionBody}>
         Når du beder Siri "bed Zolva om at sætte et møde", lander mødet i den
         kalender du vælger her. Sig "i min arbejdskalender" for at tilsidesætte.
@@ -2136,7 +2258,7 @@ function groupByAccount(calendars: ProviderCalendar[]) {
   return Array.from(groups.entries()).map(([heading, items]) => ({ heading, items }));
 }
 
-function LoginCard() {
+export function LoginCard() {
   const { signIn, signUp, signInWithGoogle, signInWithApple, appleAvailable } = useAuth();
   const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in');
   const [email, setEmail] = useState('');
@@ -2206,109 +2328,121 @@ function LoginCard() {
 
   return (
     <View style={styles.loginWrap}>
-      <Text style={styles.loginTitle}>
+      <Animated.Text entering={FadeInUp.duration(420).delay(0)} style={styles.loginTitle}>
         {mode === 'sign-in' ? 'Log ind' : 'Opret konto'}
-      </Text>
-      <Text style={styles.loginBody}>
+      </Animated.Text>
+      <Animated.Text entering={FadeInUp.duration(420).delay(80)} style={styles.loginBody}>
         Forbind dine konti og lad Zolva hjælpe dig med dagen.
-      </Text>
+      </Animated.Text>
 
-      <Pressable
-        style={[styles.socialBtn, anyBusy && styles.loginPrimaryBusy]}
-        onPress={() => oauth('google')}
-        disabled={anyBusy}
-      >
-        {oauthBusy === 'google' ? (
-          <ActivityIndicator color={colors.ink} />
-        ) : (
-          <>
-            <GoogleGlyph />
-            <Text style={styles.socialText}>Fortsæt med Google</Text>
-          </>
-        )}
-      </Pressable>
-
-      {appleAvailable && (
+      <Animated.View entering={FadeInUp.duration(420).delay(160)}>
         <Pressable
-          style={[styles.socialBtnDark, anyBusy && styles.loginPrimaryBusy]}
-          onPress={() => oauth('apple')}
+          style={[styles.socialBtn, anyBusy && styles.loginPrimaryBusy]}
+          onPress={() => oauth('google')}
           disabled={anyBusy}
         >
-          {oauthBusy === 'apple' ? (
-            <ActivityIndicator color={colors.paper} />
+          {oauthBusy === 'google' ? (
+            <ActivityIndicator color={colors.ink} />
           ) : (
             <>
-              <AppleGlyph />
-              <Text style={styles.socialTextDark}>Fortsæt med Apple</Text>
+              <GoogleGlyph />
+              <Text style={styles.socialText}>Fortsæt med Google</Text>
             </>
           )}
         </Pressable>
+      </Animated.View>
+
+      {appleAvailable && (
+        <Animated.View entering={FadeInUp.duration(420).delay(240)}>
+          <Pressable
+            style={[styles.socialBtnDark, anyBusy && styles.loginPrimaryBusy]}
+            onPress={() => oauth('apple')}
+            disabled={anyBusy}
+          >
+            {oauthBusy === 'apple' ? (
+              <ActivityIndicator color={colors.paper} />
+            ) : (
+              <>
+                <AppleGlyph />
+                <Text style={styles.socialTextDark}>Fortsæt med Apple</Text>
+              </>
+            )}
+          </Pressable>
+        </Animated.View>
       )}
 
-      <View style={styles.divider}>
+      <Animated.View entering={FadeInUp.duration(420).delay(320)} style={styles.divider}>
         <View style={styles.dividerLine} />
         <Text style={styles.dividerText}>eller med email</Text>
         <View style={styles.dividerLine} />
-      </View>
+      </Animated.View>
 
-      <TextInput
-        style={styles.input}
-        value={email}
-        onChangeText={setEmail}
-        placeholder="email@eksempel.dk"
-        placeholderTextColor={colors.fg3}
-        autoCapitalize="none"
-        autoCorrect={false}
-        autoComplete="email"
-        keyboardType="email-address"
-        editable={!anyBusy}
-      />
-      <TextInput
-        style={styles.input}
-        value={password}
-        onChangeText={setPassword}
-        placeholder="Kodeord"
-        placeholderTextColor={colors.fg3}
-        secureTextEntry
-        autoCapitalize="none"
-        autoComplete="password"
-        editable={!anyBusy}
-        onSubmitEditing={submit}
-        returnKeyType="go"
-      />
+      <Animated.View entering={FadeInUp.duration(420).delay(400)}>
+        <TextInput
+          style={styles.input}
+          value={email}
+          onChangeText={setEmail}
+          placeholder="email@eksempel.dk"
+          placeholderTextColor={colors.fg3}
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="email"
+          keyboardType="email-address"
+          editable={!anyBusy}
+        />
+      </Animated.View>
+      <Animated.View entering={FadeInUp.duration(420).delay(480)}>
+        <TextInput
+          style={styles.input}
+          value={password}
+          onChangeText={setPassword}
+          placeholder="Kodeord"
+          placeholderTextColor={colors.fg3}
+          secureTextEntry
+          autoCapitalize="none"
+          autoComplete="password"
+          editable={!anyBusy}
+          onSubmitEditing={submit}
+          returnKeyType="go"
+        />
+      </Animated.View>
 
       {error && <Text style={styles.loginError}>{error}</Text>}
       {info && <Text style={styles.loginInfo}>{info}</Text>}
 
-      <Pressable
-        style={[styles.loginPrimary, anyBusy && styles.loginPrimaryBusy]}
-        onPress={submit}
-        disabled={anyBusy}
-      >
-        {busy ? (
-          <ActivityIndicator color={colors.paper} />
-        ) : (
-          <Text style={styles.loginPrimaryText}>
-            {mode === 'sign-in' ? 'Log ind' : 'Opret konto'}
-          </Text>
-        )}
-      </Pressable>
+      <Animated.View entering={FadeInUp.duration(420).delay(560)}>
+        <Pressable
+          style={[styles.loginPrimary, anyBusy && styles.loginPrimaryBusy]}
+          onPress={submit}
+          disabled={anyBusy}
+        >
+          {busy ? (
+            <ActivityIndicator color={colors.paper} />
+          ) : (
+            <Text style={styles.loginPrimaryText}>
+              {mode === 'sign-in' ? 'Log ind' : 'Opret konto'}
+            </Text>
+          )}
+        </Pressable>
+      </Animated.View>
 
-      <Pressable
-        style={styles.loginToggle}
-        onPress={() => {
-          setMode(mode === 'sign-in' ? 'sign-up' : 'sign-in');
-          setError(null);
-          setInfo(null);
-        }}
-        disabled={anyBusy}
-      >
-        <Text style={styles.loginToggleText}>
-          {mode === 'sign-in'
-            ? 'Har du ikke en konto? Opret en →'
-            : 'Har du allerede en konto? Log ind →'}
-        </Text>
-      </Pressable>
+      <Animated.View entering={FadeInUp.duration(420).delay(640)}>
+        <Pressable
+          style={styles.loginToggle}
+          onPress={() => {
+            setMode(mode === 'sign-in' ? 'sign-up' : 'sign-in');
+            setError(null);
+            setInfo(null);
+          }}
+          disabled={anyBusy}
+        >
+          <Text style={styles.loginToggleText}>
+            {mode === 'sign-in'
+              ? 'Har du ikke en konto? Opret en →'
+              : 'Har du allerede en konto? Log ind →'}
+          </Text>
+        </Pressable>
+      </Animated.View>
 
       {__DEV__ && (
         <Text style={styles.debugHint} selectable>
@@ -2349,6 +2483,9 @@ function WorkPreferenceRow({
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [optionsHeight, setOptionsHeight] = useState(0);
+  const progress = useSharedValue(0);
+
   const toggle = () => setOpen((v) => !v);
   const pick = (value: string) => {
     onChange(value);
@@ -2356,8 +2493,25 @@ function WorkPreferenceRow({
   };
   const shown = pref.value ?? 'Sæt op';
 
+  useEffect(() => {
+    progress.value = withTiming(open ? 1 : 0, {
+      duration: 280,
+      easing: COLLAPSE_EASING,
+    });
+  }, [open, progress]);
+
+  // The chips sit absolutely-positioned inside an animated wrapper. The
+  // wrapper's height is progress * measuredHeight, opacity rides the same
+  // ramp. Native flex layout reflows on every frame as the height changes,
+  // so sibling rows below the open one slide down smoothly instead of
+  // snapping to a new position when chips mount/unmount.
+  const optionsStyle = useAnimatedStyle(() => ({
+    height: progress.value * optionsHeight,
+    opacity: progress.value,
+  }));
+
   return (
-    <Animated.View layout={ROW_TRANSITION} style={styles.workRow}>
+    <View style={styles.workRow}>
       <Pressable
         onPress={toggle}
         style={({ pressed }) => [styles.workHeader, pressed && styles.workHeaderPressed]}
@@ -2372,11 +2526,13 @@ function WorkPreferenceRow({
           {shown} {open ? '↑' : '↓'}
         </Text>
       </Pressable>
-      {open && (
-        <Animated.View
-          entering={OPTIONS_ENTER}
-          exiting={OPTIONS_EXIT}
-          style={styles.workOptions}
+      <Animated.View style={[{ overflow: 'hidden' }, optionsStyle]}>
+        <View
+          style={[styles.workOptions, { position: 'absolute', left: 0, right: 0, top: 0 }]}
+          onLayout={(e) => {
+            const h = e.nativeEvent.layout.height;
+            if (h > 0 && h !== optionsHeight) setOptionsHeight(h);
+          }}
         >
           {pref.options.map((opt) => {
             const selected = pref.value === opt;
@@ -2391,7 +2547,7 @@ function WorkPreferenceRow({
                 ]}
               >
                 {selected && (
-                  <Check size={13} color={colors.sageDeep} strokeWidth={2.4} />
+                  <Check size={13} color="#FFFFFF" strokeWidth={2.4} />
                 )}
                 <Text style={[styles.workOptionText, selected && styles.workOptionTextOn]}>
                   {opt}
@@ -2399,9 +2555,9 @@ function WorkPreferenceRow({
               </Pressable>
             );
           })}
-        </Animated.View>
-      )}
-    </Animated.View>
+        </View>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -2494,7 +2650,7 @@ const styles = StyleSheet.create({
 
   loginWrap: {
     paddingHorizontal: 20,
-    paddingTop: 28,
+    paddingTop: 110,
     paddingBottom: 32,
     gap: 10,
   },
@@ -3088,7 +3244,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.line,
-    backgroundColor: colors.paper,
+    backgroundColor: '#FFFFFF',
   },
   socialText: {
     fontFamily: fonts.uiSemi,
@@ -3186,7 +3342,7 @@ const styles = StyleSheet.create({
   workHeaderPressed: { opacity: 0.55 },
   workTitle: { fontFamily: fonts.uiSemi, fontSize: 14.5, color: colors.ink },
   workMeta: { marginTop: 2, fontFamily: fonts.ui, fontSize: 12.5, color: colors.fg3 },
-  workVal: { fontFamily: fonts.ui, fontSize: 13, color: colors.sageDeep },
+  workVal: { fontFamily: fonts.ui, fontSize: 13, color: colors.ink },
   workOptions: {
     flexDirection: 'row', flexWrap: 'wrap', gap: 8,
     paddingBottom: 14,
@@ -3195,16 +3351,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 12, paddingVertical: 7,
     borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line,
-    backgroundColor: colors.paper,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.10)',
+    backgroundColor: 'rgba(255,255,255,0.55)',
   },
   workOptionOn: {
-    borderColor: colors.sageDeep,
-    backgroundColor: colors.sageSoft,
+    borderColor: colors.ink,
+    backgroundColor: colors.ink,
   },
   workOptionPressed: { opacity: 0.6 },
-  workOptionText: { fontFamily: fonts.ui, fontSize: 13, color: colors.fg2 },
-  workOptionTextOn: { color: colors.sageDeep, fontFamily: fonts.uiSemi },
+  workOptionText: { fontFamily: fonts.ui, fontSize: 13, color: colors.ink },
+  workOptionTextOn: { color: '#FFFFFF', fontFamily: fonts.uiSemi },
 
   // morning-brief row when only iCloud is connected — disabled visual + 'Læs mere' link to the explainer sheet.
   disabledPrefRow: {

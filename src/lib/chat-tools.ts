@@ -38,6 +38,11 @@ import {
   type DriveFile,
 } from './google-drive';
 import {
+  searchFiles as searchOnedriveFiles,
+  getFileContent as getOnedriveFileContent,
+  type OnedriveFile,
+} from './onedrive';
+import {
   listEvents as listIcloudEvents,
   createEvent as createIcloudEvent,
   updateEvent as updateIcloudEvent,
@@ -56,10 +61,19 @@ import {
 
 type CalendarSource = 'google' | 'microsoft' | 'icloud';
 
+// One flag per integration. Each is "effectively enabled" — the parent
+// OAuth grant exists AND the user hasn't toggled this specific integration
+// off. Tools gate on the specific flag they need so disabling Gmail doesn't
+// disable Google Calendar / Drive on the same OAuth grant.
 export type ChatCtx = {
   userId: string | null;
-  hasGoogle: boolean;
-  hasMicrosoft: boolean;
+  gmail: boolean;
+  googleCalendar: boolean;
+  googleDrive: boolean;
+  outlookMail: boolean;
+  outlookCalendar: boolean;
+  onedrive: boolean;
+  icloud: boolean;
 };
 
 type SourceOutcome = { source: CalendarSource; ok: boolean; reason?: string };
@@ -72,7 +86,7 @@ export async function listCalendarEventsAcrossProviders(
   const lines: string[] = [];
   const outcomes: SourceOutcome[] = [];
 
-  if (ctx.hasGoogle) {
+  if (ctx.googleCalendar) {
     try {
       const events = await listGoogleEvents(from, to);
       lines.push(...events.map((e) => formatGoogleEvent(e)));
@@ -81,7 +95,7 @@ export async function listCalendarEventsAcrossProviders(
       outcomes.push({ source: 'google', ok: false, reason: short(err) });
     }
   }
-  if (ctx.hasMicrosoft) {
+  if (ctx.outlookCalendar) {
     try {
       const events = await listGraphEvents(from, to);
       lines.push(...events.map((e) => formatGraphEvent(e)));
@@ -90,7 +104,7 @@ export async function listCalendarEventsAcrossProviders(
       outcomes.push({ source: 'microsoft', ok: false, reason: short(err) });
     }
   }
-  if (ctx.userId) {
+  if (ctx.userId && ctx.icloud) {
     const r = await listIcloudEvents(ctx.userId, from, to);
     if (r.ok) {
       lines.push(...r.data.map((e) => formatIcloudEvent(e)));
@@ -166,7 +180,7 @@ export async function listRecentMailAcrossProviders(
   const rows: Row[] = [];
   const outcomes: SourceOutcome[] = [];
 
-  if (ctx.hasGoogle) {
+  if (ctx.gmail) {
     try {
       const ms = await listGmailMessages(perProvider);
       ms.forEach((m) => rows.push(toGmailRow(m)));
@@ -175,7 +189,7 @@ export async function listRecentMailAcrossProviders(
       outcomes.push({ source: 'google', ok: false, reason: short(err) });
     }
   }
-  if (ctx.hasMicrosoft) {
+  if (ctx.outlookMail) {
     try {
       const ms = await listGraphMessages(perProvider);
       ms.forEach((m) => rows.push(toGraphRow(m)));
@@ -184,7 +198,7 @@ export async function listRecentMailAcrossProviders(
       outcomes.push({ source: 'microsoft', ok: false, reason: short(err) });
     }
   }
-  if (ctx.userId) {
+  if (ctx.userId && ctx.icloud) {
     const r = await listIcloudInbox(ctx.userId, perProvider);
     if (r.ok) {
       r.data.forEach((m) => rows.push(toIcloudRow(m)));
@@ -259,17 +273,17 @@ export async function readMailBody(
 
   try {
     if (source === 'google') {
-      if (!ctx.hasGoogle) return { text: 'Gmail ikke forbundet.', isError: true };
+      if (!ctx.gmail) return { text: 'Gmail ikke forbundet.', isError: true };
       const b = await getGmailMessageBody(id);
       return { text: `Fra: ${b.from} <${b.fromEmail}>\nEmne: ${b.subject}\n\n${b.text}`, isError: false };
     }
     if (source === 'microsoft') {
-      if (!ctx.hasMicrosoft) return { text: 'Outlook ikke forbundet.', isError: true };
+      if (!ctx.outlookMail) return { text: 'Outlook ikke forbundet.', isError: true };
       const b = await getGraphMessageBody(id);
       return { text: `Fra: ${b.from} <${b.fromEmail}>\nEmne: ${b.subject}\n\n${b.text}`, isError: false };
     }
     if (source === 'icloud') {
-      if (!ctx.userId) return { text: 'Ingen bruger-session.', isError: true };
+      if (!ctx.userId || !ctx.icloud) return { text: 'iCloud ikke forbundet.', isError: true };
       const uid = Number(id);
       if (!Number.isFinite(uid)) return { text: 'iCloud-ID skal være et tal.', isError: true };
       const r = await getIcloudMessageBody(ctx.userId, uid);
@@ -298,7 +312,7 @@ export async function searchDriveFilesTool(
   query: string,
   limit: number,
 ): Promise<{ text: string; isError: boolean }> {
-  if (!ctx.hasGoogle) return { text: 'Google Drive ikke forbundet.', isError: true };
+  if (!ctx.googleDrive) return { text: 'Google Drive ikke forbundet.', isError: true };
   const trimmed = query.trim();
   if (!trimmed) return { text: 'Tom søgning. Angiv mindst ét søgeord.', isError: true };
   try {
@@ -318,7 +332,7 @@ export async function readDriveFile(
   ctx: ChatCtx,
   id: string,
 ): Promise<{ text: string; isError: boolean }> {
-  if (!ctx.hasGoogle) return { text: 'Google Drive ikke forbundet.', isError: true };
+  if (!ctx.googleDrive) return { text: 'Google Drive ikke forbundet.', isError: true };
   // Be permissive: model sometimes echoes the full "drive:abc" unified ID.
   const cleanId = id.startsWith('drive:') ? id.slice(6) : id;
   if (!cleanId) return { text: 'Mangler fil-ID.', isError: true };
@@ -343,9 +357,63 @@ function mimeLabel(mime: string): string {
   if (mime === 'application/vnd.google-apps.spreadsheet') return 'Sheet';
   if (mime === 'application/vnd.google-apps.presentation') return 'Slides';
   if (mime === 'application/pdf') return 'PDF';
+  if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'Word';
+  if (mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') return 'Excel';
+  if (mime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') return 'PowerPoint';
   if (mime.startsWith('text/')) return mime.slice(5);
   if (mime === 'application/json') return 'JSON';
   return mime;
+}
+
+// ─── OneDrive ─────────────────────────────────────────────────────────────
+//
+// Microsoft Graph search + read for the user's personal OneDrive. Same
+// shape as Drive — search by query, then read by ID. Read is restricted
+// to text-shaped MIME types; Office formats are refused at read time.
+
+export async function searchOnedriveFilesTool(
+  ctx: ChatCtx,
+  query: string,
+  limit: number,
+): Promise<{ text: string; isError: boolean }> {
+  if (!ctx.onedrive) return { text: 'OneDrive ikke forbundet.', isError: true };
+  const trimmed = query.trim();
+  if (!trimmed) return { text: 'Tom søgning. Angiv mindst ét søgeord.', isError: true };
+  try {
+    const hits = await searchOnedriveFiles(trimmed, limit);
+    if (hits.length === 0) {
+      return { text: `Ingen filer matcher "${trimmed}" i OneDrive.`, isError: false };
+    }
+    const lines = hits.map((f) => formatOnedriveHit(f));
+    const header = `${hits.length} fil(er) matcher "${trimmed}":`;
+    return { text: [header, '', ...lines].join('\n'), isError: false };
+  } catch (err) {
+    return { text: `OneDrive afviste søgningen: ${short(err)}`, isError: true };
+  }
+}
+
+export async function readOnedriveFile(
+  ctx: ChatCtx,
+  id: string,
+): Promise<{ text: string; isError: boolean }> {
+  if (!ctx.onedrive) return { text: 'OneDrive ikke forbundet.', isError: true };
+  // Be permissive: model sometimes echoes the full "onedrive:abc" unified ID.
+  const cleanId = id.startsWith('onedrive:') ? id.slice(9) : id;
+  if (!cleanId) return { text: 'Mangler fil-ID.', isError: true };
+  try {
+    const f = await getOnedriveFileContent(cleanId);
+    const header = `Filnavn: ${f.name}\nLink: ${f.webUrl}\n`;
+    return { text: `${header}\n${f.text}`, isError: false };
+  } catch (err) {
+    return { text: `Kunne ikke læse filen: ${short(err)}`, isError: true };
+  }
+}
+
+function formatOnedriveHit(f: OnedriveFile): string {
+  const kind = mimeLabel(f.mimeType);
+  const modified = shortDate(f.modifiedTime);
+  const owner = f.ownerEmail ? ` — ejer: ${f.ownerEmail}` : '';
+  return `[onedrive:${f.id}] ${kind} — "${f.name}" — ændret ${modified}${owner} — ${f.webUrl}`;
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────
@@ -402,7 +470,7 @@ export async function createCalendarEvent(
   input: WriteEventInput,
 ): Promise<{ text: string; isError: boolean }> {
   if (provider === 'google') {
-    if (!ctx.hasGoogle) return { text: 'Google Kalender ikke forbundet.', isError: true };
+    if (!ctx.googleCalendar) return { text: 'Google Kalender ikke forbundet.', isError: true };
     try {
       const r = await createGoogleEvent(toGoogleInput(input));
       return { text: `Oprettet [google:${r.id}] "${input.title}" ${rangeText(input)}.`, isError: false };
@@ -411,7 +479,7 @@ export async function createCalendarEvent(
     }
   }
   if (provider === 'microsoft') {
-    if (!ctx.hasMicrosoft) return { text: 'Outlook ikke forbundet.', isError: true };
+    if (!ctx.outlookCalendar) return { text: 'Outlook ikke forbundet.', isError: true };
     try {
       const r = await createGraphEvent(toGraphInput(input));
       return { text: `Oprettet [microsoft:${r.id}] "${input.title}" ${rangeText(input)}.`, isError: false };
@@ -440,7 +508,7 @@ export async function updateCalendarEvent(
   if (!id) return { text: 'Mangler event-ID.', isError: true };
 
   if (source === 'google') {
-    if (!ctx.hasGoogle) return { text: 'Google Kalender ikke forbundet.', isError: true };
+    if (!ctx.googleCalendar) return { text: 'Google Kalender ikke forbundet.', isError: true };
     try {
       await updateGoogleEvent(id, toGooglePartial(patch));
       return { text: `Opdateret [google:${id}].`, isError: false };
@@ -449,7 +517,7 @@ export async function updateCalendarEvent(
     }
   }
   if (source === 'microsoft') {
-    if (!ctx.hasMicrosoft) return { text: 'Outlook ikke forbundet.', isError: true };
+    if (!ctx.outlookCalendar) return { text: 'Outlook ikke forbundet.', isError: true };
     try {
       await updateGraphEvent(id, toGraphPartial(patch));
       return { text: `Opdateret [microsoft:${id}].`, isError: false };
@@ -490,7 +558,7 @@ export async function deleteCalendarEvent(
   if (!id) return { text: 'Mangler event-ID.', isError: true };
 
   if (source === 'google') {
-    if (!ctx.hasGoogle) return { text: 'Google Kalender ikke forbundet.', isError: true };
+    if (!ctx.googleCalendar) return { text: 'Google Kalender ikke forbundet.', isError: true };
     try {
       await deleteGoogleEvent(id);
       return { text: `Slettet [google:${id}].`, isError: false };
@@ -499,7 +567,7 @@ export async function deleteCalendarEvent(
     }
   }
   if (source === 'microsoft') {
-    if (!ctx.hasMicrosoft) return { text: 'Outlook ikke forbundet.', isError: true };
+    if (!ctx.outlookCalendar) return { text: 'Outlook ikke forbundet.', isError: true };
     try {
       await deleteGraphEvent(id);
       return { text: `Slettet [microsoft:${id}].`, isError: false };

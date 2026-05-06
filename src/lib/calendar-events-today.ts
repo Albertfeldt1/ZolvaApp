@@ -14,6 +14,7 @@ import {
   listCalendarEvents as listGraphEvents,
   type GraphCalendarEvent,
 } from './microsoft-graph';
+import { getIntegrationFlag, loadIntegrationFlags } from './integration-flags';
 
 export type CalendarEventForAlert = {
   id: string;
@@ -57,26 +58,38 @@ function passesGraphFilter(e: GraphCalendarEvent, now: Date): CalendarEventForAl
 }
 
 export async function fetchPreAlertEligibleEvents(): Promise<CalendarEventForAlert[]> {
+  // Background paths (e.g. push-triggered pre-alerts) may run before any
+  // React component has mounted the flag-store hook. Awaiting load is a
+  // cheap no-op if the cache is already populated.
+  await loadIntegrationFlags();
   const now = new Date();
   const end = endOfToday(now);
   const results: CalendarEventForAlert[] = [];
 
-  const google = await listGoogleEvents(now, end).catch((err) => {
-    if (__DEV__) console.warn('[calendar-events-today] google fetch failed:', err);
-    return [] as GoogleCalendarEvent[];
-  });
-  for (const e of google) {
-    const passed = passesGoogleFilter(e, now);
-    if (passed) results.push(passed);
+  // Skip providers the user has explicitly disabled. The flag is read
+  // sync from the in-memory cache; if the cache hasn't loaded yet (rare
+  // during a cold pre-alert run) we err on the side of fetching, since
+  // missing the alert is worse than firing for an unused integration.
+  if (getIntegrationFlag('google-calendar') !== false) {
+    const google = await listGoogleEvents(now, end).catch((err) => {
+      if (__DEV__) console.warn('[calendar-events-today] google fetch failed:', err);
+      return [] as GoogleCalendarEvent[];
+    });
+    for (const e of google) {
+      const passed = passesGoogleFilter(e, now);
+      if (passed) results.push(passed);
+    }
   }
 
-  const graph = await listGraphEvents(now, end).catch((err) => {
-    if (__DEV__) console.warn('[calendar-events-today] graph fetch failed:', err);
-    return [] as GraphCalendarEvent[];
-  });
-  for (const e of graph) {
-    const passed = passesGraphFilter(e, now);
-    if (passed) results.push(passed);
+  if (getIntegrationFlag('outlook-calendar') !== false) {
+    const graph = await listGraphEvents(now, end).catch((err) => {
+      if (__DEV__) console.warn('[calendar-events-today] graph fetch failed:', err);
+      return [] as GraphCalendarEvent[];
+    });
+    for (const e of graph) {
+      const passed = passesGraphFilter(e, now);
+      if (passed) results.push(passed);
+    }
   }
 
   return results;

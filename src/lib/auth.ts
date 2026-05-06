@@ -731,9 +731,21 @@ export async function disconnectProvider(
     return;
   }
 
-  const token = provider === 'google' ? cachedGoogleToken : cachedMicrosoftToken;
-  if (provider === 'google' && token) {
-    await revokeGoogleToken(token);
+  // Snapshot the access token before we invalidate the cache — we still
+  // need it to call Google's revoke endpoint below.
+  const tokenSnapshot = provider === 'google' ? cachedGoogleToken : cachedMicrosoftToken;
+
+  // Invalidate the in-memory cache and notify subscribers BEFORE awaiting
+  // server-side teardown. If we did this last, a chat turn (or mail poll)
+  // fired between the user tapping "Frakobl" and the awaits resolving
+  // would still see a valid cachedGoogleToken and successfully read mail
+  // from a provider the user just disconnected. Subscribers (useAuth,
+  // chat ctx via the live module-cache reads) flip to null immediately.
+  if (provider === 'google') broadcastGoogle(null);
+  else broadcastMicrosoft(null);
+
+  if (provider === 'google' && tokenSnapshot) {
+    await revokeGoogleToken(tokenSnapshot);
   }
 
   await Promise.allSettled([

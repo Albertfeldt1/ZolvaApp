@@ -15,7 +15,9 @@ export type ChatToolName =
   | 'list_reminders'
   | 'list_notes'
   | 'search_drive_files'
-  | 'read_drive_file';
+  | 'read_drive_file'
+  | 'search_onedrive_files'
+  | 'read_onedrive_file';
 
 export type ClaimVerdict = {
   claimed: boolean;
@@ -43,6 +45,8 @@ const VALID_TOOLS: ReadonlySet<ChatToolName> = new Set([
   'list_notes',
   'search_drive_files',
   'read_drive_file',
+  'search_onedrive_files',
+  'read_onedrive_file',
 ]);
 
 const CLASSIFIER_SYSTEM = [
@@ -57,6 +61,7 @@ const CLASSIFIER_SYSTEM = [
   '- "Jeg har gemt påmindelsen/noten"',
   '- "Jeg har tjekket din kalender — du har X", "Din næste mail er fra Y"',
   '- "Jeg fandt filen om Z i Drive"',
+  '- "Jeg fandt filen om Z i OneDrive"',
   '',
   'IKKE krav om værktøj (claimed=false):',
   '- Spørgsmål til brugeren ("Skal jeg sende den?")',

@@ -68,6 +68,7 @@ import {
   sendMail as graphSendMail,
 } from './microsoft-graph';
 import { loadCredential } from './icloud-credentials';
+import { useIntegrationFlags, isIntegrationEffectivelyEnabled, clearIntegrationFlags } from './integration-flags';
 import { detectAdminConsentRequired } from './admin-consent';
 import {
   listCalendarEventsAcrossProviders,
@@ -78,6 +79,8 @@ import {
   deleteCalendarEvent,
   searchDriveFilesTool,
   readDriveFile,
+  searchOnedriveFilesTool,
+  readOnedriveFile,
   type ChatCtx,
   type WriteEventInput,
 } from './chat-tools';
@@ -586,6 +589,7 @@ function useCalendarItems(
   const userId = user?.id ?? '';
   const icloudConnected = useIcloudConnected(userId);
   const { visibility, hydrated: visibilityHydrated } = useCalendarVisibility(userId);
+  const { isEnabled: isFlagEnabled, flags: integrationFlagsForCal } = useIntegrationFlags();
   const [state, setState] = useState<{
     items: NormalizedEvent[];
     loading: boolean;
@@ -617,7 +621,7 @@ function useCalendarItems(
     const microsoftHidden = new Set(visibility.microsoft ?? []);
     const icloudHidden = new Set(visibility.icloud ?? []);
 
-    if (googleAccessToken) {
+    if (googleAccessToken && isFlagEnabled('google-calendar', true)) {
       tasks.push(
         (async () => {
           if (!respectVisibility) {
@@ -647,7 +651,7 @@ function useCalendarItems(
         })(),
       );
     }
-    if (microsoftAccessToken) {
+    if (microsoftAccessToken && isFlagEnabled('outlook-calendar', true)) {
       tasks.push(
         (async () => {
           if (!respectVisibility) {
@@ -672,7 +676,7 @@ function useCalendarItems(
         })(),
       );
     }
-    if (icloudConnected && userId) {
+    if (icloudConnected && userId && isFlagEnabled('icloud', true)) {
       tasks.push(
         listIcloudEvents(userId, start, end).then((r) => {
           if (!r.ok) throw new Error(`icloud:${r.error}`);
@@ -765,6 +769,11 @@ function useCalendarItems(
     respectVisibility,
     visibilityHydrated,
     visibilitySig,
+    // Refetch when the user toggles a calendar integration on/off so the
+    // ribbon/day view updates without needing a navigation roundtrip.
+    integrationFlagsForCal['google-calendar'],
+    integrationFlagsForCal['outlook-calendar'],
+    integrationFlagsForCal['icloud'],
   ]);
 
   return state;
@@ -849,6 +858,7 @@ function useMailItems(): {
   const { googleAccessToken, microsoftAccessToken, user } = useAuth();
   const userId = user?.id ?? '';
   const icloudConnected = useIcloudConnected(userId);
+  const { isEnabled: isFlagEnabled, flags: integrationFlagsForMail } = useIntegrationFlags();
   const [state, setState] = useState<{
     items: NormalizedMail[];
     loading: boolean;
@@ -876,7 +886,7 @@ function useMailItems(): {
       run: () => Promise<NormalizedMail[]>;
     };
     const tasks: Task[] = [];
-    if (googleAccessToken) {
+    if (googleAccessToken && isFlagEnabled('gmail', true)) {
       tasks.push({
         provider: 'google',
         run: () =>
@@ -893,7 +903,7 @@ function useMailItems(): {
           ),
       });
     }
-    if (microsoftAccessToken) {
+    if (microsoftAccessToken && isFlagEnabled('outlook-mail', true)) {
       tasks.push({
         provider: 'microsoft',
         run: () =>
@@ -910,7 +920,7 @@ function useMailItems(): {
           ),
       });
     }
-    if (icloudConnected && userId) {
+    if (icloudConnected && userId && isFlagEnabled('icloud', true)) {
       tasks.push({
         provider: 'icloud',
         run: () =>
@@ -971,7 +981,17 @@ function useMailItems(): {
     return () => {
       cancelled = true;
     };
-  }, [googleAccessToken, microsoftAccessToken, user, icloudConnected, userId, refreshTick]);
+  }, [
+    googleAccessToken,
+    microsoftAccessToken,
+    user,
+    icloudConnected,
+    userId,
+    refreshTick,
+    integrationFlagsForMail['gmail'],
+    integrationFlagsForMail['outlook-mail'],
+    integrationFlagsForMail['icloud'],
+  ]);
 
   return state;
 }
@@ -1984,10 +2004,11 @@ const DEFAULT_CONNECTIONS: Connection[] = [
   { id: 'google-drive', title: 'Google Drive', sub: 'Søger og læser tekstfiler', status: 'disconnected', logo: 'google-drive.png' },
   { id: 'outlook-calendar', title: 'Outlook Kalender', sub: 'Microsoft 365', status: 'disconnected', logo: 'outlook-calendar.png' },
   { id: 'outlook-mail', title: 'Outlook Mail', sub: 'Microsoft 365', status: 'disconnected', logo: 'outlook-mail.png' },
+  { id: 'onedrive', title: 'OneDrive', sub: 'Søger og læser tekstfiler', status: 'disconnected', logo: 'onedrive.png' },
 ];
 
 const GOOGLE_INTEGRATIONS = new Set<Connection['id']>(['google-calendar', 'gmail', 'google-drive']);
-const MICROSOFT_INTEGRATIONS = new Set<Connection['id']>(['outlook-calendar', 'outlook-mail']);
+const MICROSOFT_INTEGRATIONS = new Set<Connection['id']>(['outlook-calendar', 'outlook-mail', 'onedrive']);
 
 export function useConnections() {
   const {
@@ -1999,14 +2020,18 @@ export function useConnections() {
     disconnectProvider,
   } = useAuth();
   const demo = isDemoUser(user);
+  const { isEnabled, setEnabled } = useIntegrationFlags();
 
+  // status === 'connected' means the user has BOTH a parent OAuth grant AND
+  // hasn't toggled this specific integration off. Demo bypasses the flag
+  // store — DEMO_CONNECTIONS hard-codes statuses.
   const data: Connection[] = demo
     ? DEMO_CONNECTIONS
     : DEFAULT_CONNECTIONS.map((c) => {
-        if (GOOGLE_INTEGRATIONS.has(c.id) && googleAccessToken) {
-          return { ...c, status: 'connected' as const };
-        }
-        if (MICROSOFT_INTEGRATIONS.has(c.id) && microsoftAccessToken) {
+        const tokenPresent =
+          (GOOGLE_INTEGRATIONS.has(c.id) && !!googleAccessToken) ||
+          (MICROSOFT_INTEGRATIONS.has(c.id) && !!microsoftAccessToken);
+        if (tokenPresent && isEnabled(c.id, true)) {
           return { ...c, status: 'connected' as const };
         }
         return c;
@@ -2045,16 +2070,36 @@ export function useConnections() {
 
   const disconnect = async (id: Connection['id']): Promise<{ error: Error | null }> => {
     try {
-      if (GOOGLE_INTEGRATIONS.has(id)) await disconnectProvider('google');
-      else if (MICROSOFT_INTEGRATIONS.has(id)) await disconnectProvider('microsoft');
-      else return { error: new Error('Ukendt integration.') };
+      if (GOOGLE_INTEGRATIONS.has(id)) {
+        await disconnectProvider('google');
+        // Clear the per-integration flags too so a re-grant starts from
+        // default-on rather than inheriting a previous explicit "off".
+        await clearIntegrationFlags(['gmail', 'google-calendar', 'google-drive']);
+      } else if (MICROSOFT_INTEGRATIONS.has(id)) {
+        await disconnectProvider('microsoft');
+        await clearIntegrationFlags(['outlook-mail', 'outlook-calendar', 'onedrive']);
+      } else {
+        return { error: new Error('Ukendt integration.') };
+      }
       return { error: null };
     } catch (err) {
       return { error: err instanceof Error ? err : new Error(String(err)) };
     }
   };
 
-  return { data, loading: false, error: null as Error | null, connect, disconnect };
+  return {
+    data,
+    loading: false,
+    error: null as Error | null,
+    connect,
+    disconnect,
+    // Per-integration software toggle. Use this for "turn off Gmail without
+    // revoking Calendar" — the OAuth grant stays intact. Use `disconnect`
+    // (above) when you want to revoke the entire provider grant.
+    setEnabled,
+    googleAccessToken,
+    microsoftAccessToken,
+  };
 }
 
 function prefValue(rows: WorkPreference[], id: WorkPreferenceId): string {
@@ -2540,7 +2585,59 @@ const CHAT_HISTORY_LIMIT = 50;
 const CHAT_API_CONTEXT_LIMIT = 15;
 const CHAT_ERROR_TEXT = 'Jeg kunne ikke nå frem — prøv igen.';
 
-function buildChatSystemPrompt(name: string): string {
+// Build a Danish summary of which integrations are currently OFF, so the
+// model refuses to act on cached data from earlier turns. Without this, a
+// previous tool result (e.g. Gmail messages) is still in the conversation
+// history and the model will happily paraphrase it on later turns even
+// after the user toggled the integration off.
+function buildDisabledIntegrationsBlock(ctx: ChatCtx): string {
+  const labels: { key: keyof ChatCtx; label: string }[] = [
+    { key: 'gmail', label: 'Gmail' },
+    { key: 'googleCalendar', label: 'Google Kalender' },
+    { key: 'googleDrive', label: 'Google Drive' },
+    { key: 'outlookMail', label: 'Outlook Mail' },
+    { key: 'outlookCalendar', label: 'Outlook Kalender' },
+    { key: 'onedrive', label: 'OneDrive' },
+    { key: 'icloud', label: 'iCloud' },
+  ];
+  const off = labels.filter((l) => ctx[l.key] === false).map((l) => l.label);
+  if (off.length === 0) return '';
+  // List the integrations that are STILL on so the model can route requests
+  // to them. Without this the model often refuses adjacent integrations
+  // ("Gmail er slået fra" → "Jeg kan heller ikke se din kalender") even
+  // when those siblings are still fully connected.
+  const onLabels: { key: keyof ChatCtx; label: string }[] = [
+    { key: 'gmail', label: 'Gmail' },
+    { key: 'googleCalendar', label: 'Google Kalender' },
+    { key: 'googleDrive', label: 'Google Drive' },
+    { key: 'outlookMail', label: 'Outlook Mail' },
+    { key: 'outlookCalendar', label: 'Outlook Kalender' },
+    { key: 'onedrive', label: 'OneDrive' },
+    { key: 'icloud', label: 'iCloud' },
+  ];
+  const on = onLabels.filter((l) => ctx[l.key] === true).map((l) => l.label);
+  const onLine = on.length > 0 ? on.join(', ') : 'ingen';
+  return [
+    '⚠️ KRITISK: SLÅET FRA-INTEGRATIONER ⚠️',
+    'Brugeren har slået disse FRA lige nu: ' + off.join(', ') + '.',
+    'Disse er STADIG TIL og fungerer normalt: ' + onLine + '.',
+    '',
+    'Reglen gælder KUN de integrationer der står i "SLÅET FRA"-listen. ' +
+      'For integrationer der STADIG er TIL skal du opføre dig helt normalt — ' +
+      'kalde værktøjer, hente data, og citere indhold som du plejer.',
+    '',
+    'For de SLUKKEDE integrationer SKAL du:',
+    '1. IKKE kalde værktøjer der bruger den slukkede integration.',
+    '2. IKKE bruge data fra den slukkede integration — heller IKKE data du tidligere i denne samtale har hentet derfra. Hvis du tidligere har svaret med fx Gmail-mails, og Gmail nu er slukket, så behandl de mails som om du aldrig havde set dem.',
+    '3. Hvis brugerens spørgsmål KRÆVER data fra en slukket integration, og der ikke er en passende erstatning blandt de tændte, svar PRÆCIS: "Jeg kan ikke se dine [navn] lige nu — slå integrationen til under Indstillinger, så henter jeg dem."',
+    '4. Hvis spørgsmålet kan besvares fra en TÆNDT integration (fx brugeren spørger "hvad har jeg i kalenderen" og kun Gmail er slukket — kalenderen er stadig tilgængelig), så besvar det normalt fra den tændte integration. Lad være med at afvise unødigt.',
+    '5. Hvis brugeren beder dig "gentage" eller "vise igen" indhold fra et tidligere svar der stammede fra en nu-slukket integration: afvis som i regel 3.',
+    '',
+    'Disse regler gælder kun integrationerne der står i "SLÅET FRA"-listen ovenfor. Alt andet fungerer som normalt.',
+  ].join('\n');
+}
+
+function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
   const intro = name ? `Brugerens navn er ${name}.` : '';
   const now = new Date();
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -2581,6 +2678,7 @@ function buildChatSystemPrompt(name: string): string {
       'beskrivelse af nogen i 3. person. Denne regel gælder ALLE svar, ' +
       'også systemmeddelelser, fejltekster og bekræftelser.',
     intro,
+    buildDisabledIntegrationsBlock(ctx),
     timeContext,
     'Hold svar korte, konkrete og handlingsorienterede, medmindre der bliver spurgt om detaljer.',
     'Når brugeren beder dig huske noget tidsbundet (et møde, en opgave med deadline), brug add_reminder.',
@@ -2632,14 +2730,21 @@ function buildChatSystemPrompt(name: string): string {
     'iCloud understøtter ikke deltagere/invitationer endnu — hvis brugeren beder om ' +
       'at invitere folk til en iCloud-begivenhed, foreslå Outlook eller Google i stedet, ' +
       'eller opret begivenheden uden deltagere.',
-    'Når brugeren spørger om indhold i deres Drive-filer — fx "hvad stod der i Q2-' +
+    'Når brugeren spørger om indhold i deres fil-arkiver — fx "hvad stod der i Q2-' +
       'budgettet?", "find notatet om Lars", "hvad aftalte vi om projektet?" — brug ' +
-      'først search_drive_files med korte præcise søgeord. Læs derefter den mest ' +
-      'relevante fil med read_drive_file. Citér ALTID kilden ved navn og link når ' +
-      'du svarer på baggrund af en Drive-fil — fx "(kilde: Filnavn — link)". Læs ' +
-      'højst 2-3 filer per spørgsmål for at holde svaret fokuseret.',
-    'Drive-værktøjer er read-only — du kan ikke oprette, redigere eller slette ' +
-      'filer. Forklar det hvis brugeren beder om det.',
+      'først search_drive_files (Google Drive) og/eller search_onedrive_files ' +
+      '(OneDrive) med korte præcise søgeord. Læs derefter den mest relevante fil ' +
+      'med read_drive_file eller read_onedrive_file. Citér ALTID kilden ved navn ' +
+      'og link når du svarer på baggrund af en fil — fx "(kilde: Filnavn — link)". ' +
+      'Læs højst 2-3 filer per spørgsmål for at holde svaret fokuseret. Hvis ' +
+      'brugeren ikke specificerer hvilken sky, søg i den/dem der er forbundet ' +
+      '(Google Drive kræver Google-login, OneDrive kræver Microsoft-login).',
+    'Drive- og OneDrive-værktøjer er read-only — du kan ikke oprette, redigere ' +
+      'eller slette filer. Forklar det hvis brugeren beder om det.',
+    'OneDrive-tekstudtræk understøtter lige nu kun rene tekstfiler (txt, markdown, ' +
+      'csv, json, html, xml). Word, Excel, PowerPoint og PDF kommer senere — hvis ' +
+      'brugeren spørger om indhold i et Office-dokument fra OneDrive, forklar det ' +
+      'kort og foreslå evt. at åbne filen direkte via det link søgeresultatet gav.',
     'Når brugeren beder dig formulere en mail — fx "lav et udkast til Lars", ' +
       '"skriv en mail til min chef", "udarbejd et svar" — brug create_draft. ' +
       'Udkastet lægges i deres mailkonto, IKKE sendt. Brug KUN send_mail når ' +
@@ -2676,11 +2781,101 @@ function messageSentAt(m: ChatMessage): string | null {
   return null;
 }
 
-function toClaudeMessages(messages: ChatMessage[]): ClaudeMessage[] {
-  return messages.slice(-CHAT_API_CONTEXT_LIMIT).map((m) => {
+// Filter the tools list so the model only sees tools whose required
+// integrations are currently enabled. Without this, the model sees
+// `search_drive_files` in its toolbox and confidently answers "yes I can
+// search your Drive" even when Drive is toggled off — a capability claim
+// that doesn't require a tool call to leak. Removing the tool from the
+// schema is the only deterministic way to stop that.
+function filterToolsByCtx(
+  tools: ClaudeToolSchema[],
+  ctx: ChatCtx,
+): ClaudeToolSchema[] {
+  const anyMail = ctx.gmail || ctx.outlookMail || ctx.icloud;
+  const anyCal = ctx.googleCalendar || ctx.outlookCalendar || ctx.icloud;
+  const anyComposeMail = ctx.gmail || ctx.outlookMail;
+  return tools.filter((t) => {
+    switch (t.name) {
+      // Drive / OneDrive — single-integration tools
+      case 'search_drive_files':
+      case 'read_drive_file':
+        return ctx.googleDrive;
+      case 'search_onedrive_files':
+      case 'read_onedrive_file':
+        return ctx.onedrive;
+      // Mail read/list — needs any mail provider
+      case 'list_recent_mail':
+      case 'read_mail_thread':
+        return anyMail;
+      // Calendar read/write — needs any calendar provider
+      case 'list_calendar_events':
+      case 'create_calendar_event':
+      case 'update_calendar_event':
+      case 'delete_calendar_event':
+        return anyCal;
+      // Mail compose — Gmail or Outlook (no iCloud compose)
+      case 'create_draft':
+      case 'send_mail':
+        return anyComposeMail;
+      // Local-only tools (reminders, notes) are always available.
+      default:
+        return true;
+    }
+  });
+}
+
+function disabledLabelsForCtx(ctx: ChatCtx): string[] {
+  const labels: { key: keyof ChatCtx; label: string }[] = [
+    { key: 'gmail', label: 'Gmail' },
+    { key: 'googleCalendar', label: 'Google Kalender' },
+    { key: 'googleDrive', label: 'Google Drive' },
+    { key: 'outlookMail', label: 'Outlook Mail' },
+    { key: 'outlookCalendar', label: 'Outlook Kalender' },
+    { key: 'onedrive', label: 'OneDrive' },
+    { key: 'icloud', label: 'iCloud' },
+  ];
+  return labels.filter((l) => ctx[l.key] === false).map((l) => l.label);
+}
+
+function toClaudeMessages(messages: ChatMessage[], ctx: ChatCtx): ClaudeMessage[] {
+  const slice = messages.slice(-CHAT_API_CONTEXT_LIMIT);
+  const offLabels = disabledLabelsForCtx(ctx);
+  // Find the index of the latest user message; we inject the disabled-
+  // integrations reminder right next to it. Models attend most strongly
+  // to the most recent user turn — putting the reminder there is far
+  // harder to ignore than the system prompt alone, which has to compete
+  // with prior assistant text that might paraphrase data the user just
+  // toggled off.
+  let lastUserIdx = -1;
+  for (let i = slice.length - 1; i >= 0; i -= 1) {
+    if (slice[i].from === 'user') {
+      lastUserIdx = i;
+      break;
+    }
+  }
+  return slice.map((m, idx) => {
     const role = m.from === 'user' ? 'user' : 'assistant';
     const sentAt = role === 'user' ? messageSentAt(m) : null;
-    const content = sentAt ? `[sendt: ${sentAt}] ${m.text}` : m.text;
+    let content = sentAt ? `[sendt: ${sentAt}] ${m.text}` : m.text;
+    if (idx === lastUserIdx && offLabels.length > 0) {
+      const onForReminder: { key: keyof ChatCtx; label: string }[] = [
+        { key: 'gmail', label: 'Gmail' },
+        { key: 'googleCalendar', label: 'Google Kalender' },
+        { key: 'googleDrive', label: 'Google Drive' },
+        { key: 'outlookMail', label: 'Outlook Mail' },
+        { key: 'outlookCalendar', label: 'Outlook Kalender' },
+        { key: 'onedrive', label: 'OneDrive' },
+        { key: 'icloud', label: 'iCloud' },
+      ];
+      const stillOn = onForReminder.filter((l) => ctx[l.key] === true).map((l) => l.label);
+      const onPart = stillOn.length > 0 ? stillOn.join(', ') : 'ingen';
+      content =
+        `[PÅMINDELSE: ${offLabels.join(', ')} er slået FRA. Stadig TIL: ${onPart}. ` +
+        'Reglen gælder KUN de slukkede — brug ikke data derfra (heller ikke ' +
+        'data fra tidligere svar i denne samtale). De tændte integrationer ' +
+        'fungerer helt normalt; svar ud fra dem hvis det giver mening.]\n\n' +
+        content;
+    }
     return { role, content };
   });
 }
@@ -2846,6 +3041,31 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
       type: 'object',
       properties: {
         id: { type: 'string', description: 'Drive fil-ID (delen efter "drive:" i unified-ID).' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'search_onedrive_files',
+    description:
+      'Søg i brugerens OneDrive (Microsoft) efter filer der matcher et søgeord — både filnavne og indekseret filindhold. Returnerer en kompakt liste med ID, type, navn, ændringsdato og link. Brug read_onedrive_file for at hente selve indholdet af én specifik fil. Brug korte præcise søgeord (1-3 ord).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Søgeord (fx "Q2 budget", "Lars projektplan").' },
+        limit: { type: 'number', description: 'Max antal hits (1-25, default 10).' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'read_onedrive_file',
+    description:
+      'Hent tekstindholdet af én specifik OneDrive-fil. Brug ID returneret af search_onedrive_files (fx "onedrive:01ABC..." — send kun delen efter "onedrive:"). Understøtter rene tekstfiler (txt, markdown, csv, json, html, xml). Word/Excel/PowerPoint og PDF afvises lige nu. Lange filer afkortes til ca. 12.000 tegn.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'OneDrive fil-ID (delen efter "onedrive:" i unified-ID).' },
       },
       required: ['id'],
     },
@@ -3023,13 +3243,13 @@ async function runMailComposeTool(
   if (!parsed.ok) return { text: parsed.reason, isError: true };
   const { provider, to, cc, subject, body, replyToUnifiedId } = parsed.data;
 
-  if (provider === 'google' && !ctx.hasGoogle) {
+  if (provider === 'google' && !ctx.gmail) {
     return {
       text: 'Brugeren har ikke forbundet en Gmail-konto. Foreslå at forbinde Gmail under Indstillinger, eller brug "microsoft" hvis Outlook er forbundet.',
       isError: true,
     };
   }
-  if (provider === 'microsoft' && !ctx.hasMicrosoft) {
+  if (provider === 'microsoft' && !ctx.outlookMail) {
     return {
       text: 'Brugeren har ikke forbundet en Outlook-konto. Foreslå at forbinde Outlook under Indstillinger, eller brug "google" hvis Gmail er forbundet.',
       isError: true,
@@ -3174,6 +3394,19 @@ async function runChatTool(
       const id = typeof input.id === 'string' ? input.id : '';
       if (!id) return { content: 'Mangler `id`.', isError: true };
       const r = await readDriveFile(ctx, id);
+      return { content: r.text, isError: r.isError };
+    }
+    if (name === 'search_onedrive_files') {
+      const query = typeof input.query === 'string' ? input.query : '';
+      const rawLimit = typeof input.limit === 'number' ? input.limit : 10;
+      const limit = Math.max(1, Math.min(Math.floor(rawLimit), 25));
+      const r = await searchOnedriveFilesTool(ctx, query, limit);
+      return { content: r.text, isError: r.isError };
+    }
+    if (name === 'read_onedrive_file') {
+      const id = typeof input.id === 'string' ? input.id : '';
+      if (!id) return { content: 'Mangler `id`.', isError: true };
+      const r = await readOnedriveFile(ctx, id);
       return { content: r.text, isError: r.isError };
     }
     if (name === 'add_reminder') {
@@ -3330,6 +3563,10 @@ export function useChat() {
   const demoIndexRef = useRef(0);
   const name = profile?.name ?? '';
   const userId = user?.id;
+  const icloudConnected = useIcloudConnected(userId ?? '');
+  // Don't capture isEnabled from the hook — that snapshot is closed into
+  // `send` and goes stale if the user toggles after the callback was built.
+  // We read the live module cache via isIntegrationEffectivelyEnabled below.
 
   // Reset messages + re-hydrate whenever the active user changes so chat
   // history never leaks across accounts.
@@ -3411,19 +3648,28 @@ export function useChat() {
         getPrivacyFlag('training-opt-in') && userId ? { user_id: userId } : undefined;
 
       const runTurn = async (): Promise<string> => {
-        const working: ClaudeMessage[] = toClaudeMessages(nextHistory);
-        let correctionAttempted = false;
+        const hasGoogle = !!googleAccessToken;
+        const hasMicrosoft = !!microsoftAccessToken;
+        // Read the live flag cache, not a closure snapshot, so toggles made
+        // mid-conversation take effect on the very next turn.
         const toolCtx: ChatCtx = {
           userId: userId ?? null,
-          hasGoogle: !!googleAccessToken,
-          hasMicrosoft: !!microsoftAccessToken,
+          gmail: isIntegrationEffectivelyEnabled('gmail', hasGoogle),
+          googleCalendar: isIntegrationEffectivelyEnabled('google-calendar', hasGoogle),
+          googleDrive: isIntegrationEffectivelyEnabled('google-drive', hasGoogle),
+          outlookMail: isIntegrationEffectivelyEnabled('outlook-mail', hasMicrosoft),
+          outlookCalendar: isIntegrationEffectivelyEnabled('outlook-calendar', hasMicrosoft),
+          onedrive: isIntegrationEffectivelyEnabled('onedrive', hasMicrosoft),
+          icloud: isIntegrationEffectivelyEnabled('icloud', icloudConnected),
         };
+        const working: ClaudeMessage[] = toClaudeMessages(nextHistory, toolCtx);
+        let correctionAttempted = false;
 
         for (let round = 0; round < CHAT_TOOL_ROUND_CAP; round += 1) {
           const result = await completeRaw({
-            system: buildChatSystemPrompt(name),
+            system: buildChatSystemPrompt(name, toolCtx),
             messages: working,
-            tools: CHAT_TOOLS,
+            tools: filterToolsByCtx(CHAT_TOOLS, toolCtx),
             metadata,
           });
 
