@@ -286,6 +286,7 @@ export const DEMO_CONNECTIONS: Connection[] = [
   { id: 'google-drive', title: 'Google Drive', sub: 'Søger og læser tekstfiler', status: 'connected', logo: 'google-drive.png' },
   { id: 'outlook-calendar', title: 'Outlook Kalender', sub: 'Microsoft 365', status: 'connected', logo: 'outlook-calendar.png' },
   { id: 'outlook-mail', title: 'Outlook Mail', sub: 'Microsoft 365', status: 'connected', logo: 'outlook-mail.png' },
+  { id: 'onedrive', title: 'OneDrive', sub: 'Søger og læser tekstfiler', status: 'connected', logo: 'onedrive.png' },
 ];
 
 export const DEMO_SUBSCRIPTION: Subscription = {

@@ -42,6 +42,7 @@ type ServiceId =
   | 'google:drive'
   | 'microsoft:mail'
   | 'microsoft:calendar'
+  | 'microsoft:drive'
   | 'icloud:mail';
 
 const SERVICE_META: Record<ServiceId, { logo: ImageSourcePropType; label: string }> = {
@@ -50,6 +51,7 @@ const SERVICE_META: Record<ServiceId, { logo: ImageSourcePropType; label: string
   'google:drive': { logo: require('../../assets/logos/google-drive.png'), label: 'Google Drive' },
   'microsoft:mail': { logo: require('../../assets/logos/outlook-mail.png'), label: 'Outlook' },
   'microsoft:calendar': { logo: require('../../assets/logos/outlook-calendar.png'), label: 'Outlook Kalender' },
+  'microsoft:drive': { logo: require('../../assets/logos/onedrive.png'), label: 'OneDrive' },
   'icloud:mail': { logo: require('../../assets/logos/icloud.png'), label: 'iCloud' },
 };
 
@@ -64,6 +66,7 @@ const AMBIENT_LOGOS: ImageSourcePropType[] = [
   require('../../assets/logos/outlook-calendar.png'),
   require('../../assets/logos/icloud.png'),
   require('../../assets/logos/google-drive.png'),
+  require('../../assets/logos/onedrive.png'),
 ];
 
 const AMBIENT_SLOT_COUNT = 5;
@@ -99,8 +102,8 @@ function jobKey(j: BackfillJob): ServiceId | null {
   if (j.kind !== 'mail' && j.kind !== 'calendar' && j.kind !== 'drive') return null;
   // iCloud only has a mail-backfill job; calendar lives in daily-brief.
   if (j.provider === 'icloud' && j.kind !== 'mail') return null;
-  // Drive is Google-only.
-  if (j.kind === 'drive' && j.provider !== 'google') return null;
+  // Drive runs against Google Drive and OneDrive; iCloud has no equivalent.
+  if (j.kind === 'drive' && j.provider !== 'google' && j.provider !== 'microsoft') return null;
   return `${j.provider}:${j.kind}` as ServiceId;
 }
 

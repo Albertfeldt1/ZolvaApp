@@ -25,6 +25,7 @@ import { fetchGoogleRecurring } from '../_shared/backfill-providers/google-calen
 import { fetchGraphRecurring } from '../_shared/backfill-providers/microsoft-calendar.ts';
 import { fetchIcloudCandidates } from '../_shared/backfill-providers/icloud.ts';
 import { fetchDriveCandidates } from '../_shared/backfill-providers/google-drive.ts';
+import { fetchOnedriveCandidates } from '../_shared/backfill-providers/onedrive.ts';
 
 // Mail-side iCloud connectedness: presence of an icloud_credential_bindings
 // row, written by imap-proxy on first successful IMAP call. We deliberately
@@ -100,7 +101,7 @@ REGLER:
 Output (kun det her):
 [{"text": "...", "category": "relationship|role|preference|project|commitment", "confidence": 0.0-1.0, "referentDate": null}]`;
 
-const DRIVE_SYSTEM = `Du analyserer metadata om brugerens nyligt redigerede Google Drive-filer (titel, type, samarbejdere, ejer) og finder få vedvarende fakta om brugeren — ikke om dokumenter.
+const DRIVE_SYSTEM = `Du analyserer metadata om brugerens nyligt redigerede dokumenter i deres skylager (Google Drive eller OneDrive) — titel, type, samarbejdere, ejer — og finder få vedvarende fakta om brugeren, ikke om dokumenterne.
 
 VIGTIGT: Du har KUN metadata — ikke dokumentindhold. Drag konklusioner ud fra titler og samarbejdsmønstre, ikke ud fra hvad du formoder dokumentet siger.
 
@@ -212,12 +213,15 @@ serve(async (req) => {
   // Determine which providers the user has connected. Mail accepts iCloud
   // (IMAP via stored app-specific password); calendar iCloud is handled by
   // daily-brief, not the backfill, so we don't queue an iCloud calendar job.
-  // Drive is Google-only (Microsoft Graph drive integration not in scope).
+  // Drive runs against Google Drive AND OneDrive when the user has the
+  // matching provider connected.
   const providers: Array<{ provider: MailProvider; kind: Kind }> = [];
   for (const kind of kinds) {
     if (kind === 'drive') {
-      const refresh = await loadRefreshToken(service, userId, 'google');
-      if (refresh) providers.push({ provider: 'google', kind: 'drive' });
+      const googleRefresh = await loadRefreshToken(service, userId, 'google');
+      if (googleRefresh) providers.push({ provider: 'google', kind: 'drive' });
+      const microsoftRefresh = await loadRefreshToken(service, userId, 'microsoft');
+      if (microsoftRefresh) providers.push({ provider: 'microsoft', kind: 'drive' });
       continue;
     }
     for (const provider of ['google', 'microsoft'] as const) {
@@ -409,13 +413,15 @@ Uddrag: ${c.snippet}`)
     }
 
     if (job.kind === 'drive') {
-      // Drive is Google-only. Provider-detection above already filters,
-      // but defend against a misqueued row.
-      if (job.provider !== 'google') {
+      // Drive jobs run against Google Drive (provider=google) or OneDrive
+      // (provider=microsoft). iCloud has no equivalent file-store integration.
+      if (job.provider !== 'google' && job.provider !== 'microsoft') {
         await finishJob(service, job.id, 'failed', `drive backfill not supported for ${job.provider}`);
         return 0;
       }
-      const candidates = await fetchDriveCandidates(accessToken, userOwnEmail);
+      const candidates = job.provider === 'google'
+        ? await fetchDriveCandidates(accessToken, userOwnEmail)
+        : await fetchOnedriveCandidates(accessToken, userOwnEmail);
       await setJobRunning(service, job.id, candidates.length);
 
       const BATCH = 10;

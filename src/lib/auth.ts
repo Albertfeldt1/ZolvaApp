@@ -81,6 +81,7 @@ const MICROSOFT_SCOPES = [
   'Mail.ReadWrite',
   'Mail.Send',
   'Calendars.ReadWrite',
+  'Files.Read',
 ].join(' ');
 
 const SECURE_STORE_MIGRATION_FLAG = 'zolva.migration.secure-store.v1';

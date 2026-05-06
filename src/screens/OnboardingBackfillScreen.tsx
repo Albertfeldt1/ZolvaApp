@@ -56,6 +56,7 @@ export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, force
   if (isConnected('google-calendar')) sources.push('Google Kalender');
   if (isConnected('outlook-calendar')) sources.push('Outlook Kalender');
   if (isConnected('google-drive')) sources.push('Google Drive');
+  if (isConnected('onedrive')) sources.push('OneDrive');
 
   const noSources = sources.length === 0;
 

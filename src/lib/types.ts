@@ -125,6 +125,7 @@ export type IntegrationKey =
   | 'google-drive'
   | 'outlook-calendar'
   | 'outlook-mail'
+  | 'onedrive'
   | 'icloud';
 
 export type IntegrationStatus = 'connected' | 'pending' | 'expired' | 'disconnected';
