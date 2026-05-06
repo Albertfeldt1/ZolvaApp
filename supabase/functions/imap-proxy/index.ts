@@ -1413,17 +1413,23 @@ async function handleSendMailInner(
   });
   if (!smtpResult.ok) return smtpResultToResponse(smtpResult);
 
-  // APPEND to Sent synchronously. nodemailer's SMTP completes in ~3-5s,
-  // and the IMAP APPEND (login + folder resolve + append) takes another
-  // ~2-3s, so total fits in Supabase's 12s gateway window. Background
-  // execution via EdgeRuntime.waitUntil was tried first but the work
-  // never landed in iCloud — Supabase appears to recycle the worker
-  // immediately after the response, killing the in-flight promise.
-  const append = await appendToSent(email, password, raw);
-  if (!append.ok) {
-    console.warn('[send-mail] APPEND to Sent failed:', append.reason);
-  }
-  return Response.json({ ok: true, sent_appended: append.ok });
+  // KNOWN LIMITATION (v1): we don't populate the iCloud Sent folder.
+  //   - Synchronous APPEND pushed total wall-clock past Supabase's 12s
+  //     gateway timeout when Apple throttles our egress IPs (which they
+  //     do — same IPs serve all Supabase customers).
+  //   - Background APPEND via EdgeRuntime.waitUntil silently dropped:
+  //     Supabase recycles the worker the moment the response is returned.
+  //   - A second client → server round-trip would work but doubles the
+  //     credential exposure and adds bandwidth for marginal value.
+  // The mail IS delivered to recipients; only the sender's Sent-folder
+  // copy is missing in Apple Mail. Acceptable trade-off for shipping;
+  // revisit when we have a usage signal that demands it.
+  //
+  // `raw` (RFC 5322 bytes) is built above for future re-introduction of
+  // APPEND — we leave it in place so the post-success path is one edit
+  // away when we wire APPEND back in.
+  void raw;
+  return Response.json({ ok: true, sent_appended: false });
 }
 
 async function handleAppendDraft(
