@@ -380,9 +380,9 @@ export function TodayScreen({
                       color: t.ink,
                     }}
                   />
-                  <Text style={{ ...type.eyebrow, color: t.ink2, marginTop: spacing.xs, fontWeight: '600' }}>Møder</Text>
+                  <Text style={{ ...type.eyebrow, color: t.ink2, marginTop: spacing.xs, fontWeight: '600' }}>{todayMeetingCount === 1 ? 'Møde' : 'Møder'}</Text>
                 </View>
-                <View style={{ flex: 1, paddingBottom: spacing.xs + 2 }}>
+                <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', gap: spacing.cardPad }}>
                     <View>
                       <CountUp
@@ -395,7 +395,7 @@ export function TodayScreen({
                           color: t.ink,
                         }}
                       />
-                      <Text style={{ ...type.eyebrow, color: t.ink3, marginTop: 2 }}>Mails</Text>
+                      <Text style={{ ...type.eyebrow, color: t.ink3, marginTop: spacing.xs, fontWeight: '600' }}>{waiting.length === 1 ? 'Mail' : 'Mails'}</Text>
                     </View>
                     <View style={{ width: 1, backgroundColor: t.line }} />
                     <View>
@@ -409,7 +409,7 @@ export function TodayScreen({
                           color: t.ink,
                         }}
                       />
-                      <Text style={{ ...type.eyebrow, color: t.ink3, marginTop: 2 }}>Påmindelser</Text>
+                      <Text style={{ ...type.eyebrow, color: t.ink3, marginTop: spacing.xs, fontWeight: '600' }}>{pendingReminders.length === 1 ? 'Påmindelse' : 'Påmindelser'}</Text>
                     </View>
                   </View>
                 </View>
