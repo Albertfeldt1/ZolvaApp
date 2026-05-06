@@ -92,7 +92,15 @@ import {
   GENERIC_CONFUSED_FALLBACK,
   CHAT_GUARD_DEBUG_TAG,
 } from './chat-claim-guard';
-import { getMessageBody as getIcloudMessageBody, listInbox as listIcloudMessages, getInboxCounts as getIcloudInboxCounts, subscribeToIcloudInboxCache } from './icloud-mail';
+import {
+  getMessageBody as getIcloudMessageBody,
+  listInbox as listIcloudMessages,
+  getInboxCounts as getIcloudInboxCounts,
+  subscribeToIcloudInboxCache,
+  icloudSendMail,
+  icloudAppendDraft,
+  type IcloudErrorCode,
+} from './icloud-mail';
 import { listEvents as listIcloudEvents } from './icloud-calendar';
 import {
   readCalendarLabels,
@@ -3581,6 +3589,28 @@ function splitUnifiedId(unified: string): { provider: string; id: string } | nul
   const colon = unified.indexOf(':');
   if (colon <= 0) return null;
   return { provider: unified.slice(0, colon), id: unified.slice(colon + 1) };
+}
+
+function mapIcloudComposeError(code: IcloudErrorCode): string {
+  switch (code) {
+    case 'auth-failed':
+    case 'credential-rejected':
+      return 'Apple afviste login. Din app-specific password er måske udløbet — opdater under Indstillinger.';
+    case 'rate-limited':
+      return 'For mange iCloud-mails sendt fra Zolva i dag. Prøv igen om en time.';
+    case 'network':
+    case 'timeout':
+    case 'temporarily-unavailable':
+    case 'gateway-unavailable':
+      return 'iCloud kunne ikke nås. Prøv igen om lidt.';
+    case 'not-connected':
+      return 'Brugeren har ikke forbundet en iCloud-konto. Foreslå at forbinde iCloud under Indstillinger.';
+    case 'unauthorized':
+      return 'Bruger-session udløbet. Log ind igen.';
+    case 'protocol':
+    default:
+      return 'iCloud afviste afsendelsen.';
+  }
 }
 
 async function runMailComposeTool(
