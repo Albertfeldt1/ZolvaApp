@@ -3526,7 +3526,7 @@ function parseWritePatch(input: Record<string, unknown>): ParseResult<Partial<Wr
   return { ok: true, data: patch };
 }
 
-type MailComposeProvider = 'google' | 'microsoft';
+type MailComposeProvider = 'google' | 'microsoft' | 'icloud';
 
 type MailComposeParsed = {
   provider: MailComposeProvider;
@@ -3549,10 +3549,10 @@ function parseEmailList(v: unknown): string[] {
 
 function parseMailComposeInput(input: Record<string, unknown>): ParseResult<MailComposeParsed> {
   const provider = input.provider;
-  if (provider !== 'google' && provider !== 'microsoft') {
+  if (provider !== 'google' && provider !== 'microsoft' && provider !== 'icloud') {
     return {
       ok: false,
-      reason: '`provider` skal være "google" eller "microsoft". iCloud-mail kan ikke sendes fra Zolva endnu.',
+      reason: '`provider` skal være "google", "microsoft" eller "icloud".',
     };
   }
   const to = parseEmailList(input.to);
