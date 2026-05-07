@@ -18,6 +18,7 @@ import { useAuth } from '../lib/auth';
 import { loadCredential } from '../lib/icloud-credentials';
 import { BriefBanner } from '../components/BriefBanner';
 import { CountUp } from '../components/CountUp';
+import { DayRibbon } from '../components/DayRibbon';
 import { BriefHistoryModal } from '../components/BriefHistoryModal';
 import { BriefModal } from '../components/BriefModal';
 import { ObservationHistoryModal } from '../components/ObservationHistoryModal';
@@ -276,29 +277,6 @@ export function TodayScreen({
       }));
   }, [todayEvents, today]);
 
-  // Hero-card soft ribbon — segments derived from real events on a
-  // 6:00-22:00 visible window. Colors cycle through the direction's
-  // signal palette so each event reads distinctly without needing
-  // per-event tone classification.
-  const ribbonSegments = useMemo(() => {
-    const RIBBON_START = 6;
-    const RIBBON_END = 22;
-    const RIBBON_SPAN = RIBBON_END - RIBBON_START;
-    const palette = [t.cal, t.today, t.mem, t.inbox];
-    return ribbonEvents.slice(0, 4).map((e, i) => {
-      const start = Math.max(RIBBON_START, e.startHour);
-      const end = Math.min(RIBBON_END, e.endHour);
-      const left = ((start - RIBBON_START) / RIBBON_SPAN) * 100;
-      const width = Math.max(2, ((end - start) / RIBBON_SPAN) * 100);
-      return {
-        id: e.id,
-        left: `${left}%` as const,
-        width: `${width}%` as const,
-        color: palette[i % palette.length],
-      };
-    });
-  }, [ribbonEvents, t.cal, t.today, t.mem, t.inbox]);
-
   const scrollYRef = useRef(0);
   const viewportHRef = useRef(0);
   const darkYRef = useRef<number | null>(null);
@@ -448,30 +426,12 @@ export function TodayScreen({
                 </View>
               </View>
 
-              {/* Soft ribbon — segments derived from today's events */}
-              <View
-                style={{
-                  marginTop: spacing.cardPad + 2,
-                  height: heroStat.ribbonHeight,
-                  borderRadius: radius.pill,
-                  backgroundColor: surface.scrim,
-                  position: 'relative',
-                  overflow: 'hidden',
-                }}
-              >
-                {ribbonSegments.map((seg) => (
-                  <View
-                    key={seg.id}
-                    style={{
-                      position: 'absolute',
-                      left: seg.left,
-                      width: seg.width,
-                      height: '100%',
-                      backgroundColor: seg.color,
-                      borderRadius: radius.pill,
-                    }}
-                  />
-                ))}
+              {/* Day ribbon — same data as the inline hero bar but each
+                  block is tappable and expands to show title, time,
+                  location, attendees, and description. Code already
+                  lived in components/DayRibbon. */}
+              <View style={{ marginTop: spacing.cardPad + 2 }}>
+                <DayRibbon events={ribbonEvents} now={today} />
               </View>
           </GlassFrostedCard>
         </View>
