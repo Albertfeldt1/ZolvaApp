@@ -24,10 +24,13 @@ import {
   Text,
   View,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
+import { GlassView } from 'expo-glass-effect';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { Stone } from '../design/primitives/Stone';
+import { liquidGlassReady } from '../lib/liquid-glass';
 import { useTheme } from '../design/useTheme';
 import { subscribeUserId } from '../lib/auth';
 import { invalidatePreamble } from '../lib/profile';
@@ -267,7 +270,11 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
         style={{ flex: 1 }}
         contentContainerStyle={{
           flexGrow: 1,
-          paddingBottom: spacing.md,
+          // Reserve room so the last list item can scroll past the
+          // absolute-positioned footer instead of staying permanently
+          // hidden behind it. Approx button (44) + paddings (32) +
+          // home-indicator (34) ≈ 110.
+          paddingBottom: 110,
           paddingHorizontal: spacing.screenPad,
           paddingTop: spacing.statusBarFallback,
           gap: spacing.heroPad,
@@ -422,35 +429,98 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
         ))}
       </ScrollView>
 
-      {/* Sticky footer with save button — flex layout (sibling of the
-          ScrollView) so it always anchors to the parent's bottom. The
-          chrome tab bar isn't rendered during onboarding, so we don't
-          need chromeBottom inset — just the system bottom safe area
-          (~30 px on iPhone Pro) baked into the padding. */}
+      {/* Frosted footer — absolute-positioned over the ScrollView so
+          list content visibly scrolls (and blurs) behind the bar.
+          iOS 26+ uses native Liquid Glass; older iOS / Android falls
+          back to BlurView. Either way the list reads as a continuous
+          surface that fades into the bar instead of being hard-cut by
+          an opaque card. */}
       <View
+        pointerEvents="box-none"
         style={{
-          paddingHorizontal: spacing.screenPad,
-          paddingTop: spacing.md,
-          paddingBottom: spacing.lg + 18,
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
         }}
       >
-        <Pressable
-          onPress={save}
-          disabled={saving}
-          accessibilityRole="button"
-          style={({ pressed }) => ({
-            backgroundColor: t.ink,
-            paddingVertical: 14,
-            borderRadius: radius.pill,
-            alignItems: 'center',
-            opacity: saving ? 0.4 : pressed ? 0.8 : 1,
-          })}
-        >
-          <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#FFFFFF' }}>
-            {saving ? 'Gemmer…' : `Gem ${checkedCount} fakta`}
-          </Text>
-        </Pressable>
+        {liquidGlassReady ? (
+          <GlassView
+            glassEffectStyle="regular"
+            colorScheme={t.mode === 'dark' ? 'dark' : 'light'}
+          >
+            <FooterButtonContent
+              save={save}
+              saving={saving}
+              checkedCount={checkedCount}
+              t={t}
+              fonts={fonts}
+              radius={radius}
+              spacing={spacing}
+            />
+          </GlassView>
+        ) : (
+          <BlurView intensity={50} tint={t.mode === 'dark' ? 'dark' : 'light'}>
+            <FooterButtonContent
+              save={save}
+              saving={saving}
+              checkedCount={checkedCount}
+              t={t}
+              fonts={fonts}
+              radius={radius}
+              spacing={spacing}
+            />
+          </BlurView>
+        )}
       </View>
+    </View>
+  );
+}
+
+// Inner content of the frosted footer — extracted so the GlassView and
+// BlurView branches above don't duplicate the layout. Padding includes
+// the iPhone home-indicator inset.
+function FooterButtonContent({
+  save,
+  saving,
+  checkedCount,
+  t,
+  fonts,
+  radius,
+  spacing,
+}: {
+  save: () => void;
+  saving: boolean;
+  checkedCount: number;
+  t: ReturnType<typeof useTheme>['t'];
+  fonts: ReturnType<typeof useTheme>['fonts'];
+  radius: ReturnType<typeof useTheme>['radius'];
+  spacing: ReturnType<typeof useTheme>['spacing'];
+}) {
+  return (
+    <View
+      style={{
+        paddingHorizontal: spacing.screenPad,
+        paddingTop: spacing.md,
+        paddingBottom: spacing.lg + 18,
+      }}
+    >
+      <Pressable
+        onPress={save}
+        disabled={saving}
+        accessibilityRole="button"
+        style={({ pressed }) => ({
+          backgroundColor: t.ink,
+          paddingVertical: 14,
+          borderRadius: radius.pill,
+          alignItems: 'center',
+          opacity: saving ? 0.4 : pressed ? 0.8 : 1,
+        })}
+      >
+        <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#FFFFFF' }}>
+          {saving ? 'Gemmer…' : `Gem ${checkedCount} fakta`}
+        </Text>
+      </Pressable>
     </View>
   );
 }
