@@ -104,6 +104,93 @@ export async function searchFiles(query: string, limit = 10): Promise<DriveFile[
   });
 }
 
+// List the direct children of a folder named by the caller. Two-step:
+// resolve the folder by name, then list `'<folderId>' in parents`. Returns
+// the folder's display name + matched files so the chat tool can show
+// "in [Q3]: file1, file2, ...". When multiple folders match the name, we
+// take the most recently modified one - users typically want their
+// active folder, not an old archive duplicate.
+export type DriveFolderListing = {
+  folderName: string;
+  folderId: string;
+  files: DriveFile[];
+};
+
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
+
+export async function listFolderContents(
+  folderQuery: string,
+  limit = 25,
+): Promise<DriveFolderListing | null> {
+  const trimmed = folderQuery.trim();
+  if (!trimmed) return null;
+  const safe = escapeQueryLiteral(trimmed);
+
+  return tryWithRefresh('google', async (accessToken) => {
+    // Step 1 - resolve folder by name. Match name exactly first; fall back
+    // to "name contains" so the user can paste a fragment.
+    const folderQ = `mimeType = '${FOLDER_MIME}' and (name = '${safe}' or name contains '${safe}') and trashed = false`;
+    const folderParams = new URLSearchParams({
+      q: folderQ,
+      fields: 'files(id,name)',
+      pageSize: '5',
+      orderBy: 'modifiedTime desc',
+    });
+    const folderRes = await fetchWithTimeout(
+      'google',
+      `${BASE}/files?${folderParams.toString()}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (folderRes.status === 401 || folderRes.status === 403) {
+      throw new ProviderAuthError('google', `Google Drive afvist (${folderRes.status}).`);
+    }
+    if (!folderRes.ok) {
+      throw new Error(`Google Drive folder lookup failed: ${folderRes.status} ${await folderRes.text()}`);
+    }
+    const folderJson = (await folderRes.json()) as { files?: Array<{ id: string; name: string }> };
+    const folder = (folderJson.files ?? [])[0];
+    if (!folder) return null;
+
+    // Step 2 - list children of that folder.
+    const childQ = `'${escapeQueryLiteral(folder.id)}' in parents and trashed = false`;
+    const childParams = new URLSearchParams({
+      q: childQ,
+      fields: SEARCH_FIELDS,
+      pageSize: String(Math.max(1, Math.min(limit, 50))),
+      orderBy: 'modifiedTime desc',
+    });
+    const childRes = await fetchWithTimeout(
+      'google',
+      `${BASE}/files?${childParams.toString()}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (!childRes.ok) {
+      throw new Error(`Google Drive folder list failed: ${childRes.status} ${await childRes.text()}`);
+    }
+    const childJson = (await childRes.json()) as {
+      files?: Array<{
+        id: string;
+        name: string;
+        mimeType: string;
+        modifiedTime: string;
+        webViewLink?: string;
+        owners?: Array<{ emailAddress?: string }>;
+        size?: string;
+      }>;
+    };
+    const files = (childJson.files ?? []).map((f) => ({
+      id: f.id,
+      name: f.name,
+      mimeType: f.mimeType,
+      modifiedTime: new Date(f.modifiedTime),
+      webViewLink: f.webViewLink ?? '',
+      ownerEmail: f.owners?.[0]?.emailAddress,
+      sizeBytes: f.size ? Number(f.size) : undefined,
+    }));
+    return { folderName: folder.name, folderId: folder.id, files };
+  });
+}
+
 // Hard cap on how much body text we hand the model. ~12k chars ≈ 3k tokens
 // - enough to answer "what does the doc say about X?" without blowing the
 // chat context budget on a single file.

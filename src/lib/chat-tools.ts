@@ -37,6 +37,7 @@ import {
 import {
   searchFiles as searchDriveFiles,
   getFileContent as getDriveFileContent,
+  listFolderContents as listDriveFolderContents,
   type DriveFile,
 } from './google-drive';
 import {
@@ -408,6 +409,30 @@ export async function searchDriveFilesTool(
     return { text: [header, '', ...lines].join('\n'), isError: false };
   } catch (err) {
     return { text: `Google Drive afviste søgningen: ${short(err)}`, isError: true };
+  }
+}
+
+export async function listDriveFolderTool(
+  ctx: ChatCtx,
+  folder: string,
+  limit: number,
+): Promise<{ text: string; isError: boolean }> {
+  if (!ctx.googleDrive) return { text: 'Google Drive ikke forbundet.', isError: true };
+  const trimmed = folder.trim();
+  if (!trimmed) return { text: 'Mangler mappe-navn.', isError: true };
+  try {
+    const r = await listDriveFolderContents(trimmed, limit);
+    if (!r) {
+      return { text: `Fandt ingen mappe der matcher "${trimmed}" i Drive.`, isError: false };
+    }
+    if (r.files.length === 0) {
+      return { text: `Mappen "${r.folderName}" er tom.`, isError: false };
+    }
+    const lines = r.files.map((f) => formatDriveHit(f));
+    const header = `${r.files.length} element(er) i mappen "${r.folderName}":`;
+    return { text: [header, '', ...lines].join('\n'), isError: false };
+  } catch (err) {
+    return { text: `Google Drive afviste mappe-listen: ${short(err)}`, isError: true };
   }
 }
 

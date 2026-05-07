@@ -81,6 +81,7 @@ import {
   updateCalendarEvent,
   deleteCalendarEvent,
   searchDriveFilesTool,
+  listDriveFolderTool,
   readDriveFile,
   searchOnedriveFilesTool,
   readOnedriveFile,
@@ -3375,6 +3376,11 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       '(Google Drive kræver Google-login, OneDrive kræver Microsoft-login).',
     'Drive- og OneDrive-værktøjer er read-only - du kan ikke oprette, redigere ' +
       'eller slette filer. Forklar det hvis brugeren beder om det.',
+    'Hvis brugeren navngiver en SPECIFIK Drive-mappe ("hvad er der i min Q3-mappe?", ' +
+      '"vis filerne i Cherry-projektet"), brug list_drive_folder med mappenavnet - ' +
+      'IKKE search_drive_files. Sig ALDRIG "jeg kan ikke læse mapper" - værktøjet ' +
+      'finder mappen ved navn og lister filerne. Brug derefter read_drive_file på ' +
+      'den relevante fil hvis brugeren vil have indholdet.',
     'OneDrive-tekstudtræk understøtter lige nu kun rene tekstfiler (txt, markdown, ' +
       'csv, json, html, xml). Word, Excel, PowerPoint og PDF kommer senere - hvis ' +
       'brugeren spørger om indhold i et Office-dokument fra OneDrive, forklar det ' +
@@ -3432,6 +3438,7 @@ function filterToolsByCtx(
     switch (t.name) {
       // Drive / OneDrive - single-integration tools
       case 'search_drive_files':
+      case 'list_drive_folder':
       case 'read_drive_file':
         return ctx.googleDrive;
       case 'search_onedrive_files':
@@ -3733,6 +3740,19 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
         id: { type: 'string', description: 'Drive fil-ID (delen efter "drive:" i unified-ID).' },
       },
       required: ['id'],
+    },
+  },
+  {
+    name: 'list_drive_folder',
+    description:
+      'List filerne i én specifik Google Drive-mappe ved navn — fx når brugeren spørger "hvad er der i min Q3-mappe?" eller "vis filerne i Cherry-projektet". Værktøjet finder mappen via navn (matcher først eksakt, derefter "indeholder"), og returnerer filerne i mappen sorteret efter ændringsdato. Brug derefter read_drive_file for at hente indholdet af en specifik fil. Sig ALDRIG "jeg kan ikke læse mapper" uden først at have prøvet dette værktøj.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        folder: { type: 'string', description: 'Mappens navn (fx "Q3", "Cherry", "Projekter 2026"). Behøver ikke matche eksakt.' },
+        limit: { type: 'number', description: 'Max antal filer (1-50, default 25).' },
+      },
+      required: ['folder'],
     },
   },
   {
@@ -4177,6 +4197,13 @@ async function runChatTool(
       const rawLimit = typeof input.limit === 'number' ? input.limit : 10;
       const limit = Math.max(1, Math.min(Math.floor(rawLimit), 25));
       const r = await searchDriveFilesTool(ctx, query, limit);
+      return { content: r.text, isError: r.isError };
+    }
+    if (name === 'list_drive_folder') {
+      const folder = typeof input.folder === 'string' ? input.folder : '';
+      const rawLimit = typeof input.limit === 'number' ? input.limit : 25;
+      const limit = Math.max(1, Math.min(Math.floor(rawLimit), 50));
+      const r = await listDriveFolderTool(ctx, folder, limit);
       return { content: r.text, isError: r.isError };
     }
     if (name === 'create_draft' || name === 'send_mail') {
