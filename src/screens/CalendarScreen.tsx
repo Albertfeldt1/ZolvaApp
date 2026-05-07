@@ -1,3 +1,4 @@
+import { Layers } from 'lucide-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   NativeScrollEvent,
@@ -352,20 +353,31 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
                     <Pressable
                       onPress={() => setPickerOpen(true)}
                       hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Vælg synlige kalendere"
                       style={{
-                        paddingHorizontal: spacing.sm,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                        paddingHorizontal: spacing.sm + 2,
                         paddingVertical: spacing.xs,
                         borderRadius: radius.pill,
                         backgroundColor: surface.iconButton,
                       }}
                     >
+                      {/* Stacked-layers glyph reads as "multiple calendars
+                          to toggle on/off" — replaces the opaque "KAL"
+                          abbreviation, paired with a short label so first-
+                          time users still get the intent. */}
+                      <Layers size={13} color={t.ink3} strokeWidth={1.75} />
                       <Text style={{
-                        fontFamily: fonts.mono,
+                        fontFamily: fonts.ui,
                         fontSize: type.eyebrow.fontSize,
-                        letterSpacing: type.eyebrow.letterSpacing,
+                        letterSpacing: 0.4,
                         color: t.ink3,
+                        fontWeight: '600',
                       }}>
-                        KAL
+                        Kalendere
                       </Text>
                     </Pressable>
                   )}
