@@ -161,11 +161,11 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
               position: 'absolute',
               left: 0,
               right: 0,
-              // Was bottom:-28 (gradient sat fully below the header's
-              // bottom edge); shifted up 15pt so it overlaps the
-              // bottom of the header and fades just past it. Smoother
-              // hand-off into the chat surface.
-              bottom: -13,
+              // Originally bottom:-28 (gradient fully below header).
+              // Nudged up 15pt then another 25pt = 40pt total, so the
+              // gradient sits over the bottom of the header card and
+              // feathers into the chat surface from there.
+              bottom: 12,
               height: 28,
             }}
           />
