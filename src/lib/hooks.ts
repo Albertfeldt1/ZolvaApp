@@ -192,22 +192,37 @@ const OBSERVATION_SYSTEM =
   'det er 2.-persons samtale, ikke en beskrivelse af en 3.-part. ' +
   `Returnér mellem 0 og ${OBSERVATION_MAX} observationer — kun dem der faktisk er relevante, ` +
   'sorteret med de vigtigste først. De første 2–3 vises på forsiden, resten i en oversigt. ' +
-  'Hver observation skal være maks én sætning og undgå at gentage selvfølgeligheder.';
+  'Hver observation skal være maks én sætning og undgå at gentage selvfølgeligheder. ' +
+  '\n\n' +
+  'KVALITETSKRAV — en observation skal pege på noget konkret du kan gøre:\n' +
+  '1. SKRIV ALDRIG ren narration. "Din dag er fyldt med kvalitetstid: tre timer ' +
+    'på sygehuset, så fem timer aftensmad — en god dag" er IKKE en observation, ' +
+    'det er bare en oplæsning af kalenderen. Det HAR ingen værdi. Returnér NUL ' +
+    'observationer hellere end at narrative dagen tilbage.\n' +
+  '2. INGEN BLØDE OPMUNTRINGER uden handling. CTA\'er som "Nyd dagen", "Hav det ' +
+    'godt", "Slap af", "God dag" er FORBUDT. Hvis CTA\'en ikke leder til en konkret ' +
+    'mail-åbning eller en handling Zolva kan udføre med sine værktøjer, så ' +
+    'observationen skal IKKE returneres.\n' +
+  '3. EKTE OBSERVATIONER er ting som: "Du har 4 mails fra samme afsender — kig efter mønster", ' +
+    '"Mødet kl. 14 har ingen agenda — bed om en", "Du har 3 timer mellem to møder ' +
+    '— bloker tid til Q3-budget", "En invitation venter på svar siden i går", ' +
+    '"To møder ligger 5 min fra hinanden — vil du flytte ét?". Decision/handling, ' +
+    'ikke recap.\n' +
+  '4. Hvis dagens kalender + indbakke IKKE indeholder noget der opfylder krav 3, ' +
+    'returnér en TOM array []. Det er bedre end at producere fyldstof.';
 
 const OBSERVATION_SCHEMA =
-  '[{"id": string, "text": string, "cta": string, "mood": "calm" | "thinking" | "happy", "action"?: Action}]\n' +
+  '[{"id": string, "text": string, "cta": string, "mood": "calm" | "thinking" | "happy", "action": Action}]\n' +
   '- text: selve observationen på dansk (maks én sætning).\n' +
-  '- cta: kort handlingsforslag på dansk (maks 4 ord), fx "Åbn mail", "Gennemgå senere" eller "Bloker tid".\n' +
+  '- cta: kort handlingsforslag på dansk (maks 4 ord), fx "Åbn mail", "Bloker tid" eller "Accepter".\n' +
   '- mood: "thinking" for noget der kræver beslutning, "calm" for rolig observation, "happy" for positivt.\n' +
-  '- action (valgfri): hvad der skal ske når brugeren trykker på CTA\'en. Typer:\n' +
+  '- action: KRÆVET — hvad der skal ske når brugeren trykker på CTA\'en. Præcis to typer er tilladt:\n' +
   '  • {"kind":"openMail","mailId": string} — KUN når CTA\'en bare er at læse/se mailen ("Åbn mail", "Læs den", "Tjek den"). Brug mail-id\'et vist i [id:…] i mail-listen.\n' +
   '  • {"kind":"prompt","prompt": string} — når CTA\'en er en HANDLING der skal udføres ("Accepter invitation", "Svar Lars", "Bloker tid", "Gennemgå sikkerhed", "Ring tilbage", "Bekræft møde"). "prompt" skal være en færdig 1. person-besked til Zolva på dansk der instruerer hvad der skal ske. Eksempler: "Accepter mødet med Mette på torsdag." / "Svar Lars at jeg deltager." / "Bloker en time i kalenderen til Q3-budget i morgen." / "Gennemgå sikkerhedsadvarslen fra Google." Når brugeren trykker, sendes beskeden automatisk til chatten og Zolva udfører handlingen via sine værktøjer.\n' +
-  '  • {"kind":"chat"} — generisk; bruges når intet af ovenstående passer. Udelad action for denne default.\n' +
   'REGLER FOR ACTION:\n' +
-  '1. STÆRK PRÆFERENCE FOR PROMPT: Hvis CTA\'en er et handlingsverbum ("Accepter", "Svar", "Bloker", "Gennemgå", "Ring", "Send", "Bekræft", "Slet", "Marker", "Arkiver", "Følg op", "Tilmeld") — SKAL action være {"kind":"prompt","prompt":...}. Skriv prompten som en konkret instruks Zolva kan udføre med sine kalender-/mail-værktøjer. Brug AFGØRENDE INFO (mailens emne, afsenderens navn, kalenderens titel, dato) i prompten så Zolva ved hvad den skal handle på.\n' +
-  '2. ÅBN-MAIL er KUN til ren læsning: "Åbn mail", "Læs", "Se mailen", "Tjek den". Hvis CTA\'en er læs-passiv, brug {"kind":"openMail","mailId":...} med det rigtige [id:…].\n' +
-  '3. {"kind":"chat"} bruges KUN til åbne refleksioner eller spørgsmål uden konkret handling — sjældent.\n' +
-  '4. Hvis CTA\'en lover en handling men der ikke er nok kontekst til at lave en konkret prompt, omformuler CTA\'en til ren læsning ("Åbn mail" + openMail) i stedet for at returnere noget vagt.';
+  '1. ACTION ER OBLIGATORISK. Hvis du ikke kan finde et openMail eller prompt der giver mening, så lad være med at returnere observationen overhovedet. Generisk "åbn chat" findes IKKE som handling.\n' +
+  '2. STÆRK PRÆFERENCE FOR PROMPT: Hvis CTA\'en er et handlingsverbum ("Accepter", "Svar", "Bloker", "Gennemgå", "Ring", "Send", "Bekræft", "Slet", "Marker", "Arkiver", "Følg op", "Tilmeld") — SKAL action være {"kind":"prompt","prompt":...}. Skriv prompten som en konkret instruks Zolva kan udføre med sine kalender-/mail-værktøjer. Brug AFGØRENDE INFO (mailens emne, afsenderens navn, kalenderens titel, dato) i prompten så Zolva ved hvad den skal handle på.\n' +
+  '3. ÅBN-MAIL er KUN til ren læsning: "Åbn mail", "Læs", "Se mailen", "Tjek den". Hvis CTA\'en er læs-passiv, brug {"kind":"openMail","mailId":...} med det rigtige [id:…].';
 
 function summarizeDay(events: NormalizedEvent[], mails: NormalizedMail[]): string {
   const calendar = events.length
@@ -237,7 +252,10 @@ function sanitizeAction(raw: unknown): Observation['action'] {
   if (a.kind === 'prompt' && typeof a.prompt === 'string' && a.prompt.trim()) {
     return { kind: 'prompt', prompt: a.prompt.trim() };
   }
-  if (a.kind === 'chat') return { kind: 'chat' };
+  // kind:'chat' is intentionally rejected — generic "open chat" CTAs ended
+  // up wrapping pure-narration observations like "Nyd dagen → opens chat",
+  // which felt pointless. If the model can't propose a concrete action
+  // (openMail or prompt), the observation gets dropped upstream.
   return undefined;
 }
 
@@ -276,7 +294,11 @@ function sanitizeObservations(raw: unknown): Observation[] {
     seenIds.add(rawId);
     seenTexts.add(textKey);
     const action = sanitizeAction(o.action);
-    return [action ? { id: rawId, text, cta, mood, action } : { id: rawId, text, cta, mood }];
+    // Action is now required — drop observations that don't carry a real
+    // openMail or prompt. Stops "Nyd dagen → opens chat" from leaking
+    // through.
+    if (!action) return [];
+    return [{ id: rawId, text, cta, mood, action }];
   });
 }
 
