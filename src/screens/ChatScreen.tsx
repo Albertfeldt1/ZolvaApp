@@ -97,10 +97,11 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
         {/* Header - wrapped in a glass card so the back button + Stone +
             title sit on a backdrop instead of floating on the halo paper.
             Absolute-positioned at the top so messages scroll UNDER it
-            (mirroring the dock pattern at the bottom); a vertical scrim
-            sits behind it, darken-at-top, transparent-at-bottom, so the
-            transition between header and chat is a soft gradient instead
-            of a hard edge. pointerEvents box-none lets scroll gestures
+            (mirroring the dock pattern at the bottom). No scrim here -
+            the user found it visually heavy on the chat surface; the
+            header glass card alone provides enough separation. Other
+            overlays (mail detail, notifications, etc.) own their own
+            top treatments. pointerEvents box-none lets scroll gestures
             in the empty regions still reach the ScrollView. */}
         <View
           pointerEvents="box-none"
@@ -115,18 +116,6 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
             zIndex: 1,
           }}
         >
-          <LinearGradient
-            pointerEvents="none"
-            colors={['rgba(15,16,20,0.22)', 'rgba(15,16,20,0)']}
-            locations={[0, 1]}
-            style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              top: 0,
-              bottom: -80,
-            }}
-          />
           <GlassFrostedCard
             radius={radius.card}
             style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}
