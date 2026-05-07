@@ -20,6 +20,7 @@ import {
   Alert,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   View,
 } from 'react-native';
@@ -260,7 +261,7 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
   const checkedCount = accepted.size;
 
   return (
-    <View style={{ flex: 1, backgroundColor: t.paper }}>
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: t.paper }]}>
       <GlassHaloLayer />
       <ScrollView
         style={{ flex: 1 }}
@@ -422,13 +423,15 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
       </ScrollView>
 
       {/* Sticky footer with save button — flex layout (sibling of the
-          ScrollView) so it always anchors to the parent's bottom even
-          if absolute positioning gets disturbed by an ancestor. */}
+          ScrollView) so it always anchors to the parent's bottom. The
+          chrome tab bar isn't rendered during onboarding, so we don't
+          need chromeBottom inset — just the system bottom safe area
+          (~30 px on iPhone Pro) baked into the padding. */}
       <View
         style={{
           paddingHorizontal: spacing.screenPad,
           paddingTop: spacing.md,
-          paddingBottom: chromeBottom + spacing.md,
+          paddingBottom: spacing.lg + 18,
         }}
       >
         <GlassFrostedCard
