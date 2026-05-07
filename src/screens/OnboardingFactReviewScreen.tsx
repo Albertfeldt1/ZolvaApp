@@ -434,27 +434,22 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
           paddingBottom: spacing.lg + 18,
         }}
       >
-        <GlassFrostedCard
-          overlay={surface.bone}
-          style={{ paddingVertical: spacing.xs }}
+        <Pressable
+          onPress={save}
+          disabled={saving}
+          accessibilityRole="button"
+          style={({ pressed }) => ({
+            backgroundColor: t.ink,
+            paddingVertical: 14,
+            borderRadius: radius.pill,
+            alignItems: 'center',
+            opacity: saving ? 0.4 : pressed ? 0.8 : 1,
+          })}
         >
-          <Pressable
-            onPress={save}
-            disabled={saving}
-            accessibilityRole="button"
-            style={({ pressed }) => ({
-              backgroundColor: t.ink,
-              paddingVertical: 14,
-              borderRadius: radius.soft,
-              alignItems: 'center',
-              opacity: saving ? 0.4 : pressed ? 0.8 : 1,
-            })}
-          >
-            <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#FFFFFF' }}>
-              {saving ? 'Gemmer…' : `Gem ${checkedCount} fakta`}
-            </Text>
-          </Pressable>
-        </GlassFrostedCard>
+          <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#FFFFFF' }}>
+            {saving ? 'Gemmer…' : `Gem ${checkedCount} fakta`}
+          </Text>
+        </Pressable>
       </View>
     </View>
   );
