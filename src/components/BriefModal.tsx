@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Modal,
   Pressable,
+  SafeAreaView,
   ScrollView,
   Text,
   View,
@@ -50,11 +51,12 @@ export function BriefModal({ brief, visible, onClose }: Props) {
     >
       <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
         <GlassHaloLayer />
+        <SafeAreaView style={{ flex: 1 }}>
 
         {/* Header */}
         <View
           style={{
-            paddingTop: spacing.lg,
+            paddingTop: spacing.sm,
             paddingHorizontal: spacing.screenPad,
             paddingBottom: spacing.md,
             position: 'relative',
@@ -150,6 +152,7 @@ export function BriefModal({ brief, visible, onClose }: Props) {
             </GlassFrostedCard>
           )}
         </ScrollView>
+        </SafeAreaView>
       </View>
     </Modal>
   );

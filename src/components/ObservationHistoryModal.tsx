@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Modal,
   Pressable,
+  SafeAreaView,
   ScrollView,
   Text,
   View,
@@ -19,6 +20,13 @@ type Props = {
 };
 
 export function ObservationHistoryModal({ visible, onClose }: Props) {
+  // Latch to true on first open and stay true until the modal closes —
+  // gives the slide-down animation content to render. Without this,
+  // visible flips false and the inner View disappears immediately.
+  const [everShown, setEverShown] = useState(false);
+  useEffect(() => {
+    if (visible) setEverShown(true);
+  }, [visible]);
   return (
     <Modal
       visible={visible}
@@ -27,7 +35,7 @@ export function ObservationHistoryModal({ visible, onClose }: Props) {
       transparent
       onRequestClose={onClose}
     >
-      {visible ? <ObservationHistoryContent onClose={onClose} /> : null}
+      {everShown ? <ObservationHistoryContent onClose={onClose} /> : null}
     </Modal>
   );
 }
@@ -40,11 +48,12 @@ function ObservationHistoryContent({ onClose }: { onClose: () => void }) {
   return (
     <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
       <GlassHaloLayer />
+      <SafeAreaView style={{ flex: 1 }}>
 
       {/* Header */}
       <View
         style={{
-          paddingTop: spacing.lg,
+          paddingTop: spacing.sm,
           paddingHorizontal: spacing.screenPad,
           paddingBottom: spacing.md,
           position: 'relative',
@@ -163,6 +172,7 @@ function ObservationHistoryContent({ onClose }: { onClose: () => void }) {
           </View>
         )}
       </ScrollView>
+      </SafeAreaView>
     </View>
   );
 }

@@ -4,6 +4,7 @@ import {
   Image,
   Modal,
   Pressable,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -48,11 +49,12 @@ export function ArchiveModal({ visible, onClose, onOpenMail }: Props) {
     >
       <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
         <GlassHaloLayer />
+        <SafeAreaView style={{ flex: 1 }}>
 
         {/* Header — glass card with × close + title */}
         <View
           style={{
-            paddingTop: spacing.lg,
+            paddingTop: spacing.sm,
             paddingHorizontal: spacing.screenPad,
             paddingBottom: spacing.md,
             position: 'relative',
@@ -222,6 +224,7 @@ export function ArchiveModal({ visible, onClose, onOpenMail }: Props) {
             </GlassFrostedCard>
           )}
         </ScrollView>
+        </SafeAreaView>
       </View>
     </Modal>
   );

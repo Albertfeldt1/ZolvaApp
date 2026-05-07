@@ -1,8 +1,9 @@
 import { Moon, Sun, Sunrise } from 'lucide-react-native';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Modal,
   Pressable,
+  SafeAreaView,
   ScrollView,
   Text,
   View,
@@ -22,6 +23,14 @@ type Props = {
 };
 
 export function BriefHistoryModal({ kind, onClose, onSelect }: Props) {
+  // Cache the last non-null kind so the slide-down close animation has
+  // content to render. Without this, kind flips to null synchronously
+  // and the inner View becomes null while iOS is still animating —
+  // result: the modal vanishes instantly instead of sliding down.
+  const [shownKind, setShownKind] = useState<BriefKind | null>(kind);
+  useEffect(() => {
+    if (kind) setShownKind(kind);
+  }, [kind]);
   return (
     <Modal
       visible={kind !== null}
@@ -30,8 +39,8 @@ export function BriefHistoryModal({ kind, onClose, onSelect }: Props) {
       transparent
       onRequestClose={onClose}
     >
-      {kind !== null ? (
-        <BriefHistoryContent kind={kind} onClose={onClose} onSelect={onSelect} />
+      {shownKind !== null ? (
+        <BriefHistoryContent kind={shownKind} onClose={onClose} onSelect={onSelect} />
       ) : null}
     </Modal>
   );
@@ -67,11 +76,12 @@ function BriefHistoryContent({
   return (
     <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
       <GlassHaloLayer />
+      <SafeAreaView style={{ flex: 1 }}>
 
       {/* Header */}
       <View
         style={{
-          paddingTop: spacing.lg,
+          paddingTop: spacing.sm,
           paddingHorizontal: spacing.screenPad,
           paddingBottom: spacing.md,
           position: 'relative',
@@ -178,6 +188,7 @@ function BriefHistoryContent({
           </GlassFrostedCard>
         )}
       </ScrollView>
+      </SafeAreaView>
     </View>
   );
 }
