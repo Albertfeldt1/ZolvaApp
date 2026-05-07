@@ -23,7 +23,8 @@ export function ObservationHistoryModal({ visible, onClose }: Props) {
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="pageSheet"
+      presentationStyle="overFullScreen"
+      transparent
       onRequestClose={onClose}
     >
       {visible ? <ObservationHistoryContent onClose={onClose} /> : null}

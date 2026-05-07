@@ -42,7 +42,8 @@ export function ArchiveModal({ visible, onClose, onOpenMail }: Props) {
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="pageSheet"
+      presentationStyle="overFullScreen"
+      transparent
       onRequestClose={onClose}
     >
       <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>

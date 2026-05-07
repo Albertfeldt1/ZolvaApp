@@ -714,7 +714,8 @@ export function TodayScreen({
         <Modal
           visible={observationsModalOpen}
           animationType="slide"
-          presentationStyle="pageSheet"
+          presentationStyle="overFullScreen"
+          transparent
           onRequestClose={() => setObservationsModalOpen(false)}
         >
           <View style={styles.modalRoot}>

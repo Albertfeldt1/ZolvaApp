@@ -2129,7 +2129,8 @@ export function SettingsScreen({
         <Modal
           visible={deleteOpen}
           animationType="slide"
-          presentationStyle="pageSheet"
+          presentationStyle="overFullScreen"
+          transparent
           onRequestClose={() => setDeleteOpen(false)}
         >
           <DeleteAccountScreen

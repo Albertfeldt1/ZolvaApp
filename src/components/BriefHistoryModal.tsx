@@ -26,7 +26,8 @@ export function BriefHistoryModal({ kind, onClose, onSelect }: Props) {
     <Modal
       visible={kind !== null}
       animationType="slide"
-      presentationStyle="pageSheet"
+      presentationStyle="overFullScreen"
+      transparent
       onRequestClose={onClose}
     >
       {kind !== null ? (
