@@ -690,7 +690,14 @@ export function TodayScreen({
                     key={n.id}
                     item={n}
                     index={i}
-                    onAction={() => handleObservationAction(n.action, n)}
+                    onAction={() => {
+                      // Acting on an observation implicitly resolves it —
+                      // dismiss before handing off so the card disappears
+                      // immediately and doesn't sit there waiting for the
+                      // user to come back and explicitly Afvis.
+                      dismissObservation(n.id);
+                      handleObservationAction(n.action, n);
+                    }}
                     onDismiss={() => dismissObservation(n.id)}
                   />
                 ))}
@@ -746,6 +753,10 @@ export function TodayScreen({
                         item={n}
                         index={i}
                         onAction={() => {
+                          // Same implicit dismissal as the feed call site —
+                          // tapping the CTA means the user resolved this
+                          // observation, so don't make them dismiss twice.
+                          dismissObservation(n.id);
                           setObservationsModalOpen(false);
                           handleObservationAction(n.action, n);
                         }}
