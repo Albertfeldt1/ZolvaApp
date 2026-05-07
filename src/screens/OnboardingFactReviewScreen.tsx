@@ -25,7 +25,7 @@ import {
   View,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
@@ -428,13 +428,11 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
         ))}
       </ScrollView>
 
-      {/* Frosted footer — absolute-positioned over the ScrollView so
-          list content visibly scrolls (and blurs) behind the bar. A
-          LinearGradient sits on TOP of the blur for the upper ~16 px,
-          fading from transparent to the blur tint. That hides the
-          hard top edge BlurView would otherwise show, so the list
-          appears to fade smoothly into the bar instead of being cut
-          off by a visible horizontal seam. */}
+      {/* Floating button with a soft blur halo. The BlurView is a
+          pill that extends ~HALO_PAD beyond the button, and a radial
+          gradient overlay fades the blur from opaque (button area) to
+          fully transparent paper at the edges. Result: the blur has
+          no visible boundary — it dissolves into the background. */}
       <View
         pointerEvents="box-none"
         style={{
@@ -442,94 +440,78 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
           left: 0,
           right: 0,
           bottom: 0,
+          paddingTop: HALO_PAD_Y,
+          paddingBottom: spacing.lg + 18 - HALO_PAD_Y,
+          paddingHorizontal: Math.max(0, spacing.screenPad - HALO_PAD_X),
         }}
       >
-        <BlurView
-          intensity={32}
-          tint={t.mode === 'dark' ? 'dark' : 'light'}
-          style={{ overflow: 'hidden' }}
-        >
-          {/* Top fade: fully-opaque paper at the very top → transparent
-              halfway down. Hides BlurView's natural hard top edge so
-              the blur reveals gradually. Multi-stop because two-stop
-              linear interpolation still reads as a faint band; an
-              ease-style curve disguises the transition entirely. */}
-          <LinearGradient
+        <View style={{ position: 'relative' }}>
+          {/* Halo: pill BlurView extended past the button, faded at edges */}
+          <View
             pointerEvents="none"
-            colors={[
-              t.mode === 'dark' ? 'rgba(15,16,20,0.95)' : 'rgba(251,251,250,0.95)',
-              t.mode === 'dark' ? 'rgba(15,16,20,0.6)' : 'rgba(251,251,250,0.6)',
-              t.mode === 'dark' ? 'rgba(15,16,20,0.25)' : 'rgba(251,251,250,0.25)',
-              t.mode === 'dark' ? 'rgba(15,16,20,0)' : 'rgba(251,251,250,0)',
-            ]}
-            locations={[0, 0.4, 0.75, 1]}
             style={{
               position: 'absolute',
-              top: 0,
+              top: -HALO_PAD_Y,
+              bottom: -HALO_PAD_Y,
               left: 0,
               right: 0,
-              height: 70,
             }}
-          />
-          <FooterButtonContent
-            save={save}
-            saving={saving}
-            checkedCount={checkedCount}
-            t={t}
-            fonts={fonts}
-            radius={radius}
-            spacing={spacing}
-          />
-        </BlurView>
+          >
+            <BlurView
+              intensity={36}
+              tint={t.mode === 'dark' ? 'dark' : 'light'}
+              style={{ flex: 1, borderRadius: 9999, overflow: 'hidden' }}
+            >
+              <Svg
+                width="100%"
+                height="100%"
+                style={StyleSheet.absoluteFill}
+                pointerEvents="none"
+              >
+                <Defs>
+                  <RadialGradient
+                    id="haloFade"
+                    cx="50%"
+                    cy="50%"
+                    rx="55%"
+                    ry="55%"
+                  >
+                    <Stop offset="0%" stopColor={t.paper} stopOpacity={0} />
+                    <Stop offset="45%" stopColor={t.paper} stopOpacity={0} />
+                    <Stop offset="100%" stopColor={t.paper} stopOpacity={1} />
+                  </RadialGradient>
+                </Defs>
+                <Rect x={0} y={0} width="100%" height="100%" fill="url(#haloFade)" />
+              </Svg>
+            </BlurView>
+          </View>
+
+          {/* Button */}
+          <Pressable
+            onPress={save}
+            disabled={saving}
+            accessibilityRole="button"
+            style={({ pressed }) => ({
+              backgroundColor: t.ink,
+              paddingVertical: 14,
+              marginHorizontal: HALO_PAD_X,
+              borderRadius: radius.pill,
+              alignItems: 'center',
+              opacity: saving ? 0.4 : pressed ? 0.8 : 1,
+            })}
+          >
+            <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#FFFFFF' }}>
+              {saving ? 'Gemmer…' : `Gem ${checkedCount} fakta`}
+            </Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
 }
 
-// Inner content of the frosted footer — extracted so the GlassView and
-// BlurView branches above don't duplicate the layout. Padding includes
-// the iPhone home-indicator inset.
-function FooterButtonContent({
-  save,
-  saving,
-  checkedCount,
-  t,
-  fonts,
-  radius,
-  spacing,
-}: {
-  save: () => void;
-  saving: boolean;
-  checkedCount: number;
-  t: ReturnType<typeof useTheme>['t'];
-  fonts: ReturnType<typeof useTheme>['fonts'];
-  radius: ReturnType<typeof useTheme>['radius'];
-  spacing: ReturnType<typeof useTheme>['spacing'];
-}) {
-  return (
-    <View
-      style={{
-        paddingHorizontal: spacing.screenPad,
-        paddingTop: spacing.md,
-        paddingBottom: spacing.lg + 18,
-      }}
-    >
-      <Pressable
-        onPress={save}
-        disabled={saving}
-        accessibilityRole="button"
-        style={({ pressed }) => ({
-          backgroundColor: t.ink,
-          paddingVertical: 14,
-          borderRadius: radius.pill,
-          alignItems: 'center',
-          opacity: saving ? 0.4 : pressed ? 0.8 : 1,
-        })}
-      >
-        <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#FFFFFF' }}>
-          {saving ? 'Gemmer…' : `Gem ${checkedCount} fakta`}
-        </Text>
-      </Pressable>
-    </View>
-  );
-}
+// How far the blur halo extends past the button on each axis. Larger
+// values give the halo more room to fade out; the radial gradient
+// inside is what removes the hard edge.
+const HALO_PAD_X = 26;
+const HALO_PAD_Y = 22;
