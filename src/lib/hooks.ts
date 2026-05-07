@@ -2278,6 +2278,77 @@ export function useMailDetail(
   return state;
 }
 
+// On-demand draft generator for the mail detail screen's "Generer udkast"
+// button. Reuses the same generateDraft path as the autonomy auto-draft
+// flow but lets the caller pass a richer body (the full mail text fetched
+// via useMailDetail) instead of falling back to the 800-char preview that
+// the inbox classifier sees.
+export function useGenerateDraftAction() {
+  const { user } = useAuth();
+  const { data: workRows } = useWorkPreferences();
+  const { data: profile } = useUser();
+  const tone = prefValue(workRows, 'tone');
+  const userName = profile?.name?.trim() ? profile.name.trim() : null;
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const generate = useCallback(
+    async (input: { from: string; subject: string; body: string }): Promise<string | null> => {
+      if (!hasClaudeKey()) {
+        setError(new Error('Claude API-nøgle mangler.'));
+        return null;
+      }
+      // Cancel any in-flight generation so rapid taps don't pile up.
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setLoading(true);
+      setError(null);
+      try {
+        // generateDraft only reads from/subject/preview — synth a minimal
+        // NormalizedMail so we can reuse it without exposing the internal
+        // type to callers.
+        const synthetic: NormalizedMail = {
+          id: 'detail',
+          provider: 'google',
+          from: input.from,
+          subject: input.subject,
+          receivedAt: new Date(),
+          isRead: true,
+          preview: input.body,
+        };
+        const draft = await generateDraft(synthetic, tone, userName, controller.signal);
+        return draft.trim();
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return null;
+        const e = err as Error;
+        setError(e);
+        if (__DEV__) console.warn('[useGenerateDraftAction] failed:', e.message);
+        return null;
+      } finally {
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+          setLoading(false);
+        }
+      }
+    },
+    [tone, userName],
+  );
+
+  // Cancel any pending generation when the calling screen unmounts so the
+  // user doesn't pay for a draft they navigated away from.
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
+
+  // user is referenced for effect cleanup parity with useSendReply; keep
+  // a lint reference.
+  void user;
+
+  return { generate, loading, error };
+}
+
 export function useSendReply() {
   const { user } = useAuth();
   const demo = isDemoUser(user);
@@ -2425,6 +2496,10 @@ function makeHourSlots(startHour: number, endHour: number): CalendarSlot[] {
 }
 
 function describeTimedEvent(e: NormalizedEvent, tone: 'sage' | 'clay' | 'mist') {
+  const durationMinutes = Math.max(
+    15,
+    Math.round((e.end.getTime() - e.start.getTime()) / 60000),
+  );
   return {
     id: e.id,
     title: e.title,
@@ -2432,6 +2507,8 @@ function describeTimedEvent(e: NormalizedEvent, tone: 'sage' | 'clay' | 'mist') 
       ? `${e.location} · ${durationLabel(e.start, e.end)}`
       : durationLabel(e.start, e.end),
     tone,
+    startMinute: e.start.getMinutes(),
+    durationMinutes,
   };
 }
 
@@ -2509,6 +2586,8 @@ export function useDaySchedule(targetDate?: Date): Result<CalendarSlot[]> {
       title: e.title,
       sub: e.location ?? 'Hele dagen',
       tone: slotTones[i % slotTones.length],
+      startMinute: 0,
+      durationMinutes: 60,
     },
   }));
 

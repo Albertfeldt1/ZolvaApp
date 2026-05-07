@@ -18,7 +18,7 @@ import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { Stone } from '../design/primitives/Stone';
 import { useAuth } from '../lib/auth';
-import { useMailDetail, useSendReply } from '../lib/hooks';
+import { useGenerateDraftAction, useMailDetail, useSendReply } from '../lib/hooks';
 import { recordMailEvent } from '../lib/mail-events';
 import { runExtractor } from '../lib/profile-extractor';
 import type { InboxMail } from '../lib/types';
@@ -34,8 +34,19 @@ export function InboxDetailScreen({ mail, onClose }: Props) {
   const { t, type, fonts, radius, spacing, surface } = useTheme();
   const { data: detail, loading, error } = useMailDetail(mail.id, mail.provider);
   const { send, archive, sending, error: sendError } = useSendReply();
+  const { generate: generateDraft, loading: generating } = useGenerateDraftAction();
   const [draft, setDraft] = useState(mail.aiDraft ?? '');
   const [bodyExpanded, setBodyExpanded] = useState(false);
+
+  const handleGenerateDraft = async () => {
+    const body = detail?.body ?? '';
+    const next = await generateDraft({
+      from: mail.from,
+      subject: mail.subject,
+      body,
+    });
+    if (next) setDraft(next);
+  };
 
   useEffect(() => {
     if (mail.aiDraft && !draft) setDraft(mail.aiDraft);
@@ -372,9 +383,12 @@ export function InboxDetailScreen({ mail, onClose }: Props) {
               >
                 Dit svar
               </Text>
-              {hasAiDraft && (
-                <View
-                  style={{
+              <Pressable
+                onPress={handleGenerateDraft}
+                disabled={generating || sending || !detail}
+                hitSlop={6}
+                style={({ pressed }) => [
+                  {
                     flexDirection: 'row',
                     alignItems: 'center',
                     gap: 6,
@@ -382,21 +396,37 @@ export function InboxDetailScreen({ mail, onClose }: Props) {
                     paddingVertical: 4,
                     borderRadius: radius.pill,
                     backgroundColor: surface.scrim,
+                  },
+                  (generating || sending || !detail) && { opacity: 0.5 },
+                  pressed && { opacity: 0.7 },
+                ]}
+                accessibilityLabel={
+                  hasAiDraft || draft.trim().length > 0
+                    ? 'Generer udkast igen'
+                    : 'Generer udkast'
+                }
+                accessibilityRole="button"
+              >
+                {generating ? (
+                  <ActivityIndicator size="small" color={t.ink2} />
+                ) : (
+                  <Stone size={18} jumpOnTap={false} />
+                )}
+                <Text
+                  style={{
+                    fontFamily: fonts.ui,
+                    fontSize: 11.5,
+                    color: t.ink2,
+                    fontStyle: 'italic',
                   }}
                 >
-                  <Stone size={18} jumpOnTap={false} />
-                  <Text
-                    style={{
-                      fontFamily: fonts.ui,
-                      fontSize: 11.5,
-                      color: t.ink2,
-                      fontStyle: 'italic',
-                    }}
-                  >
-                    Zolva har skrevet et udkast
-                  </Text>
-                </View>
-              )}
+                  {generating
+                    ? 'Skriver udkast…'
+                    : hasAiDraft || draft.trim().length > 0
+                      ? 'Generer udkast igen'
+                      : 'Generer udkast'}
+                </Text>
+              </Pressable>
             </View>
 
             {/* Draft input — glass pill, white fill + hairline border (Chat input dock pattern) */}
