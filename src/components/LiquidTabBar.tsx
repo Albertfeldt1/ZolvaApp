@@ -127,14 +127,18 @@ export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: P
 
   return (
     <View style={styles.wrap}>
-      <GlassContainer spacing={20} style={styles.container}>
-        {/* Row layout: bar expands to fill, FAB sits flush at the right
-            edge at the same vertical level — mirrors the iOS Reminders
-            "segmented control + search circle" pairing. */}
-        <View style={styles.row}>
+      {/* Row layout: bar expands to fill, FAB sits flush at the right
+          edge at the same vertical level — mirrors the iOS Reminders
+          "segmented control + search circle" pairing. The bar+activePill
+          live inside a GlassContainer so they magnetically merge during
+          tab switches; the FAB is OUTSIDE that container so it does NOT
+          blob into the bar (which would otherwise look like the two
+          surfaces are touching). */}
+      <View style={styles.row}>
+        <GlassContainer spacing={20} style={styles.barAnchor}>
           {/* barAnchor has no overflow:hidden so the pill sibling can briefly
               protrude past the bar's vertical bounds during a tab switch. */}
-          <View style={styles.barAnchor}>
+          <View style={styles.barAnchorInner}>
             <GlassView
               glassEffectStyle="regular"
               colorScheme="auto"
@@ -168,31 +172,31 @@ export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: P
               />
             )}
           </View>
-          {showAsk && (
-            <GlassView
-              glassEffectStyle="regular"
-              isInteractive
-              colorScheme="auto"
-              style={styles.fab}
+        </GlassContainer>
+        {showAsk && (
+          <GlassView
+            glassEffectStyle="regular"
+            isInteractive
+            colorScheme="auto"
+            style={styles.fab}
+          >
+            <Pressable
+              onPress={onAskZolva}
+              style={styles.fabPressable}
+              accessibilityLabel="Spørg Zolva"
+              accessibilityRole="button"
             >
-              <Pressable
-                onPress={onAskZolva}
-                style={styles.fabPressable}
-                accessibilityLabel="Spørg Zolva"
-                accessibilityRole="button"
-              >
-                {/* Stone wraps itself in a Pressable to drive its hop
-                    animation. Disable hit-testing on the inner view so the
-                    outer Pressable receives the tap and onAskZolva fires
-                    instead of the Stone's hop swallowing it. */}
-                <View pointerEvents="none">
-                  <Stone size={26} />
-                </View>
-              </Pressable>
-            </GlassView>
-          )}
-        </View>
-      </GlassContainer>
+              {/* Stone wraps itself in a Pressable to drive its hop
+                  animation. Disable hit-testing on the inner view so the
+                  outer Pressable receives the tap and onAskZolva fires
+                  instead of the Stone's hop swallowing it. */}
+              <View pointerEvents="none">
+                <Stone size={26} />
+              </View>
+            </Pressable>
+          </GlassView>
+        )}
+      </View>
     </View>
   );
 }
@@ -224,10 +228,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   // Bar takes the rest of the row's width. No own margins — the row owns
-  // those. Pill siblings still absolute-position against this anchor.
+  // those.
   barAnchor: {
     flex: 1,
   },
+  // Inner anchor for absolute-positioned pill sibling. Sits inside the
+  // GlassContainer so the active pill is the only sibling of the bar and
+  // gets the merge effect — the FAB is intentionally outside.
+  barAnchorInner: {},
   // Fully pill-shaped bar (capsule). With 999 borderRadius, the corner
   // matches the active-pill's own 999 — both read as proper capsules.
   bar: {
