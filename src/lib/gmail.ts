@@ -72,18 +72,51 @@ type RawMessage = {
 // Server-reported INBOX counts. Total comes from labels/INBOX
 // (messagesTotal - exact, all-time inbox size). Unread is scoped to
 // the past 7 days to keep the headline number actionable: long-tail
-// unread newsletters from years ago shouldn't dominate the "venter på
-// dig" stat. Uses messages.list?q=is:unread+newer_than:7d&maxResults=1
-// where resultSizeEstimate is Gmail's server-side count for the query.
+// "Venter på dig" = unread in the user's PRIMARY tab from the past 7 days.
+// Two fixes vs the prior implementation:
+//   1. Scope to category:primary so Promotions/Social/Updates/Forums don't
+//      inflate the count - those tabs are technically in the INBOX label
+//      but the user doesn't think of them as "their inbox" and never
+//      opens them. Counting them produced 4013-style mystery numbers.
+//   2. Page through messages.list and count the returned ids instead of
+//      trusting resultSizeEstimate, which Google explicitly documents as
+//      approximate and frequently inflates by 10-30x for fresh queries.
+//      Capped at 4 pages * 500 = 2000 so an actual unread firehose still
+//      terminates quickly.
+const UNREAD_PAGE_LIMIT = 500;
+const UNREAD_PAGE_CAP = 4;
+
+async function countUnreadPrimary7d(accessToken: string): Promise<number> {
+  const headers = { Authorization: `Bearer ${accessToken}` };
+  const q = encodeURIComponent('is:unread newer_than:7d in:inbox category:primary');
+  let total = 0;
+  let pageToken: string | undefined;
+  for (let page = 0; page < UNREAD_PAGE_CAP; page += 1) {
+    const tokenParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '';
+    const res = await fetchListWithRetry(
+      `${BASE}/messages?q=${q}&maxResults=${UNREAD_PAGE_LIMIT}&fields=messages/id,nextPageToken${tokenParam}`,
+      { headers },
+    );
+    if (res.status === 401 || res.status === 403) {
+      throw new ProviderAuthError('google', `Gmail afvist (${res.status}).`);
+    }
+    if (!res.ok) {
+      throw new Error(`Gmail unread query failed: ${res.status} ${await res.text()}`);
+    }
+    const data = (await res.json()) as { messages?: { id: string }[]; nextPageToken?: string };
+    total += data.messages?.length ?? 0;
+    if (!data.nextPageToken) break;
+    pageToken = data.nextPageToken;
+  }
+  return total;
+}
+
 export async function getInboxCounts(): Promise<{ total: number; unread: number }> {
   return tryWithRefresh('google', async (accessToken) => {
     const headers = { Authorization: `Bearer ${accessToken}` };
-    const [labelRes, recentUnreadRes] = await Promise.all([
+    const [labelRes, unread] = await Promise.all([
       fetchListWithRetry(`${BASE}/labels/INBOX`, { headers }),
-      fetchListWithRetry(
-        `${BASE}/messages?q=${encodeURIComponent('is:unread newer_than:7d in:inbox')}&maxResults=1`,
-        { headers },
-      ),
+      countUnreadPrimary7d(accessToken),
     ]);
     if (labelRes.status === 401 || labelRes.status === 403) {
       throw new ProviderAuthError('google', `Gmail afvist (${labelRes.status}).`);
@@ -91,14 +124,10 @@ export async function getInboxCounts(): Promise<{ total: number; unread: number 
     if (!labelRes.ok) {
       throw new Error(`Gmail label fetch failed: ${labelRes.status} ${await labelRes.text()}`);
     }
-    if (!recentUnreadRes.ok) {
-      throw new Error(`Gmail unread query failed: ${recentUnreadRes.status} ${await recentUnreadRes.text()}`);
-    }
     const labelData = (await labelRes.json()) as { messagesTotal?: number };
-    const recentData = (await recentUnreadRes.json()) as { resultSizeEstimate?: number };
     return {
       total: labelData.messagesTotal ?? 0,
-      unread: recentData.resultSizeEstimate ?? 0,
+      unread,
     };
   });
 }

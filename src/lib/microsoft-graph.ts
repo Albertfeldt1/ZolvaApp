@@ -217,15 +217,19 @@ async function listFetchWithRetry<T>(token: string, path: string): Promise<T> {
   }
 }
 
-// Server-reported INBOX counts. Total is the all-time totalItemCount
-// from /mailFolders/inbox; unread is scoped to the past 7 days via a
-// $filter on receivedDateTime so long-tail unread newsletters don't
-// inflate the "venter på dig" stat. $count=true with the eventual
-// consistency header is required for filtered counts on Graph.
+// Server-reported INBOX counts. Total is the all-time totalItemCount from
+// /mailFolders/inbox; unread is scoped to "Focused" inbox + the past 7
+// days so the "venter pa dig" stat matches the user's mental model.
+// Excluding inferenceClassification eq 'other' keeps newsletters and
+// auto-classified noise from inflating the number the same way Gmail's
+// Promotions tab used to. $count=true + ConsistencyLevel: eventual is
+// required for filtered counts on Graph.
 export async function getInboxCounts(): Promise<{ total: number; unread: number }> {
   return tryWithRefresh('microsoft', async (token) => {
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const filter = encodeURIComponent(`isRead eq false and receivedDateTime ge ${since}`);
+    const filter = encodeURIComponent(
+      `isRead eq false and receivedDateTime ge ${since} and inferenceClassification eq 'focused'`,
+    );
     const [folder, recent] = await Promise.all([
       graphFetch<{ totalItemCount?: number }>(
         token,
