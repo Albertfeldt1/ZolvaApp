@@ -1,5 +1,5 @@
 import { Archive, ChevronDown, ChevronLeft, ChevronUp, Send } from 'lucide-react-native';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -27,9 +27,13 @@ import { translateProviderError } from '../utils/danish';
 type Props = {
   mail: InboxMail;
   onClose: () => void;
+  // When true, fire Zolva's draft-reply generator automatically once the
+  // full body has loaded. Used by mailDraft observations so the user lands
+  // in the editor with the draft already populating, no manual tap needed.
+  autoDraft?: boolean;
 };
 
-export function InboxDetailScreen({ mail, onClose }: Props) {
+export function InboxDetailScreen({ mail, onClose, autoDraft = false }: Props) {
   const { user } = useAuth();
   const { t, type, fonts, radius, spacing, surface } = useTheme();
   const { data: detail, loading, error } = useMailDetail(mail.id, mail.provider);
@@ -37,8 +41,11 @@ export function InboxDetailScreen({ mail, onClose }: Props) {
   const { generate: generateDraft, loading: generating } = useGenerateDraftAction();
   const [draft, setDraft] = useState(mail.aiDraft ?? '');
   const [bodyExpanded, setBodyExpanded] = useState(false);
+  // One-shot guard so the autoDraft trigger fires exactly once per mail
+  // open even if the body re-renders or the user navigates away and back.
+  const autoDraftFiredRef = useRef(false);
 
-  const handleGenerateDraft = async () => {
+  const handleGenerateDraft = useCallback(async () => {
     const body = detail?.body ?? '';
     const next = await generateDraft({
       from: mail.from,
@@ -46,11 +53,24 @@ export function InboxDetailScreen({ mail, onClose }: Props) {
       body,
     });
     if (next) setDraft(next);
-  };
+  }, [detail?.body, generateDraft, mail.from, mail.subject]);
 
   useEffect(() => {
     if (mail.aiDraft && !draft) setDraft(mail.aiDraft);
   }, [mail.aiDraft, draft]);
+
+  // Auto-fire draft generation when the screen is opened from a mailDraft
+  // observation. We wait for the full body to load so the generator gets
+  // the same context the manual "Generer udkast" button uses, and skip
+  // when there's already an aiDraft (don't waste tokens duplicating one).
+  useEffect(() => {
+    if (!autoDraft) return;
+    if (autoDraftFiredRef.current) return;
+    if (!detail) return;
+    if (mail.aiDraft && draft.trim().length > 0) return;
+    autoDraftFiredRef.current = true;
+    void handleGenerateDraft();
+  }, [autoDraft, detail, mail.aiDraft, draft, handleGenerateDraft]);
 
   const canSend = draft.trim().length > 0 && !!detail && !sending;
   const hasAiDraft = !!mail.aiDraft;

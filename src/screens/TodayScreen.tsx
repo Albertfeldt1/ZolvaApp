@@ -63,7 +63,7 @@ const toneColor = (tone: UpcomingEvent['tone']) =>
 type Props = {
   onOpenChat: () => void;
   onOpenChatWithPrompt: (prompt: string, opts?: { autoSend?: boolean }) => void;
-  onOpenMail: (mail: InboxMail) => void;
+  onOpenMail: (mail: InboxMail, opts?: { autoDraft?: boolean }) => void;
   onGoToSettings: () => void;
   onGoToMemory: () => void;
   onOpenNotifications: () => void;
@@ -177,15 +177,18 @@ export function TodayScreen({
       onOpenChatWithPrompt(action.prompt, { autoSend: true });
       return;
     }
-    // openMail — search across both waiting AND read so a mail the user
-    // already read still resolves. Without this, the action silently falls
-    // through to chat as soon as the mail leaves the unread bucket, which
-    // is what produced the inconsistent simulator-vs-phone behaviour.
+    // openMail / mailDraft — search across both waiting AND read so a
+    // mail the user already read still resolves. Without this, the action
+    // silently falls through to chat as soon as the mail leaves the unread
+    // bucket, which is what produced the inconsistent simulator-vs-phone
+    // behaviour. mailDraft additionally signals InboxDetailScreen to
+    // auto-trigger draft generation, skipping the chat round-trip the
+    // user dislikes.
     const mail =
       waiting.find((m) => m.id === action.mailId) ??
       readMails.find((m) => m.id === action.mailId);
     if (mail) {
-      onOpenMail(mail);
+      onOpenMail(mail, { autoDraft: action.kind === 'mailDraft' });
       return;
     }
     // Mail isn't in either list — likely archived, dismissed, or the

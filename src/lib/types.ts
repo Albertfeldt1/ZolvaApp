@@ -16,7 +16,12 @@ export type Subscription = {
 export type ObservationAction =
   | { kind: 'chat' }
   | { kind: 'prompt'; prompt: string }
-  | { kind: 'openMail'; mailId: string };
+  | { kind: 'openMail'; mailId: string }
+  // Open the mail detail screen AND auto-trigger Zolva's draft-reply
+  // generator on mount. Bypasses the chat entirely so the user lands in
+  // the mail editor with a ready-to-send draft instead of round-tripping
+  // through tools just to produce the same thing.
+  | { kind: 'mailDraft'; mailId: string };
 
 export type Observation = {
   id: string;
@@ -112,6 +117,11 @@ export type CalendarSlot = {
     title: string;
     sub: string;
     tone: 'sage' | 'clay' | 'mist';
+    // Minutes past the slot's hour where the event begins (0..59) and total
+    // duration. The renderer absolute-positions chips on the hour grid using
+    // these so a 5-hour event spans 5 rows instead of being squashed into one.
+    startMinute: number;
+    durationMinutes: number;
   } | null;
 };
 

@@ -144,6 +144,10 @@ export default function App() {
   // dropping the user into a chat with text waiting for a second tap.
   const [chatAutoSend, setChatAutoSend] = useState(false);
   const [openMail, setOpenMail] = useState<InboxMail | null>(null);
+  // When true, InboxDetailScreen kicks off the draft-reply generator on
+  // mount so observations with action `mailDraft` open a fully-prepared
+  // editor instead of an empty one. Cleared on close.
+  const [openMailAutoDraft, setOpenMailAutoDraft] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [sentMailsOpen, setSentMailsOpen] = useState(false);
   const [icloudSetupOpen, setIcloudSetupOpen] = useState(false);
@@ -407,7 +411,9 @@ export default function App() {
   );
 
   if (!fraunces || !playfair || !inter || !mono || !designFonts || !migrationsDone) {
-    return <View style={[styles.root, { backgroundColor: colors.intro }]} />;
+    // Match app.json splash.backgroundColor so the pre-bundle native splash
+    // and this fallback view share a seam-free color while fonts load.
+    return <View style={[styles.root, { backgroundColor: '#FF8868' }]} />;
   }
 
   // When logged out, hide the bottom nav so the LoginCard inside Settings
@@ -516,14 +522,16 @@ export default function App() {
     }
   };
 
-  const openMailDetail = (m: InboxMail) => {
+  const openMailDetail = (m: InboxMail, opts?: { autoDraft?: boolean }) => {
     Haptics.selectionAsync();
     setOpenMail(m);
+    setOpenMailAutoDraft(!!opts?.autoDraft);
   };
 
   const closeMailDetail = () => {
     Haptics.selectionAsync();
     setOpenMail(null);
+    setOpenMailAutoDraft(false);
   };
 
   return (
@@ -615,7 +623,7 @@ export default function App() {
             entering={SlideInDown.duration(320)}
             exiting={SlideOutDown.duration(260)}
           >
-            <InboxDetailScreen mail={openMail} onClose={closeMailDetail} />
+            <InboxDetailScreen mail={openMail} onClose={closeMailDetail} autoDraft={openMailAutoDraft} />
           </Animated.View>
         )}
         {notificationsOpen && !chatOpen && !openMail && (

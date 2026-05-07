@@ -216,20 +216,22 @@ const OBSERVATION_SCHEMA =
   '- text: selve observationen på dansk (maks én sætning).\n' +
   '- cta: kort handlingsforslag på dansk (maks 4 ord), fx "Åbn mail", "Bloker tid" eller "Accepter".\n' +
   '- mood: "thinking" for noget der kræver beslutning, "calm" for rolig observation, "happy" for positivt.\n' +
-  '- action: KRÆVET — hvad der skal ske når brugeren trykker på CTA\'en. Præcis to typer er tilladt:\n' +
+  '- action: KRÆVET — hvad der skal ske når brugeren trykker på CTA\'en. Tre typer er tilladt:\n' +
   '  • {"kind":"openMail","mailId": string} — KUN når CTA\'en bare er at læse/se mailen passivt ("Læs mailen", "Se den"). Brug mail-id\'et vist i [id:…] i mail-listen.\n' +
-  '  • {"kind":"prompt","prompt": string} — når CTA\'en er en HANDLING. "prompt" skal være en færdig 1. person-besked til Zolva på dansk der instruerer hvad der skal ske. Når brugeren trykker, sendes beskeden automatisk til chatten og Zolva udfører handlingen via sine værktøjer (læs mail, lav udkast, opret event, osv.).\n' +
+  '  • {"kind":"mailDraft","mailId": string} — når en mail kræver et SVAR. Åbner mail-detaljen direkte og kører automatisk Zolvas udkast-generator på den. Brugeren lander i mail-editoren med et færdigt udkast klar til at sende. Foretræk denne over chat-prompt for alt der bare er "lav et udkast til svar". Brug [id:…] fra mail-listen.\n' +
+  '  • {"kind":"prompt","prompt": string} — når handlingen kræver chat-værktøjer som IKKE er bare en mail-svar (bloker tid i kalenderen, send NY mail til en anden, accepter mødeindkaldelse, gennemgå sikkerhed på flere mails). "prompt" skal være en færdig 1. person-besked til Zolva på dansk. Når brugeren trykker, auto-sendes beskeden til chatten og Zolva udfører handlingen via værktøjer.\n' +
   'REGLER FOR ACTION:\n' +
-  '1. ACTION ER OBLIGATORISK. Hvis du ikke kan finde et openMail eller prompt der giver mening, så lad være med at returnere observationen overhovedet. Generisk "åbn chat uden grund" findes IKKE som handling.\n' +
-  '2. EN PROMPT SKAL ALTID FORTÆLLE ZOLVA HVAD DER SKAL SKE. Aldrig en prompt som "Vis mig dagen" eller "Hjælp mig" — den skal være en specifik instruks med konkret kontekst (navn, emne, dato). Hvis brugeren ender i chatten skal de vide hvorfor.\n' +
-  '3. MAIL → DRAFT som default: Hvis observationen handler om en mail der inviterer/spørger/kræver svar (en personlig henvendelse, en invitation, et spørgsmål, en deadline) — SKAL action være {"kind":"prompt","prompt":"Læs mailen [id:…] fra <afsender> om <emne> og lav et udkast til svar."}. CTA\'en bliver så fx "Svar med udkast" eller "Lav udkast". Når Zolva åbner skal udkastet være færdigt og klar til afsendelse.\n' +
-  '4. MAIL → openMail KUN for passiv-læs: receipts, kvitteringer, sikkerhedsadvarsler, nyhedsbreve, automatiserede notifikationer hvor svar ikke giver mening. CTA "Læs den" / "Se mailen".\n' +
-  '5. HANDLINGSVERBER kræver prompt: "Accepter", "Svar", "Bloker", "Gennemgå", "Ring", "Send", "Bekræft", "Slet", "Marker", "Arkiver", "Følg op", "Tilmeld" — alle disse SKAL være {"kind":"prompt",…} med en præcis instruks. Inkludér AFGØRENDE INFO (mailens emne, afsenderens navn, kalenderens titel, dato).\n' +
+  '1. ACTION ER OBLIGATORISK. Hvis du ikke kan finde en passende action, så lad være med at returnere observationen overhovedet. Generisk "åbn chat uden grund" findes IKKE som handling.\n' +
+  '2. MAIL DER KRÆVER SVAR → mailDraft. En personlig henvendelse, et spørgsmål, en invitation, en deadline — alt hvor brugeren skal svare — bruger {"kind":"mailDraft","mailId":"..."}. CTA bliver "Lav udkast" / "Svar". Det er HURTIGERE og MERE PÅLIDELIGT end chat-prompt fordi brugeren ikke bouncer gennem chat-værktøjer. Brug ALTID denne over en chat-prompt der bare siger "lav et udkast".\n' +
+  '3. MAIL → openMail KUN for passiv-læs: receipts, kvitteringer, sikkerhedsadvarsler, nyhedsbreve, automatiserede notifikationer hvor svar ikke giver mening. CTA "Læs den" / "Se mailen".\n' +
+  '4. PROMPT KRÆVES IKKE-MAIL HANDLING: kalender (bloker tid, accepter mødeindkaldelse, opret event), sende NY mail til en der ikke er i indbakken, eller flertrins-handlinger. EN PROMPT SKAL ALTID FORTÆLLE ZOLVA HVAD DER SKAL SKE — aldrig "Vis mig dagen" eller "Hjælp mig" — specifik instruks med konkret kontekst (navn, emne, dato).\n' +
+  '5. HANDLINGSVERBER på en mail (Svar, Lav udkast, Skriv tilbage) → mailDraft. Andre handlingsverber (Accepter, Bloker, Opret, Send) → prompt.\n' +
   '6. EKSEMPLER:\n' +
-  '   - "Lars venter svar på frokost-invitation" → CTA "Lav udkast", prompt: "Læs mailen [id:abc] fra Lars om frokost og lav et udkast hvor jeg takker ja og foreslår torsdag kl. 12."\n' +
-  '   - "Mødeindkaldelse fra Mette på torsdag" → CTA "Accepter", prompt: "Accepter mødeindkaldelsen fra Mette på torsdag kl. 14."\n' +
-  '   - "Sikkerhedsadvarsel fra Google" → CTA "Læs den", action: {"kind":"openMail","mailId":"..."} (passiv læs).\n' +
-  '   - "Tre møder uden agenda i morgen" → CTA "Bed om agendaer", prompt: "Send en kort mail til arrangørerne af de tre møder i morgen og bed om en agenda til hver."';
+  '   - "Lars venter svar på frokost-invitation" → CTA "Lav udkast", action: {"kind":"mailDraft","mailId":"google:abc"}.\n' +
+  '   - "Tobias spørger om podcast" → CTA "Svar", action: {"kind":"mailDraft","mailId":"icloud:26257"}.\n' +
+  '   - "Mødeindkaldelse fra Mette på torsdag" → CTA "Accepter", action: {"kind":"prompt","prompt":"Accepter mødeindkaldelsen fra Mette på torsdag kl. 14."}.\n' +
+  '   - "Sikkerhedsadvarsel fra Google" → CTA "Læs den", action: {"kind":"openMail","mailId":"google:xyz"}.\n' +
+  '   - "Tre møder uden agenda i morgen" → CTA "Bed om agendaer", action: {"kind":"prompt","prompt":"Send en kort mail til arrangørerne af de tre møder i morgen og bed om en agenda til hver."}.';
 
 function summarizeDay(events: NormalizedEvent[], mails: NormalizedMail[]): string {
   const calendar = events.length
@@ -256,13 +258,16 @@ function sanitizeAction(raw: unknown): Observation['action'] {
   if (a.kind === 'openMail' && typeof a.mailId === 'string' && a.mailId.trim()) {
     return { kind: 'openMail', mailId: a.mailId.trim() };
   }
+  if (a.kind === 'mailDraft' && typeof a.mailId === 'string' && a.mailId.trim()) {
+    return { kind: 'mailDraft', mailId: a.mailId.trim() };
+  }
   if (a.kind === 'prompt' && typeof a.prompt === 'string' && a.prompt.trim()) {
     return { kind: 'prompt', prompt: a.prompt.trim() };
   }
   // kind:'chat' is intentionally rejected — generic "open chat" CTAs ended
   // up wrapping pure-narration observations like "Nyd dagen → opens chat",
   // which felt pointless. If the model can't propose a concrete action
-  // (openMail or prompt), the observation gets dropped upstream.
+  // (openMail / mailDraft / prompt), the observation gets dropped upstream.
   return undefined;
 }
 
@@ -432,6 +437,7 @@ async function persistObservations(userId: string, items: Observation[]): Promis
 function actionPayloadFor(action: Observation['action']): Record<string, string> | null {
   if (!action) return null;
   if (action.kind === 'openMail') return { mailId: action.mailId };
+  if (action.kind === 'mailDraft') return { mailId: action.mailId };
   if (action.kind === 'prompt') return { prompt: action.prompt };
   return null;
 }
@@ -501,6 +507,9 @@ function actionFromRow(r: Record<string, unknown>): Observation['action'] {
   const payload = (r.action_payload as Record<string, unknown> | null) ?? null;
   if (kind === 'openMail' && typeof payload?.mailId === 'string') {
     return { kind: 'openMail', mailId: payload.mailId };
+  }
+  if (kind === 'mailDraft' && typeof payload?.mailId === 'string') {
+    return { kind: 'mailDraft', mailId: payload.mailId };
   }
   if (kind === 'prompt' && typeof payload?.prompt === 'string') {
     return { kind: 'prompt', prompt: payload.prompt };
