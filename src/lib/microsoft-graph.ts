@@ -540,6 +540,9 @@ export type GraphEventInput = {
   location?: string;
   description?: string;
   attendees?: Array<{ email: string; name?: string }>;
+  // Target a specific Microsoft calendar by id. Omit to write to the
+  // mailbox's default calendar (legacy behavior).
+  calendarId?: string;
 };
 
 function toGraphDateTime(d: Date, isAllDay: boolean): { dateTime: string; timeZone: string } {
@@ -576,7 +579,10 @@ function buildGraphEventBody(input: GraphEventInput): Record<string, unknown> {
 
 export async function createCalendarEvent(input: GraphEventInput): Promise<{ id: string }> {
   return tryWithRefresh('microsoft', async (token) => {
-    const data = await graphFetch<{ id: string }>(token, `/me/events`, {
+    const path = input.calendarId
+      ? `/me/calendars/${encodeURIComponent(input.calendarId)}/events`
+      : `/me/events`;
+    const data = await graphFetch<{ id: string }>(token, path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildGraphEventBody(input)),

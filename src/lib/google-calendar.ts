@@ -175,6 +175,9 @@ export type GoogleEventInput = {
   location?: string;
   description?: string;
   attendees?: Array<{ email: string; name?: string }>;
+  // Target a specific Google calendar by id. Defaults to `primary` when
+  // omitted — preserves the existing behavior for callers that don't care.
+  calendarId?: string;
 };
 
 // All-day events use date-only; timed events use the ISO 8601 dateTime
@@ -211,7 +214,8 @@ export async function createEvent(input: GoogleEventInput): Promise<{ id: string
   return tryWithRefresh('google', async (accessToken) => {
     // sendUpdates=all so attendees actually receive the invitation. With no
     // attendees this is a no-op — Google ignores the param.
-    const url = `${BASE}/calendars/primary/events?sendUpdates=all`;
+    const calendarId = input.calendarId ?? 'primary';
+    const url = `${BASE}/calendars/${encodeURIComponent(calendarId)}/events?sendUpdates=all`;
     const res = await fetchWithTimeout('google', url, {
       method: 'POST',
       headers: {

@@ -74,6 +74,7 @@ import { useIntegrationFlags, isIntegrationEffectivelyEnabled, clearIntegrationF
 import { detectAdminConsentRequired } from './admin-consent';
 import {
   listCalendarEventsAcrossProviders,
+  listCalendarsAcrossProviders,
   listRecentMailAcrossProviders,
   readMailBody,
   createCalendarEvent,
@@ -3183,8 +3184,14 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       'Vælg `from`/`to` ud fra spørgsmålet (i dag, denne uge, næste 7 dage, osv.) — ' +
       'hold intervallet under 30 dage. Hvis brugeren ikke specificerer, brug i dag.',
     'Kalenderværktøjet henter fra Google, Outlook og iCloud automatisk afhængigt af ' +
-      'hvilke der er forbundet. Hvis en kilde mislykkedes, står det i fodlinjen — nævn ' +
-      'det kun for brugeren hvis det er relevant for svaret.',
+      'hvilke der er forbundet — inkl. sekundære Google-kalendere (Family, Arbejde osv.). ' +
+      'Begivenheder er taggede med kalendernavn i parentes når de kommer fra en sub-kalender. ' +
+      'Hvis en kilde mislykkedes, står det i fodlinjen — nævn det kun for brugeren hvis ' +
+      'det er relevant for svaret.',
+    'Når brugeren spørger "hvilke kalendere har jeg?" eller henviser til en specifik ' +
+      'kalender ved navn ("læg det i Family", "i min Arbejde-kalender"), brug list_calendars ' +
+      'for at hente listen. Sig ALDRIG "jeg kan ikke se dine kalendere" uden først at have ' +
+      'kaldt list_calendars.',
     'Når brugeren spørger om mail, brug list_recent_mail for et hurtigt overblik. ' +
       'Brug read_mail_thread KUN hvis brugeren beder om indholdet af en specifik mail, ' +
       'eller hvis du har brug for fuld tekst for at svare præcist. ' +
@@ -3194,26 +3201,33 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       '"jeg kan ikke læse din mail" uden først at have prøvet list_recent_mail.',
     'Brug aldrig kalender- eller mail-værktøjer til at gætte fremtidige eller fortidige ' +
       'data — kun konkret det brugeren spørger om i dette øjeblik.',
-    'Du kan oprette, redigere og slette begivenheder via create_calendar_event, ' +
-      'update_calendar_event og delete_calendar_event. BEKRÆFT ALTID detaljerne med ' +
-      'brugeren før du kalder skrive-værktøjerne — gentag titel, dato, tid, sted, ' +
-      'deltagere og spørg "Vil du have at jeg opretter/ændrer/sletter den?". Kald først ' +
-      'efter brugeren har bekræftet.',
-    'STANDARD-VARIGHED: Når brugeren ikke nævner en sluttid eller varighed, brug 1 time som ' +
-      'standard. Spørg ikke om varighed for ÉN enkelt begivenhed — bekræft bare med 1-times ' +
-      'defaultet ("kl. 14-15") og opret hvis brugeren accepterer.',
-    'FLERE BEGIVENHEDER: Når brugeren beder dig oprette flere begivenheder i samme besked, ' +
-      'tjek FØRST om 1-times standard-vinduerne ville overlappe pairwise. Hvis to eller flere ' +
-      'vinduer overlapper, SKAL du spørge brugeren om de præcise start- og sluttider for hver ' +
-      'overlappende begivenhed før du opretter — fx "Hvor længe varer besøget hos din mor, og ' +
-      'hvornår skal du være færdig på arbejdet?". Hvis ingen vinduer overlapper, bekræft kort ' +
-      'med 1-times defaults for hver og opret. Eksempel der OVERLAPPER (skal afklares): ' +
-      '"besøg mor kl. 8:30 og være på arbejde kl. 9:00" → 8:30-9:30 vs 9:00-10:00 overlapper. ' +
-      'Eksempel der IKKE overlapper (brug defaults): "besøg mor kl. 8:30 og frokost kl. 12" → ' +
-      '8:30-9:30 vs 12:00-13:00.',
-    'Skrive-værktøjer understøtter Google Kalender, Outlook (microsoft) og iCloud. ' +
-      'Vælg `provider` ved oprettelse ud fra hvor brugeren har konteksten — eller spørg ' +
-      'hvis det er uklart. Ved opdatering/sletning bestemmes provideren af unified-ID-præfikset.',
+    'OPRET BEGIVENHEDER UDEN AT SPØRGE: Når brugeren har angivet titel og tidspunkt — fx ' +
+      '"lav et event til imorgen kl 17 kald det møde med karl" — kald create_calendar_event ' +
+      'med det samme. Spørg IKKE om varighed (brug 1 time som default), sted, beskrivelse, ' +
+      'deltagere eller hvilken kalender. De felter brugeren ikke nævnte skal du IKKE fylde ud — ' +
+      'lad dem være tomme. Sig kort hvad du oprettede ("Lavet: møde med karl i morgen kl. 17-18") ' +
+      'så brugeren kan korrigere.',
+    'PROVIDER VÆLGES AUTOMATISK: Vælg `provider` i denne prioriterede rækkefølge blandt de ' +
+      'forbundne: google > microsoft > icloud. Spørg ALDRIG brugeren hvilken kalender — ' +
+      'medmindre de selv har nævnt en specifik. Ved opdatering/sletning bestemmes provideren ' +
+      'af unified-ID-præfikset.',
+    'SUB-KALENDER (calendar_id): Hvis brugeren har nævnt en specifik kalender ved navn — fx ' +
+      '"læg det i Family", "i min Arbejde-kalender", "i oioioi" — send navnet ELLER ID\'et ' +
+      'som `calendar_id` på create_calendar_event. Værktøjet matcher selv navnet til den ' +
+      'rigtige kalender (case-insensitive). Du behøver IKKE kalde list_calendars først bare ' +
+      'for at få ID\'et — bare send navnet brugeren brugte. Hvis brugeren ikke har nævnt ' +
+      'en specifik kalender, udelad `calendar_id` (lægger i provider-default).',
+    'SPØRG KUN HVIS DET ER UMULIGT AT GÆTTE: Hvis tidspunktet er reelt tvetydigt ' +
+      '("næste uge" uden ugedag, "om eftermiddagen" uden klokkeslæt) eller titlen mangler ' +
+      'helt, så spørg. Ellers bare opret. Detaljer som lokation/deltagere/beskrivelse ' +
+      'tilføjer brugeren selv hvis de er vigtige — spørg dem aldrig om det.',
+    'KONFLIKTTJEK: create_calendar_event tjekker selv for overlap på tværs af ALLE ' +
+      'forbundne kalendere før det opretter. Hvis værktøjet returnerer en KONFLIKT-besked, ' +
+      'fortæl brugeren hvilke eksisterende begivenheder der ligger i samme tidsrum og spørg ' +
+      'om de vil oprette alligevel eller flytte til et andet tidspunkt. Hvis brugeren ' +
+      'bekræfter at oprette alligevel, kald create_calendar_event igen med præcis samme ' +
+      'felter PLUS `force_overlap: true`. Hvis brugeren vælger et nyt tidspunkt, kald med ' +
+      'de nye tider og UDEN force_overlap.',
     'iCloud understøtter ikke deltagere/invitationer endnu — hvis brugeren beder om ' +
       'at invitere folk til en iCloud-begivenhed, foreslå Outlook eller Google i stedet, ' +
       'eller opret begivenheden uden deltagere.',
@@ -3232,23 +3246,27 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       'csv, json, html, xml). Word, Excel, PowerPoint og PDF kommer senere — hvis ' +
       'brugeren spørger om indhold i et Office-dokument fra OneDrive, forklar det ' +
       'kort og foreslå evt. at åbne filen direkte via det link søgeresultatet gav.',
-    'Når brugeren beder dig formulere en mail — fx "lav et udkast til Lars", ' +
-      '"skriv en mail til min chef", "udarbejd et svar" — brug create_draft. ' +
-      'Udkastet lægges i deres mailkonto, IKKE sendt. Brug KUN send_mail når ' +
-      'brugeren udtrykkeligt siger "send" eller "afsend". Når i tvivl, foretræk ' +
-      'create_draft — det kan altid sendes manuelt fra Mail-appen, mens en ' +
-      'fejlagtig send ikke kan fortrydes. BEKRÆFT ALTID modtager, emne og ' +
-      'indhold med brugeren før du kalder værktøjet — gentag det vigtigste og ' +
-      'spørg "Skal jeg gemme det som udkast?" eller "Skal jeg sende det nu?".',
+    'OPRET MAIL UDEN AT SPØRGE: Når brugeren har angivet modtager og hvad der skal stå — fx ' +
+      '"send en mail til lars at jeg er forsinket" — kald værktøjet med det samme. Skriv selv ' +
+      'et passende emne og en kort, naturlig brødtekst. Spørg IKKE om emne, CC, hvilken ' +
+      'mailkonto eller om brugeren er sikker. Sig kort hvad du oprettede/sendte ' +
+      '("Sendt til lars@…: \'Forsinket\' – Hej Lars, jeg er ca. 15 min forsinket.") så ' +
+      'brugeren kan korrigere.',
+    'UDKAST vs SEND: Brug create_draft som default. Brug KUN send_mail når brugeren ' +
+      'udtrykkeligt skriver "send", "afsend" eller "send afsted". Ved "skriv", "lav et ' +
+      'udkast", "udarbejd" → create_draft. Ved tvivl → create_draft (det kan altid sendes ' +
+      'manuelt, en fejlsendt mail kan ikke).',
+    'PROVIDER VÆLGES AUTOMATISK: Vælg `provider` i denne prioriterede rækkefølge blandt ' +
+      'de forbundne: google > microsoft > icloud. Spørg ALDRIG brugeren hvilken konto.',
+    'SPØRG KUN HVIS DET ER UMULIGT: Hvis modtageren mangler ("send en mail om mødet" uden ' +
+      'navn) eller indholdet er reelt tomt ("skriv en mail til Lars" uden tema), så spørg. ' +
+      'Ellers bare gør det.',
     'Hvis udkastet/sendingen er et SVAR på en eksisterende mail (brugeren henviser ' +
       'til en mail de har modtaget), så send det fulde unified-ID i `reply_to_id` ' +
       '(fx "google:abc", "microsoft:abc" eller "icloud:123") — så bevares tråden korrekt. ' +
       'Brug list_recent_mail eller read_mail_thread til at finde det rigtige ID.',
     'Skriv ALDRIG en signatur/underskrift selv i `body` — Zolva tilføjer ' +
       'automatisk brugerens egen signatur. Skriv kun selve beskeden.',
-    'SKRIVE-værktøjerne (create_draft og send_mail) understøtter Gmail ' +
-      '(provider="google"), Outlook (provider="microsoft") og iCloud ' +
-      '(provider="icloud"). Vælg ud fra hvor brugeren har konteksten.',
   ]
     .filter(Boolean)
     .join(' ');
@@ -3291,6 +3309,7 @@ function filterToolsByCtx(
       case 'read_mail_thread':
         return anyMail;
       // Calendar read/write — needs any calendar provider
+      case 'list_calendars':
       case 'list_calendar_events':
       case 'create_calendar_event':
       case 'update_calendar_event':
@@ -3403,6 +3422,12 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
     input_schema: { type: 'object', properties: {} },
   },
   {
+    name: 'list_calendars',
+    description:
+      'Hent navnene på alle kalendere brugeren har forbundet — Google Kalender (inkl. sekundære kalendere som Family, Arbejde osv.), Outlook og iCloud. Returnerer navn, ID og farve per kalender. Brug værktøjet når brugeren spørger "hvilke kalendere har jeg?" eller når de vil oprette en begivenhed i en specifik kalender ("læg det i Family"). ID-delen efter kolonet sendes som `calendar_id` på create_calendar_event for at ramme den rigtige kalender.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
     name: 'list_calendar_events',
     description:
       'Hent brugerens kalenderbegivenheder fra alle forbundne kalendere (Google Kalender, Outlook, iCloud) i et tidsinterval. Brug til at give overblik, finde fri tid, eller analysere hvor brugeren har travlt. Returnerer kompakt liste med ID, tid, titel, sted og deltagerantal — ikke fuld beskrivelse.',
@@ -3452,14 +3477,14 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'create_calendar_event',
     description:
-      'Opret en ny kalenderbegivenhed. BEKRÆFT ALTID med brugeren først (titel, dato, tid, varighed, sted, deltagere) før du kalder værktøjet. Understøtter Google Kalender (google), Outlook (microsoft) og iCloud. Tider skal være ISO 8601 med tidszone-offset, og slut skal ligge efter start. Bemærk: iCloud understøtter ikke deltager-invitationer endnu.',
+      'Opret en ny kalenderbegivenhed. Kald værktøjet UDEN at spørge når brugeren har givet titel og tid — brug 1 time som default-varighed og fyld kun ekstra felter ud hvis brugeren har nævnt dem. Understøtter Google Kalender (google), Outlook (microsoft) og iCloud. Tider skal være ISO 8601 med tidszone-offset, og slut skal ligge efter start. Værktøjet tjekker selv for konflikter på tværs af alle forbundne kalendere — hvis der er overlap, returnerer det en KONFLIKT-besked og opretter IKKE begivenheden. Bemærk: iCloud understøtter ikke deltager-invitationer endnu.',
     input_schema: {
       type: 'object',
       properties: {
-        provider: { type: 'string', enum: ['google', 'microsoft', 'icloud'], description: 'Hvilken kalender begivenheden lægges i.' },
+        provider: { type: 'string', enum: ['google', 'microsoft', 'icloud'], description: 'Hvilken kalender begivenheden lægges i. Vælg automatisk i prioriteret rækkefølge: google > microsoft > icloud blandt de forbundne — spørg ikke brugeren.' },
         title: { type: 'string', description: 'Begivenhedens titel.' },
         start: { type: 'string', description: 'ISO 8601 startdato/tid med tidszone-offset.' },
-        end: { type: 'string', description: 'ISO 8601 slutdato/tid med tidszone-offset.' },
+        end: { type: 'string', description: 'ISO 8601 slutdato/tid med tidszone-offset. Default: start + 1 time hvis brugeren ikke nævnte varighed.' },
         all_day: { type: 'boolean', description: 'true for hele-dagen-begivenhed.' },
         location: { type: 'string' },
         description: { type: 'string' },
@@ -3468,6 +3493,14 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
           items: { type: 'string' },
           description: 'Email-adresser på deltagere (kun Outlook — iCloud-invitationer understøttes ikke endnu).',
         },
+        force_overlap: {
+          type: 'boolean',
+          description: 'Sæt til true KUN hvis et tidligere kald returnerede KONFLIKT og brugeren udtrykkeligt har bekræftet at de vil oprette alligevel. Springer konflikttjekket over.',
+        },
+        calendar_id: {
+          type: 'string',
+          description: 'Specifik sub-kalender at oprette i. Accepterer ENTEN kalenderens navn ("oioioi", "Family") ELLER det fulde id (fx "abc@group.calendar.google.com" for Google, lang opaque streng for Outlook, CalDAV-URL for iCloud). Værktøjet matcher selv navne mod brugerens kalendere (case-insensitive). Udelad for provider-default (Google primary, Outlook default, iCloud først). Brug KUN når brugeren udtrykkeligt har nævnt en specifik kalender.',
+        },
       },
       required: ['provider', 'title', 'start', 'end'],
     },
@@ -3475,7 +3508,7 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'update_calendar_event',
     description:
-      'Opdater en eksisterende kalenderbegivenhed. BEKRÆFT ÆNDRINGER med brugeren først. Brug det fulde unified-ID fra list_calendar_events ("google:...", "microsoft:..." eller "icloud:..."). Kun de felter der specifies bliver ændret. Hvis start ændres skal end også sendes (og omvendt).',
+      'Opdater en eksisterende kalenderbegivenhed. Kald værktøjet UDEN at spørge når brugeren har angivet hvad der skal ændres ("flyt mødet til kl. 18", "kald den i stedet for X"). Brug det fulde unified-ID fra list_calendar_events ("google:...", "microsoft:..." eller "icloud:..."). Kun de felter der specifices bliver ændret. Hvis start ændres skal end også sendes (og omvendt). Sig kort hvad du ændrede så brugeren kan korrigere.',
     input_schema: {
       type: 'object',
       properties: {
@@ -3556,7 +3589,7 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'create_draft',
     description:
-      'Opret et udkast til en mail. Brug når brugeren siger "lav et udkast", "skriv en mail", "udarbejd et svar" eller lignende. Udkastet gemmes i brugerens mailkonto (Gmail, Outlook eller iCloud) — det bliver IKKE sendt. BEKRÆFT ALTID modtager, emne og indhold med brugeren før du kalder værktøjet. Brugerens signatur tilføjes automatisk. Hvis udkastet er et svar på en eksisterende mail, send det fulde unified-ID i `reply_to_id` (fx "google:abc", "microsoft:abc" eller "icloud:123") — så bevares tråden.',
+      'Opret et udkast til en mail. Brug når brugeren siger "lav et udkast", "skriv en mail", "udarbejd et svar" eller lignende. Udkastet gemmes i brugerens mailkonto (Gmail, Outlook eller iCloud) — det bliver IKKE sendt. Kald værktøjet UDEN at spørge når brugeren har givet modtager + indhold; skriv selv et passende emne hvis det mangler. Brugerens signatur tilføjes automatisk. Hvis udkastet er et svar på en eksisterende mail, send det fulde unified-ID i `reply_to_id` (fx "google:abc", "microsoft:abc" eller "icloud:123") — så bevares tråden.',
     input_schema: {
       type: 'object',
       properties: {
@@ -3581,7 +3614,7 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'send_mail',
     description:
-      'Send en mail med det samme. Brug KUN når brugeren udtrykkeligt siger "send", "afsend" eller "send afsted" — IKKE ved "udkast", "skriv", eller "lav et svar". Når i tvivl, brug create_draft. BEKRÆFT ALTID modtager, emne og indhold med brugeren før du kalder værktøjet. Brugerens signatur tilføjes automatisk.',
+      'Send en mail med det samme. Brug KUN når brugeren udtrykkeligt siger "send", "afsend" eller "send afsted" — IKKE ved "udkast", "skriv", eller "lav et svar". Når i tvivl, brug create_draft. Kald værktøjet UDEN at spørge når brugeren har givet modtager + indhold; skriv selv et passende emne hvis det mangler. Brugerens signatur tilføjes automatisk. Sig kort hvad du sendte så brugeren kan se det er afgået korrekt.',
     input_schema: {
       type: 'object',
       properties: {
@@ -3627,6 +3660,11 @@ function parseWriteInput(input: Record<string, unknown>): ParseResult<WriteEvent
     location: typeof input.location === 'string' ? input.location : undefined,
     description: typeof input.description === 'string' ? input.description : undefined,
     attendees: parseStringArray(input.attendees),
+    forceOverlap: typeof input.force_overlap === 'boolean' ? input.force_overlap : undefined,
+    calendarId:
+      typeof input.calendar_id === 'string' && input.calendar_id.trim()
+        ? input.calendar_id.trim()
+        : undefined,
   };
   return { ok: true, data };
 }
@@ -3908,6 +3946,10 @@ async function runChatTool(
   ctx: ChatCtx,
 ): Promise<{ content: string; isError: boolean }> {
   try {
+    if (name === 'list_calendars') {
+      const r = await listCalendarsAcrossProviders(ctx);
+      return { content: r.text, isError: r.isError };
+    }
     if (name === 'list_calendar_events') {
       const fromRaw = typeof input.from === 'string' ? input.from : '';
       const toRaw = typeof input.to === 'string' ? input.to : '';
