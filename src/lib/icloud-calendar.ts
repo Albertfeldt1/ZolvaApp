@@ -69,7 +69,7 @@ async function loadDiscoveryCache(
   let parsed: Partial<CalDiscoveryCache>;
   try { parsed = JSON.parse(raw) as Partial<CalDiscoveryCache>; }
   catch { return null; }
-  // Treat malformed blobs as cache miss — secureStorage.setItem swallows
+  // Treat malformed blobs as cache miss - secureStorage.setItem swallows
   // failures, so partial writes can land here. fullDiscover will repopulate.
   if (!isValidCache(parsed)) return null;
   // Account rotation: stored principalUrl belongs to a different Apple ID.
@@ -137,7 +137,7 @@ function basicAuth(email: string, password: string): string | null {
   }
 }
 
-// Action-oriented error codes — mirror the action codes in icloud-mail.ts so
+// Action-oriented error codes - mirror the action codes in icloud-mail.ts so
 // hook/banner logic stays uniform across providers. 'not-connected' is a
 // defense-in-depth fallback (the hook layer gates on kind === 'valid' before
 // calling listEvents); 'credential-rejected' is the hot path after Apple
@@ -147,8 +147,8 @@ export type CalDavErrorCode =
   | 'network'
   | 'timeout'
   | 'protocol'
-  | 'not-connected'         // credential is 'absent' — caller suppresses UI silently
-  | 'credential-rejected';  // credential is 'invalid' — caller surfaces re-entry banner
+  | 'not-connected'         // credential is 'absent' - caller suppresses UI silently
+  | 'credential-rejected';  // credential is 'invalid' - caller surfaces re-entry banner
 
 export type CalDavResult<T> =
   | { ok: true; data: T }
@@ -179,11 +179,11 @@ export async function listEvents(
 
   let cache = await loadDiscoveryCache(userId, cred.credential.email);
   const now = Date.now();
-  // Treat an empty calendar list as cache invalid — the only way to get here
+  // Treat an empty calendar list as cache invalid - the only way to get here
   // is a previous discovery that silently parsed 0 calendars. Forcing a fresh
   // discovery is the right move (and prevents an indefinitely-stuck zero state).
   if (cache && cache.calendars.length === 0) {
-    if (__DEV__) console.log('[icloud-cal] cache had 0 calendars — forcing re-discovery');
+    if (__DEV__) console.log('[icloud-cal] cache had 0 calendars - forcing re-discovery');
     cache = null;
   }
   if (!cache || now - cache.principalDiscoveredAt > PRINCIPAL_TTL_MS) {
@@ -215,7 +215,7 @@ export async function listEvents(
   if (__DEV__) console.log('[icloud-cal] fetching events from', cals.length, 'calendars',
     cals.map((c) => `${c.displayName ?? '?'} <${c.url}>`));
   // Re-bind with explicit type so the async worker closure below keeps the
-  // string narrowing — TS un-narrows captured locals inside async functions.
+  // string narrowing - TS un-narrows captured locals inside async functions.
   const authStr: string = auth;
 
   const results: IcloudCalEvent[] = [];
@@ -244,7 +244,7 @@ export async function listEvents(
       if (__DEV__) console.log('[icloud-cal]', cal.displayName, 'returned', r.data.length, 'objects →', parsed, 'events');
       if (__DEV__ && r.data.length > 0 && parsed === 0) {
         console.warn('[icloud-cal] parser dropped all events for', cal.displayName,
-          '— first 1500 chars of object[0]:', r.data[0].data.slice(0, 1500));
+          '- first 1500 chars of object[0]:', r.data[0].data.slice(0, 1500));
       }
     }
   }
@@ -252,7 +252,7 @@ export async function listEvents(
   const workers = Array.from({ length: Math.min(CONCURRENCY, cals.length) }, () => worker());
   await Promise.all(workers);
 
-  if (__DEV__) console.log('[icloud-cal] listEvents done — total events:', results.length);
+  if (__DEV__) console.log('[icloud-cal] listEvents done - total events:', results.length);
   return { ok: true, data: results };
 }
 
@@ -388,11 +388,11 @@ async function propfindSharedCalendar(
   const res = await caldavFetch(url, 'PROPFIND', auth, { Depth: '0' }, body);
   if (!res.ok) return null;
   // The Depth:0 response wraps a single calendar in <response>. Reuse the
-  // existing parser by feeding it the same XML — it'll return [meta] if the
+  // existing parser by feeding it the same XML - it'll return [meta] if the
   // calendar supports VEVENT, [] otherwise.
   const cals = parseCalendarList(res.data);
   if (cals.length === 0) return null;
-  // parseCalendarList builds the URL from <href> in the response — for shared
+  // parseCalendarList builds the URL from <href> in the response - for shared
   // calendars that href IS the calendar collection, so url = cals[0].url.
   return cals[0];
 }
@@ -464,7 +464,7 @@ async function listCalendarsAt(
   return { ok: true, data: cals };
 }
 
-// XML response parsing — minimal, regex-based (DOMParser would need a polyfill in RN).
+// XML response parsing - minimal, regex-based (DOMParser would need a polyfill in RN).
 // If this proves brittle in practice, swap for fast-xml-parser as a follow-up.
 
 function extractFirstHref(xml: string, propLocal: string): string | null {
@@ -496,7 +496,7 @@ function parseCalendarList(xml: string, homeUrl?: string): IcloudCalendarMeta[] 
     // Belt-and-braces: skip the calendar-home itself if Apple includes it in
     // the Depth:1 listing without a calendar resourcetype.
     if (homeAbs && url.replace(/\/?$/, '/') === homeAbs) continue;
-    // Only true calendar collections — filters out the home, schedule-inbox/
+    // Only true calendar collections - filters out the home, schedule-inbox/
     // outbox, and any other non-calendar resources iCloud lumps into the
     // Depth:1 listing.
     const resourcetype = block.match(
@@ -538,7 +538,7 @@ async function caldavFetch(
         Authorization: auth,
         'Content-Type': 'application/xml; charset=utf-8',
         // Apple's CalDAV edge servers throttle / silently drop requests
-        // without a recognizable User-Agent — naked `fetch()` from RN
+        // without a recognizable User-Agent - naked `fetch()` from RN
         // sends none, which iCloud treats as a bot. Identifying as an
         // iOS-flavored CalDAV client keeps the connection up.
         'User-Agent': 'Zolva/1.0 (iOS; CalDAV)',
@@ -573,7 +573,7 @@ async function caldavFetch(
 export type IcloudCalEvent = {
   uid: string;
   // Absolute URL of the .ics resource on the CalDAV server. Required for
-  // PUT (update) and DELETE — events created elsewhere may not follow the
+  // PUT (update) and DELETE - events created elsewhere may not follow the
   // {calendarUrl}/{uid}.ics convention, so we don't try to reconstruct it.
   eventUrl: string;
   start: Date;
@@ -584,7 +584,7 @@ export type IcloudCalEvent = {
   description?: string;
   calendarColor?: string;
   calendarName: string;
-  // URL of the calendar collection this event lives in — handy for the
+  // URL of the calendar collection this event lives in - handy for the
   // chat tool layer when it needs to default new events to "the same
   // calendar this one is on".
   calendarUrl: string;
@@ -620,7 +620,7 @@ async function reportEvents(
   if (!res.ok) return res;
   const items: { href: string; data: string }[] = [];
   // Walk per-<response> blocks so each calendar-data is paired with its
-  // href — the href is what update/delete need to PUT/DELETE against.
+  // href - the href is what update/delete need to PUT/DELETE against.
   const responseBlocks = res.data.split(RESPONSE_OPEN_RE).slice(1);
   for (const blockRaw of responseBlocks) {
     const block = blockRaw.split(RESPONSE_CLOSE_RE)[0];
@@ -630,7 +630,7 @@ async function reportEvents(
     if (!dataMatch) continue;
     let raw = dataMatch[1].trim();
     // iCloud wraps the iCalendar payload in <![CDATA[...]]>. Strip it before
-    // handing to ICAL.parse — otherwise the leading "<![CDATA[" line fails
+    // handing to ICAL.parse - otherwise the leading "<![CDATA[" line fails
     // BEGIN:VCALENDAR validation and every event silently disappears.
     const cdata = raw.match(/^<!\[CDATA\[([\s\S]*?)\]\]>$/);
     if (cdata) raw = cdata[1].trim();
@@ -699,7 +699,7 @@ function toIcloudEvent(
   };
 }
 
-// VTIMEZONE fallback — when a VEVENT references TZID without an in-component
+// VTIMEZONE fallback - when a VEVENT references TZID without an in-component
 // VTIMEZONE block, register an Intl-DateTimeFormat-backed timezone so ical.js
 // can resolve UTC offsets correctly. Without this, ical.js falls back to
 // floating time → silent wrong-time bug for DST users.
@@ -723,7 +723,7 @@ function registerMissingTimezones(vcalendar: ICAL.Component): void {
     if (fallback) {
       ICAL.TimezoneService.register(tzid, fallback);
       if (__DEV__) {
-        console.warn('[icloud-cal] VTIMEZONE missing for', tzid, '— Intl fallback');
+        console.warn('[icloud-cal] VTIMEZONE missing for', tzid, '- Intl fallback');
       }
     }
   }
@@ -826,7 +826,7 @@ async function caldavWrite(
   if (res.status === 401 || res.status === 403) return { ok: false, error: 'auth-failed' };
   if (res.status === 404) return { ok: false, error: 'protocol' };
   // 412 Precondition Failed: If-None-Match: * caught a UID collision. Surface
-  // as protocol — caller can retry with a freshly-generated UID.
+  // as protocol - caller can retry with a freshly-generated UID.
   if (res.status === 412) return { ok: false, error: 'protocol' };
   if (res.status >= 200 && res.status < 300) return { ok: true, data: null };
   if (__DEV__) console.warn(`[icloud-cal] ${method} ${url} status ${res.status}`);
@@ -834,7 +834,7 @@ async function caldavWrite(
 }
 
 // iCalendar text values escape backslash, comma, semicolon, and newline. Per
-// RFC 5545 §3.3.11 — control chars except TAB are not allowed; we drop them
+// RFC 5545 §3.3.11 - control chars except TAB are not allowed; we drop them
 // rather than fail. Lines should fold at 75 octets, but Apple's CalDAV is
 // forgiving about long lines so we skip folding for simplicity.
 function escapeIcsText(s: string): string {
@@ -915,7 +915,7 @@ async function resolveCalendarUrl(
   // Heuristic for "primary": iCloud's default calendar is usually called
   // "Hjem" (Danish locale) or the first own (non-shared) calendar in the
   // home collection. We don't have the own/shared flag here, so fall back
-  // to the first calendar — matches the listEvents render order.
+  // to the first calendar - matches the listEvents render order.
   return { ok: true, url: cache.calendars[0].url };
 }
 

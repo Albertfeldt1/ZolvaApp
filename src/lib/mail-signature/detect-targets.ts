@@ -4,15 +4,15 @@
 // These become candidate entries for the user's "Bind til" picker.
 //
 // Uses a two-pass regex approach:
-//   Pass 1 — walk <img> tags to extract src + alt.
-//   Pass 2 — strip all tags (and their attribute text) to get plain text,
+//   Pass 1 - walk <img> tags to extract src + alt.
+//   Pass 2 - strip all tags (and their attribute text) to get plain text,
 //             then tokenize into words.
 //
-// No DOM dependency — pure string operations only.
+// No DOM dependency - pure string operations only.
 
 export type DetectedTargets = {
   /**
-   * Bindable text fragments with at least 2 characters — words, multi-word
+   * Bindable text fragments with at least 2 characters - words, multi-word
    * phrases ("Find me on Facebook"), text runs with punctuation
    * ("Let's connect!"). Sorted longer-first so phrases surface at the top
    * of the bind picker. Cap 50 entries.
@@ -20,14 +20,14 @@ export type DetectedTargets = {
   words: string[];
   /**
    * Single-character tokens and emoji-like symbols Claude leaves behind
-   * for icon stand-ins ("f", "X", "▶", "@"). Bindable — but rendered in
+   * for icon stand-ins ("f", "X", "▶", "@"). Bindable - but rendered in
    * the picker's "BILLEDER" section because they're visually decorative,
    * not real text. Same target.kind as words ('word'), the picker just
    * categorizes them differently.
    */
   glyphs: string[];
   /**
-   * Styled CTA buttons — <a> elements whose inline style includes a
+   * Styled CTA buttons - <a> elements whose inline style includes a
    * background color (e.g. the "Find me on Facebook" / "Let's connect!"
    * boxes Claude reproduces). Each entry has the button's visible text
    * label and the background color so the picker can render a tiny
@@ -141,7 +141,7 @@ export function detectImportedTargets(html: unknown): DetectedTargets {
       continue;
     }
 
-    // Tag boundary — flush whatever's in the buffer as a run.
+    // Tag boundary - flush whatever's in the buffer as a run.
     flushBuf();
   }
   // Trailing text without a closing tag
@@ -152,14 +152,14 @@ export function detectImportedTargets(html: unknown): DetectedTargets {
   // its individual words so the picker offers both granularities (e.g. the
   // whole "Find me on Facebook" phrase AND the standalone words "Find" /
   // "Facebook"). Sort longer-first so the most specific bindings surface at
-  // the top — phrases land above their constituent tokens.
+  // the top - phrases land above their constituent tokens.
 
   const candidates: string[] = [];
   const seenLower = new Set<string>();
 
   const tryAdd = (raw: string) => {
     if (!raw) return;
-    const token = raw.replace(/^[-–—]+|[-–—]+$/g, '').trim();
+    const token = raw.replace(/^[-–-]+|[-–-]+$/g, '').trim();
     if (!token) return;
     if (/^\d+$/.test(token)) return;
     const lower = token.toLowerCase();
@@ -211,7 +211,7 @@ export function detectImportedTargets(html: unknown): DetectedTargets {
     const attrs = bm[2];
     const inner = bm[3];
 
-    // Find a colored background — either via inline style or the legacy
+    // Find a colored background - either via inline style or the legacy
     // bgcolor attribute (Outlook-style <td bgcolor="#...">).
     let bgValue = '';
     const styleAttr = getAttr(attrs, 'style');
@@ -225,7 +225,7 @@ export function detectImportedTargets(html: unknown): DetectedTargets {
     }
     if (!bgValue) continue;
 
-    // Reject transparent / pure-white / "none" — these are no-op resets,
+    // Reject transparent / pure-white / "none" - these are no-op resets,
     // not button backgrounds.
     if (/^(transparent|none|inherit|initial|unset)$/i.test(bgValue)) continue;
     if (/^(#fff(fff)?|white|rgb\(\s*255\s*,\s*255\s*,\s*255\s*\)|rgba\(\s*255\s*,\s*255\s*,\s*255\s*,\s*1?\.?0*\s*\))$/i.test(bgValue)) continue;

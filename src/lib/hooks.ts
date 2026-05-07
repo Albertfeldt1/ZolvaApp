@@ -193,28 +193,28 @@ const OBSERVATION_SYSTEM =
   'Du er Zolva, en rolig dansk AI-assistent. Du kigger på din dag og ' +
   'peger blidt på mønstre der er værd at overveje. Svar altid på dansk. ' +
   'ADRESSERINGSKRAV: Skriv ALTID direkte med "du"/"dig"/"din". ' +
-  'Omtal ALDRIG personen i 3. person ved navn eller pronomen — skriv ' +
+  'Omtal ALDRIG personen i 3. person ved navn eller pronomen - skriv ' +
   '"Du har 3 ulæste fra Lars", IKKE "Albert har 3 ulæste fra Lars" eller ' +
   '"Han har 3 ulæste". ' +
-  'Skriv ALDRIG ordene "bruger", "brugeren", "brugerens" eller "brugere" — ' +
+  'Skriv ALDRIG ordene "bruger", "brugeren", "brugerens" eller "brugere" - ' +
   'det er 2.-persons samtale, ikke en beskrivelse af en 3.-part. ' +
-  `Returnér mellem 0 og ${OBSERVATION_MAX} observationer — kun dem der faktisk er relevante, ` +
+  `Returnér mellem 0 og ${OBSERVATION_MAX} observationer - kun dem der faktisk er relevante, ` +
   'sorteret med de vigtigste først. De første 2–3 vises på forsiden, resten i en oversigt. ' +
   'Hver observation skal være maks én sætning og undgå at gentage selvfølgeligheder. ' +
   '\n\n' +
-  'KVALITETSKRAV — en observation skal pege på noget konkret du kan gøre:\n' +
+  'KVALITETSKRAV - en observation skal pege på noget konkret du kan gøre:\n' +
   '1. SKRIV ALDRIG ren narration. "Din dag er fyldt med kvalitetstid: tre timer ' +
-    'på sygehuset, så fem timer aftensmad — en god dag" er IKKE en observation, ' +
+    'på sygehuset, så fem timer aftensmad - en god dag" er IKKE en observation, ' +
     'det er bare en oplæsning af kalenderen. Det HAR ingen værdi. Returnér NUL ' +
     'observationer hellere end at narrative dagen tilbage.\n' +
   '2. INGEN BLØDE OPMUNTRINGER uden handling. CTA\'er som "Nyd dagen", "Hav det ' +
     'godt", "Slap af", "God dag" er FORBUDT. Hvis CTA\'en ikke leder til en konkret ' +
     'mail-åbning eller en handling Zolva kan udføre med sine værktøjer, så ' +
     'observationen skal IKKE returneres.\n' +
-  '3. EKTE OBSERVATIONER er ting som: "Du har 4 mails fra samme afsender — kig efter mønster", ' +
-    '"Mødet kl. 14 har ingen agenda — bed om en", "Du har 3 timer mellem to møder ' +
-    '— bloker tid til Q3-budget", "En invitation venter på svar siden i går", ' +
-    '"To møder ligger 5 min fra hinanden — vil du flytte ét?". Decision/handling, ' +
+  '3. EKTE OBSERVATIONER er ting som: "Du har 4 mails fra samme afsender - kig efter mønster", ' +
+    '"Mødet kl. 14 har ingen agenda - bed om en", "Du har 3 timer mellem to møder ' +
+    '- bloker tid til Q3-budget", "En invitation venter på svar siden i går", ' +
+    '"To møder ligger 5 min fra hinanden - vil du flytte ét?". Decision/handling, ' +
     'ikke recap.\n' +
   '4. Hvis dagens kalender + indbakke IKKE indeholder noget der opfylder krav 3, ' +
     'returnér en TOM array []. Det er bedre end at producere fyldstof.';
@@ -224,15 +224,15 @@ const OBSERVATION_SCHEMA =
   '- text: selve observationen på dansk (maks én sætning).\n' +
   '- cta: kort handlingsforslag på dansk (maks 4 ord), fx "Åbn mail", "Bloker tid" eller "Accepter".\n' +
   '- mood: "thinking" for noget der kræver beslutning, "calm" for rolig observation, "happy" for positivt.\n' +
-  '- action: KRÆVET — hvad der skal ske når brugeren trykker på CTA\'en. Tre typer er tilladt:\n' +
-  '  • {"kind":"openMail","mailId": string} — KUN når CTA\'en bare er at læse/se mailen passivt ("Læs mailen", "Se den"). Brug mail-id\'et vist i [id:…] i mail-listen.\n' +
-  '  • {"kind":"mailDraft","mailId": string} — når en mail kræver et SVAR. Åbner mail-detaljen direkte og kører automatisk Zolvas udkast-generator på den. Brugeren lander i mail-editoren med et færdigt udkast klar til at sende. Foretræk denne over chat-prompt for alt der bare er "lav et udkast til svar". Brug [id:…] fra mail-listen.\n' +
-  '  • {"kind":"prompt","prompt": string} — når handlingen kræver chat-værktøjer som IKKE er bare en mail-svar (bloker tid i kalenderen, send NY mail til en anden, accepter mødeindkaldelse, gennemgå sikkerhed på flere mails). "prompt" skal være en færdig 1. person-besked til Zolva på dansk. Når brugeren trykker, auto-sendes beskeden til chatten og Zolva udfører handlingen via værktøjer.\n' +
+  '- action: KRÆVET - hvad der skal ske når brugeren trykker på CTA\'en. Tre typer er tilladt:\n' +
+  '  • {"kind":"openMail","mailId": string} - KUN når CTA\'en bare er at læse/se mailen passivt ("Læs mailen", "Se den"). Brug mail-id\'et vist i [id:…] i mail-listen.\n' +
+  '  • {"kind":"mailDraft","mailId": string} - når en mail kræver et SVAR. Åbner mail-detaljen direkte og kører automatisk Zolvas udkast-generator på den. Brugeren lander i mail-editoren med et færdigt udkast klar til at sende. Foretræk denne over chat-prompt for alt der bare er "lav et udkast til svar". Brug [id:…] fra mail-listen.\n' +
+  '  • {"kind":"prompt","prompt": string} - når handlingen kræver chat-værktøjer som IKKE er bare en mail-svar (bloker tid i kalenderen, send NY mail til en anden, accepter mødeindkaldelse, gennemgå sikkerhed på flere mails). "prompt" skal være en færdig 1. person-besked til Zolva på dansk. Når brugeren trykker, auto-sendes beskeden til chatten og Zolva udfører handlingen via værktøjer.\n' +
   'REGLER FOR ACTION:\n' +
   '1. ACTION ER OBLIGATORISK. Hvis du ikke kan finde en passende action, så lad være med at returnere observationen overhovedet. Generisk "åbn chat uden grund" findes IKKE som handling.\n' +
-  '2. MAIL DER KRÆVER SVAR → mailDraft. En personlig henvendelse, et spørgsmål, en invitation, en deadline — alt hvor brugeren skal svare — bruger {"kind":"mailDraft","mailId":"..."}. CTA bliver "Lav udkast" / "Svar". Det er HURTIGERE og MERE PÅLIDELIGT end chat-prompt fordi brugeren ikke bouncer gennem chat-værktøjer. Brug ALTID denne over en chat-prompt der bare siger "lav et udkast".\n' +
+  '2. MAIL DER KRÆVER SVAR → mailDraft. En personlig henvendelse, et spørgsmål, en invitation, en deadline - alt hvor brugeren skal svare - bruger {"kind":"mailDraft","mailId":"..."}. CTA bliver "Lav udkast" / "Svar". Det er HURTIGERE og MERE PÅLIDELIGT end chat-prompt fordi brugeren ikke bouncer gennem chat-værktøjer. Brug ALTID denne over en chat-prompt der bare siger "lav et udkast".\n' +
   '3. MAIL → openMail KUN for passiv-læs: receipts, kvitteringer, sikkerhedsadvarsler, nyhedsbreve, automatiserede notifikationer hvor svar ikke giver mening. CTA "Læs den" / "Se mailen".\n' +
-  '4. PROMPT KRÆVES IKKE-MAIL HANDLING: kalender (bloker tid, accepter mødeindkaldelse, opret event), sende NY mail til en der ikke er i indbakken, eller flertrins-handlinger. EN PROMPT SKAL ALTID FORTÆLLE ZOLVA HVAD DER SKAL SKE — aldrig "Vis mig dagen" eller "Hjælp mig" — specifik instruks med konkret kontekst (navn, emne, dato).\n' +
+  '4. PROMPT KRÆVES IKKE-MAIL HANDLING: kalender (bloker tid, accepter mødeindkaldelse, opret event), sende NY mail til en der ikke er i indbakken, eller flertrins-handlinger. EN PROMPT SKAL ALTID FORTÆLLE ZOLVA HVAD DER SKAL SKE - aldrig "Vis mig dagen" eller "Hjælp mig" - specifik instruks med konkret kontekst (navn, emne, dato).\n' +
   '5. HANDLINGSVERBER på en mail (Svar, Lav udkast, Skriv tilbage) → mailDraft. Andre handlingsverber (Accepter, Bloker, Opret, Send) → prompt.\n' +
   '6. EKSEMPLER:\n' +
   '   - "Lars venter svar på frokost-invitation" → CTA "Lav udkast", action: {"kind":"mailDraft","mailId":"google:abc"}.\n' +
@@ -272,7 +272,7 @@ function sanitizeAction(raw: unknown): Observation['action'] {
   if (a.kind === 'prompt' && typeof a.prompt === 'string' && a.prompt.trim()) {
     return { kind: 'prompt', prompt: a.prompt.trim() };
   }
-  // kind:'chat' is intentionally rejected — generic "open chat" CTAs ended
+  // kind:'chat' is intentionally rejected - generic "open chat" CTAs ended
   // up wrapping pure-narration observations like "Nyd dagen → opens chat",
   // which felt pointless. If the model can't propose a concrete action
   // (openMail / mailDraft / prompt), the observation gets dropped upstream.
@@ -294,7 +294,7 @@ function sanitizeObservations(raw: unknown): Observation[] {
   if (!Array.isArray(raw)) return [];
   const moods: Observation['mood'][] = ['calm', 'thinking', 'happy'];
   // Two dedup keys: id (in case Claude reuses an id by accident, or generates
-  // the placeholder "obs-1" twice) and normalized text (the more common bug —
+  // the placeholder "obs-1" twice) and normalized text (the more common bug -
   // the model paraphrases the same insight twice).
   const seenIds = new Set<string>();
   const seenTexts = new Set<string>();
@@ -314,7 +314,7 @@ function sanitizeObservations(raw: unknown): Observation[] {
     seenIds.add(rawId);
     seenTexts.add(textKey);
     const action = sanitizeAction(o.action);
-    // Action is now required — drop observations that don't carry a real
+    // Action is now required - drop observations that don't carry a real
     // openMail or prompt. Stops "Nyd dagen → opens chat" from leaking
     // through.
     if (!action) return [];
@@ -573,7 +573,7 @@ type NormalizedEvent = {
   source: 'google' | 'microsoft' | 'icloud';
 };
 
-// Used by useMailItems / useCalendarItems / useHasProvider — credential
+// Used by useMailItems / useCalendarItems / useHasProvider - credential
 // presence determines whether to fan out an iCloud request and whether the
 // account counts as "has any provider connected" for upstream gating.
 export function useIcloudConnected(userId: string): boolean {
@@ -602,13 +602,13 @@ type NormalizedMail = {
 const dismissedMailIds = new Set<string>();
 // Mails the user has replied to. Distinct from dismissed: dismissed mails
 // disappear into Archived, replied mails should drop out of "Venter på
-// dig" but resurface under "Læst" — the user often wants to glance back
+// dig" but resurface under "Læst" - the user often wants to glance back
 // at the original. We don't have gmail.modify or an iCloud \Seen-write
 // path, so the only persistent server-side read state we get is from
 // Outlook's auto-archive after reply. This local set bridges the gap.
 //
 // Persisted per-user via AsyncStorage so the "I already replied to this"
-// state survives backgrounding and worker recycles — without persistence,
+// state survives backgrounding and worker recycles - without persistence,
 // the in-memory set was lost on cold-open and replied-to mails would
 // bounce back into "Venter" the next time the inbox refreshed.
 const repliedMailIds = new Set<string>();
@@ -653,7 +653,7 @@ async function persistReplied(): Promise<void> {
 }
 
 // Clear dismissed (in-memory only) and re-hydrate replied (from storage)
-// whenever the active user changes — including the initial subscribe so
+// whenever the active user changes - including the initial subscribe so
 // replied state is loaded on app open.
 subscribeUserId((uid) => {
   if (dismissedMailIds.size > 0) {
@@ -676,7 +676,7 @@ function markMailReplied(id: string): void {
   void persistReplied();
 }
 
-// Public archive helper — used by the inbox-row swipe gesture. Microsoft
+// Public archive helper - used by the inbox-row swipe gesture. Microsoft
 // is the only provider where we can archive server-side (graph-modify is
 // part of the scope set we already request). Gmail and iCloud are local-
 // only because we don't request gmail.modify and our IMAP proxy has no
@@ -691,7 +691,7 @@ export async function archiveMailInline(id: string, provider: MailProvider): Pro
 }
 
 // Public delete helper. For v1, this routes to the same local-dismiss
-// path as archive — real server-side delete (graph DELETE for Outlook,
+// path as archive - real server-side delete (graph DELETE for Outlook,
 // IMAP STORE \Deleted + EXPUNGE for iCloud, gmail.modify for Gmail) is
 // follow-up work. The visual differentiation (red "Slet" vs neutral
 // "Arkivér") signals intent today; the backend action is the same.
@@ -777,7 +777,7 @@ function useCalendarItems(
     }
     // Wait for visibility to hydrate when it's actually being used. Without
     // this, the first render fetches with an empty hidden set, then
-    // re-fetches once AsyncStorage resolves — wasted round trip on cold open.
+    // re-fetches once AsyncStorage resolves - wasted round trip on cold open.
     if (respectVisibility && !visibilityHydrated) return;
     let cancelled = false;
     setState({ items: [], loading: true, error: null });
@@ -828,7 +828,7 @@ function useCalendarItems(
             const evts = await listGraphEvents(start, end);
             return evts.map(normalizeGraphEvent);
           }
-          // Microsoft's /me/calendarView is already cross-calendar — we just
+          // Microsoft's /me/calendarView is already cross-calendar - we just
           // tell the helper which IDs are visible and it filters server-
           // returned results. No extra round trip vs. the legacy path.
           const cals = await listAllCalendars({
@@ -991,7 +991,7 @@ function normalizeGraphEvent(e: import('./microsoft-graph').GraphCalendarEvent):
 }
 
 // Per-provider failure surfaced to the UI when one provider errored but at
-// least one other succeeded — without this, `Promise.allSettled` swallowed
+// least one other succeeded - without this, `Promise.allSettled` swallowed
 // e.g. an iCloud `protocol`/`timeout` and the user saw Gmail mails with no
 // hint that Apple-mails were missing.
 export type MailProviderError = {
@@ -1003,7 +1003,7 @@ export type MailProviderError = {
 };
 
 // Per-provider mail fetch ceiling. Higher than the visible "Venter" slice so
-// the downstream `!isRead` filter has headroom — active Outlook/Gmail users
+// the downstream `!isRead` filter has headroom - active Outlook/Gmail users
 // often have many already-read items at the top of their inbox after reading
 // on another client, and a small window left them with zero unreads to show.
 const MAIL_FETCH_PER_PROVIDER = 50;
@@ -1184,7 +1184,7 @@ function useMailItems(): {
 // Per-provider, server-reported INBOX counts. The displayed total/unread
 // numbers come from this hook so they don't drift with the per-fetch
 // limit window in useMailItems. The list-of-mails still flows through
-// useMailItems (capped at MAIL_FETCH_PER_PROVIDER per provider) — this
+// useMailItems (capped at MAIL_FETCH_PER_PROVIDER per provider) - this
 // hook only feeds the headline counts.
 //
 // On per-provider failure the previous successful count for that provider
@@ -1250,7 +1250,7 @@ export function useInboxCounts(): {
       setPerProvider((prev) => ({
         // Retain the previous count on failure (or when the provider isn't
         // connected). Replace with the fresh value only when the call
-        // succeeded — null means "no data yet"; failed calls keep the
+        // succeeded - null means "no data yet"; failed calls keep the
         // last-known good number visible.
         google:
           results[0].status === 'fulfilled' && results[0].value
@@ -1386,7 +1386,7 @@ type DraftCacheEntry = { text: string; expiresAt: number };
 const DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
 // Per-user storage keys. The legacy non-scoped key is wiped on first hydrate
 // after this commit so account A's drafts don't sit in plaintext on disk
-// after sign-out — even though the in-memory cache key (mail-id::tone::name)
+// after sign-out - even though the in-memory cache key (mail-id::tone::name)
 // already prevents cross-account *serving*, the on-disk persistence was a
 // privacy hole. Pattern matches the per-user chatHistoryKey() below.
 const LEGACY_DRAFT_STORAGE_KEY = 'zolva.mail.drafts';
@@ -1416,7 +1416,7 @@ async function hydrateDraftCache(uid: string): Promise<void> {
   if (draftCacheHydrationPromise) return draftCacheHydrationPromise;
   draftCacheHydrationPromise = (async () => {
     try {
-      // One-time legacy wipe — no-op after the first run on each device.
+      // One-time legacy wipe - no-op after the first run on each device.
       if (!legacyDraftKeyWiped) {
         legacyDraftKeyWiped = true;
         AsyncStorage.removeItem(LEGACY_DRAFT_STORAGE_KEY).catch(() => {});
@@ -1485,7 +1485,7 @@ function setDraftInCache(key: string, text: string): void {
 // Mails that pass this filter go to the LLM classifier below for content-based
 // verification before we spend an even bigger call drafting a reply.
 //
-// Kept intentionally narrow — earlier versions also blocked info@/support@/
+// Kept intentionally narrow - earlier versions also blocked info@/support@/
 // notifications@/alerts@/updates@, but those prefixes catch too many legit
 // human senders (account managers writing from info@, vendor support agents
 // replying from support@). The classifier handles those cases now.
@@ -1497,10 +1497,10 @@ function needsReply(from: string): boolean {
 }
 
 // Body-level second-pass filter. Catches mails whose primary call-to-action
-// is "click a link to do X on a website" — verification, activation, password
+// is "click a link to do X on a website" - verification, activation, password
 // reset, marketing, view-in-browser. These slip through the From regex when
 // the sender domain looks human (e.g. Zoom invites from a person's email).
-// Keeping this list short and high-signal — anything ambiguous falls through
+// Keeping this list short and high-signal - anything ambiguous falls through
 // to the LLM classifier.
 const NON_REPLY_BODY_PATTERNS: ReadonlyArray<RegExp> = [
   // English
@@ -1553,11 +1553,11 @@ function hasUrgentSubject(subject: string | null | undefined): boolean {
   return URGENCY_SUBJECT_PATTERN.test(subject);
 }
 
-// Marketing / newsletter heuristic — broader than the strict NO_REPLY_PATTERN
+// Marketing / newsletter heuristic - broader than the strict NO_REPLY_PATTERN
 // (which only catches mailer-daemon-style senders) and broader than
 // looksLikeNonReplyContent (which only matches verification/unsubscribe
 // boilerplate in the preview). This catches the middle ground: mails from
-// human-looking sender addresses that are still bulk marketing — startup
+// human-looking sender addresses that are still bulk marketing - startup
 // digests, retailer promos, "weekly roundup" newsletters.
 //
 // We keep these patterns in their own function so a false positive only
@@ -1566,7 +1566,7 @@ function hasUrgentSubject(subject: string | null | undefined): boolean {
 // classifier wins (its verdict is checked first in urgencyTier).
 
 const MARKETING_SENDER_PATTERN = new RegExp(
-  // Senders that are almost always automated mass mail. Kept conservative —
+  // Senders that are almost always automated mass mail. Kept conservative -
   // the legit-human comment on NO_REPLY_PATTERN still applies (info@/
   // support@/hello@ aren't here for the same reason). Anchored on '@' so
   // we don't fire on personal addresses that happen to contain "news".
@@ -1660,7 +1660,7 @@ function urgencyTier(m: NormalizedMail): 0 | 1 | 2 | 3 {
   // Top tier: confirmed by classifier OR subject screams urgent.
   if (verdict === true) return 0;
   if (hasUrgentSubject(m.subject)) return 0;
-  // Bottom tier: hard no-reply sender — mail will never deserve a reply.
+  // Bottom tier: hard no-reply sender - mail will never deserve a reply.
   if (!needsReply(m.from)) return 3;
   // Middle-low: classifier or body markers say "no reply", or our broader
   // marketing heuristic catches a newsletter-shaped mail.
@@ -1677,7 +1677,7 @@ function urgencyTier(m: NormalizedMail): 0 | 1 | 2 | 3 {
 // mail id) while drafts depend on the user's configured tone.
 type VerdictCacheEntry = { needsReply: boolean; expiresAt: number };
 const VERDICT_TTL_MS = 24 * 60 * 60 * 1000;
-// Per-user storage. See draft cache above for rationale — same shape.
+// Per-user storage. See draft cache above for rationale - same shape.
 const LEGACY_VERDICT_STORAGE_KEY = 'zolva.mail.reply-verdicts';
 const verdictStorageKey = (uid: string) => `zolva.mail.reply-verdicts.${uid}`;
 const verdictCache = new Map<string, VerdictCacheEntry>();
@@ -1764,17 +1764,17 @@ function setVerdictInCache(id: string, needsReply: boolean): void {
 // Sign-out cleanup. clearUserScopedAsyncStorage in auth.ts already removes
 // these keys via its `endsWith('.<uid>')` heuristic on sign-out, but we
 // listen here too so we can:
-//   1. Cancel pending persist timers — without this, a setTimeout from a
+//   1. Cancel pending persist timers - without this, a setTimeout from a
 //      setDraftInCache call moments before sign-out can fire after the
 //      disk wipe and re-create the deleted file.
 //   2. Wipe the in-memory Map so old drafts don't sit in the JS heap while
 //      signed out.
 //   3. Remove the two specific keys explicitly rather than depending on
-//      the heuristic — defends against future renames of the AsyncStorage
+//      the heuristic - defends against future renames of the AsyncStorage
 //      key shape.
 let mailCacheLastSeenUid: string | null | undefined;
 subscribeUserId((uid) => {
-  // First fire is the initial subscribe — skip; we hydrate lazily inside
+  // First fire is the initial subscribe - skip; we hydrate lazily inside
   // useInboxWaiting and the in-memory caches start empty anyway.
   if (mailCacheLastSeenUid === undefined) {
     mailCacheLastSeenUid = uid;
@@ -1816,12 +1816,12 @@ const CLASSIFIER_SYSTEM_PROMPT =
   'OTP and verification codes, marketing and newsletters, automated status notifications, ' +
   'calendar invites, subscription renewals, delivery updates, and anything that says ' +
   '"do not reply" in the body. ' +
-  // Strengthened guidance — drafts on these were leaking past the From-regex.
+  // Strengthened guidance - drafts on these were leaking past the From-regex.
   'Also answer NO for any email whose primary action is to click a link or visit a ' +
   'website (verify your account, activate, reset password, view receipt, view in ' +
-  'browser, manage subscription, complete signup, review activity) — replying to such ' +
+  'browser, manage subscription, complete signup, review activity) - replying to such ' +
   'mails accomplishes nothing because the sender does not read replies. ' +
-  'When genuinely uncertain, answer YES — missing a real ' +
+  'When genuinely uncertain, answer YES - missing a real ' +
   'reply is worse than declining one.';
 
 // Classifies one mail. Fails open: any error (network, rate limit, parse)
@@ -1863,7 +1863,7 @@ async function classifyNeedsReply(
 }
 
 const TONE_INSTRUCTIONS: Record<string, string> = {
-  Kort: 'Skriv meget kort (én sætning). Neutral og direkte — ingen fyldord.',
+  Kort: 'Skriv meget kort (én sætning). Neutral og direkte - ingen fyldord.',
   Venlig: 'Skriv kort (1-2 sætninger), venligt og imødekommende.',
   Formel: 'Skriv kort (1-2 sætninger), formelt og professionelt. Undgå slang.',
 };
@@ -1879,12 +1879,12 @@ function draftSystemPrompt(tone: string, userName: string | null): string {
     // when the incoming mail was business-styled (e.g. an invoice question),
     // which reads wrong from a personal assistant. Override only when the
     // user is unambiguously representing a company in the conversation.
-    "Skriv ALTID i 'jeg' form — brug 'jeg', 'mig', 'min'. Brug ALDRIG 'vi', 'os' " +
+    "Skriv ALTID i 'jeg' form - brug 'jeg', 'mig', 'min'. Brug ALDRIG 'vi', 'os' " +
     "eller 'vores' medmindre det er soleklart at brugeren repræsenterer en " +
     'virksomhed/team i denne specifikke samtale (fx en kunde der spørger ind ' +
     "til virksomhedens politik). Ved tvivl: brug 'jeg'. " +
     'Lov aldrig konkrete datoer, tidspunkter, priser eller oplysninger du ikke kender. ' +
-    'Undgå hilsen og underskrift — skriv kun selve svaret. Returnér kun udkastet, uden anførselstegn eller kommentarer.'
+    'Undgå hilsen og underskrift - skriv kun selve svaret. Returnér kun udkastet, uden anførselstegn eller kommentarer.'
   );
 }
 
@@ -1894,7 +1894,7 @@ const AUTONOMY_TARGETS: Record<string, number> = {
   'Handl selv': 10,
 };
 
-// Drafts are user-facing Danish copy — Sonnet 4.6 is meaningfully better at
+// Drafts are user-facing Danish copy - Sonnet 4.6 is meaningfully better at
 // tone calibration and Danish phrasing than Haiku. Cost delta is small since
 // drafts are ~160 tokens each and only a handful run per inbox refresh.
 const DRAFT_MODEL = 'claude-sonnet-4-6';
@@ -1906,7 +1906,7 @@ async function generateDraft(
   signal: AbortSignal,
 ): Promise<string> {
   // Include the preview body so Claude can actually read what's being asked,
-  // not just the subject line. 800 chars matches the classifier window — the
+  // not just the subject line. 800 chars matches the classifier window - the
   // body context is what lets the pronoun heuristic land correctly (a mail
   // that reads "jeg har et spørgsmål til dig" calls for a "jeg" reply, while
   // "vi vil gerne høre jeres pris" obviously calls for "vi").
@@ -1927,7 +1927,7 @@ async function generateDraft(
 export type InboxWaitingResult = Result<InboxMail[]> & {
   providerErrors: MailProviderError[];
   // Read but not user-dismissed. Rendered below `data` (the unread "venter
-  // på dig" list) so the user sees their full inbox, not just unread —
+  // på dig" list) so the user sees their full inbox, not just unread -
   // matches the mental model of native Mail.app where read items remain
   // visible until explicitly archived.
   read: InboxMail[];
@@ -1958,7 +1958,7 @@ export function useInboxWaiting(): InboxWaitingResult {
     if (!hasClaudeKey() || items.length === 0) return;
     if (isInQuietHours(quietHours, new Date())) return;
     // Per-user caches require a uid. Without one we'd have nowhere to read
-    // from or write to — bail rather than fall back to a global key.
+    // from or write to - bail rather than fall back to a global key.
     const uid = user?.id;
     if (!uid) return;
 
@@ -1982,11 +1982,11 @@ export function useInboxWaiting(): InboxWaitingResult {
 
     // Cache key includes the user name so a name change doesn't serve a
     // stale draft baked under a different identity. (Cross-account leakage
-    // is already prevented at the storage layer — caches are keyed by
+    // is already prevented at the storage layer - caches are keyed by
     // user_id in AsyncStorage.)
     const draftKey = (id: string) => `${id}::${tone || 'default'}::${userName ?? '_'}`;
 
-    // Wait for both persisted caches to hydrate — otherwise every cold launch
+    // Wait for both persisted caches to hydrate - otherwise every cold launch
     // re-pays for classifications and drafts AsyncStorage already has. Each
     // hydrate is per-user; switching accounts triggers a re-hydrate from the
     // new user's storage key (and clears the in-memory cache from the prior).
@@ -2017,7 +2017,7 @@ export function useInboxWaiting(): InboxWaitingResult {
                 if (err.name !== 'AbortError' && __DEV__) {
                   console.warn('[hooks] classifier failed:', err.message);
                 }
-                // Fail open on unexpected errors — caller of classifyNeedsReply
+                // Fail open on unexpected errors - caller of classifyNeedsReply
                 // already swallows non-abort errors, so reaching here means abort.
                 return null;
               }),
@@ -2084,17 +2084,17 @@ export function useInboxWaiting(): InboxWaitingResult {
 
   const now = new Date();
   const tones: InboxMail['tone'][] = ['sage', 'clay', 'mist'];
-  // Urgency tiers — drives the "sorteret efter hvad der haster" copy.
+  // Urgency tiers - drives the "sorteret efter hvad der haster" copy.
   // Two signal sources, both free at runtime:
-  //   - Heuristics (sender pattern, body markers, subject keywords) — these
+  //   - Heuristics (sender pattern, body markers, subject keywords) - these
   //     run on EVERY fetched mail with zero extra cost.
   //   - Classifier verdicts from the AI-draft pipeline (cached per user
-  //     for 24h) — only available for the top maxDrafts mails, but they
+  //     for 24h) - only available for the top maxDrafts mails, but they
   //     trump the heuristics when present.
   //
   //   tier 0: classifier confirmed reply needed, OR subject contains a
   //           hard-urgency keyword (haster, akut, frist, urgent, …)
-  //   tier 1: looks human, not yet classified — middle ground
+  //   tier 1: looks human, not yet classified - middle ground
   //   tier 2: classifier said no reply OR body looks automated
   //           (newsletter / verification / unsubscribe link)
   //   tier 3: from a no-reply sender (mailer-daemon, marketing@, …)
@@ -2123,7 +2123,7 @@ export function useInboxWaiting(): InboxWaitingResult {
     tier: urgencyTier(m),
   }));
   // Læst includes server-marked read mails AND mails the user has just
-  // replied to in this session (locally tracked) — without the second
+  // replied to in this session (locally tracked) - without the second
   // clause, replied-to Gmail/iCloud mails would vanish entirely (we have
   // no scope to set the read flag server-side for those providers).
   const read: InboxMail[] = items
@@ -2254,7 +2254,7 @@ export function useMailDetail(
             replyContext: { provider: 'microsoft', messageId: b.id },
           }))
         : (async (): Promise<MailDetail> => {
-            // 'icloud' branch — id format is `icloud:<uid>` from useMailItems.
+            // 'icloud' branch - id format is `icloud:<uid>` from useMailItems.
             const uidStr = id.startsWith('icloud:') ? id.slice('icloud:'.length) : id;
             const uid = Number(uidStr);
             if (!Number.isFinite(uid)) throw new Error('invalid icloud uid');
@@ -2323,7 +2323,7 @@ export function useGenerateDraftAction() {
       setLoading(true);
       setError(null);
       try {
-        // generateDraft only reads from/subject/preview — synth a minimal
+        // generateDraft only reads from/subject/preview - synth a minimal
         // NormalizedMail so we can reuse it without exposing the internal
         // type to callers.
         const synthetic: NormalizedMail = {
@@ -2437,7 +2437,7 @@ export function useSendReply() {
         return false;
       }
 
-      // Send succeeded. Archive is best-effort — a failure here still counts
+      // Send succeeded. Archive is best-effort - a failure here still counts
       // as success because the reply went out. Only Microsoft archives
       // server-side; Google archive needs gmail.modify which we don't request,
       // so the original message stays in the Gmail inbox after reply.
@@ -2597,7 +2597,7 @@ export function useDaySchedule(targetDate?: Date): Result<CalendarSlot[]> {
   // All-day events pin above the hourly grid so multi-day holidays,
   // birthdays, and OOO blocks never get dropped.
   const allDaySlots: CalendarSlot[] = allDay.map((e, i) => ({
-    hour: '—',
+    hour: '-',
     event: {
       id: e.id,
       title: e.title,
@@ -2637,7 +2637,7 @@ export function useConnections() {
 
   // status === 'connected' means the user has BOTH a parent OAuth grant AND
   // hasn't toggled this specific integration off. Demo bypasses the flag
-  // store — DEMO_CONNECTIONS hard-codes statuses.
+  // store - DEMO_CONNECTIONS hard-codes statuses.
   const data: Connection[] = demo
     ? DEMO_CONNECTIONS
     : DEFAULT_CONNECTIONS.map((c) => {
@@ -2707,7 +2707,7 @@ export function useConnections() {
     connect,
     disconnect,
     // Per-integration software toggle. Use this for "turn off Gmail without
-    // revoking Calendar" — the OAuth grant stays intact. Use `disconnect`
+    // revoking Calendar" - the OAuth grant stays intact. Use `disconnect`
     // (above) when you want to revoke the entire provider grant.
     setEnabled,
     googleAccessToken,
@@ -3141,7 +3141,7 @@ export function useNotes() {
   };
 }
 
-// Entries are hidden until their `firesAt` passes — scheduled-but-not-yet-
+// Entries are hidden until their `firesAt` passes - scheduled-but-not-yet-
 // fired notifications shouldn't appear in the feed.
 function visibleFeed(entries: FeedEntry[], now: number): FeedEntry[] {
   return entries
@@ -3193,10 +3193,10 @@ export function useUnreadNotificationCount(): number {
 const chatHistoryKey = (uid: string) => `zolva.${uid}.chat.history`;
 const CHAT_HISTORY_LIMIT = 50;
 // The model can't meaningfully use the full 50-message window. Only the most
-// recent turns carry context the next reply depends on — cap what we send to
+// recent turns carry context the next reply depends on - cap what we send to
 // Claude to keep input tokens flat as the local transcript grows.
 const CHAT_API_CONTEXT_LIMIT = 15;
-const CHAT_ERROR_TEXT = 'Jeg kunne ikke nå frem — prøv igen.';
+const CHAT_ERROR_TEXT = 'Jeg kunne ikke nå frem - prøv igen.';
 
 // Build a Danish summary of which integrations are currently OFF, so the
 // model refuses to act on cached data from earlier turns. Without this, a
@@ -3236,14 +3236,14 @@ function buildDisabledIntegrationsBlock(ctx: ChatCtx): string {
     'Disse er STADIG TIL og fungerer normalt: ' + onLine + '.',
     '',
     'Reglen gælder KUN de integrationer der står i "SLÅET FRA"-listen. ' +
-      'For integrationer der STADIG er TIL skal du opføre dig helt normalt — ' +
+      'For integrationer der STADIG er TIL skal du opføre dig helt normalt - ' +
       'kalde værktøjer, hente data, og citere indhold som du plejer.',
     '',
     'For de SLUKKEDE integrationer SKAL du:',
     '1. IKKE kalde værktøjer der bruger den slukkede integration.',
-    '2. IKKE bruge data fra den slukkede integration — heller IKKE data du tidligere i denne samtale har hentet derfra. Hvis du tidligere har svaret med fx Gmail-mails, og Gmail nu er slukket, så behandl de mails som om du aldrig havde set dem.',
-    '3. Hvis brugerens spørgsmål KRÆVER data fra en slukket integration, og der ikke er en passende erstatning blandt de tændte, svar PRÆCIS: "Jeg kan ikke se dine [navn] lige nu — slå integrationen til under Indstillinger, så henter jeg dem."',
-    '4. Hvis spørgsmålet kan besvares fra en TÆNDT integration (fx brugeren spørger "hvad har jeg i kalenderen" og kun Gmail er slukket — kalenderen er stadig tilgængelig), så besvar det normalt fra den tændte integration. Lad være med at afvise unødigt.',
+    '2. IKKE bruge data fra den slukkede integration - heller IKKE data du tidligere i denne samtale har hentet derfra. Hvis du tidligere har svaret med fx Gmail-mails, og Gmail nu er slukket, så behandl de mails som om du aldrig havde set dem.',
+    '3. Hvis brugerens spørgsmål KRÆVER data fra en slukket integration, og der ikke er en passende erstatning blandt de tændte, svar PRÆCIS: "Jeg kan ikke se dine [navn] lige nu - slå integrationen til under Indstillinger, så henter jeg dem."',
+    '4. Hvis spørgsmålet kan besvares fra en TÆNDT integration (fx brugeren spørger "hvad har jeg i kalenderen" og kun Gmail er slukket - kalenderen er stadig tilgængelig), så besvar det normalt fra den tændte integration. Lad være med at afvise unødigt.',
     '5. Hvis brugeren beder dig "gentage" eller "vise igen" indhold fra et tidligere svar der stammede fra en nu-slukket integration: afvis som i regel 3.',
     '',
     'Disse regler gælder kun integrationerne der står i "SLÅET FRA"-listen ovenfor. Alt andet fungerer som normalt.',
@@ -3271,23 +3271,23 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
     'Hvis brugeren siger "om 2 minutter", læg 2 minutter til nu. Hvis brugeren siger ' +
     '"kl. 10.30" uden dato, vælg den næste fremtidige forekomst (i dag hvis klokken ' +
     'endnu ikke er 10.30, ellers i morgen). ' +
-    'Tidligere brugerbeskeder kan være præfikset med "[sendt: <ISO-tidspunkt>]" — det er ' +
+    'Tidligere brugerbeskeder kan være præfikset med "[sendt: <ISO-tidspunkt>]" - det er ' +
     'hvornår netop den besked blev skrevet. Når du fortolker relative ord som "i dag", ' +
     '"i morgen", "om lidt" eller "kl. 17.30" i en historisk besked, skal du regne ' +
-    'fra beskedens sendt-tidspunkt — ikke fra nuværende lokaltid. Sig fx "for tre ' +
+    'fra beskedens sendt-tidspunkt - ikke fra nuværende lokaltid. Sig fx "for tre ' +
     'dage siden kl. 17.30", ikke "i dag kl. 17.30", når en gammel besked refererer ' +
     'til "i dag" på et tidspunkt der allerede er passeret. Skriv ALDRIG selv ' +
-    '"[sendt: ...]" i dine svar — præfikset gælder kun historiske brugerbeskeder.';
+    '"[sendt: ...]" i dine svar - præfikset gælder kun historiske brugerbeskeder.';
   return [
     'Du er Zolva, en venlig og omsorgsfuld dansk personlig assistent.',
     'Du svarer altid på dansk i en varm, jordnær og let uformel tone.',
     'ADRESSERINGSKRAV: Skriv ALTID direkte med "du"/"dig"/"din". ' +
-      'Omtal ALDRIG personen i 3. person ved navn eller pronomen — skriv ' +
+      'Omtal ALDRIG personen i 3. person ved navn eller pronomen - skriv ' +
       '"Du har et møde kl. 14", IKKE "Albert har et møde" eller "Han har et møde". ' +
       'Navnet må kun forekomme i en hilsen eller når det citeres tilbage som ' +
-      'noget der er skrevet til dig — aldrig som omtale. ' +
+      'noget der er skrevet til dig - aldrig som omtale. ' +
       'Skriv ALDRIG ordene "bruger", "brugeren", "brugerens" eller "brugere" i ' +
-      'dit svar — det her er en samtale mellem dig og personen, ikke en ' +
+      'dit svar - det her er en samtale mellem dig og personen, ikke en ' +
       'beskrivelse af nogen i 3. person. Denne regel gælder ALLE svar, ' +
       'også systemmeddelelser, fejltekster og bekræftelser.',
     intro,
@@ -3296,30 +3296,30 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
     'Hold svar korte, konkrete og handlingsorienterede, medmindre der bliver spurgt om detaljer.',
     'Når brugeren beder dig huske noget tidsbundet (et møde, en opgave med deadline), brug add_reminder.',
     'VIGTIGT om add_reminder: hvis brugeren beder om en påmindelse uden at angive et konkret tidspunkt, ' +
-      'så spørg dem først hvornår de vil mindes — fx "Hvornår skal jeg minde dig om det?". ' +
+      'så spørg dem først hvornår de vil mindes - fx "Hvornår skal jeg minde dig om det?". ' +
       'Kald først add_reminder når brugeren har bekræftet et tidspunkt, ELLER hvis brugeren ' +
-      'eksplicit siger "uden tidspunkt" / "når som helst" / "ingen bestemt tid" — i det tilfælde ' +
+      'eksplicit siger "uden tidspunkt" / "når som helst" / "ingen bestemt tid" - i det tilfælde ' +
       'kald add_reminder uden due_at, og fortæl brugeren at du minder dem løbende indtil de markerer den som klaret.',
-    'Brug ALDRIG nuværende lokaltid eller "om lidt" som standard-tidspunkt — det skal komme fra brugeren.',
+    'Brug ALDRIG nuværende lokaltid eller "om lidt" som standard-tidspunkt - det skal komme fra brugeren.',
     'Når brugeren beder dig notere en idé, en tanke eller noget uden tid, brug add_note.',
     'Når brugeren beder dig huske noget OM SIG SELV (en relation, rolle, præference, ' +
-      'projekt eller forpligtelse — fx "husk at Maria er min leder", "jeg er designer", ' +
+      'projekt eller forpligtelse - fx "husk at Maria er min leder", "jeg er designer", ' +
       '"jeg foretrækker korte svar"), brug add_fact MED den rigtige kategori. Det er ' +
-      'IKKE en note — noter er for opgaver og idéer; fakta er for personlig kontekst om ' +
+      'IKKE en note - noter er for opgaver og idéer; fakta er for personlig kontekst om ' +
       'brugeren der skal hjælpe dig huske dem på tværs af samtaler. Spørg ALDRIG brugeren ' +
-      'om kategorien — vælg den selv ud fra indholdet. Efter add_fact lykkedes, sig kort ' +
-      'til brugeren hvad du gemte (fx "Gjort — Maria er nu noteret som din leder.") så de ' +
+      'om kategorien - vælg den selv ud fra indholdet. Efter add_fact lykkedes, sig kort ' +
+      'til brugeren hvad du gemte (fx "Gjort - Maria er nu noteret som din leder.") så de ' +
       'ved at det landede. Påstå aldrig at du har gemt et faktum uden at kalde add_fact.',
     'Brug list_reminders og list_notes hvis brugeren spørger hvad du har gemt.',
-    'Kald værktøjer FØR du bekræfter — bekræft først når værktøjet faktisk er kørt.',
+    'Kald værktøjer FØR du bekræfter - bekræft først når værktøjet faktisk er kørt.',
     'Når brugeren spørger om sin kalender, sit overblik for dagen/ugen, fri tid, ' +
       'travle perioder eller "hvor har jeg flaskehalse?", brug list_calendar_events. ' +
-      'Vælg `from`/`to` ud fra spørgsmålet (i dag, denne uge, næste 7 dage, osv.) — ' +
+      'Vælg `from`/`to` ud fra spørgsmålet (i dag, denne uge, næste 7 dage, osv.) - ' +
       'hold intervallet under 30 dage. Hvis brugeren ikke specificerer, brug i dag.',
     'Kalenderværktøjet henter fra Google, Outlook og iCloud automatisk afhængigt af ' +
-      'hvilke der er forbundet — inkl. sekundære Google-kalendere (Family, Arbejde osv.). ' +
+      'hvilke der er forbundet - inkl. sekundære Google-kalendere (Family, Arbejde osv.). ' +
       'Begivenheder er taggede med kalendernavn i parentes når de kommer fra en sub-kalender. ' +
-      'Hvis en kilde mislykkedes, står det i fodlinjen — nævn det kun for brugeren hvis ' +
+      'Hvis en kilde mislykkedes, står det i fodlinjen - nævn det kun for brugeren hvis ' +
       'det er relevant for svaret.',
     'Når brugeren spørger "hvilke kalendere har jeg?" eller henviser til en specifik ' +
       'kalender ved navn ("læg det i Family", "i min Arbejde-kalender"), brug list_calendars ' +
@@ -3329,31 +3329,31 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       'Brug read_mail_thread KUN hvis brugeren beder om indholdet af en specifik mail, ' +
       'eller hvis du har brug for fuld tekst for at svare præcist. ' +
       'list_recent_mail og read_mail_thread henter fra Gmail, Outlook OG iCloud ' +
-      'automatisk afhængigt af hvilke der er forbundet — du har altid adgang til ' +
+      'automatisk afhængigt af hvilke der er forbundet - du har altid adgang til ' +
       'at læse mails så længe brugeren har mindst én postkasse forbundet. Sig ALDRIG ' +
       '"jeg kan ikke læse din mail" uden først at have prøvet list_recent_mail.',
     'Brug aldrig kalender- eller mail-værktøjer til at gætte fremtidige eller fortidige ' +
-      'data — kun konkret det brugeren spørger om i dette øjeblik.',
-    'OPRET BEGIVENHEDER UDEN AT SPØRGE: Når brugeren har angivet titel og tidspunkt — fx ' +
-      '"lav et event til imorgen kl 17 kald det møde med karl" — kald create_calendar_event ' +
+      'data - kun konkret det brugeren spørger om i dette øjeblik.',
+    'OPRET BEGIVENHEDER UDEN AT SPØRGE: Når brugeren har angivet titel og tidspunkt - fx ' +
+      '"lav et event til imorgen kl 17 kald det møde med karl" - kald create_calendar_event ' +
       'med det samme. Spørg IKKE om varighed (brug 1 time som default), sted, beskrivelse, ' +
-      'deltagere eller hvilken kalender. De felter brugeren ikke nævnte skal du IKKE fylde ud — ' +
+      'deltagere eller hvilken kalender. De felter brugeren ikke nævnte skal du IKKE fylde ud - ' +
       'lad dem være tomme. Sig kort hvad du oprettede ("Lavet: møde med karl i morgen kl. 17-18") ' +
       'så brugeren kan korrigere.',
     'PROVIDER VÆLGES AUTOMATISK: Vælg `provider` i denne prioriterede rækkefølge blandt de ' +
-      'forbundne: google > microsoft > icloud. Spørg ALDRIG brugeren hvilken kalender — ' +
+      'forbundne: google > microsoft > icloud. Spørg ALDRIG brugeren hvilken kalender - ' +
       'medmindre de selv har nævnt en specifik. Ved opdatering/sletning bestemmes provideren ' +
       'af unified-ID-præfikset.',
-    'SUB-KALENDER (calendar_id): Hvis brugeren har nævnt en specifik kalender ved navn — fx ' +
-      '"læg det i Family", "i min Arbejde-kalender", "i oioioi" — send navnet ELLER ID\'et ' +
+    'SUB-KALENDER (calendar_id): Hvis brugeren har nævnt en specifik kalender ved navn - fx ' +
+      '"læg det i Family", "i min Arbejde-kalender", "i oioioi" - send navnet ELLER ID\'et ' +
       'som `calendar_id` på create_calendar_event. Værktøjet matcher selv navnet til den ' +
       'rigtige kalender (case-insensitive). Du behøver IKKE kalde list_calendars først bare ' +
-      'for at få ID\'et — bare send navnet brugeren brugte. Hvis brugeren ikke har nævnt ' +
+      'for at få ID\'et - bare send navnet brugeren brugte. Hvis brugeren ikke har nævnt ' +
       'en specifik kalender, udelad `calendar_id` (lægger i provider-default).',
     'SPØRG KUN HVIS DET ER UMULIGT AT GÆTTE: Hvis tidspunktet er reelt tvetydigt ' +
       '("næste uge" uden ugedag, "om eftermiddagen" uden klokkeslæt) eller titlen mangler ' +
       'helt, så spørg. Ellers bare opret. Detaljer som lokation/deltagere/beskrivelse ' +
-      'tilføjer brugeren selv hvis de er vigtige — spørg dem aldrig om det.',
+      'tilføjer brugeren selv hvis de er vigtige - spørg dem aldrig om det.',
     'KONFLIKTTJEK: create_calendar_event tjekker selv for overlap på tværs af ALLE ' +
       'forbundne kalendere før det opretter. Hvis værktøjet returnerer en KONFLIKT-besked, ' +
       'fortæl brugeren hvilke eksisterende begivenheder der ligger i samme tidsrum og spørg ' +
@@ -3361,26 +3361,26 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       'bekræfter at oprette alligevel, kald create_calendar_event igen med præcis samme ' +
       'felter PLUS `force_overlap: true`. Hvis brugeren vælger et nyt tidspunkt, kald med ' +
       'de nye tider og UDEN force_overlap.',
-    'iCloud understøtter ikke deltagere/invitationer endnu — hvis brugeren beder om ' +
+    'iCloud understøtter ikke deltagere/invitationer endnu - hvis brugeren beder om ' +
       'at invitere folk til en iCloud-begivenhed, foreslå Outlook eller Google i stedet, ' +
       'eller opret begivenheden uden deltagere.',
-    'Når brugeren spørger om indhold i deres fil-arkiver — fx "hvad stod der i Q2-' +
-      'budgettet?", "find notatet om Lars", "hvad aftalte vi om projektet?" — brug ' +
+    'Når brugeren spørger om indhold i deres fil-arkiver - fx "hvad stod der i Q2-' +
+      'budgettet?", "find notatet om Lars", "hvad aftalte vi om projektet?" - brug ' +
       'først search_drive_files (Google Drive) og/eller search_onedrive_files ' +
       '(OneDrive) med korte præcise søgeord. Læs derefter den mest relevante fil ' +
       'med read_drive_file eller read_onedrive_file. Citér ALTID kilden ved navn ' +
-      'og link når du svarer på baggrund af en fil — fx "(kilde: Filnavn — link)". ' +
+      'og link når du svarer på baggrund af en fil - fx "(kilde: Filnavn - link)". ' +
       'Læs højst 2-3 filer per spørgsmål for at holde svaret fokuseret. Hvis ' +
       'brugeren ikke specificerer hvilken sky, søg i den/dem der er forbundet ' +
       '(Google Drive kræver Google-login, OneDrive kræver Microsoft-login).',
-    'Drive- og OneDrive-værktøjer er read-only — du kan ikke oprette, redigere ' +
+    'Drive- og OneDrive-værktøjer er read-only - du kan ikke oprette, redigere ' +
       'eller slette filer. Forklar det hvis brugeren beder om det.',
     'OneDrive-tekstudtræk understøtter lige nu kun rene tekstfiler (txt, markdown, ' +
-      'csv, json, html, xml). Word, Excel, PowerPoint og PDF kommer senere — hvis ' +
+      'csv, json, html, xml). Word, Excel, PowerPoint og PDF kommer senere - hvis ' +
       'brugeren spørger om indhold i et Office-dokument fra OneDrive, forklar det ' +
       'kort og foreslå evt. at åbne filen direkte via det link søgeresultatet gav.',
-    'OPRET MAIL UDEN AT SPØRGE: Når brugeren har angivet modtager og hvad der skal stå — fx ' +
-      '"send en mail til lars at jeg er forsinket" — kald værktøjet med det samme. Skriv selv ' +
+    'OPRET MAIL UDEN AT SPØRGE: Når brugeren har angivet modtager og hvad der skal stå - fx ' +
+      '"send en mail til lars at jeg er forsinket" - kald værktøjet med det samme. Skriv selv ' +
       'et passende emne og en kort, naturlig brødtekst. Spørg IKKE om emne, CC, hvilken ' +
       'mailkonto eller om brugeren er sikker. Sig kort hvad du oprettede/sendte ' +
       '("Sendt til lars@…: \'Forsinket\' – Hej Lars, jeg er ca. 15 min forsinket.") så ' +
@@ -3396,9 +3396,9 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       'Ellers bare gør det.',
     'Hvis udkastet/sendingen er et SVAR på en eksisterende mail (brugeren henviser ' +
       'til en mail de har modtaget), så send det fulde unified-ID i `reply_to_id` ' +
-      '(fx "google:abc", "microsoft:abc" eller "icloud:123") — så bevares tråden korrekt. ' +
+      '(fx "google:abc", "microsoft:abc" eller "icloud:123") - så bevares tråden korrekt. ' +
       'Brug list_recent_mail eller read_mail_thread til at finde det rigtige ID.',
-    'Skriv ALDRIG en signatur/underskrift selv i `body` — Zolva tilføjer ' +
+    'Skriv ALDRIG en signatur/underskrift selv i `body` - Zolva tilføjer ' +
       'automatisk brugerens egen signatur. Skriv kun selve beskeden.',
   ]
     .filter(Boolean)
@@ -3418,7 +3418,7 @@ function messageSentAt(m: ChatMessage): string | null {
 // Filter the tools list so the model only sees tools whose required
 // integrations are currently enabled. Without this, the model sees
 // `search_drive_files` in its toolbox and confidently answers "yes I can
-// search your Drive" even when Drive is toggled off — a capability claim
+// search your Drive" even when Drive is toggled off - a capability claim
 // that doesn't require a tool call to leak. Removing the tool from the
 // schema is the only deterministic way to stop that.
 function filterToolsByCtx(
@@ -3430,25 +3430,25 @@ function filterToolsByCtx(
   const anyComposeMail = ctx.gmail || ctx.outlookMail || ctx.icloud;
   return tools.filter((t) => {
     switch (t.name) {
-      // Drive / OneDrive — single-integration tools
+      // Drive / OneDrive - single-integration tools
       case 'search_drive_files':
       case 'read_drive_file':
         return ctx.googleDrive;
       case 'search_onedrive_files':
       case 'read_onedrive_file':
         return ctx.onedrive;
-      // Mail read/list — needs any mail provider
+      // Mail read/list - needs any mail provider
       case 'list_recent_mail':
       case 'read_mail_thread':
         return anyMail;
-      // Calendar read/write — needs any calendar provider
+      // Calendar read/write - needs any calendar provider
       case 'list_calendars':
       case 'list_calendar_events':
       case 'create_calendar_event':
       case 'update_calendar_event':
       case 'delete_calendar_event':
         return anyCal;
-      // Mail compose — needs any mail provider
+      // Mail compose - needs any mail provider
       case 'create_draft':
       case 'send_mail':
         return anyComposeMail;
@@ -3477,7 +3477,7 @@ function toClaudeMessages(messages: ChatMessage[], ctx: ChatCtx): ClaudeMessage[
   const offLabels = disabledLabelsForCtx(ctx);
   // Find the index of the latest user message; we inject the disabled-
   // integrations reminder right next to it. Models attend most strongly
-  // to the most recent user turn — putting the reminder there is far
+  // to the most recent user turn - putting the reminder there is far
   // harder to ignore than the system prompt alone, which has to compete
   // with prior assistant text that might paraphrase data the user just
   // toggled off.
@@ -3506,7 +3506,7 @@ function toClaudeMessages(messages: ChatMessage[], ctx: ChatCtx): ClaudeMessage[
       const onPart = stillOn.length > 0 ? stillOn.join(', ') : 'ingen';
       content =
         `[PÅMINDELSE: ${offLabels.join(', ')} er slået FRA. Stadig TIL: ${onPart}. ` +
-        'Reglen gælder KUN de slukkede — brug ikke data derfra (heller ikke ' +
+        'Reglen gælder KUN de slukkede - brug ikke data derfra (heller ikke ' +
         'data fra tidligere svar i denne samtale). De tændte integrationer ' +
         'fungerer helt normalt; svar ud fra dem hvis det giver mening.]\n\n' +
         content;
@@ -3547,11 +3547,11 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'add_fact',
     description:
-      'Gem et personligt faktum om brugeren under Husk-fanens "Fakta" — fx en relation ' +
+      'Gem et personligt faktum om brugeren under Husk-fanens "Fakta" - fx en relation ' +
       '("Maria er min leder"), rolle ("jeg er designer hos Zolva"), præference ("jeg ' +
       'foretrækker korte svar"), projekt ("Cherry-redesignet kører til Q3"), eller en ' +
       'forpligtelse ("Oscar skal til dyrlæge fredag"). Brug KUN når brugeren udtrykkeligt ' +
-      'vil have noget husket OM SIG SELV (ikke en opgave eller idé — det er add_note). ' +
+      'vil have noget husket OM SIG SELV (ikke en opgave eller idé - det er add_note). ' +
       'Faktum gemmes som bekræftet, så det dukker direkte op i Fakta-fanen. ' +
       'Kræver at brugeren har slået hukommelse til; ellers fejler værktøjet.',
     input_schema: {
@@ -3577,7 +3577,7 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
         expires_at: {
           type: 'string',
           description:
-            'ISO 8601 dato/tid med tidszone-offset hvor faktumet skal udløbe — kun for ' +
+            'ISO 8601 dato/tid med tidszone-offset hvor faktumet skal udløbe - kun for ' +
             'commitment (og enkelte other) der er bundet til en bestemt dato. Udelad ' +
             'for varige fakta som rolle, relation og præference.',
         },
@@ -3598,13 +3598,13 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'list_calendars',
     description:
-      'Hent navnene på alle kalendere brugeren har forbundet — Google Kalender (inkl. sekundære kalendere som Family, Arbejde osv.), Outlook og iCloud. Returnerer navn, ID og farve per kalender. Brug værktøjet når brugeren spørger "hvilke kalendere har jeg?" eller når de vil oprette en begivenhed i en specifik kalender ("læg det i Family"). ID-delen efter kolonet sendes som `calendar_id` på create_calendar_event for at ramme den rigtige kalender.',
+      'Hent navnene på alle kalendere brugeren har forbundet - Google Kalender (inkl. sekundære kalendere som Family, Arbejde osv.), Outlook og iCloud. Returnerer navn, ID og farve per kalender. Brug værktøjet når brugeren spørger "hvilke kalendere har jeg?" eller når de vil oprette en begivenhed i en specifik kalender ("læg det i Family"). ID-delen efter kolonet sendes som `calendar_id` på create_calendar_event for at ramme den rigtige kalender.',
     input_schema: { type: 'object', properties: {} },
   },
   {
     name: 'list_calendar_events',
     description:
-      'Hent brugerens kalenderbegivenheder fra alle forbundne kalendere (Google Kalender, Outlook, iCloud) i et tidsinterval. Brug til at give overblik, finde fri tid, eller analysere hvor brugeren har travlt. Returnerer kompakt liste med ID, tid, titel, sted og deltagerantal — ikke fuld beskrivelse.',
+      'Hent brugerens kalenderbegivenheder fra alle forbundne kalendere (Google Kalender, Outlook, iCloud) i et tidsinterval. Brug til at give overblik, finde fri tid, eller analysere hvor brugeren har travlt. Returnerer kompakt liste med ID, tid, titel, sted og deltagerantal - ikke fuld beskrivelse.',
     input_schema: {
       type: 'object',
       properties: {
@@ -3625,7 +3625,7 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'list_recent_mail',
     description:
-      'Hent de nyeste mails fra alle forbundne postkasser (Gmail, Outlook, iCloud). Returnerer afsender, emne og kort uddrag — IKKE hele beskeden. Brug read_mail_thread til fuld tekst.',
+      'Hent de nyeste mails fra alle forbundne postkasser (Gmail, Outlook, iCloud). Returnerer afsender, emne og kort uddrag - IKKE hele beskeden. Brug read_mail_thread til fuld tekst.',
     input_schema: {
       type: 'object',
       properties: {
@@ -3651,11 +3651,11 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'create_calendar_event',
     description:
-      'Opret en ny kalenderbegivenhed. Kald værktøjet UDEN at spørge når brugeren har givet titel og tid — brug 1 time som default-varighed og fyld kun ekstra felter ud hvis brugeren har nævnt dem. Understøtter Google Kalender (google), Outlook (microsoft) og iCloud. Tider skal være ISO 8601 med tidszone-offset, og slut skal ligge efter start. Værktøjet tjekker selv for konflikter på tværs af alle forbundne kalendere — hvis der er overlap, returnerer det en KONFLIKT-besked og opretter IKKE begivenheden. Bemærk: iCloud understøtter ikke deltager-invitationer endnu.',
+      'Opret en ny kalenderbegivenhed. Kald værktøjet UDEN at spørge når brugeren har givet titel og tid - brug 1 time som default-varighed og fyld kun ekstra felter ud hvis brugeren har nævnt dem. Understøtter Google Kalender (google), Outlook (microsoft) og iCloud. Tider skal være ISO 8601 med tidszone-offset, og slut skal ligge efter start. Værktøjet tjekker selv for konflikter på tværs af alle forbundne kalendere - hvis der er overlap, returnerer det en KONFLIKT-besked og opretter IKKE begivenheden. Bemærk: iCloud understøtter ikke deltager-invitationer endnu.',
     input_schema: {
       type: 'object',
       properties: {
-        provider: { type: 'string', enum: ['google', 'microsoft', 'icloud'], description: 'Hvilken kalender begivenheden lægges i. Vælg automatisk i prioriteret rækkefølge: google > microsoft > icloud blandt de forbundne — spørg ikke brugeren.' },
+        provider: { type: 'string', enum: ['google', 'microsoft', 'icloud'], description: 'Hvilken kalender begivenheden lægges i. Vælg automatisk i prioriteret rækkefølge: google > microsoft > icloud blandt de forbundne - spørg ikke brugeren.' },
         title: { type: 'string', description: 'Begivenhedens titel.' },
         start: { type: 'string', description: 'ISO 8601 startdato/tid med tidszone-offset.' },
         end: { type: 'string', description: 'ISO 8601 slutdato/tid med tidszone-offset. Default: start + 1 time hvis brugeren ikke nævnte varighed.' },
@@ -3665,7 +3665,7 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
         attendees: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Email-adresser på deltagere (kun Outlook — iCloud-invitationer understøttes ikke endnu).',
+          description: 'Email-adresser på deltagere (kun Outlook - iCloud-invitationer understøttes ikke endnu).',
         },
         force_overlap: {
           type: 'boolean',
@@ -3688,8 +3688,8 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
       properties: {
         id: { type: 'string', description: 'Unified-ID, fx "google:abc", "microsoft:abc" eller "icloud:UID-string".' },
         title: { type: 'string' },
-        start: { type: 'string', description: 'ISO 8601 — kun hvis du også sender end.' },
-        end: { type: 'string', description: 'ISO 8601 — kun hvis du også sender start.' },
+        start: { type: 'string', description: 'ISO 8601 - kun hvis du også sender end.' },
+        end: { type: 'string', description: 'ISO 8601 - kun hvis du også sender start.' },
         all_day: { type: 'boolean' },
         location: { type: 'string' },
         description: { type: 'string' },
@@ -3701,7 +3701,7 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'delete_calendar_event',
     description:
-      'Slet en kalenderbegivenhed. BEKRÆFT MED BRUGEREN FØRST — sletning kan ikke fortrydes via Zolva. Brug unified-ID.',
+      'Slet en kalenderbegivenhed. BEKRÆFT MED BRUGEREN FØRST - sletning kan ikke fortrydes via Zolva. Brug unified-ID.',
     input_schema: {
       type: 'object',
       properties: {
@@ -3713,7 +3713,7 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'search_drive_files',
     description:
-      'Søg i brugerens Google Drive efter filer der matcher et søgeord — både i filindhold (Docs, Sheets, Slides, tekst) og filnavne. Returnerer en kompakt liste med ID, type, navn, ændringsdato, ejer og link. Brug read_drive_file for at hente selve indholdet af én specifik fil. Brug korte præcise søgeord (1-3 ord) — Drive matcher hele ord, ikke fragmenter.',
+      'Søg i brugerens Google Drive efter filer der matcher et søgeord - både i filindhold (Docs, Sheets, Slides, tekst) og filnavne. Returnerer en kompakt liste med ID, type, navn, ændringsdato, ejer og link. Brug read_drive_file for at hente selve indholdet af én specifik fil. Brug korte præcise søgeord (1-3 ord) - Drive matcher hele ord, ikke fragmenter.',
     input_schema: {
       type: 'object',
       properties: {
@@ -3726,7 +3726,7 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'read_drive_file',
     description:
-      'Hent tekstindholdet af én specifik Drive-fil. Brug ID returneret af search_drive_files (fx "drive:abc123" — send kun delen efter "drive:"). Understøtter Google Docs, Sheets (som CSV), Slides, og rene tekstfiler. PDF og binære formater afvises. Lange filer afkortes til ca. 12.000 tegn.',
+      'Hent tekstindholdet af én specifik Drive-fil. Brug ID returneret af search_drive_files (fx "drive:abc123" - send kun delen efter "drive:"). Understøtter Google Docs, Sheets (som CSV), Slides, og rene tekstfiler. PDF og binære formater afvises. Lange filer afkortes til ca. 12.000 tegn.',
     input_schema: {
       type: 'object',
       properties: {
@@ -3738,7 +3738,7 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'search_onedrive_files',
     description:
-      'Søg i brugerens OneDrive (Microsoft) efter filer der matcher et søgeord — både filnavne og indekseret filindhold. Returnerer en kompakt liste med ID, type, navn, ændringsdato og link. Brug read_onedrive_file for at hente selve indholdet af én specifik fil. Brug korte præcise søgeord (1-3 ord).',
+      'Søg i brugerens OneDrive (Microsoft) efter filer der matcher et søgeord - både filnavne og indekseret filindhold. Returnerer en kompakt liste med ID, type, navn, ændringsdato og link. Brug read_onedrive_file for at hente selve indholdet af én specifik fil. Brug korte præcise søgeord (1-3 ord).',
     input_schema: {
       type: 'object',
       properties: {
@@ -3751,7 +3751,7 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'read_onedrive_file',
     description:
-      'Hent tekstindholdet af én specifik OneDrive-fil. Brug ID returneret af search_onedrive_files (fx "onedrive:01ABC..." — send kun delen efter "onedrive:"). Understøtter rene tekstfiler (txt, markdown, csv, json, html, xml). Word/Excel/PowerPoint og PDF afvises lige nu. Lange filer afkortes til ca. 12.000 tegn.',
+      'Hent tekstindholdet af én specifik OneDrive-fil. Brug ID returneret af search_onedrive_files (fx "onedrive:01ABC..." - send kun delen efter "onedrive:"). Understøtter rene tekstfiler (txt, markdown, csv, json, html, xml). Word/Excel/PowerPoint og PDF afvises lige nu. Lange filer afkortes til ca. 12.000 tegn.',
     input_schema: {
       type: 'object',
       properties: {
@@ -3763,7 +3763,7 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'create_draft',
     description:
-      'Opret et udkast til en mail. Brug når brugeren siger "lav et udkast", "skriv en mail", "udarbejd et svar" eller lignende. Udkastet gemmes i brugerens mailkonto (Gmail, Outlook eller iCloud) — det bliver IKKE sendt. Kald værktøjet UDEN at spørge når brugeren har givet modtager + indhold; skriv selv et passende emne hvis det mangler. Brugerens signatur tilføjes automatisk. Hvis udkastet er et svar på en eksisterende mail, send det fulde unified-ID i `reply_to_id` (fx "google:abc", "microsoft:abc" eller "icloud:123") — så bevares tråden.',
+      'Opret et udkast til en mail. Brug når brugeren siger "lav et udkast", "skriv en mail", "udarbejd et svar" eller lignende. Udkastet gemmes i brugerens mailkonto (Gmail, Outlook eller iCloud) - det bliver IKKE sendt. Kald værktøjet UDEN at spørge når brugeren har givet modtager + indhold; skriv selv et passende emne hvis det mangler. Brugerens signatur tilføjes automatisk. Hvis udkastet er et svar på en eksisterende mail, send det fulde unified-ID i `reply_to_id` (fx "google:abc", "microsoft:abc" eller "icloud:123") - så bevares tråden.',
     input_schema: {
       type: 'object',
       properties: {
@@ -3779,7 +3779,7 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
         },
         cc: { type: 'array', items: { type: 'string' } },
         subject: { type: 'string' },
-        body: { type: 'string', description: 'Mailens brødtekst. Tilføj IKKE underskrift selv — den bliver hentet og lagt på automatisk.' },
+        body: { type: 'string', description: 'Mailens brødtekst. Tilføj IKKE underskrift selv - den bliver hentet og lagt på automatisk.' },
         reply_to_id: { type: 'string', description: 'Unified-ID fra list_recent_mail/read_mail_thread hvis det er et svar.' },
       },
       required: ['provider', 'to', 'subject', 'body'],
@@ -3788,7 +3788,7 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'send_mail',
     description:
-      'Send en mail med det samme. Brug KUN når brugeren udtrykkeligt siger "send", "afsend" eller "send afsted" — IKKE ved "udkast", "skriv", eller "lav et svar". Når i tvivl, brug create_draft. Kald værktøjet UDEN at spørge når brugeren har givet modtager + indhold; skriv selv et passende emne hvis det mangler. Brugerens signatur tilføjes automatisk. Sig kort hvad du sendte så brugeren kan se det er afgået korrekt.',
+      'Send en mail med det samme. Brug KUN når brugeren udtrykkeligt siger "send", "afsend" eller "send afsted" - IKKE ved "udkast", "skriv", eller "lav et svar". Når i tvivl, brug create_draft. Kald værktøjet UDEN at spørge når brugeren har givet modtager + indhold; skriv selv et passende emne hvis det mangler. Brugerens signatur tilføjes automatisk. Sig kort hvad du sendte så brugeren kan se det er afgået korrekt.',
     input_schema: {
       type: 'object',
       properties: {
@@ -3797,7 +3797,7 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
         cc: { type: 'array', items: { type: 'string' } },
         subject: { type: 'string' },
         body: { type: 'string' },
-        reply_to_id: { type: 'string', description: 'Unified-ID hvis det er et svar — så bevares tråden.' },
+        reply_to_id: { type: 'string', description: 'Unified-ID hvis det er et svar - så bevares tråden.' },
       },
       required: ['provider', 'to', 'subject', 'body'],
     },
@@ -3823,8 +3823,8 @@ function parseWriteInput(input: Record<string, unknown>): ParseResult<WriteEvent
   if (!title) return { ok: false, reason: 'Mangler `title`.' };
   const start = parseDate(input.start);
   const end = parseDate(input.end);
-  if (!start) return { ok: false, reason: 'Ugyldig `start` — brug ISO 8601 med tidszone-offset.' };
-  if (!end) return { ok: false, reason: 'Ugyldig `end` — brug ISO 8601 med tidszone-offset.' };
+  if (!start) return { ok: false, reason: 'Ugyldig `start` - brug ISO 8601 med tidszone-offset.' };
+  if (!end) return { ok: false, reason: 'Ugyldig `end` - brug ISO 8601 med tidszone-offset.' };
   if (end.getTime() <= start.getTime()) return { ok: false, reason: '`end` skal ligge efter `start`.' };
   const data: WriteEventInput = {
     title,
@@ -3930,7 +3930,7 @@ function splitUnifiedId(unified: string): { provider: string; id: string } | nul
 }
 
 // Record a successful send into the local sent-mails log without ever
-// throwing back into the caller. The send already succeeded — a logging
+// throwing back into the caller. The send already succeeded - a logging
 // failure must not surface to the user as a send failure.
 async function recordSentMailSafe(
   userId: string | null,
@@ -3948,7 +3948,7 @@ function mapIcloudComposeError(code: IcloudErrorCode): string {
   switch (code) {
     case 'auth-failed':
     case 'credential-rejected':
-      return 'Apple afviste login. Din app-specific password er måske udløbet — opdater under Indstillinger.';
+      return 'Apple afviste login. Din app-specific password er måske udløbet - opdater under Indstillinger.';
     case 'rate-limited':
       return 'For mange iCloud-mails sendt fra Zolva i dag. Prøv igen om en time.';
     case 'network':
@@ -4023,7 +4023,7 @@ async function runMailComposeTool(
     if (provider === 'google') {
       // For Gmail replies we need threading headers from the original message.
       // The /drafts and /messages/send endpoints take threadId + In-Reply-To/
-      // References — without them Gmail starts a new conversation even when
+      // References - without them Gmail starts a new conversation even when
       // we hit the right inbox.
       let threadHeaders: { threadId?: string; inReplyTo?: string; references?: string } = {};
       if (providerReplyId) {
@@ -4039,7 +4039,7 @@ async function runMailComposeTool(
           };
         } catch (err) {
           if (__DEV__) console.warn('[hooks] gmail reply lookup failed:', err);
-          // Fall through — we'll still create the message, just without
+          // Fall through - we'll still create the message, just without
           // threading. Better than failing the whole call.
         }
       }
@@ -4229,7 +4229,7 @@ async function runChatTool(
       if (!getPrivacyFlag('memory-enabled')) {
         return {
           content:
-            'Hukommelse er slået fra — fakta kan ikke gemmes. Bed brugeren om at slå ' +
+            'Hukommelse er slået fra - fakta kan ikke gemmes. Bed brugeren om at slå ' +
             'hukommelse til under Husk-fanen før du prøver igen.',
           isError: true,
         };
@@ -4250,7 +4250,7 @@ async function runChatTool(
       const parsedExpires = expiresRaw ? new Date(expiresRaw) : null;
       const expiresAt = parsedExpires && !Number.isNaN(parsedExpires.getTime()) ? parsedExpires : null;
       // Skip if the user already has this exact fact (case/whitespace
-      // normalized) in any active state — avoids duplicates when the model
+      // normalized) in any active state - avoids duplicates when the model
       // re-asserts the same fact across conversations.
       const dup = await findDuplicateFact(userId, normalizeFactText(text));
       if (dup) {
@@ -4409,7 +4409,7 @@ export function useChat() {
   const demo = isDemoUser(user);
   const demoIndexRef = useRef(0);
   // Sync guard against double-fire from spam taps. setTyping(true) is React
-  // state and won't reflect until the next render — two chip taps in the
+  // state and won't reflect until the next render - two chip taps in the
   // same frame both see typing=false and both fire a turn. The ref flips
   // immediately so the second send aborts before any work happens.
   const inFlightRef = useRef(false);
@@ -4420,14 +4420,14 @@ export function useChat() {
   // value. Without this, `send` is a useCallback that closes over the
   // initial-render value of icloudConnected (false), and even after the
   // credential async-loads and flips it to true, the captured closure
-  // never sees it — every chat message in that session would build a
+  // never sees it - every chat message in that session would build a
   // toolCtx with icloud:false and the model would tell the user iCloud
   // is off when it clearly isn't.
   const icloudConnectedRef = useRef(icloudConnected);
   useEffect(() => {
     icloudConnectedRef.current = icloudConnected;
   }, [icloudConnected]);
-  // Don't capture isEnabled from the hook — that snapshot is closed into
+  // Don't capture isEnabled from the hook - that snapshot is closed into
   // `send` and goes stale if the user toggles after the callback was built.
   // We read the live module cache via isIntegrationEffectivelyEnabled below.
 
@@ -4481,7 +4481,7 @@ export function useChat() {
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
-      // Sync re-entry guard — see inFlightRef declaration above. Gate fires
+      // Sync re-entry guard - see inFlightRef declaration above. Gate fires
       // before any state mutation so a duplicate tap is a complete no-op,
       // not a half-applied user-message-without-response.
       if (inFlightRef.current) return;
@@ -4568,7 +4568,7 @@ export function useChat() {
           );
 
           if (toolUsedThisTurn) {
-            // Final summary after a real tool call — grounded by tool_result.
+            // Final summary after a real tool call - grounded by tool_result.
             // The model occasionally returns an empty text response when it
             // considers the action self-evident (especially for one-shot
             // tools like add_fact / add_note). Empty propagates to the
@@ -4848,7 +4848,7 @@ export function useCalendarLabels() {
 
   // Subscribe to label-bus notifications so external writers (provider
   // disconnect auto-clear in auth.ts / icloud-credentials.ts) trigger a
-  // refresh — without this, Stemmestyring keeps rendering a calendar the
+  // refresh - without this, Stemmestyring keeps rendering a calendar the
   // user just disconnected.
   useEffect(() => {
     return subscribeCalendarLabelsChanged(() => {
@@ -4861,7 +4861,7 @@ export function useCalendarLabels() {
       if (!user?.id) return;
       await setCalendarLabel(user.id, key, target);
       // setCalendarLabel notifies the bus, which fires our subscription and
-      // refreshes — no explicit refresh() needed here.
+      // refreshes - no explicit refresh() needed here.
     },
     [user?.id],
   );

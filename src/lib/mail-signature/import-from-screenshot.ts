@@ -5,7 +5,7 @@
 // Pipeline:
 //   1. Pick image via expo-image-picker.
 //   2. Resize to 1024px long side, JPEG q=0.85, base64.
-//   3. Vision call via completeWithTool — Claude tool-use returns
+//   3. Vision call via completeWithTool - Claude tool-use returns
 //      { html, plaintext, logoBox }.
 //   4. Sanitize html via sanitizeSignatureHtml.
 //   5. Crop logo from the resized image at logoBox (sanity-checked).
@@ -32,10 +32,10 @@ const VISION_MAX_BASE64_LEN = 300_000;
 
 const SIGNATURE_IMPORT_SYSTEM_PROMPT = `You reproduce the visual design of an email signature from a screenshot, as Outlook-safe HTML.
 
-CRITICAL constraints — output that violates these will be sanitized away:
+CRITICAL constraints - output that violates these will be sanitized away:
 - Layout: use <table> elements only. No flexbox, grid, or modern positioning.
 - Styling: inline style="..." attributes only. No <style>, <script>, <link>, <iframe>, no @import, no @font-face.
-- Fonts: system stack only — e.g. font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif. No web fonts.
+- Fonts: system stack only - e.g. font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif. No web fonts.
 - Properties allowed: font-family, font-size, font-weight, font-style, color, background-color, text-align, text-decoration, padding, margin, border, line-height, vertical-align, white-space. Do not use position, transform, animation, opacity.
 - URLs: <a href="..."> may use mailto:, tel:, https://, http://. <img> may ONLY be src="cid:zolva-sig" (we'll inject the cropped logo). No data: URIs, no remote URLs.
 
@@ -43,9 +43,9 @@ Reproduce the screenshot's visible content as faithfully as possible: text conte
 
 Social-media icons and link icons:
 - If the screenshot contains social-media link icons (LinkedIn, Twitter/X, Instagram, Facebook, TikTok, YouTube, GitHub) or generic website/link icons (globe, "www", a personal/company URL displayed as a clickable element), extract them as a "socials" array. Each entry has a "type" (one of: linkedin, twitter, instagram, facebook, tiktok, youtube, github, website, other) and a "url". Use "website" for generic homepage/portfolio/company URLs that aren't a known platform. Use "other" with a "label" field for non-website platforms not in this list (e.g. Bluesky, Mastodon, Threads).
-- IMPORTANT — Social icons NEVER appear in the html output. The app renders them as proper brand-icon pills in a separate row below the html. The html must not contain ANY of:
+- IMPORTANT - Social icons NEVER appear in the html output. The app renders them as proper brand-icon pills in a separate row below the html. The html must not contain ANY of:
   · <a> tags wrapping social-media icons
-  · standalone single-letter, single-character, or single-emoji elements meant to represent a social platform — no "f", "X", "in", "Ig", "▶", "📸", "🐦", "🐙", "📺", or any other letter/emoji used as an icon stand-in
+  · standalone single-letter, single-character, or single-emoji elements meant to represent a social platform - no "f", "X", "in", "Ig", "▶", "📸", "🐦", "🐙", "📺", or any other letter/emoji used as an icon stand-in
   · placeholder shapes (blue ovals, colored circles/squares, monogrammed pills) styled to LOOK like brand icons
   · rows of small icon-shaped elements with no real text content
   · any decorative reproduction of icon-only elements that don't have visible text
@@ -53,28 +53,28 @@ Social-media icons and link icons:
 - If no social-media or link icons are visible, return socials: [].
 
 Inline icon markers (the small ones next to phone/email/website/address lines):
-- These ARE part of the signature's design — reproduce them as small filled colored circles using THIS EXACT inline-styled span template (substitute the brand color and the glyph):
+- These ARE part of the signature's design - reproduce them as small filled colored circles using THIS EXACT inline-styled span template (substitute the brand color and the glyph):
 
   <span style="display:inline-block;width:20px;height:20px;line-height:20px;border-radius:50%;background:#XXXXXX;color:#fff;text-align:center;font-family:Arial;font-size:11px;font-weight:bold;vertical-align:middle">X</span>
 
-  Width and height MUST be equal and EXPLICIT pixel values (do NOT rely on padding to size the shape — padding-based sizing produces ovals, not circles). Always include line-height equal to height so the glyph is vertically centered.
-- Inside the circle, use a SIMPLE TEXT GLYPH — a bold letter (T for telephone, @ for email, W for web, P or • for address) OR a Unicode geometric character (●, ◉, ☎, ✉ if you must). DO NOT use emoji (📞, ✉, 🌐, 📍, 📧, 🔗) — they render as full-color cartoon emoji which looks unprofessional in a corporate signature.
+  Width and height MUST be equal and EXPLICIT pixel values (do NOT rely on padding to size the shape - padding-based sizing produces ovals, not circles). Always include line-height equal to height so the glyph is vertically centered.
+- Inside the circle, use a SIMPLE TEXT GLYPH - a bold letter (T for telephone, @ for email, W for web, P or • for address) OR a Unicode geometric character (●, ◉, ☎, ✉ if you must). DO NOT use emoji (📞, ✉, 🌐, 📍, 📧, 🔗) - they render as full-color cartoon emoji which looks unprofessional in a corporate signature.
 - Keep them on the SAME line as the phone number / email / URL / address that follows. After the closing </span>, leave a single space before the contact text.
 
 Divider lines and underline accents (REQUIRED if visible in source):
 - If you see a horizontal line under the name, between sections, or at the bottom of the signature, emit it. Use <hr style="border:none;border-top:1px solid #cccccc;margin:8px 0"> for full-width dividers, or <div style="border-bottom:2px solid #1c2e3a;width:80px;padding-bottom:4px"></div> for shorter accent underlines under a name/title.
-- Do not skip dividers or underline accents. They're visually load-bearing — without them the signature reads as flat content rather than the structured layout you saw.
+- Do not skip dividers or underline accents. They're visually load-bearing - without them the signature reads as flat content rather than the structured layout you saw.
 
 Decorative elements:
-- Do not reproduce decorative shapes that aren't real visual elements (no blank colored rectangles or empty styled boxes that don't represent anything). Real layout elements — dividers, lines, contact icons, brand backgrounds — are good to keep.
+- Do not reproduce decorative shapes that aren't real visual elements (no blank colored rectangles or empty styled boxes that don't represent anything). Real layout elements - dividers, lines, contact icons, brand backgrounds - are good to keep.
 - Do not invent emoji anywhere in the html. Use plain text and CSS-styled shapes only. Emoji look out of place in a corporate signature reproduction.
 
 Return your output via the import_signature tool with three fields:
 - html: the Outlook-safe HTML (typically wrapped in a <table>)
 - plaintext: a plain-text version of the signature for multipart/alt
 - logoBox: if a company logo or person photo is visible, an object { x, y, w, h } in pixel coordinates of the image you were shown (where (0,0) is the top-left).
-  · Be VERY GENEROUS with the bounding box — include AT LEAST 25% extra margin around the visible logo/photo on EVERY side (top, bottom, left, AND right). It is BETTER to include a small slice of surrounding whitespace or background than to clip the photo. Do NOT box "tightly" to the visible edge — extend each side by ~25% of the logo's dimension. A 200×240 photo should be boxed as roughly 300×360 with the logo centered inside. The most common failure is under-shooting the bottom of a portrait photo or the right edge of a wordmark — leave generous padding there.
-  · If a logo SYMBOL appears with a company NAME / wordmark / tagline next to it (left, right, above, or below) as a unit, BOX BOTH TOGETHER — the box must include the full wordmark text, not just the iconography. A logo "Logox" with an octagon glyph + "Logox" text + tagline is one bounding box covering all three.
+  · Be VERY GENEROUS with the bounding box - include AT LEAST 25% extra margin around the visible logo/photo on EVERY side (top, bottom, left, AND right). It is BETTER to include a small slice of surrounding whitespace or background than to clip the photo. Do NOT box "tightly" to the visible edge - extend each side by ~25% of the logo's dimension. A 200×240 photo should be boxed as roughly 300×360 with the logo centered inside. The most common failure is under-shooting the bottom of a portrait photo or the right edge of a wordmark - leave generous padding there.
+  · If a logo SYMBOL appears with a company NAME / wordmark / tagline next to it (left, right, above, or below) as a unit, BOX BOTH TOGETHER - the box must include the full wordmark text, not just the iconography. A logo "Logox" with an octagon glyph + "Logox" text + tagline is one bounding box covering all three.
   · If multiple icons or images are visible, choose the most prominent / largest one (typically the main company logo or person photo, NOT small social-media icons or tiny inline contact-line markers).
   · If no logo or photo is visible, null.
 
@@ -214,7 +214,7 @@ async function cropLogo(
   box: { x: number; y: number; w: number; h: number },
 ): Promise<InlineImage | null> {
   // Vision models are imprecise at exact pixel coordinates and consistently
-  // under-shoot at least one edge — typically the bottom of a portrait
+  // under-shoot at least one edge - typically the bottom of a portrait
   // photo or the sides of a horizontal logo wordmark. Pad generously on
   // every side; the extra whitespace is negligible since signatures live
   // on a paper-colored background, but a clipped photo is immediately
@@ -228,7 +228,7 @@ async function cropLogo(
   const h = Math.min(imgH - y, Math.round(box.h + 2 * padY));
 
   // Sanity: reject pathological boxes (zero/negative dims, tiny noise,
-  // or a box that swallows most of the screenshot — almost always a
+  // or a box that swallows most of the screenshot - almost always a
   // hallucination).
   if (w < 16 || h < 16) return null;
   if (w * h > 0.7 * imgW * imgH) return null;
@@ -251,7 +251,7 @@ async function cropLogo(
   }
 }
 
-// Strip empty styled containers — decorative shapes, post-sanitize SVG
+// Strip empty styled containers - decorative shapes, post-sanitize SVG
 // remnants, and the empty wrapper bars left behind when social-icon
 // children get sanitized out. Keeps contact-line icons (small filled
 // circles with a glyph inside) since their length-1-2 content survives
@@ -276,7 +276,7 @@ export function stripIconStandIns(html: string): string {
 // Replace contact-line emoji (Claude keeps reverting to them despite the
 // prompt) with deterministic styled-circle spans. Two passes:
 //   1. If an emoji sits alone inside an existing styled span/td/div, swap
-//      just the emoji content for the matching letter — keep the circle's
+//      just the emoji content for the matching letter - keep the circle's
 //      color/styling Claude already chose.
 //   2. Any standalone emoji left in body text gets wrapped in our own
 //      uniform styled-circle span (dark navy default).
@@ -332,7 +332,7 @@ export function replaceContactEmoji(html: string, fallbackColor = DEFAULT_CONTAC
 }
 
 // Inject styled-circle icons before contact-line patterns that don't have
-// one yet. Claude is inconsistent — sometimes only one of phone/email/web/
+// one yet. Claude is inconsistent - sometimes only one of phone/email/web/
 // address gets an icon, the rest are bare. Walks each pattern and inserts
 // our uniform circle at line-start matches that aren't already preceded
 // by an existing icon (border-radius:50%).
@@ -439,7 +439,7 @@ function stripEmptyStyledOnce(html: string): string {
       .trim();
     if (text.length !== 0) return match;
     if (/<img\b/i.test(inner)) return match;
-    // For <tr>/<table>, drop if empty even without a colored background —
+    // For <tr>/<table>, drop if empty even without a colored background -
     // they have no semantic value once their cells are gone.
     if (tag.toLowerCase() === 'tr' || tag.toLowerCase() === 'table') {
       return '';

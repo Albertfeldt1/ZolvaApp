@@ -23,7 +23,7 @@ async function fetchListWithRetry(url: string, init: RequestInit): Promise<Respo
   }
 }
 
-// Reset the per-session signature cache when the active user changes — the
+// Reset the per-session signature cache when the active user changes - the
 // signature is account-specific and must not leak across accounts.
 subscribeUserId(() => {
   resetGmailSignatureCache();
@@ -70,7 +70,7 @@ type RawMessage = {
 };
 
 // Server-reported INBOX counts. Total comes from labels/INBOX
-// (messagesTotal — exact, all-time inbox size). Unread is scoped to
+// (messagesTotal - exact, all-time inbox size). Unread is scoped to
 // the past 7 days to keep the headline number actionable: long-tail
 // unread newsletters from years ago shouldn't dominate the "venter på
 // dig" stat. Uses messages.list?q=is:unread+newer_than:7d&maxResults=1
@@ -341,7 +341,7 @@ export async function sendMail(input: GmailComposeInput): Promise<void> {
 // Reads the user's primary sendAs signature from Gmail settings and caches
 // it in-memory for the session. The endpoint is covered by the existing
 // `gmail.readonly` scope, so no scope bump is required. Signatures arrive
-// as HTML — we strip to plain text since outgoing mail goes out as
+// as HTML - we strip to plain text since outgoing mail goes out as
 // text/plain (matching the existing send pipeline).
 
 type SendAs = {
@@ -353,7 +353,7 @@ type SendAs = {
 
 let cachedSignature: string | null | undefined;
 let cachedSignatureFetchedAt = 0;
-const SIGNATURE_TTL_MS = 6 * 60 * 60 * 1000; // 6h — refreshes once per day-ish without paying for it on every send
+const SIGNATURE_TTL_MS = 6 * 60 * 60 * 1000; // 6h - refreshes once per day-ish without paying for it on every send
 
 async function fetchPrimarySignature(): Promise<string | null> {
   return tryWithRefresh('google', async (accessToken) => {
@@ -364,7 +364,7 @@ async function fetchPrimarySignature(): Promise<string | null> {
       throw new ProviderAuthError('google', `Gmail afvist (${res.status}).`);
     }
     if (!res.ok) {
-      // Don't throw — a missing signature shouldn't block the send. Log and
+      // Don't throw - a missing signature shouldn't block the send. Log and
       // fall through to no-signature.
       if (__DEV__) console.warn(`[gmail] sendAs fetch failed: ${res.status}`);
       return null;
@@ -382,7 +382,7 @@ async function fetchPrimarySignature(): Promise<string | null> {
 async function getGmailSignature(): Promise<string | null> {
   const now = Date.now();
   // Only cache POSITIVE hits. A null result means "no signature found right
-  // now" — could be a fresh account that hasn't configured one yet, or a
+  // now" - could be a fresh account that hasn't configured one yet, or a
   // transient empty response. Caching null for hours would mean the user's
   // newly-set signature wouldn't appear until the TTL expires. Re-fetching
   // on every send when there's no signature is cheap (one Gmail API call).
@@ -544,7 +544,7 @@ export function parseFromHeader(raw: string): string {
 
 export function initialsOf(name: string): string {
   // Strip MIME-encoding artefacts (<, >, ", quoted-printable markers) and
-  // anything that isn't a letter/digit before splitting on whitespace —
+  // anything that isn't a letter/digit before splitting on whitespace -
   // otherwise senders like 'Lars <lars@x.com>' that slip past the From-
   // header parser surface as initials like "L<".
   const cleaned = name

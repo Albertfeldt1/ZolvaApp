@@ -4,7 +4,7 @@
 // summary the model can reason over.
 //
 // Provider failures (no token, network, auth) degrade silently per
-// provider — one failing source never poisons the whole call. The result
+// provider - one failing source never poisons the whole call. The result
 // always includes a footer line listing which sources contributed and
 // which were skipped, so the model can disclose gaps to the user.
 
@@ -63,7 +63,7 @@ import {
 
 type CalendarSource = 'google' | 'microsoft' | 'icloud';
 
-// One flag per integration. Each is "effectively enabled" — the parent
+// One flag per integration. Each is "effectively enabled" - the parent
 // OAuth grant exists AND the user hasn't toggled this specific integration
 // off. Tools gate on the specific flag they need so disabling Gmail doesn't
 // disable Google Calendar / Drive on the same OAuth grant.
@@ -82,7 +82,7 @@ type SourceOutcome = { source: CalendarSource; ok: boolean; reason?: string };
 
 // Read events from EVERY Google calendar the user has access to, not just
 // `primary`. Without this fan-out, asking the chat about "my Family
-// calendar" comes back empty — events.list against `primary` doesn't see
+// calendar" comes back empty - events.list against `primary` doesn't see
 // secondary calendars even though `calendar.calendarlist.readonly` scope
 // has been granted. Each event is tagged with its calendar's display name
 // so the formatter can disclose which calendar it lives on. Falls back to
@@ -145,7 +145,7 @@ export async function listCalendarEventsAcrossProviders(
       lines.push(...r.data.map((e) => formatIcloudEvent(e)));
       outcomes.push({ source: 'icloud', ok: true });
     } else if (r.error !== 'not-connected') {
-      // 'not-connected' is the normal "no iCloud" case — silent.
+      // 'not-connected' is the normal "no iCloud" case - silent.
       outcomes.push({ source: 'icloud', ok: false, reason: r.error });
     }
   }
@@ -173,7 +173,7 @@ export async function listCalendarEventsAcrossProviders(
 // The model uses this to both answer "which calendars do I have?" and pick a
 // specific sub-calendar when the user names one ("læg det i Family"). We
 // filter to writable here because the tool's primary purpose is powering
-// create_calendar_event — a read-only / subscribed calendar (accessRole
+// create_calendar_event - a read-only / subscribed calendar (accessRole
 // "reader") returns 404 on POST and we'd be feeding the model a foot-gun.
 // Each row carries the provider:id pair the model passes back as
 // `calendar_id` on writes.
@@ -189,7 +189,7 @@ export async function listCalendarsAcrossProviders(
   if (cals.length === 0) {
     return { text: 'Ingen kalendere fundet på de forbundne konti.', isError: false };
   }
-  // Explicit field format — avoids the model accidentally including
+  // Explicit field format - avoids the model accidentally including
   // delimiters when it grabs the calendar_id. Each calendar gets a block:
   //   navn: oioioi
   //   provider: google
@@ -226,7 +226,7 @@ function formatGoogleEvent(e: GoogleEventWithCalendar): string {
   if (e.calendarName) meta.push(`kalender: ${e.calendarName}`);
   if (e.location) meta.push(`sted: ${e.location}`);
   if (attendees.length > 0) meta.push(`deltagere: ${attendees.length}`);
-  return `[google:${e.id}] ${range} — ${e.summary ?? 'Uden titel'}${meta.length ? ` (${meta.join(', ')})` : ''}`;
+  return `[google:${e.id}] ${range} - ${e.summary ?? 'Uden titel'}${meta.length ? ` (${meta.join(', ')})` : ''}`;
 }
 
 function formatGraphEvent(e: GraphCalendarEvent): string {
@@ -236,7 +236,7 @@ function formatGraphEvent(e: GraphCalendarEvent): string {
   const meta: string[] = [];
   if (e.location) meta.push(`sted: ${e.location}`);
   if (e.attendeeList.length > 0) meta.push(`deltagere: ${e.attendeeList.length}`);
-  return `[microsoft:${e.id}] ${range} — ${e.subject}${meta.length ? ` (${meta.join(', ')})` : ''}`;
+  return `[microsoft:${e.id}] ${range} - ${e.subject}${meta.length ? ` (${meta.join(', ')})` : ''}`;
 }
 
 function formatIcloudEvent(e: IcloudCalEvent): string {
@@ -246,7 +246,7 @@ function formatIcloudEvent(e: IcloudCalEvent): string {
   const meta: string[] = [];
   if (e.location) meta.push(`sted: ${e.location}`);
   if (e.calendarName) meta.push(`kalender: ${e.calendarName}`);
-  return `[icloud:${e.uid}] ${range} — ${e.title}${meta.length ? ` (${meta.join(', ')})` : ''}`;
+  return `[icloud:${e.uid}] ${range} - ${e.title}${meta.length ? ` (${meta.join(', ')})` : ''}`;
 }
 
 // ─── Mail ─────────────────────────────────────────────────────────────────
@@ -306,7 +306,7 @@ export async function listRecentMailAcrossProviders(
   }
 
   const lines = trimmed.map((r) =>
-    `[${r.source}:${r.id}] ${r.receivedAt.toISOString()} — ${r.from} — "${r.subject}" — ${truncate(r.snippet, 120)}`,
+    `[${r.source}:${r.id}] ${r.receivedAt.toISOString()} - ${r.from} - "${r.subject}" - ${truncate(r.snippet, 120)}`,
   );
   const header = `${trimmed.length} af de nyeste mails:`;
   const footer = formatOutcomesFooter(outcomes);
@@ -431,8 +431,8 @@ export async function readDriveFile(
 function formatDriveHit(f: DriveFile): string {
   const kind = mimeLabel(f.mimeType);
   const modified = shortDate(f.modifiedTime);
-  const owner = f.ownerEmail ? ` — ejer: ${f.ownerEmail}` : '';
-  return `[drive:${f.id}] ${kind} — "${f.name}" — ændret ${modified}${owner} — ${f.webViewLink}`;
+  const owner = f.ownerEmail ? ` - ejer: ${f.ownerEmail}` : '';
+  return `[drive:${f.id}] ${kind} - "${f.name}" - ændret ${modified}${owner} - ${f.webViewLink}`;
 }
 
 function mimeLabel(mime: string): string {
@@ -451,7 +451,7 @@ function mimeLabel(mime: string): string {
 // ─── OneDrive ─────────────────────────────────────────────────────────────
 //
 // Microsoft Graph search + read for the user's personal OneDrive. Same
-// shape as Drive — search by query, then read by ID. Read is restricted
+// shape as Drive - search by query, then read by ID. Read is restricted
 // to text-shaped MIME types; Office formats are refused at read time.
 
 export async function searchOnedriveFilesTool(
@@ -495,8 +495,8 @@ export async function readOnedriveFile(
 function formatOnedriveHit(f: OnedriveFile): string {
   const kind = mimeLabel(f.mimeType);
   const modified = shortDate(f.modifiedTime);
-  const owner = f.ownerEmail ? ` — ejer: ${f.ownerEmail}` : '';
-  return `[onedrive:${f.id}] ${kind} — "${f.name}" — ændret ${modified}${owner} — ${f.webUrl}`;
+  const owner = f.ownerEmail ? ` - ejer: ${f.ownerEmail}` : '';
+  return `[onedrive:${f.id}] ${kind} - "${f.name}" - ændret ${modified}${owner} - ${f.webUrl}`;
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────
@@ -520,7 +520,7 @@ function formatOutcomesFooter(outcomes: SourceOutcome[]): string {
   const parts: string[] = [];
   if (ok.length > 0) parts.push(`Kilder OK: ${ok.join(', ')}`);
   if (failed.length > 0) parts.push(`Mislykkedes: ${failed.join(', ')}`);
-  return `\n— ${parts.join('. ')}.`;
+  return `\n- ${parts.join('. ')}.`;
 }
 
 // ─── Calendar writes ──────────────────────────────────────────────────────
@@ -533,8 +533,8 @@ function formatOutcomesFooter(outcomes: SourceOutcome[]): string {
 //     model can suggest reconnecting if relevant.
 //
 // Calendar writes route by provider prefix on the unified ID (update/delete)
-// or by an explicit `provider` field (create). All three providers — Google,
-// Microsoft, iCloud — support full create/update/delete. Attendees are sent
+// or by an explicit `provider` field (create). All three providers - Google,
+// Microsoft, iCloud - support full create/update/delete. Attendees are sent
 // for Google and Microsoft; iCloud drops them (no iTIP support yet).
 
 export type WriteEventInput = {
@@ -544,7 +544,7 @@ export type WriteEventInput = {
   allDay?: boolean;
   location?: string;
   description?: string;
-  attendees?: string[]; // emails (Microsoft only — iCloud invitation flow is separate)
+  attendees?: string[]; // emails (Microsoft only - iCloud invitation flow is separate)
   // When true, skip the cross-calendar conflict check. The model only sets this
   // after the user has been shown a conflict and explicitly chose to proceed.
   forceOverlap?: boolean;
@@ -558,7 +558,7 @@ export type WriteEventInput = {
 };
 
 // Scan all connected calendars for timed events that overlap [start, end).
-// All-day events are ignored — they're typically birthdays / OOO markers and
+// All-day events are ignored - they're typically birthdays / OOO markers and
 // shouldn't block creating a real meeting on the same day. iCloud failures
 // fall back to "no conflicts found there" rather than blocking the create:
 // the user explicitly asked for the event, and a flaky CalDAV reachability
@@ -591,7 +591,7 @@ async function findConflicts(
         if (overlaps(s, eEnd)) out.push({ source: 'google', title: e.summary ?? 'Uden titel', start: s, end: eEnd });
       }
     } catch {
-      // Treat read failure as "no conflict found here" — see comment above.
+      // Treat read failure as "no conflict found here" - see comment above.
     }
   }
   if (ctx.outlookCalendar) {
@@ -626,7 +626,7 @@ function formatConflictsMessage(conflicts: Conflict[], start: Date, end: Date): 
   ].join('\n');
 }
 
-// Models routinely confuse calendar NAMES with calendar IDs — the chat tool
+// Models routinely confuse calendar NAMES with calendar IDs - the chat tool
 // gets `calendar_id: "oioioi"` (the name) when it should be
 // `abc@group.calendar.google.com` (the actual id). Rather than fail with a
 // 404, accept either and resolve the name to an id by enumerating the
@@ -643,7 +643,7 @@ async function resolveGoogleCalendarId(idOrName: string): Promise<string> {
     const byName = cals.find((c) => c.name.toLowerCase() === lower);
     if (byName) return byName.id;
   } catch {
-    // Fall through — let the provider 404 with the original.
+    // Fall through - let the provider 404 with the original.
   }
   return idOrName;
 }
@@ -693,7 +693,7 @@ export async function createCalendarEvent(
     } catch (err) {
       const calId = resolvedInput.calendarId ?? 'primary';
       // Use a longer truncation than short() so the model sees Google's
-      // actual JSON error body — invaluable when diagnosing 404 vs 403 vs
+      // actual JSON error body - invaluable when diagnosing 404 vs 403 vs
       // a malformed id, all of which surface as different text in the body.
       const msg = (err instanceof Error ? err.message : String(err)).slice(0, 400);
       return {
@@ -877,7 +877,7 @@ function toIcloudInput(input: WriteEventInput): IcloudEventInput {
     allDay: input.allDay,
     location: input.location,
     description: input.description,
-    // attendees intentionally dropped — iCloud's CalDAV invitation flow needs
+    // attendees intentionally dropped - iCloud's CalDAV invitation flow needs
     // ATTENDEE/ORGANIZER properties + iTIP/REQUEST handling that we don't
     // support. The model is told to mention this when relevant.
   };

@@ -3,7 +3,7 @@
 // Loading screen between intro Start tap and the review screen. Polls the
 // backfill-status edge function for completion + per-service failures, but
 // the orbit visuals are intentionally decoupled from job count: a fixed
-// pool of ambient slots cycles through the logo set — each slot picks a
+// pool of ambient slots cycles through the logo set - each slot picks a
 // random logo, fades in from off-screen, orbits the Stone briefly, gets
 // sucked into the Stone, and respawns with a new logo and angle. Real
 // failed jobs render as a separate static layer at the periphery with a
@@ -55,7 +55,7 @@ const SERVICE_META: Record<ServiceId, { logo: ImageSourcePropType; label: string
   'icloud:mail': { logo: require('../../assets/logos/icloud.png'), label: 'iCloud' },
 };
 
-// Ambient orbit pool — purely visual. Wider than the actual backfill set
+// Ambient orbit pool - purely visual. Wider than the actual backfill set
 // so the screen feels lively even for users with only one or two real
 // jobs. Drive logo appears here as flavour even though it's not part of
 // the backfill flow.
@@ -91,7 +91,7 @@ const STONE_PULSE_DOWN_MS = 620;
 const ANIMATION_FLOOR_MS = 3000;
 
 // Force-exit if the scan never reaches a terminal state. Tighter than the
-// 120s poll budget — caps how long the user stares at orbiting logos
+// 120s poll budget - caps how long the user stares at orbiting logos
 // before we get out of the way. Error UI is a separate ticket.
 const ANIMATION_CEILING_MS = 45_000;
 
@@ -136,7 +136,7 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
 
   // Unmount-only cleanup for the completion timer. The timer itself is
   // scheduled inside the [jobs] effect below but MUST survive re-runs of
-  // that effect — otherwise every poll-driven jobs change cancels the
+  // that effect - otherwise every poll-driven jobs change cancels the
   // pending onComplete and the screen hangs forever.
   useEffect(() => {
     return () => {
@@ -156,7 +156,7 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
     return () => { cancelled = true; sub.remove(); };
   }, []);
 
-  // Idle breathing + scan on the Stone — runs from mount until completion.
+  // Idle breathing + scan on the Stone - runs from mount until completion.
   useEffect(() => {
     if (reduceMotion) return;
     stoneScale.value = withRepeat(
@@ -196,7 +196,7 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
         if (cancelled) return;
         setJobs(fresh);
       } catch {
-        // Silent — keep polling. The completion handler has its own
+        // Silent - keep polling. The completion handler has its own
         // timeout fallback if the endpoint stays unreachable.
       }
       if (attempts >= POLL_TIMEOUT_ATTEMPTS && !cancelled && !completedRef.current) {
@@ -207,11 +207,11 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
     void poll();
     const id = setInterval(poll, POLL_INTERVAL_MS);
     return () => { cancelled = true; clearInterval(id); };
-    // onComplete intentionally not in deps — we want a stable poller.
+    // onComplete intentionally not in deps - we want a stable poller.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Animation ceiling — force-exit if scan never reaches terminal state.
+  // Animation ceiling - force-exit if scan never reaches terminal state.
   // Tighter than the 120s poll-attempt budget; this is the *animation*
   // hard cap, not the poll cap. Error UI is a separate ticket.
   useEffect(() => {
@@ -221,7 +221,7 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
       onComplete(jobsRef.current.filter((j) => j.status !== 'done'));
     }, ANIMATION_CEILING_MS);
     return () => clearTimeout(id);
-    // onComplete intentionally not in deps — stable single-fire timer.
+    // onComplete intentionally not in deps - stable single-fire timer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -243,7 +243,7 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
     }
 
     const failed = jobs.filter((j) => j.status === 'failed' || j.status === 'cancelled');
-    // 3s floor from mount — fast scans pad to feel rewarding, slow scans
+    // 3s floor from mount - fast scans pad to feel rewarding, slow scans
     // transition immediately when the scan finishes.
     const elapsed = Date.now() - mountedAtRef.current;
     const hold = Math.max(0, ANIMATION_FLOOR_MS - elapsed);
@@ -272,7 +272,7 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
     <View style={{ flex: 1, backgroundColor: t.paper }}>
       <GlassHaloLayer />
 
-      {/* Orbit stage — centered in flex */}
+      {/* Orbit stage - centered in flex */}
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
         <Animated.View
           style={[
@@ -344,7 +344,7 @@ function AmbientIcon({ slot, reduceMotion }: AmbientIconProps) {
 
   // Logo + start-angle picked per cycle. We re-pick on each absorb so the
   // user sees variety, but useState lets us trigger a re-render cleanly
-  // (the alternative — picking inside an Animated callback — gets messy).
+  // (the alternative - picking inside an Animated callback - gets messy).
   const [logoIdx, setLogoIdx] = useState(() =>
     Math.floor(Math.random() * AMBIENT_LOGOS.length),
   );
@@ -387,7 +387,7 @@ function AmbientIcon({ slot, reduceMotion }: AmbientIconProps) {
     const driftMs = 700 + Math.random() * 600;     // 0.7–1.3s drift in
     const orbitMs = 2200 + Math.random() * 2400;   // 2.2–4.6s orbiting
     const absorbMs = 480 + Math.random() * 220;    // 0.48–0.7s absorb
-    // Light orbital drift while it's visible — we sweep the angle by a
+    // Light orbital drift while it's visible - we sweep the angle by a
     // moderate amount rather than completing a full revolution so each
     // cycle has a clear arc.
     const orbitSweepDeg = (Math.random() * 220 + 80) * (Math.random() < 0.5 ? -1 : 1);
@@ -426,7 +426,7 @@ function AmbientIcon({ slot, reduceMotion }: AmbientIconProps) {
       if (cycleTimer.current) clearTimeout(cycleTimer.current);
     };
     // startCycle is stable after first render via useCallback, but its
-    // identity changes if reduceMotion flips — which is fine, the cleanup
+    // identity changes if reduceMotion flips - which is fine, the cleanup
     // above kills the in-flight timer and the new effect schedules fresh.
   }, [slot, startCycle]);
 

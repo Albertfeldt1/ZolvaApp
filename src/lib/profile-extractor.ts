@@ -29,14 +29,14 @@ const EXTRACTOR_SYSTEM =
   'oplysning om dig værd at huske (relation, rolle, præference, igangværende projekt, eller løfte/aftale). ' +
   'Svar altid på dansk. Returnér højst ét kandidat-faktum.\n\n' +
   'HVAD DU IKKE SKAL EKSTRAHERE (returnér candidate: null):\n' +
-  '- Engangshandlinger: "du vil sende X til Y", "du klikkede på en mail", "du har lige sendt en mail" — ' +
+  '- Engangshandlinger: "du vil sende X til Y", "du klikkede på en mail", "du har lige sendt en mail" - ' +
   'det er forbigående, ikke et fakta om dig.\n' +
   '- Fortidshandlinger uden fremadrettet betydning: "du har ignoreret en mail", "du har læst X", ' +
   '"du har afvist Y". Ignorér også "har set", "har klikket", "har scrollet".\n' +
   '- Flygtige følelser/tilstande: humør, sult, frokost, vejret.\n' +
-  '- Information der allerede står i den medfølgende liste af eksisterende fakta — også hvis den er ' +
+  '- Information der allerede står i den medfølgende liste af eksisterende fakta - også hvis den er ' +
   'omformuleret med andre ord. Eksempel: hvis "du foretrækker at sende via iCloud" allerede findes, ' +
-  'så ekstrahér IKKE "du sender helst via iCloud" eller "du vil bruge iCloud til at sende mail" — ' +
+  'så ekstrahér IKKE "du sender helst via iCloud" eller "du vil bruge iCloud til at sende mail" - ' +
   'returnér candidate: null. Hvis det nye er DET MODSATTE af et eksisterende fakta, returnér også null ' +
   '(brugeren skal selv håndtere det modstridende).\n' +
   '- Gentagelser af samme intention med andre ord. Hellere returnere null end at lave en næsten-dublet.\n\n' +
@@ -46,7 +46,7 @@ const EXTRACTOR_SYSTEM =
   '- Skriv ALTID direkte til personen med "du"/"dig"/"din"/"dit"/"dine".\n' +
   '- Brug ALDRIG ordene "bruger", "brugeren", "brugerens", "brugere".\n' +
   '- Brug ALDRIG personens eget navn i 3. person ("Oscar skal…", "Albert har…"). Skriv "du skal…" / "du har…" i stedet. Andre menneskers navne er fine ("Maria er din leder").\n' +
-  '- Start ALDRIG med "huske", "husk", "skal jeg huske" eller "påmind". UI\'et viser allerede teksten som "Skal jeg huske at …?", så fakta skal være selve indholdet — fx "du skal gennemgå Mettes kontrakt fredag", IKKE "huske brugeren på at gennemgå Mettes kontrakt".\n' +
+  '- Start ALDRIG med "huske", "husk", "skal jeg huske" eller "påmind". UI\'et viser allerede teksten som "Skal jeg huske at …?", så fakta skal være selve indholdet - fx "du skal gennemgå Mettes kontrakt fredag", IKKE "huske brugeren på at gennemgå Mettes kontrakt".\n' +
   '- Skriv som en kort, naturlig sætning der grammatisk passer efter "Skal jeg huske at …?".';
 
 const EXTRACTOR_SCHEMA =

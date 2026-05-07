@@ -20,7 +20,7 @@ type Props = {
 };
 
 export function ObservationHistoryModal({ visible, onClose }: Props) {
-  // Latch to true on first open and stay true until the modal closes —
+  // Latch to true on first open and stay true until the modal closes -
   // gives the slide-down animation content to render. Without this,
   // visible flips false and the inner View disappears immediately.
   const [everShown, setEverShown] = useState(false);
@@ -178,9 +178,9 @@ function ObservationHistoryContent({ onClose }: { onClose: () => void }) {
 }
 
 function moodDotColor(o: StoredObservation, surface: SurfaceTokens): string {
-  if (o.mood === 'happy') return surface.successText;  // green — positive observation
-  if (o.mood === 'thinking') return '#C17A5B';          // clay amber — requires a decision
-  return 'rgba(120,122,130,0.6)';                       // neutral grey — calm observation
+  if (o.mood === 'happy') return surface.successText;  // green - positive observation
+  if (o.mood === 'thinking') return '#C17A5B';          // clay amber - requires a decision
+  return 'rgba(120,122,130,0.6)';                       // neutral grey - calm observation
 }
 
 const DANISH_MONTHS = [

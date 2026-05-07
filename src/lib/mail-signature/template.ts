@@ -1,11 +1,11 @@
 // src/lib/mail-signature/template.ts
 //
 // Pure HTML rendering for the rich mail signature. No I/O, no React,
-// no provider knowledge — just SignatureData → HTML/plaintext.
+// no provider knowledge - just SignatureData → HTML/plaintext.
 //
 // Layout uses a <table> wrapper because Outlook desktop on Windows uses
 // Word's HTML rendering engine, which mishandles flexbox/grid. Inline
-// styles only — Gmail strips <style> blocks.
+// styles only - Gmail strips <style> blocks.
 
 import type { ImportedSignature, RenderedSignature, StructuredSignature, SocialLink, SocialType } from './types';
 
@@ -45,7 +45,7 @@ export function escapeWithLinksAndBrs(s: string): string {
     if (normalized) {
       out += `<a href="${escapeHtml(normalized)}">${escapeHtml(text)}</a>`;
     } else {
-      // Unsafe scheme — write the raw markdown back as escaped text so
+      // Unsafe scheme - write the raw markdown back as escaped text so
       // nothing is silently dropped.
       out += escapeHtml(m[0]).replaceAll('\n', '<br>');
     }
@@ -67,7 +67,7 @@ function normalizeHrefForBody(url: string): string {
   return `https://${trimmed}`;
 }
 
-// Plaintext fallback for inline links: "text (url)" — readable in
+// Plaintext fallback for inline links: "text (url)" - readable in
 // non-HTML mail clients without leaving raw markdown brackets in the
 // alt body.
 function plainTextInlineLinks(s: string): string {
@@ -194,7 +194,7 @@ const SOCIAL_TINTS: Record<SocialType, string> = {
 };
 
 function urlHost(url: string): string {
-  // Light parse — sufficient for label fallback. Doesn't need to be perfect.
+  // Light parse - sufficient for label fallback. Doesn't need to be perfect.
   const m = url.match(/^https?:\/\/([^/]+)/i);
   return m ? m[1] : url;
 }

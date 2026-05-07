@@ -1,8 +1,8 @@
-// claude-proxy — Supabase Edge Function.
+// claude-proxy - Supabase Edge Function.
 //
 // Forwards chat-completion requests to Anthropic's /v1/messages using the
 // server-side ANTHROPIC_API_KEY. The caller must present a valid Supabase
-// user JWT — the function is deployed with --no-verify-jwt because the
+// user JWT - the function is deployed with --no-verify-jwt because the
 // project signs tokens with ES256 and the gateway only verifies HS256. The
 // function re-validates the token itself via supabase-js (getUser) so auth
 // is still enforced and logs can be tied to a user_id.
@@ -10,7 +10,7 @@
 // Request body shape (matches what src/lib/claude.ts sends):
 //   { messages, model?, max_tokens?, system?, temperature?, tools? }
 //
-// We log only metadata (user_id, model, token usage) — never the prompt or
+// We log only metadata (user_id, model, token usage) - never the prompt or
 // completion text.
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
@@ -143,7 +143,7 @@ serve(async (req) => {
   };
   if (body.system != null) {
     if (Array.isArray(body.system)) {
-      // Whitelist fields per ClaudeSystemBlock — TypeScript doesn't survive
+      // Whitelist fields per ClaudeSystemBlock - TypeScript doesn't survive
       // the JSON.parse boundary, so an authenticated caller could otherwise
       // smuggle arbitrary fields straight to Anthropic. Drop unknown shapes
       // and re-emit a clean block list with only `type`, `text`, and an

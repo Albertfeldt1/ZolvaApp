@@ -9,7 +9,7 @@
 // Deploy with `--no-verify-jwt`: ES256 keys, manual JWKS verify.
 //
 // No iat-freshness gate: revoke is destructive but in the user's interest.
-// Aggressive rate limit still applies — a fast revoke loop is a sign of a
+// Aggressive rate limit still applies - a fast revoke loop is a sign of a
 // bug or attack.
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
@@ -94,7 +94,7 @@ serve(async (req) => {
     return json(429, { ok: false, code: 'rate_limited' });
   }
 
-  // Hard delete. Idempotent — deleting a non-existent row is a no-op +
+  // Hard delete. Idempotent - deleting a non-existent row is a no-op +
   // returns no error. We always log a 'revoke' audit row regardless,
   // because "user explicitly clicked disconnect with no row" is still
   // useful signal.

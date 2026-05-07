@@ -4,7 +4,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,
   default: { getItem: jest.fn(), setItem: jest.fn(), removeItem: jest.fn() },
 }));
-// claude and hooks import auth.ts which calls supabase.auth at module load —
+// claude and hooks import auth.ts which calls supabase.auth at module load -
 // mock at the module level so the transitive chain doesn't crash the suite.
 jest.mock('../claude', () => ({ completeJson: jest.fn() }));
 jest.mock('../hooks', () => ({ getPrivacyFlag: jest.fn() }));

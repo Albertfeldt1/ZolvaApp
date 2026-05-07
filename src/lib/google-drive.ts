@@ -1,6 +1,6 @@
 // Minimal Google Drive client. Searches and reads files using the OAuth
 // provider_token returned by Supabase after signing in with Google
-// (scope: drive.readonly). Read-only by design — no create/update/delete.
+// (scope: drive.readonly). Read-only by design - no create/update/delete.
 
 import { ProviderAuthError, tryWithRefresh } from './auth';
 import { fetchWithTimeout } from './network-errors';
@@ -105,7 +105,7 @@ export async function searchFiles(query: string, limit = 10): Promise<DriveFile[
 }
 
 // Hard cap on how much body text we hand the model. ~12k chars ≈ 3k tokens
-// — enough to answer "what does the doc say about X?" without blowing the
+// - enough to answer "what does the doc say about X?" without blowing the
 // chat context budget on a single file.
 const MAX_BODY_CHARS = 12_000;
 
@@ -157,7 +157,7 @@ export async function getFileContent(id: string): Promise<DriveFileContent> {
     const fullText = await bodyRes.text();
     const truncated = fullText.length > MAX_BODY_CHARS;
     const text = truncated
-      ? `${fullText.slice(0, MAX_BODY_CHARS)}\n\n…[afkortet — fuld fil ${fullText.length.toLocaleString('da-DK')} tegn]`
+      ? `${fullText.slice(0, MAX_BODY_CHARS)}\n\n…[afkortet - fuld fil ${fullText.length.toLocaleString('da-DK')} tegn]`
       : fullText;
 
     return {

@@ -30,15 +30,15 @@ const PILL_SPRING = { damping: 22, stiffness: 260, mass: 1 };
 // Horizontal inset of the pill within its tab cell.
 const PILL_INSET_H = 7;
 // Vertical inset from the bar's top/bottom at rest. Smaller than the
-// horizontal inset so the pill reads taller — closer to Apple's iOS 26
+// horizontal inset so the pill reads taller - closer to Apple's iOS 26
 // lens proportions where the pill nearly fills the bar's height.
 const PILL_INSET_V = 3;
 // Peak overhang above/below the bar mid-transition. Pill returns to
-// PILL_INSET_V at rest — only "pops" out during the spring move.
+// PILL_INSET_V at rest - only "pops" out during the spring move.
 const PILL_OVERHANG_PEAK = 9;
 
 // darkBg is accepted for API-shape parity with ClassicTabBar but intentionally
-// unused — UIKit's colorScheme="auto" handles dark/light adaptation natively.
+// unused - UIKit's colorScheme="auto" handles dark/light adaptation natively.
 export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: Props) {
   const [rowWidth, setRowWidth] = useState(0);
   const tabWidth = rowWidth / TABS.length;
@@ -99,7 +99,7 @@ export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: P
   const panResponder = useMemo(
     () =>
       PanResponder.create({
-        // Don't claim the gesture on initial touch — let Pressables tap.
+        // Don't claim the gesture on initial touch - let Pressables tap.
         // Only take over once the user has clearly moved horizontally.
         onStartShouldSetPanResponder: () => false,
         onMoveShouldSetPanResponder: (_, g) =>
@@ -128,7 +128,7 @@ export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: P
   return (
     <View style={styles.wrap}>
       {/* Row layout: bar expands to fill, FAB sits flush at the right
-          edge at the same vertical level — mirrors the iOS Reminders
+          edge at the same vertical level - mirrors the iOS Reminders
           "segmented control + search circle" pairing. The bar+activePill
           live inside a GlassContainer so they magnetically merge during
           tab switches; the FAB is OUTSIDE that container so it does NOT
@@ -227,17 +227,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Bar takes the rest of the row's width. No own margins — the row owns
+  // Bar takes the rest of the row's width. No own margins - the row owns
   // those.
   barAnchor: {
     flex: 1,
   },
   // Inner anchor for absolute-positioned pill sibling. Sits inside the
   // GlassContainer so the active pill is the only sibling of the bar and
-  // gets the merge effect — the FAB is intentionally outside.
+  // gets the merge effect - the FAB is intentionally outside.
   barAnchorInner: {},
   // Fully pill-shaped bar (capsule). With 999 borderRadius, the corner
-  // matches the active-pill's own 999 — both read as proper capsules.
+  // matches the active-pill's own 999 - both read as proper capsules.
   bar: {
     borderRadius: 999,
     overflow: 'hidden',

@@ -51,7 +51,7 @@ export function ArchiveModal({ visible, onClose, onOpenMail }: Props) {
         <GlassHaloLayer />
         <SafeAreaView style={{ flex: 1 }}>
 
-        {/* Header — glass card with × close + title */}
+        {/* Header - glass card with × close + title */}
         <View
           style={{
             paddingTop: spacing.sm,

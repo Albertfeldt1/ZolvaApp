@@ -2,7 +2,7 @@
 //
 // JSON contract between the RN app (writer) and the iOS widget extension (reader).
 // schema is bumped on any meaning change so old extensions reject new payloads
-// (and vice versa) gracefully — both sides fall through to a placeholder.
+// (and vice versa) gracefully - both sides fall through to a placeholder.
 
 export const WIDGET_SNAPSHOT_SCHEMA = 1;
 

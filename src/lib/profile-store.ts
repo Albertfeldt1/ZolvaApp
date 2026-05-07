@@ -109,7 +109,7 @@ export async function insertPendingFact(
     text: string;
     category: FactCategory;
     source: string | null;
-    // Optional decay timestamp. NULL means "permanent" — set this only for
+    // Optional decay timestamp. NULL means "permanent" - set this only for
     // action-y categories (commitment / other). The extractor decides.
     expiresAt?: Date | null;
   },
@@ -160,7 +160,7 @@ export async function listPendingFactsForReview(userId: string): Promise<Fact[]>
     .eq('status', 'pending')
     .order('created_at', { ascending: false });
   if (error) throw error;
-  // De-dup by normalized_text — backfill workers can emit the same fact
+  // De-dup by normalized_text - backfill workers can emit the same fact
   // across multiple Claude batches. Keep the most recent (first in
   // desc-by-created_at order) so the user sees a clean list.
   const seen = new Set<string>();
@@ -238,7 +238,7 @@ export async function bulkUpdatePendingFacts(
   }
 
   // Reject any OTHER pending rows that share normalized_text with what
-  // we just confirmed — hidden duplicates from the display dedup pass.
+  // we just confirmed - hidden duplicates from the display dedup pass.
   // Without this, they sit as pending forever and would re-surface on
   // the next review.
   if (confirmedTexts.length > 0) {

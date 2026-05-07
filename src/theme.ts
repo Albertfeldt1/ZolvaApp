@@ -40,7 +40,7 @@ export const colors = {
   sageDim: '#C3D4B8',
 };
 
-// One font family everywhere — SpaceGrotesk. Aliases preserved so legacy
+// One font family everywhere - SpaceGrotesk. Aliases preserved so legacy
 // call sites still resolve, but every variant maps to a SpaceGrotesk weight.
 // Italic aliases lose their stylistic italic shape (SpaceGrotesk has no
 // italic cut loaded); pair them with `fontStyle: 'italic'` at the call site

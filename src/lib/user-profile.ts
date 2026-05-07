@@ -25,7 +25,7 @@ export function syncUserProfile(userId: string): void {
 
 // Mirror the local `memory-enabled` privacy toggle to user_profiles so cron
 // edge functions (daily-brief, fact-decay-warning) can short-circuit when
-// the user has memory turned off. Fire-and-forget — a failure must not
+// the user has memory turned off. Fire-and-forget - a failure must not
 // block the local toggle, since the server gate is a backstop, not the
 // primary control.
 export function syncMemoryEnabled(userId: string, enabled: boolean): void {

@@ -103,7 +103,7 @@ export function isAutomatedSender(
   const email = fromEmail.toLowerCase().trim();
   if (!email) return true;
 
-  // From-self filter — exclude the user's own sent-to-self mail.
+  // From-self filter - exclude the user's own sent-to-self mail.
   if (userOwnEmail && email === userOwnEmail.toLowerCase().trim()) return true;
 
   const localPart = email.split('@')[0];
@@ -164,7 +164,7 @@ export async function callClaudeBatch(
   // different wording (the partial unique index on confirmed facts catches
   // exact text dupes; semantic dupes need the model to avoid them up front).
   const userContent = priorFacts.length > 0
-    ? `Allerede registreret i denne kørsel — UNDGÅ at gentage eller omformulere disse:\n${priorFacts.map((f) => `- ${f}`).join('\n')}\n\n---\n\n${userPayload}`
+    ? `Allerede registreret i denne kørsel - UNDGÅ at gentage eller omformulere disse:\n${priorFacts.map((f) => `- ${f}`).join('\n')}\n\n---\n\n${userPayload}`
     : userPayload;
   const res = await fetchWithRetry(ANTHROPIC_URL, {
     method: 'POST',
@@ -235,7 +235,7 @@ export async function insertPendingFacts(
   // Live `facts` columns: id, user_id, text, normalized_text, category,
   // status, source, created_at, confirmed_at, rejected_at, rejection_ttl,
   // expires_at, decay_warning_sent_at. There is NO `confidence` column and
-  // NO `referent_date` column — `confidence` is consumed only as a filter
+  // NO `referent_date` column - `confidence` is consumed only as a filter
   // here; `referentDate` is dropped (the existing `expires_at` decay path
   // is for action-y categories and is set elsewhere).
   const candidates = facts

@@ -26,7 +26,7 @@ export type GoogleCalendarEvent = {
 };
 
 // Google Calendar event color palette (colorId "1"-"11"). Values from the
-// /calendar/v3/colors endpoint — the palette is stable, hardcoded to avoid
+// /calendar/v3/colors endpoint - the palette is stable, hardcoded to avoid
 // a second round-trip per calendar fetch.
 export const GOOGLE_EVENT_COLORS: Record<string, string> = {
   '1': '#7986CB', // Lavender
@@ -42,7 +42,7 @@ export const GOOGLE_EVENT_COLORS: Record<string, string> = {
   '11': '#D50000', // Tomato
 };
 
-// Google's default color for an event with no explicit colorId set — the
+// Google's default color for an event with no explicit colorId set - the
 // primary calendar's default ("Blueberry").
 export const GOOGLE_DEFAULT_EVENT_COLOR = GOOGLE_EVENT_COLORS['9'];
 
@@ -120,7 +120,7 @@ export async function listEventsForCalendars(
   );
   // First rejection that's a ProviderAuthError must propagate so tryWithRefresh
   // (already inside listEventsForCalendar) gets a chance at the call-site
-  // catch. Other failures (per-calendar 5xx etc.) are swallowed — losing one
+  // catch. Other failures (per-calendar 5xx etc.) are swallowed - losing one
   // calendar is better than blanking all.
   const auth = results.find(
     (r): r is PromiseRejectedResult =>
@@ -176,7 +176,7 @@ export type GoogleEventInput = {
   description?: string;
   attendees?: Array<{ email: string; name?: string }>;
   // Target a specific Google calendar by id. Defaults to `primary` when
-  // omitted — preserves the existing behavior for callers that don't care.
+  // omitted - preserves the existing behavior for callers that don't care.
   calendarId?: string;
 };
 
@@ -213,7 +213,7 @@ function buildGoogleEventBody(input: GoogleEventInput): Record<string, unknown> 
 export async function createEvent(input: GoogleEventInput): Promise<{ id: string }> {
   return tryWithRefresh('google', async (accessToken) => {
     // sendUpdates=all so attendees actually receive the invitation. With no
-    // attendees this is a no-op — Google ignores the param.
+    // attendees this is a no-op - Google ignores the param.
     const calendarId = input.calendarId ?? 'primary';
     const url = `${BASE}/calendars/${encodeURIComponent(calendarId)}/events?sendUpdates=all`;
     const res = await fetchWithTimeout('google', url, {

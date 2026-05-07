@@ -6,7 +6,7 @@
 //   - 'word' target: finds the first occurrence of the literal text that is NOT
 //     inside a tag attribute. If the match falls INSIDE an existing <a>...</a>
 //     (Claude often invents fake hrefs around styled words like "her"), we
-//     REPLACE that anchor's href with the user's URL — this is what the user
+//     REPLACE that anchor's href with the user's URL - this is what the user
 //     intends when they bind. Otherwise we wrap the match with a fresh <a>.
 //   - 'image' target: finds the first <img src="..."> whose src matches
 //     target.src and wraps it with <a href="...">; or replaces the surrounding
@@ -177,8 +177,8 @@ function wrapWord(
   if (!found) return null;
 
   // Single plain words ("her", "Albert") get explicit link styling so they
-  // visually read as a hyperlink in plain body text. Phrases — anything
-  // with whitespace or non-word punctuation — are usually wrapping styled
+  // visually read as a hyperlink in plain body text. Phrases - anything
+  // with whitespace or non-word punctuation - are usually wrapping styled
   // block content (CTA buttons), so we emit a bare <a href> and let the
   // inner element's existing styling propagate. This keeps "Find me on
   // Facebook" looking like a button instead of becoming a blue underlined
@@ -198,7 +198,7 @@ function wrapWord(
     return html.slice(0, aStart) + rewritten + html.slice(openTagEnd + 1);
   }
 
-  // No surrounding anchor — wrap the match with a fresh <a>...</a>.
+  // No surrounding anchor - wrap the match with a fresh <a>...</a>.
   // Phrases inherit color/decoration from the parent so a button's
   // existing white-on-blue / etc. survives the wrap. Single words still
   // get explicit link styling so they read as a hyperlink in plain copy.
@@ -220,7 +220,7 @@ function setHrefOnTag(openTag: string, newHref: string): string {
   if (hrefRe.test(openTag)) {
     return openTag.replace(hrefRe, `href="${escapeAttr(newHref)}"`);
   }
-  // No href yet — insert one immediately after "<a"
+  // No href yet - insert one immediately after "<a"
   return openTag.replace(/^<a\b/i, `<a href="${escapeAttr(newHref)}"`);
 }
 
@@ -228,7 +228,7 @@ function setHrefOnTag(openTag: string, newHref: string): string {
  * Attempt to wrap (or rewrite) the first <img> whose src matches `src` in
  * `html` with an <a> tag. If the image is inside an existing <a>...</a>
  * (Claude often wraps logos with an invented company-website href), the
- * surrounding anchor's opening tag is replaced — same intent-override rule
+ * surrounding anchor's opening tag is replaced - same intent-override rule
  * as wrapWord. Returns the new html string on success, or null when the
  * image isn't present.
  */
@@ -263,7 +263,7 @@ function wrapImage(
       const rewritten = setHrefOnTag(openTag, href);
       return html.slice(0, aStart) + rewritten + html.slice(openTagEnd + 1);
     }
-    // Not inside any anchor — wrap the <img> with a fresh <a>.
+    // Not inside any anchor - wrap the <img> with a fresh <a>.
     const wrapped = `<a href="${escapeAttr(href)}">${imgTag}</a>`;
     return html.slice(0, idx) + wrapped + html.slice(idx + imgTag.length);
   }

@@ -35,7 +35,7 @@ export async function buildOutgoingBody(rawBody: string): Promise<OutgoingBody> 
     signatureHtml = applied.html;
     socialsForRow = applied.unbound;
   } else {
-    // structured: target is ignored — socials always render as separate pills
+    // structured: target is ignored - socials always render as separate pills
     signatureHtml = rendered.html;
     socialsForRow = sigData.socials;
   }

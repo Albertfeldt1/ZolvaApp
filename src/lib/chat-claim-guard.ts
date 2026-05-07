@@ -26,7 +26,7 @@ export type ClaimVerdict = {
 };
 
 export const GENERIC_CONFUSED_FALLBACK =
-  'Jeg blev forvirret — kan du gentage hvad du gerne vil have mig til?';
+  'Jeg blev forvirret - kan du gentage hvad du gerne vil have mig til?';
 
 export const CHAT_GUARD_DEBUG_TAG = '[chat-guard]';
 
@@ -52,14 +52,14 @@ const VALID_TOOLS: ReadonlySet<ChatToolName> = new Set([
 const CLASSIFIER_SYSTEM = [
   'Du er en intern klassifikator for en chatbot der har værktøjer til mail og kalender.',
   'Du får én besked fra chatbotten. Afgør om beskeden påstår at en handling er udført',
-  'eller at konkrete data er hentet — ting der KRÆVER et værktøjskald.',
+  'eller at konkrete data er hentet - ting der KRÆVER et værktøjskald.',
   '',
   'Påstande der kræver værktøj (claimed=true):',
   '- "Jeg har sendt mailen", "Mailen er afsendt", "Jeg sendte den"',
   '- "Jeg har gemt udkastet", "Udkastet ligger i din kladdemappe"',
   '- "Jeg har oprettet/ændret/slettet begivenheden", "Den er lagt i kalenderen"',
   '- "Jeg har gemt påmindelsen/noten"',
-  '- "Jeg har tjekket din kalender — du har X", "Din næste mail er fra Y"',
+  '- "Jeg har tjekket din kalender - du har X", "Din næste mail er fra Y"',
   '- "Jeg fandt filen om Z i Drive"',
   '- "Jeg fandt filen om Z i OneDrive"',
   '',
@@ -74,9 +74,9 @@ const CLASSIFIER_SYSTEM = [
 
 const CLASSIFIER_SCHEMA_HINT = [
   '{',
-  '  "claimed": "boolean — true hvis beskeden påstår en udført handling",',
-  `  "tool": "string|null — én af: ${[...VALID_TOOLS].join(', ')}. null hvis claimed=false eller værktøj uklart.",`,
-  '  "reason": "string — kort dansk begrundelse, max 100 tegn"',
+  '  "claimed": "boolean - true hvis beskeden påstår en udført handling",',
+  `  "tool": "string|null - én af: ${[...VALID_TOOLS].join(', ')}. null hvis claimed=false eller værktøj uklart.",`,
+  '  "reason": "string - kort dansk begrundelse, max 100 tegn"',
   '}',
 ].join('\n');
 

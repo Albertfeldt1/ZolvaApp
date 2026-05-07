@@ -70,13 +70,13 @@ function monthYearEyebrow(d: Date): string {
     .toUpperCase();
 }
 
-/** First line of display headline — e.g. "Tirsdag" capitalised. */
+/** First line of display headline - e.g. "Tirsdag" capitalised. */
 function weekdayHeadline(d: Date): string {
   const s = new Intl.DateTimeFormat('da-DK', { weekday: 'long' }).format(d);
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-/** Short Danish month — strips trailing period from da-DK short format. */
+/** Short Danish month - strips trailing period from da-DK short format. */
 function shortMonth(d: Date): string {
   return new Intl.DateTimeFormat('da-DK', { month: 'short' }).format(d).replace('.', '');
 }
@@ -146,9 +146,9 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
   const hasEvents = slots.some((s) => s.event);
   // All-day events render inline (pinned above grid); timed events render as
   // absolute overlays on the hour grid so duration → height correctly.
-  const allDaySlots = useMemo(() => slots.filter((s) => s.hour === '—'), [slots]);
-  const hourSlots = useMemo(() => slots.filter((s) => s.hour !== '—'), [slots]);
-  // Hours touched by any timed event — used to suppress the "—" placeholder
+  const allDaySlots = useMemo(() => slots.filter((s) => s.hour === '-'), [slots]);
+  const hourSlots = useMemo(() => slots.filter((s) => s.hour !== '-'), [slots]);
+  // Hours touched by any timed event - used to suppress the "-" placeholder
   // there so it doesn't overlap the (now behind-the-grid) chip.
   const coveredHours = useMemo(() => {
     const set = new Set<string>();
@@ -182,7 +182,7 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
 
   const [rowLayouts, setRowLayouts] = useState<Record<string, { y: number; height: number }>>({});
   // Reset when the user picks a different day; don't reset on every
-  // `slots` reference change — useDaySchedule returns a fresh array each
+  // `slots` reference change - useDaySchedule returns a fresh array each
   // render, which turned this into an infinite setState loop.
   useEffect(() => {
     setRowLayouts({});
@@ -233,7 +233,7 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
 
   // Strip-level active-day pill. Lives once across the whole horizontal
   // ScrollView so it can spring from one week's day to another when the
-  // user pages forward (or back) and THEN taps a day — instead of popping
+  // user pages forward (or back) and THEN taps a day - instead of popping
   // in cold at the new position. X is global within the scroll content.
   const selectedPosition = useMemo(() => {
     for (let wi = 0; wi < weeks.length; wi++) {
@@ -279,7 +279,7 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
   const dayPanResponder = useMemo(
     () =>
       PanResponder.create({
-        // Don't claim on touch start — let taps and vertical scroll work.
+        // Don't claim on touch start - let taps and vertical scroll work.
         onStartShouldSetPanResponder: () => false,
         // Only claim when horizontal motion clearly dominates.
         onMoveShouldSetPanResponder: (_, g) =>
@@ -324,7 +324,7 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
           showsVerticalScrollIndicator={false}
           contentInsetAdjustmentBehavior="never"
         >
-          {/* Display headline + secondary actions — wrapped in a soft glass backdrop. */}
+          {/* Display headline + secondary actions - wrapped in a soft glass backdrop. */}
           <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
             <GlassFrostedCard
               radius={radius.card}
@@ -419,7 +419,7 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
             )}
           </View>
 
-          {/* Events / hour grid — wrapped in a glass card so the
+          {/* Events / hour grid - wrapped in a glass card so the
               dayPanResponder swipe target sits on a backdrop instead
               of floating directly on the halo paper. */}
           <View
@@ -537,7 +537,7 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
                     the static rows so the hour labels and dividers stay
                     legible on top. Source order = paint order in RN. */}
                 <View style={{ position: 'relative' }}>
-                  {/* Event chip washes — drawn first so the grid sits on top. */}
+                  {/* Event chip washes - drawn first so the grid sits on top. */}
                   {hourSlots.map((row, i) => {
                     if (!row.event) return null;
                     const layout = rowLayouts[row.hour];
@@ -558,7 +558,7 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
                           overflow: 'hidden',
                         }}
                       >
-                        {/* Translucent fill — opacity stays here so the
+                        {/* Translucent fill - opacity stays here so the
                             title/sub text below can render fully opaque. */}
                         <View
                           style={{
@@ -595,7 +595,7 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
                     );
                   })}
 
-                  {/* Static hour rows — rendered after washes so labels and
+                  {/* Static hour rows - rendered after washes so labels and
                       dividers draw on top of the chip backgrounds. */}
                   {hourSlots.map((row, i) => (
                     <View
@@ -626,7 +626,7 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
                       </Text>
                       {!coveredHours.has(row.hour) && (
                         <Text style={{ fontFamily: fonts.ui, fontSize: type.bodySm.fontSize, color: t.ink4, lineHeight: 22 }}>
-                          —
+                          -
                         </Text>
                       )}
                     </View>

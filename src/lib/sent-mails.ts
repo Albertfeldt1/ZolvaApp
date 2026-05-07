@@ -1,12 +1,12 @@
 // src/lib/sent-mails.ts
 //
 // Local AsyncStorage-backed log of mails Zolva sent on the user's behalf.
-// Provider-agnostic — Gmail, Outlook, and iCloud all funnel through the
+// Provider-agnostic - Gmail, Outlook, and iCloud all funnel through the
 // same recordSentMail() entry point so the user has one place to verify
 // "did Zolva actually send this?".
 //
 // Why this exists: iCloud-sent mail does not land in Apple Mail's Sent
-// folder (see 2026-05-06-icloud-send-mail-design.md non-goals — the IMAP
+// folder (see 2026-05-06-icloud-send-mail-design.md non-goals - the IMAP
 // APPEND is too slow for Supabase's 12s gateway). Gmail/Outlook DO
 // populate their own Sent folders, but the user still benefits from a
 // single in-app view since they may not check the provider's Sent
@@ -26,7 +26,7 @@ export type SentMailRecord = {
   to: string[];
   cc?: string[];
   subject: string;
-  body: string;       // raw user-typed body — signature NOT included
+  body: string;       // raw user-typed body - signature NOT included
   replyToId?: string; // unified ID of the original mail when this is a reply
 };
 
@@ -90,7 +90,7 @@ export async function recordSentMail(
   input: RecordSentMailInput,
 ): Promise<SentMailRecord> {
   if (!userId) {
-    // Defensive — shouldn't happen given the gate in callers, but a
+    // Defensive - shouldn't happen given the gate in callers, but a
     // missing userId should not crash a successful send.
     throw new Error('recordSentMail: missing userId');
   }
@@ -107,7 +107,7 @@ export async function recordSentMail(
   };
   const next = [record, ...(cache.get(userId) ?? [])].slice(0, MAX_ENTRIES);
   cache.set(userId, next);
-  // Persist async; don't block the caller — the in-memory cache is the
+  // Persist async; don't block the caller - the in-memory cache is the
   // source of truth for the current session.
   void persist(userId);
   notify(userId);

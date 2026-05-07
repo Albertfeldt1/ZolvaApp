@@ -10,7 +10,7 @@
 //   - Asks iCloud for server-side recurrence expansion via <C:expand>.
 //     If iCloud honors it, ical.js sees pre-expanded instances and
 //     skips the iterator path. If iCloud returns RRULE anyway, ical.js
-//     expands locally — same code path the client runs in production.
+//     expands locally - same code path the client runs in production.
 //   - On any non-recoverable error (creds missing, auth-failed, network)
 //     returns [] silently. Daily-brief skips iCloud for that user; the
 //     client surfaces re-entry on next app open via icloud-credentials.ts.
@@ -25,7 +25,7 @@ import type { EventSummary } from './calendar.ts';
 
 const CALDAV_TIMEOUT_MS = 4000;
 const CALDAV_USER_AGENT = 'Zolva/1.0 (server; CalDAV)';
-// Hard cap on RRULE iterations per VEVENT — defensive against pathological
+// Hard cap on RRULE iterations per VEVENT - defensive against pathological
 // rules (e.g. FREQ=SECONDLY) that would otherwise spin the function.
 const MAX_OCCURRENCES_PER_EVENT = 200;
 
@@ -240,7 +240,7 @@ async function reportEvents(
 ): Promise<CalDataItem[]> {
   // <C:expand> asks the server for expanded recurrence instances within the
   // range. iCloud usually honors it. If not, ical.js's iterator handles RRULE
-  // locally during parse — see parseVcalendarEvents.
+  // locally during parse - see parseVcalendarEvents.
   const body =
     `<?xml version="1.0" encoding="utf-8"?>
 <c:calendar-query xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:d="DAV:">
@@ -378,7 +378,7 @@ function registerMissingTimezones(vcal: ICAL.Component, defaultTz: string): void
       if (typeof tzid === 'string') referenced.add(tzid);
     }
   }
-  // Always make the user's locale TZ resolvable too — covers floating-time
+  // Always make the user's locale TZ resolvable too - covers floating-time
   // events that need to be interpreted in the user's timezone.
   referenced.add(defaultTz);
   for (const tzid of referenced) {

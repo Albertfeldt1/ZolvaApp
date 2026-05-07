@@ -64,7 +64,7 @@ async function readLabels(
   };
   const out: LabelMap = {};
   // Defensive null-check: even though the DB constraints guarantee both
-  // null or both set, treat as unconfigured if either is missing — defends
+  // null or both set, treat as unconfigured if either is missing - defends
   // against constraint drift or partial reads.
   if (row?.work_calendar_provider && row.work_calendar_id) {
     out.work = { provider: row.work_calendar_provider, id: row.work_calendar_id };
@@ -96,7 +96,7 @@ export async function workerHandler(req: Request): Promise<Response> {
   const timezone = body.timezone ?? 'UTC';
 
   if (prompt === '') {
-    // empty_prompt — log + return.
+    // empty_prompt - log + return.
     console.log(JSON.stringify({
       action: 'create_event',
       user_id: userId,
@@ -117,7 +117,7 @@ export async function workerHandler(req: Request): Promise<Response> {
     return json(200, unparseable());
   }
 
-  // Reminder branch — split before the calendar-event flow.
+  // Reminder branch - split before the calendar-event flow.
   if (extraction.kind === 'reminder') {
     const text = (extraction.text ?? '').trim();
     if (!text) {
@@ -232,12 +232,12 @@ export async function workerHandler(req: Request): Promise<Response> {
     dialog = `Tilføjet: '${eventExtraction.title}', ${time} i din ${labelWord}kalender.`;
     if (selection.fallbackFromLabel) {
       const missing = selection.fallbackFromLabel === 'work' ? 'arbejds' : 'privat';
-      dialog = `Tilføjet i din ${labelWord}kalender — du har ikke valgt en ${missing}-kalender endnu. ${dialog}`;
+      dialog = `Tilføjet i din ${labelWord}kalender - du har ikke valgt en ${missing}-kalender endnu. ${dialog}`;
     }
   } else {
     dialog = `Added: '${eventExtraction.title}', ${time} in your ${labelWord} calendar.`;
     if (selection.fallbackFromLabel) {
-      dialog = `Added to your ${labelWord} calendar — you haven't picked a ${selection.fallbackFromLabel} calendar yet. ${dialog}`;
+      dialog = `Added to your ${labelWord} calendar - you haven't picked a ${selection.fallbackFromLabel} calendar yet. ${dialog}`;
     }
   }
 

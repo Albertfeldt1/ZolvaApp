@@ -31,7 +31,7 @@ function withFetch(stubs: FetchStub, fn: () => Promise<void>) {
     if (url.startsWith('https://www.googleapis.com') || url.startsWith('https://oauth2.googleapis.com')) return stubs.google?.(req) ?? new Response('no google stub', { status: 500 });
     if (url.startsWith('https://graph.microsoft.com') || url.startsWith('https://login.microsoftonline.com')) return stubs.microsoft?.(req) ?? new Response('no microsoft stub', { status: 500 });
     if (url.includes('/auth/v1/.well-known/jwks.json')) {
-      // JWKS stub: see Task 11 — unit tests bypass real JWT verification by
+      // JWKS stub: see Task 11 - unit tests bypass real JWT verification by
       // constructing handler-level fixtures. For these end-to-end tests we
       // call workerHandler directly with an authorization header that the
       // stub on Supabase REST will accept.

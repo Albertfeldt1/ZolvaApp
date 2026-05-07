@@ -78,7 +78,7 @@ export function GlassTabBar({ active, onChange, onAskZolva, bottomInset }: Props
         </Pressable>
       </View>
 
-      {/* 4-tab pill — native iOS 26+ Liquid Glass when available,
+      {/* 4-tab pill - native iOS 26+ Liquid Glass when available,
           BlurView fallback otherwise. */}
       <View style={{ alignSelf: 'stretch', marginHorizontal: spacing.tabBarSideMargin }}>
         {liquidGlassReady ? (

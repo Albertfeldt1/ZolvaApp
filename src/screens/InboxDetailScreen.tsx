@@ -153,7 +153,7 @@ export function InboxDetailScreen({ mail, onClose, autoDraft = false }: Props) {
       <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
         <GlassHaloLayer />
 
-        {/* Header — glass card with back button + eyebrow */}
+        {/* Header - glass card with back button + eyebrow */}
         <View
           style={{
             paddingTop: spacing.statusBarFallback,
@@ -203,7 +203,7 @@ export function InboxDetailScreen({ mail, onClose, autoDraft = false }: Props) {
           contentContainerStyle={{ paddingBottom: 32 }}
           showsVerticalScrollIndicator={false}
         >
-          {/* Hero — bone glass card: eyebrow + subject + sender */}
+          {/* Hero - bone glass card: eyebrow + subject + sender */}
           <View style={{ paddingHorizontal: spacing.screenPad, paddingBottom: spacing.cardPad }}>
             <GlassFrostedCard
               overlay={surface.bone}
@@ -281,7 +281,7 @@ export function InboxDetailScreen({ mail, onClose, autoDraft = false }: Props) {
             </GlassFrostedCard>
           </View>
 
-          {/* Mail body — bone glass card with quote accent */}
+          {/* Mail body - bone glass card with quote accent */}
           <View style={{ paddingHorizontal: spacing.screenPad, paddingBottom: spacing.cardPad }}>
             <GlassFrostedCard overlay={surface.bone} radius={radius.card} style={{ padding: spacing.lg }}>
               <View style={{ flexDirection: 'row' }}>
@@ -378,7 +378,7 @@ export function InboxDetailScreen({ mail, onClose, autoDraft = false }: Props) {
             </GlassFrostedCard>
           </View>
 
-          {/* Reply / AI draft section — bone glass card + chat-style input dock */}
+          {/* Reply / AI draft section - bone glass card + chat-style input dock */}
           <View style={{ paddingHorizontal: spacing.screenPad }}>
             {/* Section header */}
             <View
@@ -449,7 +449,7 @@ export function InboxDetailScreen({ mail, onClose, autoDraft = false }: Props) {
               </Pressable>
             </View>
 
-            {/* Draft input — glass pill, white fill + hairline border (Chat input dock pattern) */}
+            {/* Draft input - glass pill, white fill + hairline border (Chat input dock pattern) */}
             <GlassFrostedCard radius={radius.card} style={{ padding: spacing.sm }}>
               <TextInput
                 value={draft}
@@ -483,7 +483,7 @@ export function InboxDetailScreen({ mail, onClose, autoDraft = false }: Props) {
                   style={{ padding: spacing.cardPad, gap: 4 }}
                 >
                   <Text style={{ ...type.bodySm, color: t.ink, fontWeight: '600' }}>
-                    Kunne ikke sende — prøv igen.
+                    Kunne ikke sende - prøv igen.
                   </Text>
                   <Text
                     style={{ fontFamily: fonts.mono, fontSize: 10.5, color: t.ink2, opacity: 0.75 }}
@@ -497,7 +497,7 @@ export function InboxDetailScreen({ mail, onClose, autoDraft = false }: Props) {
           </View>
         </ScrollView>
 
-        {/* Action bar — archive ghost + send dark-ink pill */}
+        {/* Action bar - archive ghost + send dark-ink pill */}
         <View
           style={{
             flexDirection: 'row',

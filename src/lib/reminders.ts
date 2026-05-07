@@ -2,7 +2,7 @@
 //
 // Server-backed reminder store (public.reminders). Replaces the
 // AsyncStorage-only memory-store reminder code. Uses supabase-js with
-// the authenticated user's JWT — RLS policies enforce per-user
+// the authenticated user's JWT - RLS policies enforce per-user
 // isolation, so no extra server-side endpoints are needed for CRUD.
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -141,7 +141,7 @@ export async function migrateLocalRemindersToServer(userId: string): Promise<voi
   // (`reminder:<id>:nudge:<hour>`); the v1 migration ported the data
   // server-side but never cancelled these, so users got the server push
   // AND every queued iOS fire long after the reminder had already fired.
-  // Safe sweep — no current code path schedules `reminder:*` identifiers.
+  // Safe sweep - no current code path schedules `reminder:*` identifiers.
   await sweepLegacyReminderNotifications(userId);
 }
 

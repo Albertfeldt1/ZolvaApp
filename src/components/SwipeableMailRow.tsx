@@ -30,7 +30,7 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 // Distance the row must travel before release commits the action. Tuned
 // so a deliberate swipe commits but a hesitant flick springs back.
 const COMMIT_THRESHOLD = 96;
-// Velocity-based commit — fast flicks commit even if they don't reach
+// Velocity-based commit - fast flicks commit even if they don't reach
 // the distance threshold. Matches iOS Mail's behavior.
 const COMMIT_VELOCITY = 1.2;
 const REVEAL_WIDTH = 96;

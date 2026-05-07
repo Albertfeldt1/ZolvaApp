@@ -3,7 +3,7 @@
 // Slide-up overlay launched from the Inbox top-bar paperplane button.
 // Lists every mail Zolva has sent on the current user's behalf, across
 // all providers (Gmail, Outlook, iCloud). Primary value: confirmable
-// record for iCloud sends — those don't land in Apple Mail's Sent folder
+// record for iCloud sends - those don't land in Apple Mail's Sent folder
 // (see 2026-05-06-icloud-send-mail-design.md non-goals).
 
 import { ChevronLeft, Trash2 } from 'lucide-react-native';
@@ -48,7 +48,7 @@ export function SentMailScreen({ onClose }: Props) {
   const handleClear = useCallback(() => {
     Alert.alert(
       'Ryd sendte mails?',
-      'Listen i Zolva slettes — selve mailene er ikke påvirket.',
+      'Listen i Zolva slettes - selve mailene er ikke påvirket.',
       [
         { text: 'Annullér', style: 'cancel' },
         { text: 'Ryd', style: 'destructive', onPress: () => { void clearSentMails(userId); } },
@@ -146,7 +146,7 @@ export function SentMailScreen({ onClose }: Props) {
                 Ingen sendte mails endnu
               </Text>
               <Text style={{ ...type.body, color: t.ink3, textAlign: 'center' }}>
-                Når jeg sender en mail for dig, dukker den op her — så du altid kan se hvad der er sendt.
+                Når jeg sender en mail for dig, dukker den op her - så du altid kan se hvad der er sendt.
               </Text>
             </GlassFrostedCard>
           </View>
@@ -206,7 +206,7 @@ function SentRow({ record, expanded, onToggle, showDivider }: RowProps) {
   const providerLabel =
     record.provider === 'google' ? 'Gmail' :
     record.provider === 'microsoft' ? 'Outlook' : 'iCloud';
-  const recipients = record.to.join(', ') || '—';
+  const recipients = record.to.join(', ') || '-';
 
   return (
     <Pressable

@@ -3,10 +3,10 @@
 // no extractor fires, no chat sync, no mail events recorded.
 
 // App-level kill switch for the persistent-memory feature (phased rollout).
-// Evaluated once at module load — env vars are static in RN. Default-off:
+// Evaluated once at module load - env vars are static in RN. Default-off:
 // missing var (e.g. fresh install with stale .env.example) reads as disabled,
 // matching the spec's "off until explicitly enabled" intent. The per-user
-// `memory-enabled` privacy toggle is the second gate — both must be true.
+// `memory-enabled` privacy toggle is the second gate - both must be true.
 export const PROFILE_MEMORY_ENABLED =
   process.env.EXPO_PUBLIC_PROFILE_MEMORY === '1';
 
@@ -80,7 +80,7 @@ function renderMailEventContext(rows: MailEvent[]): string[] {
       drafted_reply: 'udkast lavet',
       replied: 'besvaret',
     };
-    return `• ${from}: "${subject}" — ${verb[r.eventType]} ${timeAgo(r.occurredAt)}`;
+    return `• ${from}: "${subject}" - ${verb[r.eventType]} ${timeAgo(r.occurredAt)}`;
   });
 }
 
@@ -162,7 +162,7 @@ export async function buildProfilePreamble(
 ): Promise<string> {
   // Demo users get a pre-baked preamble; never touches Supabase.
   if (opts?.user && isDemoUser(opts.user as never)) return DEMO_PROFILE_PREAMBLE;
-  // App-level kill switch — see PROFILE_MEMORY_ENABLED comment at module top.
+  // App-level kill switch - see PROFILE_MEMORY_ENABLED comment at module top.
   if (!PROFILE_MEMORY_ENABLED) return '';
 
   try {

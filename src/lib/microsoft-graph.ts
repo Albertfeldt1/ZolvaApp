@@ -102,7 +102,7 @@ type MasterCategory = { displayName?: string; color?: string };
 
 // Cache master categories across renders. The master-category list almost
 // never changes, so a single fetch per session is plenty. `null` means we
-// tried and failed (usually a scope/permissions issue on older tenants) —
+// tried and failed (usually a scope/permissions issue on older tenants) -
 // we don't keep retrying in that case.
 let masterCategoryCache: Map<string, string> | null | undefined;
 let masterCategoryFetchPromise: Promise<Map<string, string> | null> | null =
@@ -203,7 +203,7 @@ async function graphFetch<T>(
 
 // One retry on transient failures (timeout, 5xx) for read-only list calls.
 // Restricted to listInboxMessages because mutations (send, archive) MUST NOT
-// retry on timeout — the request may have already succeeded server-side.
+// retry on timeout - the request may have already succeeded server-side.
 async function listFetchWithRetry<T>(token: string, path: string): Promise<T> {
   try {
     return await graphFetch<T>(token, path);
@@ -246,7 +246,7 @@ export async function getInboxCounts(): Promise<{ total: number; unread: number 
 
 export async function listInboxMessages(top = 12): Promise<GraphMessage[]> {
   return tryWithRefresh('microsoft', async (token) => {
-    // Folder-scoped to /mailFolders/inbox/messages — /me/messages returns
+    // Folder-scoped to /mailFolders/inbox/messages - /me/messages returns
     // messages from across the entire mailbox (Inbox + Sent + Drafts + Junk).
     // Active Outlook users have Sent items and already-read mail dominating
     // the top of /me/messages, which crowded out their unread Inbox mail
@@ -297,7 +297,7 @@ export async function getMessageBody(id: string): Promise<GraphMessageBody> {
 // stays a single API call (POST /reply with `comment`). For users with
 // a rich signature we createReply → PATCH HTML body → POST inline
 // attachments → POST send. 4 round-trips when a signature is configured;
-// 1 when it isn't. Acceptable — replies aren't latency-critical and the
+// 1 when it isn't. Acceptable - replies aren't latency-critical and the
 // /reply endpoint can't carry inline attachments.
 export async function replyToMessage(id: string, body: string): Promise<void> {
   return tryWithRefresh('microsoft', async (token) => {
@@ -529,7 +529,7 @@ function stripHtml(html: string): string {
 //
 // Microsoft Graph accepts UTC datetime strings without offsets when paired
 // with timeZone="UTC". We always serialize Date → UTC and tell Graph that's
-// what we mean — display-side rendering uses the device's local TZ which
+// what we mean - display-side rendering uses the device's local TZ which
 // matches how listCalendarEvents reads them back.
 
 export type GraphEventInput = {
@@ -596,7 +596,7 @@ export async function updateCalendarEvent(
   input: Partial<GraphEventInput>,
 ): Promise<void> {
   return tryWithRefresh('microsoft', async (token) => {
-    // PATCH accepts a partial body — only fields you supply are changed. The
+    // PATCH accepts a partial body - only fields you supply are changed. The
     // builder always emits start/end/isAllDay together because Graph rejects
     // a partial start/end pair, so we forward only what the caller sent.
     const body: Record<string, unknown> = {};

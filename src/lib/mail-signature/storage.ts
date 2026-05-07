@@ -4,9 +4,9 @@
 // and silent migration from v1 plaintext (per-user OR legacy global).
 //
 // Storage keys:
-//   zolva.mail.signature.v2.{uid}  — current JSON shape
-//   zolva.mail.signature.{uid}     — v1 plaintext (per-user, pre-rich)
-//   zolva.mail.signature           — legacy global plaintext (pre-multi-account)
+//   zolva.mail.signature.v2.{uid}  - current JSON shape
+//   zolva.mail.signature.{uid}     - v1 plaintext (per-user, pre-rich)
+//   zolva.mail.signature           - legacy global plaintext (pre-multi-account)
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { subscribeUserId } from '../auth';
@@ -124,7 +124,7 @@ export async function saveSignature(a: any, b?: any): Promise<void> {
   }
 }
 
-// Test hooks — not exported via index.ts.
+// Test hooks - not exported via index.ts.
 export function __resetForTests(): void {
   cachedUserId = null;
   cachedData = null;

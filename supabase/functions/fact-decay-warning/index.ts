@@ -11,7 +11,7 @@
 //      the table doesn't bloat with rows nobody will ever read again.
 //
 // Auth: pg_cron sends a service-role bearer + x-cron-secret. We don't accept
-// user-JWT calls — there's nothing for an end user to invoke here.
+// user-JWT calls - there's nothing for an end user to invoke here.
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
@@ -62,7 +62,7 @@ serve(async (req) => {
   }
   const due = (dueRaw ?? []) as FactRow[];
 
-  // Memory toggle gate. Skip users who have memory turned off — they
+  // Memory toggle gate. Skip users who have memory turned off - they
   // shouldn't receive notifications about facts they've asked us to
   // forget. Filter (don't stamp decay_warning_sent_at) so the warning
   // can still fire if they re-enable memory before the fact decays.
@@ -121,7 +121,7 @@ async function pushDecayWarning(svc: SupabaseClient, fact: FactRow): Promise<boo
   if (error || !tokens || tokens.length === 0) return false;
 
   // Truncate the fact text so the notification body fits comfortably on the
-  // lock screen. Mid-sentence cut is fine — the full text lives in the app.
+  // lock screen. Mid-sentence cut is fine - the full text lives in the app.
   const preview = fact.text.length > 120 ? `${fact.text.slice(0, 117)}…` : fact.text;
   const body = `Husk eller lad det glide: ${preview}`;
   const messages = tokens.map((t) => ({

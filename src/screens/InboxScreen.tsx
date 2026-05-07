@@ -40,14 +40,14 @@ const PROVIDER_LOGOS: Record<MailProvider, ReturnType<typeof require>> = {
 function providerFailureCopy(e: MailProviderError): string {
   if (e.provider === 'icloud') {
     if (e.code === 'network' || e.code === 'timeout' || e.code === 'gateway-unavailable') {
-      return 'Apple-mails kunne ikke hentes — netværket eller iCloud svarer ikke. Prøv igen om lidt.';
+      return 'Apple-mails kunne ikke hentes - netværket eller iCloud svarer ikke. Prøv igen om lidt.';
     }
     return 'Apple-mails kunne ikke hentes lige nu. Prøv igen om lidt.';
   }
   if (e.provider === 'microsoft') {
-    return 'Outlook-mails kunne ikke hentes — prøv igen om lidt.';
+    return 'Outlook-mails kunne ikke hentes - prøv igen om lidt.';
   }
-  return 'Gmail kunne ikke hentes — prøv igen om lidt.';
+  return 'Gmail kunne ikke hentes - prøv igen om lidt.';
 }
 
 type Props = {
@@ -65,7 +65,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
   const { bottom: chromeBottom } = useChromeInsets();
 
   const { data: waiting, read, loading: waitingLoading, error: waitingError, providerErrors } = useInboxWaiting();
-  // Server-reported counts — stable across reloads, independent of the
+  // Server-reported counts - stable across reloads, independent of the
   // per-fetch limit window backing `waiting` / `read`.
   const inboxCounts = useInboxCounts();
   const hasProvider = useHasProvider();
@@ -73,7 +73,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
   const theme = useTheme();
   const { t, type, fonts, radius, spacing, surface } = theme;
 
-  // Soft per-provider failures — when iCloud throws but Gmail succeeds (or
+  // Soft per-provider failures - when iCloud throws but Gmail succeeds (or
   // vice versa), `waitingError` stays null because the global "all failed"
   // condition isn't met. Without these banners the failed provider was
   // silently absent from the list. iCloud auth-failed has its own
@@ -97,7 +97,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
 
   // Provider-in-identity-but-no-token: the user signed in with this provider
   // (Supabase auth.identities row exists), but `silentRefresh` couldn't mint
-  // an access token — typically because `user_oauth_tokens` has no row for
+  // an access token - typically because `user_oauth_tokens` has no row for
   // this user/provider (broker upsert never ran or failed). Without these
   // banners the missing provider was silently absent from the inbox and the
   // user had no path to recover short of full sign-out.
@@ -126,7 +126,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
 
   const [archiveOpen, setArchiveOpen] = useState(false);
 
-  // Per-section collapse state. Tier 0 ("Haster") is always visible — no
+  // Per-section collapse state. Tier 0 ("Haster") is always visible - no
   // toggle. Tier 1 stays open by default since that's the main inbox; the
   // bulk-noise tiers (2 newsletters, 3 auto-mails) and the read pile are
   // closed by default so a 100-mail mailbox doesn't swamp the screen.
@@ -193,7 +193,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
           onGear={onGoToSettings}
         />
 
-        {/* Hero text block — wrapped in a soft glass backdrop. */}
+        {/* Hero text block - wrapped in a soft glass backdrop. */}
         <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
           <GlassFrostedCard
             radius={radius.card}
@@ -216,7 +216,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
             <Pressable onPress={() => onOpenIcloudSetup?.(icloudExpiredEmail ?? undefined)} accessibilityRole="button">
               <View style={{ padding: spacing.cardPad, borderRadius: radius.cardSm, backgroundColor: legacyColors.warningSoft, borderWidth: 1, borderColor: 'rgba(138,111,26,0.18)' }}>
                 <Text style={{ ...type.bodySm, color: t.ink, fontWeight: '600' }}>
-                  Apple afviste adgangskoden — iCloud-mails vises ikke. Tryk for at genindtaste.
+                  Apple afviste adgangskoden - iCloud-mails vises ikke. Tryk for at genindtaste.
                 </Text>
               </View>
             </Pressable>
@@ -228,7 +228,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
             <Pressable onPress={() => { void signInWithMicrosoft(); }} accessibilityRole="button">
               <View style={{ padding: spacing.cardPad, borderRadius: radius.cardSm, backgroundColor: legacyColors.warningSoft, borderWidth: 1, borderColor: 'rgba(138,111,26,0.18)' }}>
                 <Text style={{ ...type.bodySm, color: t.ink, fontWeight: '600' }}>
-                  Microsoft-forbindelsen er udløbet — Outlook-mails vises ikke. Tryk for at logge ind igen.
+                  Microsoft-forbindelsen er udløbet - Outlook-mails vises ikke. Tryk for at logge ind igen.
                 </Text>
               </View>
             </Pressable>
@@ -240,7 +240,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
             <Pressable onPress={() => { void signInWithGoogle(); }} accessibilityRole="button">
               <View style={{ padding: spacing.cardPad, borderRadius: radius.cardSm, backgroundColor: legacyColors.warningSoft, borderWidth: 1, borderColor: 'rgba(138,111,26,0.18)' }}>
                 <Text style={{ ...type.bodySm, color: t.ink, fontWeight: '600' }}>
-                  Google-forbindelsen er udløbet — Gmail vises ikke. Tryk for at logge ind igen.
+                  Google-forbindelsen er udløbet - Gmail vises ikke. Tryk for at logge ind igen.
                 </Text>
               </View>
             </Pressable>
@@ -257,7 +257,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
           </View>
         ))}
 
-        {/* Mail row renderer — used by every section. `muted` softens
+        {/* Mail row renderer - used by every section. `muted` softens
             already-read or low-priority rows (lighter type, reduced
             opacity) so the eye glides over them. */}
         {(() => {
@@ -353,7 +353,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
             );
           };
 
-          // Empty / loading / no-provider state — only when the entire
+          // Empty / loading / no-provider state - only when the entire
           // waiting list is empty AND we're not just skipping a section
           // because it has zero items.
           if (waiting.length === 0) {
@@ -413,7 +413,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
 
           return (
             <>
-              {/* Tier 0 — always visible, no toggle. */}
+              {/* Tier 0 - always visible, no toggle. */}
               {sections.tier0.length > 0 && (
                 <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
                   {renderHeader('Haster', sections.tier0.length)}
@@ -422,7 +422,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
                   </View>
                 </View>
               )}
-              {/* Tier 1 — main inbox, collapsible, default open. */}
+              {/* Tier 1 - main inbox, collapsible, default open. */}
               {sections.tier1.length > 0 && (
                 <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
                   {renderHeader('Venter på dig', sections.tier1.length, {
@@ -436,7 +436,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
                   )}
                 </View>
               )}
-              {/* Tier 2 — newsletters, collapsible, default closed. */}
+              {/* Tier 2 - newsletters, collapsible, default closed. */}
               {sections.tier2.length > 0 && (
                 <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
                   {renderHeader('Nyhedsbreve', sections.tier2.length, {
@@ -450,7 +450,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
                   )}
                 </View>
               )}
-              {/* Tier 3 — auto-mails / no-reply, collapsible, default closed. */}
+              {/* Tier 3 - auto-mails / no-reply, collapsible, default closed. */}
               {sections.tier3.length > 0 && (
                 <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
                   {renderHeader('Notifikationer', sections.tier3.length, {
@@ -464,7 +464,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
                   )}
                 </View>
               )}
-              {/* Læst — collapsible, default closed. */}
+              {/* Læst - collapsible, default closed. */}
               {read.length > 0 && (
                 <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
                   {renderHeader('Læst', read.length, {

@@ -70,7 +70,7 @@ type Props = {
   onGoToCalendar: () => void;
   onOpenNotifications: () => void;
   onOverDarkChange?: (over: boolean) => void;
-  // Incremented by App whenever a brief push is tapped — triggers the modal.
+  // Incremented by App whenever a brief push is tapped - triggers the modal.
   briefOpenTrigger?: number;
   onOpenIcloudSetup?: (prefilledEmail?: string) => void;
   // True when this tab is the visible one. Tabs stay mounted across switches,
@@ -146,7 +146,7 @@ export function TodayScreen({
   const [historyKind, setHistoryKind] = useState<'morning' | 'midday' | 'evening' | null>(null);
   const [observationHistoryOpen, setObservationHistoryOpen] = useState(false);
 
-  // Notification taps: App.tsx bumps briefOpenTrigger — we open the modal
+  // Notification taps: App.tsx bumps briefOpenTrigger - we open the modal
   // if we have a brief to show.
   useEffect(() => {
     if (briefOpenTrigger && briefOpenTrigger > 0 && brief) {
@@ -175,12 +175,12 @@ export function TodayScreen({
       return;
     }
     if (action.kind === 'prompt') {
-      // Prompt actions are agentic — the AI is expected to execute via its
+      // Prompt actions are agentic - the AI is expected to execute via its
       // tools. Auto-send so the user doesn't have to tap a second time.
       onOpenChatWithPrompt(action.prompt, { autoSend: true });
       return;
     }
-    // openMail / mailDraft — search across both waiting AND read so a
+    // openMail / mailDraft - search across both waiting AND read so a
     // mail the user already read still resolves. Without this, the action
     // silently falls through to chat as soon as the mail leaves the unread
     // bucket, which is what produced the inconsistent simulator-vs-phone
@@ -194,7 +194,7 @@ export function TodayScreen({
       onOpenMail(mail, { autoDraft: action.kind === 'mailDraft' });
       return;
     }
-    // Mail isn't in either list — likely archived, dismissed, or the
+    // Mail isn't in either list - likely archived, dismissed, or the
     // observation was generated against a stale fetch. Drop into chat
     // with a synthesized prompt so something useful still happens. The
     // chat AI can search/list mail to find what the observation meant.
@@ -208,8 +208,8 @@ export function TodayScreen({
     }
   };
 
-  // The "Hvad jeg har bemærket" card caps the total displayed items —
-  // pending facts + observations — at FEED_OBSERVATION_COUNT. Pending
+  // The "Hvad jeg har bemærket" card caps the total displayed items -
+  // pending facts + observations - at FEED_OBSERVATION_COUNT. Pending
   // facts go first (they need a user decision), then observations fill
   // any remaining slots. Anything past the cap is reachable via the
   // "Vis alle" modal.
@@ -249,7 +249,7 @@ export function TodayScreen({
     pendingFacts.length + dedupedObservations.length > FEED_OBSERVATION_COUNT;
   const [observationsModalOpen, setObservationsModalOpen] = useState(false);
 
-  // Match the MemoryScreen filter: pending + dueAt within 5min past — so a
+  // Match the MemoryScreen filter: pending + dueAt within 5min past - so a
   // reminder that already fired and decayed stops counting toward the
   // "1 påmindelse" preview and stops showing in the Husk preview row.
   const pendingReminders = useMemo(
@@ -268,7 +268,7 @@ export function TodayScreen({
     endOfDay.setHours(23, 59, 59, 999);
     const toHour = (d: Date) => d.getHours() + d.getMinutes() / 60;
     // Cycle through the active direction's accent palette instead of the
-    // event's native calendar color — Google Blueberry blue / Sage green
+    // event's native calendar color - Google Blueberry blue / Sage green
     // clash with the warm-orange Glass & Air look. Same palette the
     // previous inline ribbon used.
     const palette = [t.cal, t.today, t.mem, t.inbox];
@@ -350,7 +350,7 @@ export function TodayScreen({
           onGear={onGoToSettings}
         />
 
-        {/* Hero text block — bone-white backdrop so the headline reads
+        {/* Hero text block - bone-white backdrop so the headline reads
             crisply against the halo paper. */}
         <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
           <GlassFrostedCard
@@ -369,7 +369,7 @@ export function TodayScreen({
           </GlassFrostedCard>
         </View>
 
-        {/* Frosted hero stat card — uses GlassFrostedCard so iOS 26+
+        {/* Frosted hero stat card - uses GlassFrostedCard so iOS 26+
             renders the native Liquid Glass material; older iOS / Android
             fall back to the BlurView+bone path inside the primitive. */}
         <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
@@ -437,7 +437,7 @@ export function TodayScreen({
                 </View>
               </View>
 
-              {/* Day ribbon — same data as the inline hero bar but each
+              {/* Day ribbon - same data as the inline hero bar but each
                   block is tappable and expands to show title, time,
                   location, attendees, and description. Code already
                   lived in components/DayRibbon. */}
@@ -453,7 +453,7 @@ export function TodayScreen({
             <Pressable onPress={() => onOpenIcloudSetup?.(icloudExpiredEmail ?? undefined)} accessibilityRole="button">
               <GlassFrostedCard overlay={surface.warningTint} style={{ padding: spacing.cardPad }}>
                 <Text style={{ ...type.bodySm, color: t.ink, fontWeight: '600' }}>
-                  Apple afviste adgangskoden — iCloud-begivenheder vises ikke. Tryk for at genindtaste.
+                  Apple afviste adgangskoden - iCloud-begivenheder vises ikke. Tryk for at genindtaste.
                 </Text>
               </GlassFrostedCard>
             </Pressable>
@@ -483,7 +483,7 @@ export function TodayScreen({
           </View>
         )}
 
-        {/* "Næste" section — bone-white backdrop card hosting the
+        {/* "Næste" section - bone-white backdrop card hosting the
             section header + the events list (or empty state). */}
         <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
           <GlassFrostedCard
@@ -501,7 +501,7 @@ export function TodayScreen({
             >
               <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>Næste</Text>
               <Text style={{ ...type.eyebrow, color: t.ink3 }}>
-                {upcoming.length > 0 ? (<><CountUp to={upcoming.length} /> i dag</>) : '—'}
+                {upcoming.length > 0 ? (<><CountUp to={upcoming.length} /> i dag</>) : '-'}
               </Text>
             </View>
 
@@ -552,7 +552,7 @@ export function TodayScreen({
                       onGoToCalendar();
                     }}
                     accessibilityRole="button"
-                    accessibilityLabel={`${e.title}, ${e.time} — åbn kalender`}
+                    accessibilityLabel={`${e.title}, ${e.time} - åbn kalender`}
                     hitSlop={{ top: 4, bottom: 4, left: 8, right: 8 }}
                     style={[
                       { flexDirection: 'row', alignItems: 'center', gap: spacing.cardPad, paddingVertical: spacing.md },
@@ -591,7 +591,7 @@ export function TodayScreen({
           />
         )}
 
-        {/* Brief history pills — wrapped in a single glass card so the
+        {/* Brief history pills - wrapped in a single glass card so the
             three time-of-day shortcuts read as one element, not as
             three loose chips floating on the halo paper. */}
         <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
@@ -649,7 +649,7 @@ export function TodayScreen({
           onClose={() => setObservationHistoryOpen(false)}
         />
 
-        {/* Observation card — light, airbrushy, blends with the rest of
+        {/* Observation card - light, airbrushy, blends with the rest of
             the app rather than being a dark slab. The chrome no longer
             needs to flip dark when scrolled into this region. */}
         <View
@@ -710,7 +710,7 @@ export function TodayScreen({
                     item={n}
                     index={i}
                     onAction={() => {
-                      // Acting on an observation implicitly resolves it —
+                      // Acting on an observation implicitly resolves it -
                       // dismiss before handing off so the card disappears
                       // immediately and doesn't sit there waiting for the
                       // user to come back and explicitly Afvis.
@@ -772,7 +772,7 @@ export function TodayScreen({
                         item={n}
                         index={i}
                         onAction={() => {
-                          // Same implicit dismissal as the feed call site —
+                          // Same implicit dismissal as the feed call site -
                           // tapping the CTA means the user resolved this
                           // observation, so don't make them dismiss twice.
                           dismissObservation(n.id);
@@ -833,7 +833,7 @@ function NoticedRow({
   // Reanimated handles entrance, exit, and neighbor reflow for free.
   // When the parent removes this row from its data array, exiting={FadeOut}
   // animates this view out while layout={LinearTransition} slides the
-  // remaining rows up smoothly into the freed space — no manual animateOut.
+  // remaining rows up smoothly into the freed space - no manual animateOut.
   return (
     <Animated.View
       entering={FadeIn.duration(420).delay(index * 100)}
@@ -924,7 +924,7 @@ const styles = StyleSheet.create({
   noticedActions: { marginTop: 4, flexDirection: 'row', gap: 16 },
   // Per-button wrapper. paddingVertical + paddingHorizontal extend the
   // visible tap area; negative margins keep the surrounding layout
-  // unchanged. Horizontal hitSlop is intentionally zero — the gap between
+  // unchanged. Horizontal hitSlop is intentionally zero - the gap between
   // CTA and Afvis is only 16px, and slop on both sides would make the hit
   // zones overlap, leading to ambiguous taps. Vertical hitSlop adds the
   // extra forgiveness needed to clear the 44pt iOS minimum.
@@ -935,7 +935,7 @@ const styles = StyleSheet.create({
     marginHorizontal: -4,
   },
   noticedActionPressed: { opacity: 0.55 },
-  // Primary CTA reads in ink (dark) on both light and dark backdrops —
+  // Primary CTA reads in ink (dark) on both light and dark backdrops -
   // the user wanted a single emphatic black tone here rather than a sage
   // accent that could blend with the halo.
   noticedCta: { fontFamily: legacyFonts.uiSemi, fontSize: 14, color: colors.paperOn95 },
@@ -956,7 +956,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
     color: colors.sageDim,
   },
-  // Light-card variant — used inside the airbrushy "Hvad jeg har
+  // Light-card variant - used inside the airbrushy "Hvad jeg har
   // bemærket" card now that it sits on the regular paper backdrop.
   showAllRowLight: {
     marginTop: 6,
@@ -973,12 +973,12 @@ const styles = StyleSheet.create({
   },
 
   // Light variant of the noticed row used inside the airbrushy "Vis alle"
-  // modal — ink text reads against the light backdrop instead of the
+  // modal - ink text reads against the light backdrop instead of the
   // legacy white-on-dark used by the inline glass-dark card.
   noticedTextLight: { color: colors.ink },
   noticedDismissLight: { color: colors.fg3 },
 
-  // "Vis alle" observations modal — light, airbrushy, blends with the rest
+  // "Vis alle" observations modal - light, airbrushy, blends with the rest
   // of the app instead of a black slab popping out on top.
   modalRoot: { flex: 1, backgroundColor: '#FBFBFA', overflow: 'hidden' },
   modalHandle: {

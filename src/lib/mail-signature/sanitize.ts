@@ -1,7 +1,7 @@
 // src/lib/mail-signature/sanitize.ts
 //
 // Pure HTML/CSS allowlist filter for screenshot-imported signatures.
-// Hand-rolled tokenizer (no DOM dependency — DOMPurify wants window).
+// Hand-rolled tokenizer (no DOM dependency - DOMPurify wants window).
 // Output is guaranteed to be a strict Outlook-Word-rendering-engine-safe
 // subset: <table> layout, inline styles, allowlisted attrs, allowlisted
 // CSS properties, mailto/tel/https/http links, cid:zolva-sig images only.

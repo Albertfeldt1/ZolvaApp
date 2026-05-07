@@ -1,6 +1,6 @@
 // Minimal OneDrive client. Searches and reads files in the signed-in
 // Microsoft account's personal OneDrive using Microsoft Graph (scope:
-// Files.Read). Read-only by design — no create/update/delete.
+// Files.Read). Read-only by design - no create/update/delete.
 
 import { ProviderAuthError, tryWithRefresh } from './auth';
 import { fetchWithTimeout } from './network-errors';
@@ -8,7 +8,7 @@ import { fetchWithTimeout } from './network-errors';
 const BASE = 'https://graph.microsoft.com/v1.0';
 
 // Plain MIME types we accept directly. Graph serves the raw bytes; we
-// decode as UTF-8. Office formats (.docx, .xlsx, .pptx) are refused —
+// decode as UTF-8. Office formats (.docx, .xlsx, .pptx) are refused -
 // extracting text from them needs a separate Graph endpoint we don't
 // wire here yet.
 const READABLE_TEXT_MIMES = new Set([
@@ -119,7 +119,7 @@ export async function getFileContent(id: string): Promise<OnedriveFileContent> {
       throw new Error(
         `Filtype "${mime}" understøttes ikke til tekstudtræk. ` +
           `Kun rene tekstfiler (txt, markdown, csv, json, html, xml) kan læses fra OneDrive ` +
-          `lige nu — Word, Excel og PowerPoint kommer senere.`,
+          `lige nu - Word, Excel og PowerPoint kommer senere.`,
       );
     }
 
@@ -138,7 +138,7 @@ export async function getFileContent(id: string): Promise<OnedriveFileContent> {
     const fullText = await bodyRes.text();
     const truncated = fullText.length > MAX_BODY_CHARS;
     const text = truncated
-      ? `${fullText.slice(0, MAX_BODY_CHARS)}\n\n…[afkortet — fuld fil ${fullText.length.toLocaleString('da-DK')} tegn]`
+      ? `${fullText.slice(0, MAX_BODY_CHARS)}\n\n…[afkortet - fuld fil ${fullText.length.toLocaleString('da-DK')} tegn]`
       : fullText;
 
     return {

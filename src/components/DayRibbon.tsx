@@ -31,7 +31,7 @@ export type RibbonEvent = {
 const START_HOUR = 6;
 const END_HOUR = 22;
 const SPAN = END_HOUR - START_HOUR;
-const DEFAULT_COLOR = '#3F51B5'; // Google Blueberry — matches calendar default
+const DEFAULT_COLOR = '#3F51B5'; // Google Blueberry - matches calendar default
 
 const TRACK_COLLAPSED = 44;
 const TRACK_EXPANDED = 176;
@@ -199,7 +199,7 @@ function RibbonBlock({
     ? Math.max(8, ((clampedEnd - clampedStart) / SPAN) * trackWidth)
     : 0;
 
-  // Off-screen distance. Any value larger than track width does the job —
+  // Off-screen distance. Any value larger than track width does the job -
   // track's overflow:hidden clips the translated block.
   const pushDistance = Math.max(trackWidth * 1.2, 400);
 

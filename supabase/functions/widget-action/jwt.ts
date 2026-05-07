@@ -6,7 +6,7 @@ const JWKS_URL = new URL(
 
 let jwks = createRemoteJWKSet(JWKS_URL, {
   cooldownDuration: 30_000,
-  cacheMaxAge: 10 * 60 * 1000, // 10 min — Supabase rotation is rare
+  cacheMaxAge: 10 * 60 * 1000, // 10 min - Supabase rotation is rare
 });
 
 export type VerifiedJwt = {

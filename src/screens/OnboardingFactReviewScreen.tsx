@@ -77,7 +77,7 @@ function groupLabel(source: string | null | undefined): string {
   return 'Andet';
 }
 
-// Stable order for the section headers — keeps the screen visually
+// Stable order for the section headers - keeps the screen visually
 // predictable regardless of how the rows happen to come back from
 // Supabase.
 const GROUP_ORDER = [
@@ -106,7 +106,7 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
 
   useEffect(() => {
     if (!userId) {
-      // Not signed in (shouldn't normally happen during onboarding) —
+      // Not signed in (shouldn't normally happen during onboarding) -
       // bail out of the loading state so the empty-state UI renders
       // instead of an indefinite spinner.
       setLoading(false);
@@ -119,7 +119,7 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
         if (cancelled) return;
         setFacts(rows);
         // Default: ALL checked. The user opts OUT of facts they don't
-        // want kept by tapping to uncheck — friendlier than asking them
+        // want kept by tapping to uncheck - friendlier than asking them
         // to manually confirm every single row.
         setAccepted(new Set(rows.map((r) => r.id)));
       })
@@ -168,7 +168,7 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
 
   // Group facts by their human-readable source label, in the stable
   // GROUP_ORDER above. useMemo keeps the work out of every render even
-  // though it's cheap — the screen re-renders on each toggle.
+  // though it's cheap - the screen re-renders on each toggle.
   const groupedSections = useMemo(() => {
     const buckets = new Map<string, Fact[]>();
     for (const f of facts) {

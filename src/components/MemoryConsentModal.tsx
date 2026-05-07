@@ -95,7 +95,7 @@ export function MemoryConsentModal({ visible, userId, onClose }: Props) {
                   </Text>
                 </View>
                 <Text style={{ ...type.bodySm, color: t.ink3 }}>
-                  Det lever i din Zolva-konto — aldrig selve mail-indholdet.
+                  Det lever i din Zolva-konto - aldrig selve mail-indholdet.
                 </Text>
                 <Text style={{ ...type.bodySm, color: t.ink3 }}>
                   Du kan altid slå det fra eller slette alt under Indstillinger → Hukommelse.
@@ -104,7 +104,7 @@ export function MemoryConsentModal({ visible, userId, onClose }: Props) {
 
               {/* CTAs */}
               <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm }}>
-                {/* Secondary — decline */}
+                {/* Secondary - decline */}
                 <Pressable
                   style={({ pressed }) => ({
                     flex: 1,
@@ -123,7 +123,7 @@ export function MemoryConsentModal({ visible, userId, onClose }: Props) {
                   </Text>
                 </Pressable>
 
-                {/* Primary — accept */}
+                {/* Primary - accept */}
                 <Pressable
                   style={({ pressed }) => ({
                     flex: 2,
@@ -150,7 +150,7 @@ export function MemoryConsentModal({ visible, userId, onClose }: Props) {
   );
 }
 
-// StyleSheet is not imported — use plain object spread for absoluteFillObject
+// StyleSheet is not imported - use plain object spread for absoluteFillObject
 const StyleSheet_absoluteFillObject = {
   position: 'absolute' as const,
   top: 0,

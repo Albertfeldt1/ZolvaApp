@@ -7,7 +7,7 @@ import {
 import { loadIcloudCreds } from '../_shared/icloud-creds.ts';
 import { writeIcloudEvent } from './icloud-write.ts';
 
-// Voice-path provider tag — superset of OAuthProvider that includes iCloud.
+// Voice-path provider tag - superset of OAuthProvider that includes iCloud.
 // iCloud doesn't go through OAuth; creds come from user_icloud_calendar_creds.
 export type Provider = OAuthProvider | 'icloud';
 
@@ -78,7 +78,7 @@ async function postEvent(
 ): Promise<AttemptResult> {
   if (args.provider === 'google') return postGoogle(token, args);
   if (args.provider === 'microsoft') return postMicrosoft(token, args);
-  // iCloud goes through writeIcloud (separate auth model) — caller branches
+  // iCloud goes through writeIcloud (separate auth model) - caller branches
   // before reaching here. Defensive fallthrough surfaces a server bug
   // rather than silently mis-dispatching.
   return { kind: 'error', outcome: { ok: false, errorClass: 'provider_5xx' } };
@@ -168,7 +168,7 @@ async function postMicrosoft(
 }
 
 // Microsoft Graph rejects ISO strings that include a UTC offset on the
-// dateTime field — it wants naive local time + a separate timeZone field.
+// dateTime field - it wants naive local time + a separate timeZone field.
 function stripOffset(iso: string): string {
   return iso.replace(/(?:Z|[+\-]\d{2}:?\d{2})$/, '');
 }

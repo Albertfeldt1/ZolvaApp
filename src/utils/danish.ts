@@ -26,7 +26,7 @@ export function translateProviderError(error: unknown): TranslatedError {
     raw.includes('timed out') ||
     raw.includes('offline')
   ) {
-    return { message: 'Ingen forbindelse — prøv igen.', kind: 'network' };
+    return { message: 'Ingen forbindelse - prøv igen.', kind: 'network' };
   }
 
   if (raw.includes('invalid login credentials')) {
@@ -68,7 +68,7 @@ export function translateProviderError(error: unknown): TranslatedError {
 
   if (raw.includes('403') || raw.includes('forbidden') || raw.includes('insufficient')) {
     return {
-      message: 'Kunne ikke gennemføre — du mangler tilladelse hos udbyderen.',
+      message: 'Kunne ikke gennemføre - du mangler tilladelse hos udbyderen.',
       kind: 'permission',
     };
   }

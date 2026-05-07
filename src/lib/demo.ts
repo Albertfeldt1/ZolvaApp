@@ -30,7 +30,7 @@ export function isDemoUser(user: { email?: string | null } | null | undefined): 
 }
 
 // Minimal Session shape. The app only reads user.id / user.email /
-// user.user_metadata anywhere that matters — other fields are cast-through
+// user.user_metadata anywhere that matters - other fields are cast-through
 // so we don't have to fabricate real JWTs.
 export function buildDemoSession(): Session {
   const farFuture = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365;
@@ -343,7 +343,7 @@ const DEMO_MAIL_BODIES: Record<string, string> = {
   'd-m-1':
     'Hej,\n\nTak for dit oplæg i sidste uge. Vi er klar til at tage næste skridt på Q3-kampagnen, og ledelsen vil gerne se et konkret tilbud inden onsdag.\n\nKan du sende et udkast med pris og leveringsplan?\n\nMvh\nMette Halling',
   'd-m-2':
-    'Hej,\n\nKontrakten ser fin ud fra vores side. En enkelt rettelse i §4 — kan vi tage det over en kort snak i morgen?\n\nVenlig hilsen\nAnders',
+    'Hej,\n\nKontrakten ser fin ud fra vores side. En enkelt rettelse i §4 - kan vi tage det over en kort snak i morgen?\n\nVenlig hilsen\nAnders',
   'd-m-3':
     'Kære kunde,\n\nDin saldo er opdateret efter din seneste transaktion. Du kan se detaljerne i Lunar-appen.\n\nLunar Support',
   'd-m-4':

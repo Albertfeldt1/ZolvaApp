@@ -3,7 +3,7 @@
 // mutate via addNote / removeNote.
 //
 // Storage is scoped to the active Supabase user id. Signing in as a different
-// user swaps the in-memory cache and rehydrates from that user's keys —
+// user swaps the in-memory cache and rehydrates from that user's keys -
 // previous user's notes never leak.
 //
 // Reminders have been migrated to the server-backed src/lib/reminders.ts
@@ -50,7 +50,7 @@ async function hydrate(): Promise<void> {
   hydrationPromise = (async () => {
     try {
       const notesRaw = await AsyncStorage.getItem(notesKey(uid));
-      // Bail if the active user changed during the read — the effect for
+      // Bail if the active user changed during the read - the effect for
       // the new user will run its own hydrate.
       if (uid !== currentUid) return;
       if (notesRaw) {
@@ -122,7 +122,7 @@ export function listNotes(): Note[] {
 export async function addNote(text: string, category: NoteCategory = 'note'): Promise<Note> {
   ensureUserSubscription();
   await hydrate();
-  if (!currentUid) throw new Error('No active user — sign in before storing notes.');
+  if (!currentUid) throw new Error('No active user - sign in before storing notes.');
   const trimmed = text.trim();
   if (!trimmed) throw new Error('Note text is required');
   const note: Note = {

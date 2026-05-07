@@ -5,7 +5,7 @@
 // permission revoke, app deleted before due time, etc.).
 //
 // Idempotency: fired_at is stamped after the push attempt, gated by
-// .is('fired_at', null) on the UPDATE — so two ticks hitting the same
+// .is('fired_at', null) on the UPDATE - so two ticks hitting the same
 // row both attempt to update, but the second matches zero rows.
 // Stamping after means a crash between push and UPDATE could double-fire
 // on the next tick; we accept that over the alternative (stamp first +
@@ -70,7 +70,7 @@ serve(async (req) => {
       const ok = await sendPush(tokens, userRows);
       if (ok) pushed += userRows.length;
     }
-    // Stamp fired_at regardless of push success — failed pushes don't
+    // Stamp fired_at regardless of push success - failed pushes don't
     // get retried. Cost of double-pushing is worse than missing one.
     await client
       .from('reminders')

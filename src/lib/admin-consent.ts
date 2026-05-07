@@ -30,7 +30,7 @@ export function detectAdminConsentRequired(message: string | null | undefined): 
   const hit = ADMIN_CONSENT_PATTERNS.some((re) => re.test(message));
   if (!hit) return { detected: false };
   // Best-effort tenant hint: AAD errors sometimes include the tenant or the
-  // domain. We don't depend on it — the screen asks the user for their work
+  // domain. We don't depend on it - the screen asks the user for their work
   // email and resolves from there.
   const domainMatch = message.match(/@([a-z0-9.-]+\.[a-z]{2,})/i);
   return { detected: true, tenantHint: domainMatch?.[1]?.toLowerCase() };
@@ -80,7 +80,7 @@ export async function requestAdminConsentLink(
 
 // One-shot snapshot of the user's email domain. Inserted with auth.uid() RLS
 // gate; calling more than once is harmless (PK conflict, ignored). Errors
-// are swallowed — this is telemetry, never blocking.
+// are swallowed - this is telemetry, never blocking.
 export async function recordUserEmailDomain(userId: string, email: string | null | undefined): Promise<void> {
   if (!userId || !email) return;
   const domain = extractDomain(email);

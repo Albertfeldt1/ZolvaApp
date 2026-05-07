@@ -44,7 +44,7 @@ async function getImapFlow(): Promise<typeof ImapFlow> {
 // the STARTTLS dance, which simplifies the protocol code.
 const SMTP_HOST = 'smtp.mail.me.com';
 const SMTP_PORT = 465;
-// Apple's TLS handshake from Supabase Edge IPs is variable — 5s was too
+// Apple's TLS handshake from Supabase Edge IPs is variable - 5s was too
 // tight, producing intermittent connectTls timeouts. 10s gives a wider
 // margin while staying under the 12s gateway timeout.
 const SMTP_CONNECT_TIMEOUT_MS = 10_000;
@@ -57,8 +57,8 @@ const COMMAND_TIMEOUT_MS = 10_000;
 const RATE_LIMIT_VALIDATE = 10;       // per hour per user
 const RATE_LIMIT_LIST_INBOX = 60;     // per hour per user
 const RATE_LIMIT_GET_BODY = 120;      // per hour per user (one fetch per opened mail)
-const RATE_LIMIT_SEND_MAIL = 30;      // per hour per user — under Apple SMTP per-account throttle
-const RATE_LIMIT_APPEND_DRAFT = 60;   // per hour per user — cheap IMAP APPEND, shares list-inbox order of magnitude
+const RATE_LIMIT_SEND_MAIL = 30;      // per hour per user - under Apple SMTP per-account throttle
+const RATE_LIMIT_APPEND_DRAFT = 60;   // per hour per user - cheap IMAP APPEND, shares list-inbox order of magnitude
 
 type ValidateReq = { op: 'validate'; email: string; password: string };
 type ListInboxReq = {
@@ -78,7 +78,7 @@ type CountReq = {
   email: string;
   password: string;
 };
-// clear-binding doesn't need email/password — the JWT identifies the user
+// clear-binding doesn't need email/password - the JWT identifies the user
 // and the binding row is keyed by user_id. Email/password fields are
 // optional/ignored to keep the request shape uniform with the other ops.
 type ClearBindingReq = {
@@ -87,7 +87,7 @@ type ClearBindingReq = {
   password?: string;
 };
 // Keep-warm op for pg_cron. Returns immediately with no env, DB, or IMAP
-// touch — the only goal is to keep a worker from idling out, so the gateway
+// touch - the only goal is to keep a worker from idling out, so the gateway
 // doesn't 502 on the next real cold-start.
 type PingReq = { op: 'ping' };
 type AttachmentSpec = {
@@ -131,7 +131,7 @@ type ErrCode =
   | 'bad-request';
 
 function err(code: ErrCode, status: number, detail?: string): Response {
-  // `detail` (when set) is a short truncated error message — used by the
+  // `detail` (when set) is a short truncated error message - used by the
   // client to surface the actual IMAP failure cause for 'protocol' errors
   // without round-tripping to Supabase function logs.
   const body: Record<string, unknown> = { ok: false, error: code };
@@ -159,7 +159,7 @@ serve(async (req) => {
 
   // Keep-warm fast path: bearer presence is gate enough (Supabase gateway
   // already requires an apikey to reach the function). Ping returns before
-  // env lookup, supabase-js getUser(), and rate-limit DB write — so a
+  // env lookup, supabase-js getUser(), and rate-limit DB write - so a
   // per-minute pg_cron tick keeps the worker hot for ~tens of ms each.
   if (body && body.op === 'ping') {
     return Response.json({ ok: true });
@@ -272,11 +272,11 @@ async function checkRateLimit(
   userId: string,
   op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding' | 'send-mail' | 'append-draft',
 ): Promise<boolean> {
-  // clear-binding doesn't need rate limiting — the JWT already authorizes,
+  // clear-binding doesn't need rate limiting - the JWT already authorizes,
   // and a malicious user can only delete their OWN row. Skipping the check
   // also means disconnect-then-reconnect doesn't false-trigger the limit.
   if (op === 'clear-binding') return true;
-  // count piggy-backs on the list-inbox bucket — both are read-only INBOX
+  // count piggy-backs on the list-inbox bucket - both are read-only INBOX
   // taps, and the count call is meaningfully cheaper (STATUS vs FETCH), so
   // sharing the limit prevents a polling client from exhausting either.
   const limit =
@@ -304,7 +304,7 @@ async function checkRateLimit(
     return true; // fail open on infrastructure errors; don't block legit users
   }
   if ((count ?? 0) >= limit) return false;
-  // Await the insert — Supabase edge runtime can terminate the request
+  // Await the insert - Supabase edge runtime can terminate the request
   // context before fire-and-forget promises complete, which silently breaks
   // rate-limit accounting (every call sees count=0 because no inserts ever
   // land). Adds ~10-30ms but makes the limit actually enforce.
@@ -341,7 +341,7 @@ async function handleValidate(
   }
 
   // Validate is the explicit "use these credentials going forward" call from
-  // the Setup screen — upsert the binding hash so subsequent list-inbox /
+  // the Setup screen - upsert the binding hash so subsequent list-inbox /
   // get-body calls don't get rejected by a stale hash from the previous
   // password. Without this, reconnecting via Setup (without a full disconnect
   // first) leaves the old binding in place and every fetch 422s.
@@ -427,12 +427,12 @@ function mapImapError(caughtErr: unknown): Response {
     authenticationFailed?: boolean;
   } | null;
 
-  // imapflow's `ClosedAfterConnectTLS` / `ClosedAfterConnect` codes — TCP+TLS
+  // imapflow's `ClosedAfterConnectTLS` / `ClosedAfterConnect` codes - TCP+TLS
   // handshake completed, then the server (Apple) closed the socket before
   // sending the IMAP greeting. We've seen this when Apple's anti-abuse system
   // throttles connections from Supabase's edge egress IPs. Functionally
   // equivalent to a transient unavailable from Apple's side, not a protocol
-  // bug — surface it so the client banner reads "iCloud svarer ikke" instead
+  // bug - surface it so the client banner reads "iCloud svarer ikke" instead
   // of a generic protocol error.
   if (
     errObj?.code === 'ClosedAfterConnectTLS' ||
@@ -480,7 +480,7 @@ function clampLimit(n: number | undefined): number {
   return Math.max(1, Math.min(50, Math.floor(n)));
 }
 
-// Pepper is consumed as UTF-8 bytes of its string representation — NOT
+// Pepper is consumed as UTF-8 bytes of its string representation - NOT
 // hex-decoded. The runbook stores it as a 64-char hex string and the function
 // must keep treating it that way; switching to hex-decoded raw bytes would
 // produce different key material and invalidate every existing binding row.
@@ -524,10 +524,10 @@ function formatFrom(from: Array<{ name?: string; address?: string }> | undefined
   return f.address ?? f.name ?? '';
 }
 
-// Naive tag stripper — does not handle attributes containing ">", CDATA,
+// Naive tag stripper - does not handle attributes containing ">", CDATA,
 // HTML comments, or HTML-like text that starts after the first 100 chars.
 // Decodes only five entities (&amp; &lt; &gt; &nbsp; and numeric &#NNN;).
-// Lossy by design — full BODYSTRUCTURE parsing is future work.
+// Lossy by design - full BODYSTRUCTURE parsing is future work.
 function extractPreview(part: Uint8Array | undefined): string {
   if (!part) return '';
   const text = new TextDecoder().decode(part);
@@ -562,7 +562,7 @@ async function handleListInbox(
   });
 
   // Binding check: if a row exists, hash MUST match. If absent, this is the
-  // first call — proceed and create the row on success.
+  // first call - proceed and create the row on success.
   const { data: existing, error: bindReadErr } = await svc
     .from('icloud_credential_bindings')
     .select('credential_hash')
@@ -576,7 +576,7 @@ async function handleListInbox(
     // Not a perfect oracle: response time distinguishes mismatch (~10ms DB)
     // from a real Apple rejection (~500ms IMAP roundtrip). With 60/hr rate
     // limit, an attacker who already holds the JWT learns only "this guess
-    // doesn't match the binding" — not the bound credential itself.
+    // doesn't match the binding" - not the bound credential itself.
     return err('auth-failed', 422);
   }
 
@@ -615,7 +615,7 @@ async function handleListInbox(
           if (!env) continue;
           // Prefer internalDate (when the IMAP server received the message)
           // over envelope.date (the Date: header from the sender). The header
-          // can be missing, malformed, or in the sender's local timezone —
+          // can be missing, malformed, or in the sender's local timezone -
           // we've seen Apple-noreply messages where the parsed envelope date
           // fell on the wrong hour. internalDate is always a server-stamped
           // UTC moment, so the "received at" the user sees in the inbox
@@ -651,7 +651,7 @@ async function handleListInbox(
       );
     if (bindWriteErr) {
       console.warn('[imap-proxy] binding write failed:', bindWriteErr.message);
-      // don't fail the request — user got their data; binding can repair next call
+      // don't fail the request - user got their data; binding can repair next call
     }
 
     return Response.json({ ok: true, messages });
@@ -671,7 +671,7 @@ async function handleListInbox(
 // readOnly INBOX so iCloud doesn't flip the \Seen flag, decodes the transfer
 // encoding (base64 / quoted-printable / 7bit / 8bit), then converts charset
 // via TextDecoder. HTML stripping is the same lossy approach used for inbox
-// previews — full BODYSTRUCTURE traversal w/ inline image handling is later.
+// previews - full BODYSTRUCTURE traversal w/ inline image handling is later.
 
 type BodyNode = {
   type?: string;            // e.g. 'text/plain', 'multipart/alternative'
@@ -690,7 +690,7 @@ type TextPartSpec = {
 
 // Returns every text/* part in the message in preference order: text/plain
 // first, text/html next, any other text/* last. The caller fetches each in
-// turn until one yields meaningful content — Apple often ships a stub
+// turn until one yields meaningful content - Apple often ships a stub
 // text/plain ("View this email in HTML") with the real content in text/html,
 // and the previous "first plain wins" picker rendered those as blank bodies.
 function pickTextParts(node: BodyNode | undefined): TextPartSpec[] {
@@ -704,7 +704,7 @@ function pickTextParts(node: BodyNode | undefined): TextPartSpec[] {
       else flat.push(n);
     }
   } else {
-    // Single-part message — the root IS the leaf. iCloud expects part '1'.
+    // Single-part message - the root IS the leaf. iCloud expects part '1'.
     flat.push({ ...node, part: node.part ?? '1' });
   }
   const textNodes = flat.filter((n) => n.type && /^text\//i.test(n.type) && n.part);
@@ -736,7 +736,7 @@ function decodeContent(buf: Uint8Array, encoding: string, charset: string): stri
       const bin = atob(ascii);
       bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    } catch { /* fall through with raw bytes — better than throwing */ }
+    } catch { /* fall through with raw bytes - better than throwing */ }
   } else if (encoding === 'quoted-printable') {
     const ascii = new TextDecoder('ascii').decode(buf);
     const decoded = ascii
@@ -749,7 +749,7 @@ function decodeContent(buf: Uint8Array, encoding: string, charset: string): stri
   try {
     return new TextDecoder(charset).decode(bytes);
   } catch {
-    // Unknown charset — fall back to UTF-8 (most common).
+    // Unknown charset - fall back to UTF-8 (most common).
     return new TextDecoder('utf-8').decode(bytes);
   }
 }
@@ -802,7 +802,7 @@ async function handleGetBody(
     return err('auth-failed', 422);
   }
   // No binding row yet means the user hasn't validated/list-inboxed this
-  // credential. Don't bind here — get-body shouldn't be the first call.
+  // credential. Don't bind here - get-body shouldn't be the first call.
   if (!existing) {
     return err('auth-failed', 422);
   }
@@ -853,7 +853,7 @@ async function handleGetBody(
       if (!bodyText) bodyText = stubFallback;
       if (!bodyText) {
         // Surface the structure so we can diagnose which Apple/MIME shape
-        // confused the picker. Don't bail — return the empty body so the
+        // confused the picker. Don't bail - return the empty body so the
         // detail screen still shows headers + "no readable body".
         console.warn(
           '[imap-proxy] get-body returned empty for uid',
@@ -905,7 +905,7 @@ async function handleCount(
   const svc = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false },
   });
-  // Mirror handleListInbox's binding check — count is a read-only op but
+  // Mirror handleListInbox's binding check - count is a read-only op but
   // still needs to refuse if the bound password has rotated.
   const { data: existing, error: bindReadErr } = await svc
     .from('icloud_credential_bindings')
@@ -926,7 +926,7 @@ async function handleCount(
     await client.connect();
     // STATUS gives the all-time INBOX total cheaply (no lock, no \Seen
     // change). For unread we want only mail received in the past 7
-    // days — STATUS can't filter by date, so we EXAMINE (read-only)
+    // days - STATUS can't filter by date, so we EXAMINE (read-only)
     // and run SEARCH UNSEEN SINCE. EXAMINE matches list-inbox's
     // readOnly behavior, so opening INBOX here doesn't mark anything
     // \Seen.
@@ -996,7 +996,7 @@ function toAddressList(addrs: string[]): string[] {
 // nodemailer goes through Deno's npm-compat layer (same path imapflow
 // uses successfully for IMAP). The hand-rolled Deno.connectTls path was
 // hitting consistent connect timeouts to smtp.mail.me.com:465 from
-// Supabase Edge IPs — possibly Apple-side rate-limiting on the raw TCP
+// Supabase Edge IPs - possibly Apple-side rate-limiting on the raw TCP
 // path. nodemailer's Node-net.Socket implementation behaves differently
 // on the same runtime and gets through.
 let _NodemailerMod: typeof import('nodemailer') | null = null;
@@ -1041,7 +1041,7 @@ async function sendViaSmtp(input: SendInput): Promise<SmtpResult> {
   // is a Buffer for nodemailer; decodeAttachments already gave us bytes.
   const naAttachments = input.attachments.map((a) => ({
     filename: a.filename,
-    content: a.content, // Uint8Array — nodemailer accepts this for Node Buffer compat
+    content: a.content, // Uint8Array - nodemailer accepts this for Node Buffer compat
     contentType: a.contentType,
     cid: a.contentID,
     contentDisposition: 'inline' as const,
@@ -1201,7 +1201,7 @@ function quotedPrintable(s: string): string {
     if (b === 0x0a) { out += '\r\n'; lineLen = 0; continue; }
     if (b === 0x0d) continue; // strip lone CR
     if (b === 0x20 || b === 0x09) {
-      // Space/tab — needs encoding only at line end; simplest correct
+      // Space/tab - needs encoding only at line end; simplest correct
       // implementation: leave as-is here, soft-line-break rules below
       // ensure we never end a line on whitespace.
       token = String.fromCharCode(b);
@@ -1277,7 +1277,7 @@ function buildRfc5322(msg: AppendableMessage): Uint8Array {
 //
 // Opens a fresh IMAP connection, resolves the Sent folder, and APPENDs the
 // raw RFC 5322 message with the \Seen flag. All failures are logged and
-// swallowed — the SMTP send is what counts.
+// swallowed - the SMTP send is what counts.
 async function appendToSent(
   email: string,
   password: string,
@@ -1366,7 +1366,7 @@ async function handleSendMailInner(
     return err('auth-failed', 422);
   }
 
-  // Decode signature attachments before opening SMTP — bad base64 should fail
+  // Decode signature attachments before opening SMTP - bad base64 should fail
   // fast without burning a connect-attempt to Apple.
   let attachments: ReturnType<typeof decodeAttachments>;
   try {
@@ -1416,7 +1416,7 @@ async function handleSendMailInner(
   // KNOWN LIMITATION (v1): we don't populate the iCloud Sent folder.
   //   - Synchronous APPEND pushed total wall-clock past Supabase's 12s
   //     gateway timeout when Apple throttles our egress IPs (which they
-  //     do — same IPs serve all Supabase customers).
+  //     do - same IPs serve all Supabase customers).
   //   - Background APPEND via EdgeRuntime.waitUntil silently dropped:
   //     Supabase recycles the worker the moment the response is returned.
   //   - A second client → server round-trip would work but doubles the
@@ -1426,7 +1426,7 @@ async function handleSendMailInner(
   // revisit when we have a usage signal that demands it.
   //
   // `raw` (RFC 5322 bytes) is built above for future re-introduction of
-  // APPEND — we leave it in place so the post-success path is one edit
+  // APPEND - we leave it in place so the post-success path is one edit
   // away when we wire APPEND back in.
   void raw;
   return Response.json({ ok: true, sent_appended: false });

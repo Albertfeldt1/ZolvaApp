@@ -116,7 +116,7 @@ export function registerResponseHandler(
 }
 
 export async function scheduleReminderNotification(reminder: Reminder): Promise<void> {
-  // SERVER-SIDE FIRE — no-op on client. The reminders-fire cron pushes
+  // SERVER-SIDE FIRE - no-op on client. The reminders-fire cron pushes
   // notifications via Expo. Stub kept through one release cycle for any
   // stale callers; remove in Phase 6 cleanup.
   void reminder;
@@ -136,7 +136,7 @@ export async function cancelReminderNotification(reminderId: string): Promise<vo
         ),
     );
   } catch {
-    // ignore — best effort
+    // ignore - best effort
   }
 }
 

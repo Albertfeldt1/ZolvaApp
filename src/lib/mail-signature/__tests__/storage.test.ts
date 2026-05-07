@@ -86,7 +86,7 @@ describe('storage / migration', () => {
     expect(parsed.title).toBe('CEO');
   });
 
-  describe('loadSignature — discriminated-union migration', () => {
+  describe('loadSignature - discriminated-union migration', () => {
     beforeEach(async () => {
       __resetForTests();
       __setCurrentUserForTests('uid-disc');
@@ -137,7 +137,7 @@ describe('storage / migration', () => {
     });
   });
 
-  describe('loadSignature — socials migration', () => {
+  describe('loadSignature - socials migration', () => {
     beforeEach(async () => {
       __resetForTests();
       __setCurrentUserForTests('uid-soc');

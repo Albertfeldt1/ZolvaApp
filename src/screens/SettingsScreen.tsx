@@ -1,4 +1,4 @@
-// EXPORT_PATH_DOCUMENTED — The previous "Eksportér alle data" button rendered a
+// EXPORT_PATH_DOCUMENTED - The previous "Eksportér alle data" button rendered a
 // fake Alert. It was removed (see comment in the Privatliv card below) because a
 // broken promise is a GDPR Art. 15 liability. The right-of-access path now lives
 // in the privacy policy (owned by T3 in legal/privacy-policy-{da,en}.md): users
@@ -170,7 +170,7 @@ function CollapsibleSection({
     transform: [{ rotate: `${rotation.value * 180}deg` }],
   }));
 
-  // Drive the body's height directly from progress * measured height — this
+  // Drive the body's height directly from progress * measured height - this
   // is what gives the actual fold-out feel instead of the body popping in
   // at full size and just being clipped.
   const bodyStyle = useAnimatedStyle(() => ({
@@ -256,7 +256,7 @@ const LOGOS: Record<string, ImageSourcePropType> = {
   'notion.png': require('../../assets/logos/notion.png'),
 };
 
-// Placeholder integrations shown greyed out under "Forbundet" — no auth or
+// Placeholder integrations shown greyed out under "Forbundet" - no auth or
 // status yet, so they live outside the Connection type / useConnections store.
 const COMING_SOON_INTEGRATIONS: { key: string; title: string; sub: string; logo: string }[] = [
   { key: 'slack', title: 'Slack', sub: 'Beskeder og kanaler', logo: 'slack.png' },
@@ -282,7 +282,7 @@ function buildPreviewHtml(sig: {
   socials: SocialLink[];
 }): string {
   // Apply any bound targets to the imported html (mirror the buildOutgoingBody
-  // path) so the preview reflects what recipients will actually see — the
+  // path) so the preview reflects what recipients will actually see - the
   // socials with target.set become inline anchors in the html, and the
   // remaining unbound socials get appended as a separate row.
   const applied = applyBoundTargets({ html: sig.html, socials: sig.socials });
@@ -291,7 +291,7 @@ function buildPreviewHtml(sig: {
 
   // Resolve cid:zolva-sig to a data URL so the WebView preview renders the
   // cropped logo without an external load. The outgoing-mail path keeps cid:
-  // as-is — this transformation is preview-only.
+  // as-is - this transformation is preview-only.
   if (sig.image) {
     const cidDataUrl = `data:${sig.image.mimeType};base64,${sig.image.base64}`;
     combined = combined.replaceAll('cid:zolva-sig', cidDataUrl);
@@ -303,7 +303,7 @@ function buildPreviewHtml(sig: {
   // giving a true "thumbnail" of how the email looks at email-client width.
   // Viewport ~420 logical px keeps content at email-client proportions
   // (CTA buttons stay side-by-side without wrapping) while landing at
-  // ~0.8× of the actual WebView width — content renders large and
+  // ~0.8× of the actual WebView width - content renders large and
   // close to its natural size. Body padding kept tight (4 px) so the
   // signature fills the preview pane edge-to-edge.
   return `<!doctype html><html><head><meta name="viewport" content="width=420,initial-scale=0.81,user-scalable=no"><style>html,body{margin:0;padding:4px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:transparent;}img{max-width:100%;height:auto;}</style></head><body>${combined}</body></html>`;
@@ -321,14 +321,14 @@ function formatImportedDate(unixMs: number): string {
 
 type SocialMeta = {
   label: string;
-  glyph: string;       // letter monogram or unicode mark — fallback when no asset
+  glyph: string;       // letter monogram or unicode mark - fallback when no asset
   bg: string;          // brand background color (used when rendering the glyph circle)
   fg: string;          // glyph foreground color
   placeholder: string; // url input hint
   gradient?: readonly string[]; // optional brand gradient (Instagram fallback)
   useGlobeIcon?: boolean; // when true, BrandIcon renders the Globe lucide icon instead of the glyph
   asset?: ImageSourcePropType; // pre-rendered brand-icon PNG (preferred over glyph when set)
-  assetScale?: number; // multiplier for the rendered asset relative to the requested size — used when the source PNG has extra transparent padding (e.g. Instagram).
+  assetScale?: number; // multiplier for the rendered asset relative to the requested size - used when the source PNG has extra transparent padding (e.g. Instagram).
 };
 
 const SOCIAL_META: Record<SocialType, SocialMeta> = {
@@ -368,7 +368,7 @@ function BrandIcon({ type, size = 36 }: { type: SocialType; size?: number }) {
   // the colored circle, so we just render the image. The outer box stays at
   // the requested `size` so every BrandIcon occupies the same row/wheel
   // slot regardless of brand. assetScale only adjusts the visual size of
-  // the inner image — Instagram's transparent padding gets compensated
+  // the inner image - Instagram's transparent padding gets compensated
   // without misaligning the layout of its peers.
   if (meta.asset) {
     const renderedSize = size * (meta.assetScale ?? 1);
@@ -437,7 +437,7 @@ function BrandIcon({ type, size = 36 }: { type: SocialType; size?: number }) {
   );
 }
 
-// Radial petal — fans outward from the wheel center on bloom-in.
+// Radial petal - fans outward from the wheel center on bloom-in.
 const WHEEL_RADIUS = 138;
 const WHEEL_PETAL_BOX = 78;
 
@@ -637,7 +637,7 @@ function SocialBindPicker(props: {
           <Text style={styles.sigBindSheetSub}>Vælg et ord eller billede i signaturen.</Text>
 
           <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 4 }}>
-            {/* Unbind option — distinct full-width pill with link-off icon */}
+            {/* Unbind option - distinct full-width pill with link-off icon */}
             <Pressable
               onPress={() => handleSelect(undefined)}
               style={[styles.sigBindUnbindPill, isVisSeparat && styles.sigBindUnbindPillSelected]}
@@ -709,7 +709,7 @@ function SocialBindPicker(props: {
                 {(targets.glyphs.length > 0 || targets.images.length > 0) && (
                   <>
                     <Text style={[styles.sigBindSectionLabel, { marginTop: 18 }]}>BILLEDER</Text>
-                    {/* Glyphs first — single-char/symbol icon stand-ins.
+                    {/* Glyphs first - single-char/symbol icon stand-ins.
                         Bound the same way as words (kind:'word') but rendered
                         here as a wrap-flow of small chips for visual parity
                         with the image rows below. */}
@@ -919,7 +919,7 @@ function SocialsSection(props: {
   );
 }
 
-// Manual mail signature — structured form with optional logo. Renders
+// Manual mail signature - structured form with optional logo. Renders
 // as HTML in Outlook send paths (and iCloud SMTP when that lands).
 // Gmail still uses the auto-fetched server signature.
 function MailSignatureSection() {
@@ -1031,7 +1031,7 @@ function MailSignatureSection() {
         return;
       }
       // Preserve the existing logo (vision call doesn't touch it). Every
-      // other field is replaced — partial merges create surprising mixed
+      // other field is replaced - partial merges create surprising mixed
       // states; the user explicitly asked to autofill from this screenshot.
       const existingLogo = data.kind === 'structured' ? data.logo : null;
       const next: StructuredSignature = { ...result.data, logo: existingLogo };
@@ -1171,7 +1171,7 @@ function MailSignatureSection() {
           <SigField label="Website"     value={data.website}     onChange={(v) => update({ website: v })}     onBlur={commit} editable={hydrated} autoCapitalize="none" />
           <SigField label="Egne linjer" value={data.customLines} onChange={(v) => update({ customLines: v })} onBlur={commit} editable={hydrated} multiline />
           <Text style={styles.sigInlineLinkHint}>
-            Tip: lav et klikbart link med <Text style={styles.sigInlineLinkHintMono}>[tekst](url)</Text>{' '}— fx{' '}
+            Tip: lav et klikbart link med <Text style={styles.sigInlineLinkHintMono}>[tekst](url)</Text>{' '}- fx{' '}
             <Text style={styles.sigInlineLinkHintMono}>Læs vores [privatlivspolitik](zolva.io/privacy)</Text>.
           </Text>
 
@@ -1293,7 +1293,7 @@ function SigField(props: {
 }
 
 function SignaturePreview({ data }: { data: StructuredSignature }) {
-  // Structural preview using RN components — not pixel-perfect against
+  // Structural preview using RN components - not pixel-perfect against
   // every email client, but shows what fields are present.
   const headerParts = [data.name, data.title].filter(Boolean).join(' · ');
   const contactParts = [
@@ -1393,7 +1393,7 @@ export function SettingsScreen({
       icloudCredState === 'valid' && !icloudFlagOff ? 'connected'
     : icloudCredState === 'invalid'                 ? 'expired'
                                                     : 'disconnected',
-    logo: 'icloud.png', // never read — row renderer special-cases iCloud to use the lucide Cloud icon (Apple trademark constraint).
+    logo: 'icloud.png', // never read - row renderer special-cases iCloud to use the lucide Cloud icon (Apple trademark constraint).
   };
   const allConnections: Connection[] = [icloudConnection, ...connections];
 
@@ -1540,7 +1540,7 @@ export function SettingsScreen({
             // Best-effort: wipe the server-side binding row so the user can
             // reconnect with a freshly-rotated app-specific password without
             // hitting the bound-hash mismatch (auth-failed). Failure is
-            // non-blocking — the cron sweep is the eventual fallback.
+            // non-blocking - the cron sweep is the eventual fallback.
             const r = await clearIcloudBinding();
             if (!r.ok && __DEV__) {
               console.warn('[settings] icloud clear-binding failed:', r.error);
@@ -1608,7 +1608,7 @@ export function SettingsScreen({
 
     if (next) {
       if (!parentTokenPresent) {
-        // First time enabling something on this provider — kick off the
+        // First time enabling something on this provider - kick off the
         // shared OAuth flow. After it succeeds the auth context updates and
         // we flip the flag for the integration the user explicitly clicked.
         // Sibling integrations (e.g. Calendar/Drive after Gmail) stay off
@@ -1664,7 +1664,7 @@ export function SettingsScreen({
           contentInsetAdjustmentBehavior="never"
           keyboardShouldPersistTaps="handled"
         >
-          {/* Hero: back button + eyebrow + "Indstillinger" — bone-white card.
+          {/* Hero: back button + eyebrow + "Indstillinger" - bone-white card.
               Hidden when logged out so the LoginCard reads as a clean
               standalone surface instead of being framed by an account
               header for an account that doesn't exist yet. */}
@@ -1705,14 +1705,14 @@ export function SettingsScreen({
             </View>
           ) : (
             <>
-              {/* Speech bubble — bone card with Stone */}
+              {/* Speech bubble - bone card with Stone */}
               <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
                 <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.lg }}>
                   <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' }}>
                     <Stone mood="calm" size={40} />
                     <View style={{ flex: 1 }}>
                       <Text style={{ ...type.body, color: t.ink2 }}>
-                        Jeg arbejder sådan her. Skru på det du vil — resten passer jeg.
+                        Jeg arbejder sådan her. Skru på det du vil - resten passer jeg.
                       </Text>
                     </View>
                   </View>
@@ -1742,7 +1742,7 @@ export function SettingsScreen({
                         if (result.ok) return;
                         const message =
                           result.reason === 'unauthenticated' || result.reason === 'rls'
-                            ? 'Kunne ikke gemme — log ind igen.'
+                            ? 'Kunne ikke gemme - log ind igen.'
                             : 'Kunne ikke gemme. Prøv igen om lidt.';
                         Alert.alert('Indstillinger', message);
                       }}
@@ -1840,7 +1840,7 @@ export function SettingsScreen({
                 {/* Full-revoke escape hatches. Toggling individual switches
                     off keeps the OAuth grant intact (so re-enabling is a
                     flag flip, not another sign-in). These links revoke the
-                    grant entirely — useful if the user wants Zolva fully
+                    grant entirely - useful if the user wants Zolva fully
                     cut off from a provider. */}
                 {(googleAccessToken || microsoftAccessToken || icloudCredState !== 'absent') && (
                   <View style={{ paddingTop: spacing.md, gap: spacing.xs, borderTopWidth: 1, borderTopColor: t.line, marginTop: spacing.xs }}>
@@ -1900,7 +1900,7 @@ export function SettingsScreen({
                 ))}
               </SettingsSectionCard>
 
-              {/* Stemmestyring — wrapped in glass card from outside */}
+              {/* Stemmestyring - wrapped in glass card from outside */}
               <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
                 <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.lg }}>
                   <StemmestyringSection hasIcloud={hasIcloud} />
@@ -1946,7 +1946,7 @@ export function SettingsScreen({
                 </Pressable>
               </SettingsSectionCard>
 
-              {/* Privatliv — dark glass card */}
+              {/* Privatliv - dark glass card */}
               <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
                 <GlassFrostedCard intensity={blur.glassStrong} overlay={surface.glassDark} style={{ padding: spacing.lg }}>
                   <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' }}>
@@ -1956,7 +1956,7 @@ export function SettingsScreen({
                       {/* Copy fact-checked 2026-04-20:
                          - Anthropic retention: workspace does NOT have ZDR, so default
                            up to 30 days T&S retention applies. State that plainly.
-                         - Supabase region: eu-west-1 (Ireland) — EU. */}
+                         - Supabase region: eu-west-1 (Ireland) - EU. */}
                       <Text style={{ ...type.body, color: surface.glassDarkTextSoft, marginTop: spacing.sm }}>
                         Indholdet af dine mails og kalender sendes til Anthropic (Claude) for at lave
                         opsummeringer og udkast. Anthropic kan opbevare data i op til 30 dage til
@@ -1972,7 +1972,7 @@ export function SettingsScreen({
                       {/* Export button removed: a fake Alert is a GDPR liability. Rewire to a real
                           Edge Function (JSON bundle + Resend email) before bringing this back.
 
-                          T3 handoff — please add to legal/privacy-policy-da.md AND
+                          T3 handoff - please add to legal/privacy-policy-da.md AND
                           legal/privacy-policy-en.md:
 
                             DA: "For at anmode om en kopi af dine data, skriv til
@@ -1981,7 +1981,7 @@ export function SettingsScreen({
                             EN: "To request a copy of your data, email <contact
                                  email>. We respond within 30 days per GDPR Art. 15."
 
-                          Do NOT surface the email in app UI — it belongs in the
+                          Do NOT surface the email in app UI - it belongs in the
                           privacy policy so it stays one authoritative source. */}
                     </View>
                   </View>
@@ -2022,7 +2022,7 @@ export function SettingsScreen({
                 />
               </SettingsSectionCard>
 
-              {/* Mail-signatur — wrapped in glass card from outside */}
+              {/* Mail-signatur - wrapped in glass card from outside */}
               <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
                 <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.lg }}>
                   <MailSignatureSection />
@@ -2052,7 +2052,7 @@ export function SettingsScreen({
                   onPress={() => setDeleteOpen(true)}
                   accessibilityRole="button"
                 >
-                  {/* No danger token in current design scheme — use inline hex.
+                  {/* No danger token in current design scheme - use inline hex.
                       '#D14343' is the Zolva destructive red carried from the
                       original design and consistent with DeleteAccountScreen. */}
                   <Text style={{ ...type.body, color: '#D14343', flex: 1 }}>Slet konto</Text>
@@ -2060,7 +2060,7 @@ export function SettingsScreen({
                 </Pressable>
               </SettingsSectionCard>
 
-              {/* Dev buttons — only visible for albertfeldt1; keep dark style */}
+              {/* Dev buttons - only visible for albertfeldt1; keep dark style */}
               {user?.email === 'albertfeldt1@gmail.com' && (
                 <Pressable
                   onPress={async () => {
@@ -2091,7 +2091,7 @@ export function SettingsScreen({
                 </Pressable>
               )}
 
-              {/* Sign out — full-width destructive pill */}
+              {/* Sign out - full-width destructive pill */}
               <Pressable
                 style={({ pressed }) => ({
                   marginHorizontal: spacing.screenPad,
@@ -2284,7 +2284,7 @@ function groupByAccount(calendars: ProviderCalendar[]) {
       c.provider === 'google'    ? 'GOOGLE' :
       c.provider === 'microsoft' ? 'MICROSOFT' :
                                    'ICLOUD';
-    const heading = `${headingProvider} — ${c.accountEmail ?? 'Ukendt konto'}`;
+    const heading = `${headingProvider} - ${c.accountEmail ?? 'Ukendt konto'}`;
     if (!groups.has(heading)) groups.set(heading, []);
     groups.get(heading)!.push(c);
   }
@@ -2347,7 +2347,7 @@ export function LoginCard() {
       }
     } catch (e) {
       const raw = e instanceof Error ? e.message : String(e);
-      // Apple's user-cancel throws ERR_REQUEST_CANCELED — silent ignore
+      // Apple's user-cancel throws ERR_REQUEST_CANCELED - silent ignore
       if (!raw.includes('CANCELED') && !raw.includes('canceled')) {
         if (__DEV__) console.warn(`[auth] ${provider} sign-in threw:`, e);
         setError(translateProviderError(e).message);
@@ -2826,7 +2826,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   sigImportedPreview: {
-    // Dynamic height — see the inline style override on the preview View
+    // Dynamic height - see the inline style override on the preview View
     // and the WebView's injectedJavaScript / onMessage that measure
     // document.body.scrollHeight and update previewHeight state.
     minHeight: 80,
@@ -3396,7 +3396,7 @@ const styles = StyleSheet.create({
   workOptionText: { fontFamily: fonts.ui, fontSize: 13, color: colors.ink },
   workOptionTextOn: { color: '#FFFFFF', fontFamily: fonts.uiSemi },
 
-  // morning-brief row when only iCloud is connected — disabled visual + 'Læs mere' link to the explainer sheet.
+  // morning-brief row when only iCloud is connected - disabled visual + 'Læs mere' link to the explainer sheet.
   disabledPrefRow: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingVertical: 14,
@@ -3508,7 +3508,7 @@ const styles = StyleSheet.create({
   },
 
   // Notification toggles (light-background rows, separate from the dark ToggleRow above).
-  // No horizontal padding — the parent section already insets by 20, matching the
+  // No horizontal padding - the parent section already insets by 20, matching the
   // privacy card's inset so labels/toggles share a vertical column across sections.
   ntRow: {
     flexDirection: 'row',
@@ -3530,7 +3530,7 @@ const styles = StyleSheet.create({
 
   // Stemmestyring section: explanatory body copy under the section title.
   // Matches the body-text treatment used elsewhere in the screen
-  // (connSub / workMeta) — small UI-font, muted fg3.
+  // (connSub / workMeta) - small UI-font, muted fg3.
   sectionBody: {
     marginTop: 10,
     fontFamily: fonts.ui,
@@ -3561,7 +3561,7 @@ const styles = StyleSheet.create({
     color: colors.sageDeep,
   },
 
-  // Picker modal — full-screen sheet on the screen's paper background so it
+  // Picker modal - full-screen sheet on the screen's paper background so it
   // visually belongs to the same world as the underlying Settings page.
   modal: {
     flex: 1,

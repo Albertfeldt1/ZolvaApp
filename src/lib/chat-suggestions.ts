@@ -21,10 +21,10 @@ export type MailForSuggestion = {
 
 const SYSTEM_PROMPT =
   'Du er Zolva. Brugeren har netop åbnet chatten. Ud fra listen over nylige mails, ' +
-  'foreslå korte chat-prompts som brugeren kunne trykke på for at bede dig om hjælp — ' +
+  'foreslå korte chat-prompts som brugeren kunne trykke på for at bede dig om hjælp - ' +
   'typisk en påmindelse eller en note. Hvis en mail beder brugeren om at huske noget, ' +
   'forslå "Husk mig på at …". Hvis en mail nævner en deadline eller aftale, forslå en ' +
-  'relevant påmindelse. Returnér 0–4 prompts, sorteret efter vigtighed — de vigtigste først. ' +
+  'relevant påmindelse. Returnér 0–4 prompts, sorteret efter vigtighed - de vigtigste først. ' +
   'Hver prompt er maks 12 ord, skrevet på dansk, formuleret som noget brugeren ville sige til dig. ' +
   'Hvis ingen mails har noget handlingsrettet, returnér en tom liste.';
 

@@ -45,7 +45,7 @@ type PrefsMap = Map<string, boolean>; // key: `${provider}:${calendarId}` -> inc
 
 // Internal shape for one provider branch. `fallbackPrimaryOnly=true` signals
 // that the Google branch could not enumerate calendarList due to scope and
-// fell back to the `primary` alias — distinct from a real success.
+// fell back to the `primary` alias - distinct from a real success.
 type BranchResult = {
   events: EventSummary[];
   fallbackPrimaryOnly?: boolean;
@@ -100,13 +100,13 @@ export async function fetchCalendarForUser(
 
 // Per-provider timing + status log. Format mirrors [oauth-refresh] for
 // consistent grep/jq across production logs. Three statuses:
-//   status=settled                 — real success, calendarList enumerated
-//   status=fallback_primary_only   — Google calendarList 403 → primary alias
+//   status=settled                 - real success, calendarList enumerated
+//   status=fallback_primary_only   - Google calendarList 403 → primary alias
 //                                    fallback. User has calendar.events but
 //                                    not calendar.readonly. Discovery fix
 //                                    for the regression introduced when the
 //                                    multi-calendar aggregator shipped.
-//   status=rejected reason=...     — anything else (refresh failure, network,
+//   status=rejected reason=...     - anything else (refresh failure, network,
 //                                    iCloud auth, timeout)
 async function timed(
   userIdShort: string,
@@ -160,7 +160,7 @@ async function loadCalendarPrefs(
     .select('provider, calendar_id, included')
     .eq('user_id', userId);
   if (error) {
-    // Fall back to "include everything" — better to over-include than to
+    // Fall back to "include everything" - better to over-include than to
     // silently produce an empty brief because the prefs query failed.
     console.warn(`[calendar] prefs lookup failed user=${userId}:`, error.message);
     return map;
@@ -196,7 +196,7 @@ async function fetchProviderEvents(
       : await listMicrosoftCalendars(accessToken);
   } catch (err) {
     // Google calendarList 403 means the OAuth grant has calendar.events but
-    // not calendar.readonly. Fall back to the documented `primary` alias —
+    // not calendar.readonly. Fall back to the documented `primary` alias -
     // events.list on `primary` works under calendar.events alone, restoring
     // the pre-multi-calendar behavior. 401 (token revoked) and other errors
     // still propagate as rejected.
@@ -267,7 +267,7 @@ async function listGoogleCalendars(accessToken: string): Promise<CalendarMeta[]>
     return [{
       id: c.id,
       name: c.summary ?? c.id,
-      // Google's `selected` field is undefined on `primary` calendars — treat
+      // Google's `selected` field is undefined on `primary` calendars - treat
       // undefined as "user has it visible" (default-on).
       googleSelected: c.selected,
     }];

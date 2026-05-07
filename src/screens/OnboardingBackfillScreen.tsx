@@ -43,7 +43,7 @@ export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, force
   const { t, type, fonts, radius, spacing, surface } = useTheme();
 
   // Build the human-readable list of sources we'll scan. Only include
-  // currently-connected providers — disconnected ones aren't relevant
+  // currently-connected providers - disconnected ones aren't relevant
   // to the user yet. Mirrors the IntegrationKey set the backfill
   // edge function actually consumes (mail + calendar; Drive isn't
   // backfilled).
@@ -96,7 +96,7 @@ export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, force
         bounces={false}
         overScrollMode="never"
       >
-        {/* Hero card — bone backdrop + Stone + display headline */}
+        {/* Hero card - bone backdrop + Stone + display headline */}
         <GlassFrostedCard
           radius={radius.card}
           overlay={surface.bone}
@@ -127,7 +127,7 @@ export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, force
           style={{ paddingVertical: spacing.cardPad, paddingHorizontal: spacing.cardPad, gap: spacing.md }}
         >
           <Text style={{ ...type.body, color: t.ink }}>
-            Vi læser hurtigt dine seneste emails og tilbagevendende møder for at finde ud af, hvem du arbejder med og hvad du arbejder med. Vi gemmer kun konklusionerne — ikke selve indholdet.
+            Vi læser hurtigt dine seneste emails og tilbagevendende møder for at finde ud af, hvem du arbejder med og hvad du arbejder med. Vi gemmer kun konklusionerne - ikke selve indholdet.
           </Text>
           <Text style={{ ...type.body, color: t.ink }}>
             Du kan altid se og ændre, hvad Zolva har lært, i Hukommelse-fanen.
@@ -140,7 +140,7 @@ export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, force
         >
           {noSources ? (
             <Text style={{ ...type.bodySm, color: t.ink3 }}>
-              Ingen konti forbundet endnu — du kan altid lade Zolva lære dig at kende ved at chatte.
+              Ingen konti forbundet endnu - du kan altid lade Zolva lære dig at kende ved at chatte.
             </Text>
           ) : (
             sources.map((s, i) => (
@@ -174,7 +174,7 @@ export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, force
 
         {/* CTAs */}
         <View style={{ gap: spacing.sm }}>
-          {/* Primary — Start */}
+          {/* Primary - Start */}
           <Pressable
             onPress={handleStart}
             disabled={busy || noSources}
@@ -192,7 +192,7 @@ export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, force
             </Text>
           </Pressable>
 
-          {/* Secondary — Connect more */}
+          {/* Secondary - Connect more */}
           <Pressable
             onPress={onConnectMore}
             disabled={busy}
@@ -211,7 +211,7 @@ export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, force
             Du kan altid scanne igen fra Hukommelse-fanen.
           </Text>
 
-          {/* Tertiary — Skip */}
+          {/* Tertiary - Skip */}
           <Pressable
             onPress={onSkip}
             disabled={busy}

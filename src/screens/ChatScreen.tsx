@@ -48,7 +48,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
     if (!initialDraft || !initialDraft.trim()) return;
     autoSentRef.current = true;
     // Defer one frame so the ChatScreen is fully mounted before send fires
-    // its tool-call loop — otherwise the typing indicator can race the
+    // its tool-call loop - otherwise the typing indicator can race the
     // initial scroll layout and look like the message never sent.
     requestAnimationFrame(() => {
       send(initialDraft);
@@ -79,7 +79,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
       <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
         <GlassHaloLayer />
 
-        {/* Header — wrapped in a glass card so the back button + Stone +
+        {/* Header - wrapped in a glass card so the back button + Stone +
             title sit on a backdrop instead of floating on the halo paper. */}
         <View
           style={{
@@ -176,7 +176,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
           {typing && <TypingIndicator t={t} spacing={spacing} radius={radius} />}
         </ScrollView>
 
-        {/* Suggestion pills — naked chips (no card backdrop) tucked just
+        {/* Suggestion pills - naked chips (no card backdrop) tucked just
             above the input. Infinite horizontal scroll: the data is
             tripled and the list silently snaps from the trailing copy
             back to the middle copy when the user scrolls past it, so
@@ -202,7 +202,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
 
         {/* Input dock */}
         <View style={{ padding: spacing.md, paddingBottom: spacing.xl }}>
-          {/* Use card (24) instead of pill (9999) — once the input grows
+          {/* Use card (24) instead of pill (9999) - once the input grows
               multi-line the pill arc has a ~60pt radius and the curve
               eats into the bottom-left/bottom-right corners where the
               plus icon and send button sit, cropping them visually. */}
@@ -260,7 +260,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
   );
 }
 
-// ─── Inline markdown — bold segments ───────────────────────────────────────
+// ─── Inline markdown - bold segments ───────────────────────────────────────
 
 function renderInlineMd(text: string, boldFamily: string): React.ReactNode[] {
   const parts = text.split(/\*\*([\s\S]+?)\*\*/g);
@@ -381,7 +381,7 @@ function TypingDot({ delay, stoneColor }: { delay: number; stoneColor: string })
 // the middle when the user crosses a boundary, so swiping in either
 // direction loops forever with no visible seam. 5 copies (vs 3) gives
 // the user 3 full unique-prompt scroll-distances of safe travel before
-// any snap fires — enough that the boundary teleport never happens
+// any snap fires - enough that the boundary teleport never happens
 // during the visible portion of a normal swipe.
 type SuggestionsCarouselProps = {
   suggestions: string[];

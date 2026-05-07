@@ -1,7 +1,7 @@
 // src/lib/mail-signature/__tests__/sanitize.test.ts
 import { sanitizeSignatureHtml } from '../sanitize';
 
-describe('sanitizeSignatureHtml — basic input handling', () => {
+describe('sanitizeSignatureHtml - basic input handling', () => {
   it('returns empty string for null/undefined/non-string input', () => {
     expect(sanitizeSignatureHtml(null as unknown as string)).toBe('');
     expect(sanitizeSignatureHtml(undefined as unknown as string)).toBe('');
@@ -22,7 +22,7 @@ describe('sanitizeSignatureHtml — basic input handling', () => {
   });
 });
 
-describe('sanitizeSignatureHtml — tag allowlist', () => {
+describe('sanitizeSignatureHtml - tag allowlist', () => {
   it('keeps allowed structural tags', () => {
     const input = '<table><tr><td><div><span>Hi</span></div></td></tr></table>';
     const out = sanitizeSignatureHtml(input);
@@ -79,7 +79,7 @@ describe('sanitizeSignatureHtml — tag allowlist', () => {
   });
 });
 
-describe('sanitizeSignatureHtml — href and src URL schemes', () => {
+describe('sanitizeSignatureHtml - href and src URL schemes', () => {
   it('keeps mailto href', () => {
     expect(sanitizeSignatureHtml('<a href="mailto:a@b.dk">x</a>')).toContain('href="mailto:a@b.dk"');
   });
@@ -114,7 +114,7 @@ describe('sanitizeSignatureHtml — href and src URL schemes', () => {
   });
 });
 
-describe('sanitizeSignatureHtml — style attribute filtering', () => {
+describe('sanitizeSignatureHtml - style attribute filtering', () => {
   it('keeps allowed CSS properties', () => {
     const out = sanitizeSignatureHtml('<div style="color:#1a1a1a;font-size:13px;text-align:left">x</div>');
     expect(out).toContain('color:#1a1a1a');
@@ -157,7 +157,7 @@ describe('sanitizeSignatureHtml — style attribute filtering', () => {
   });
 });
 
-describe('sanitizeSignatureHtml — attribute allowlist per tag', () => {
+describe('sanitizeSignatureHtml - attribute allowlist per tag', () => {
   it('keeps table cellpadding/cellspacing/border', () => {
     const out = sanitizeSignatureHtml('<table cellpadding="0" cellspacing="0" border="0"><tr><td>x</td></tr></table>');
     expect(out).toContain('cellpadding="0"');

@@ -3,13 +3,13 @@
 // Metadata-only Drive backfill. Lists recent Google-native docs (Docs,
 // Sheets, Slides) the user has touched, returns metadata-shaped candidates
 // for the same Claude pipeline mail/calendar use. We never fetch file
-// bodies here — the broader chat-tool already has drive.readonly for
+// bodies here - the broader chat-tool already has drive.readonly for
 // explicit user-initiated reads; the backfill stays metadata-level so
 // onboarding doesn't sweep document content into the prompt.
 //
 // Filter: only files the user OWNS or has personally edited (writers
 // includes the user). Pure view-only files (shared link recipients) are
-// noise — they reflect what was sent to the user, not what the user
+// noise - they reflect what was sent to the user, not what the user
 // is working on.
 
 import type { CandidateMessage } from '../onboarding-backfill.ts';
@@ -52,7 +52,7 @@ export async function fetchDriveCandidates(
 ): Promise<CandidateMessage[]> {
   // Drive API q syntax: filter on mimeType + non-trashed in one call.
   // Order by modifiedTime desc so the freshest files come back first.
-  // We don't filter ownedByMe at the API level — frequent co-editing
+  // We don't filter ownedByMe at the API level - frequent co-editing
   // (you're a writer but not owner) is a strong collaboration signal,
   // so we let the post-filter decide.
   const mimeQ = KEEP_MIME_TYPES.map((m) => `mimeType='${m}'`).join(' or ');

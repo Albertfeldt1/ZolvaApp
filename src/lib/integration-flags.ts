@@ -6,7 +6,7 @@
 // software toggle: keep the OAuth grant, but stop calling Gmail endpoints.
 //
 // Storage shape: only EXPLICIT user choices are persisted. Absence of a key
-// means "follow parent token" — if the OAuth grant exists, the integration
+// means "follow parent token" - if the OAuth grant exists, the integration
 // is effectively enabled. This makes the migration trivial (existing users
 // see no change) and brand-new users see toggles flip ON the moment OAuth
 // succeeds without an extra write.
@@ -41,7 +41,7 @@ export function loadIntegrationFlags(): Promise<IntegrationFlags> {
         }
       }
     } catch {
-      // Storage read failures default to empty cache — same effect as a
+      // Storage read failures default to empty cache - same effect as a
       // fresh install. No reason to crash here.
     }
     loaded = true;
@@ -54,7 +54,7 @@ async function persist(): Promise<void> {
   try {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cache));
   } catch {
-    // Persistence failures are silent — the in-memory cache still reflects
+    // Persistence failures are silent - the in-memory cache still reflects
     // the user's choice for this session. Worst case the toggle reverts on
     // next launch.
   }
@@ -96,7 +96,7 @@ export async function setIntegrationEnabled(
   await persist();
 }
 
-// Reset entirely — used by full provider revoke ("Fjern Google-konto helt").
+// Reset entirely - used by full provider revoke ("Fjern Google-konto helt").
 // Clears all child flags so the next OAuth re-grant starts from a clean
 // default-on state.
 export async function clearIntegrationFlags(ids: IntegrationKey[]): Promise<void> {

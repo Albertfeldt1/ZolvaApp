@@ -1,6 +1,6 @@
 // src/lib/__tests__/claude-tool.test.ts
 //
-// Tests parseToolUseResult — the pure parser that completeWithTool
+// Tests parseToolUseResult - the pure parser that completeWithTool
 // delegates to. No mocking required.
 
 jest.mock('../supabase', () => ({

@@ -1,20 +1,20 @@
-// delete-account — Supabase Edge Function.
+// delete-account - Supabase Edge Function.
 //
 // Wipes every piece of state tied to the calling user and then deletes the
-// auth user itself. Only the authenticated user can invoke this — we
+// auth user itself. Only the authenticated user can invoke this - we
 // derive the userId from their JWT, so there is no way to target someone
 // else's account.
 //
 // Deletion order is important for idempotency. We delete application rows
 // BEFORE calling admin.deleteUser. The foreign keys have `on delete
 // cascade` on `auth.users`, so admin.deleteUser alone is sufficient in the
-// happy path — but doing explicit deletes first means that if the admin
+// happy path - but doing explicit deletes first means that if the admin
 // call fails, the client can safely re-invoke with the still-valid JWT and
 // the function will pick up where it left off.
 //
 // ROLLBACK NOTE: once admin.deleteUser succeeds, the user row is gone and
 // their JWT is invalid. Application rows are already deleted by this point.
-// There is no automatic rollback — deletion is intentionally one-way.
+// There is no automatic rollback - deletion is intentionally one-way.
 // If admin.deleteUser fails, the application rows deleted earlier cannot
 // be restored; we surface the error so the user can retry (the
 // idempotent re-run will succeed once the transient issue clears).
@@ -77,12 +77,12 @@ serve(async (req) => {
   const { error: adminErr } = await admin.auth.admin.deleteUser(userId);
   if (adminErr) {
     const msg = adminErr.message.toLowerCase();
-    // Treat "not found" as success — the user is already gone, so a re-run
+    // Treat "not found" as success - the user is already gone, so a re-run
     // of a partial deletion is idempotent.
     if (!msg.includes('not found') && !msg.includes('no user')) {
       console.error(`[delete-account] admin deleteUser failed user=${userId} err=${adminErr.message}`);
       return json({
-        error: 'account deletion failed at final step — data rows already removed, please retry',
+        error: 'account deletion failed at final step - data rows already removed, please retry',
         stage: 'admin_delete_user',
         detail: adminErr.message,
         rows_deleted: tableDeletes,
@@ -122,7 +122,7 @@ async function revokeGoogle(refreshToken: string | null): Promise<Revocation> {
       body: new URLSearchParams({ token: refreshToken }),
     });
     // Google returns 200 on success, 400 for already-revoked/invalid tokens.
-    // Both are fine for our purposes — the grant is no longer usable.
+    // Both are fine for our purposes - the grant is no longer usable.
     return res.ok || res.status === 400 ? 'ok' : 'failed';
   } catch (err) {
     console.warn('[delete-account] google revoke threw:', err);

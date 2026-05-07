@@ -1,8 +1,8 @@
 const CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
 
-const SYSTEM_PROMPT = (tz: string, nowIso: string) => `Du parser én anmodning fra brugeren — enten en kalenderbegivenhed eller en påmindelse.
+const SYSTEM_PROMPT = (tz: string, nowIso: string) => `Du parser én anmodning fra brugeren - enten en kalenderbegivenhed eller en påmindelse.
 
-Den nuværende dato og tid er ${nowIso}. Brugerens tidszone er ${tz}. Brug dette til at opløse alle relative datoer ("i morgen", "om to dage", "next Monday") — ALDRIG fra din egen træningsdata-cutoff.
+Den nuværende dato og tid er ${nowIso}. Brugerens tidszone er ${tz}. Brug dette til at opløse alle relative datoer ("i morgen", "om to dage", "next Monday") - ALDRIG fra din egen træningsdata-cutoff.
 
 Vælg ÉT værktøj:
 - create_calendar_event: når brugeren vil have et MØDE / kalenderbegivenhed med start- og sluttid.
@@ -23,7 +23,7 @@ const TOOLS = [
       properties: {
         title: { type: 'string', description: 'kort titel' },
         start: { type: 'string', description: "ISO 8601 med offset i brugerens tidszone" },
-        end: { type: 'string', description: 'OPTIONAL — server defaulter hvis udeladt' },
+        end: { type: 'string', description: 'OPTIONAL - server defaulter hvis udeladt' },
         calendar_label: {
           type: ['string', 'null'],
           enum: ['work', 'personal', null],
@@ -37,11 +37,11 @@ const TOOLS = [
   },
   {
     name: 'create_reminder',
-    description: 'Brug når brugeren vil have en PÅMINDELSE — typisk indledet med "husk mig på", "remind me to", "minder mig om", uden mødelogik. Eksempler: "husk mig på at ringe til mor kl. 17", "remind me to take meds at 8". Skal IKKE bruges til møder.',
+    description: 'Brug når brugeren vil have en PÅMINDELSE - typisk indledet med "husk mig på", "remind me to", "minder mig om", uden mødelogik. Eksempler: "husk mig på at ringe til mor kl. 17", "remind me to take meds at 8". Skal IKKE bruges til møder.',
     input_schema: {
       type: 'object',
       properties: {
-        text: { type: 'string', description: 'påmindelsesteksten — kort og handlingsorienteret' },
+        text: { type: 'string', description: 'påmindelsesteksten - kort og handlingsorienteret' },
         due_at: {
           type: ['string', 'null'],
           description: "ISO 8601 med tidszone-offset, eller null hvis brugeren ikke nævnte et tidspunkt",

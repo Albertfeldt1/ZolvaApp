@@ -3,14 +3,14 @@
 // Data shapes for the rich mail signature feature.
 //
 // SignatureData is a discriminated union of two modes:
-//   - 'structured' — name/title/company/etc. + optional logo (the original
+//   - 'structured' - name/title/company/etc. + optional logo (the original
 //     rich-mail-signature feature). Renders via template.ts.
-//   - 'imported'   — sanitized Outlook-safe HTML + plaintext + optional
+//   - 'imported'   - sanitized Outlook-safe HTML + plaintext + optional
 //     cropped logo, produced by the screenshot-import flow. Renders by
 //     using its `html` directly.
 //
 // The `kind` field tags each entry. Migration on read defaults legacy
-// entries (no `kind` field) to 'structured' — see storage.ts.
+// entries (no `kind` field) to 'structured' - see storage.ts.
 
 export type SocialType =
   | 'linkedin' | 'twitter' | 'instagram' | 'facebook'
@@ -24,7 +24,7 @@ export type SocialLink = {
 };
 
 // In imported-mode signatures, a SocialLink may bind its URL to an existing
-// element in the imported html — e.g. wrap the word "her" or wrap the
+// element in the imported html - e.g. wrap the word "her" or wrap the
 // already-cropped logo image. When unset, the link renders as a standalone
 // pill in the socials row alongside the signature.
 export type LinkTarget =

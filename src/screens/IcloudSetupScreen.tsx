@@ -64,7 +64,7 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
   const [devDebugError, setDevDebugError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Clear errors when app comes back from background — user may have gone
+  // Clear errors when app comes back from background - user may have gone
   // to fix something in Apple settings and returned.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
@@ -136,7 +136,7 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
     const stripped = next.replace(/[\s-]/g, '');
     const looksRight = /^[a-z]{16}$/.test(stripped);
     setPwdWarning(looksRight ? null
-      : 'Det ligner ikke en app-specifik adgangskode (xxxx-xxxx-xxxx-xxxx). Tjek at du har genereret en ny adgangskode på Apples side — din normale Apple-adgangskode virker ikke her.');
+      : 'Det ligner ikke en app-specifik adgangskode (xxxx-xxxx-xxxx-xxxx). Tjek at du har genereret en ny adgangskode på Apples side - din normale Apple-adgangskode virker ikke her.');
   };
 
   const openAppleId = async () => {
@@ -288,7 +288,7 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
             </Text>
             <Text style={{ ...type.body, color: t.ink2, lineHeight: 22 }}>
               Apple kræver en særlig adgangskode (én til hver app), så Zolva kan læse din mail og
-              kalender. Du laver den selv på Apples side — det tager omkring et minut.
+              kalender. Du laver den selv på Apples side - det tager omkring et minut.
             </Text>
           </GlassFrostedCard>
         </View>
@@ -334,7 +334,7 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
                   width: '100%',
                   height: 200,
                   borderRadius: radius.cardSm,
-                  // Apple's modal scrim — matches letterbox so it's visually invisible
+                  // Apple's modal scrim - matches letterbox so it's visually invisible
                   backgroundColor: 'rgba(15,16,20,0.05)',
                 }}
                 resizeMode="contain"
@@ -358,7 +358,7 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
                   backgroundColor: 'rgba(15,16,20,0.05)',
                 }}
                 resizeMode="contain"
-                accessibilityLabel="Apples dialog hvor app-navnet skrives — vi har skrevet Zolva"
+                accessibilityLabel="Apples dialog hvor app-navnet skrives - vi har skrevet Zolva"
               />
             </Step>
 
@@ -388,7 +388,7 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
                   lineHeight: 18,
                 }}
               >
-                Apple viser kun adgangskoden én gang. Kopiér den nu — du kan ikke se den igen
+                Apple viser kun adgangskoden én gang. Kopiér den nu - du kan ikke se den igen
                 senere.
               </Text>
             </Step>
@@ -519,7 +519,7 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
                   fontFamily: 'Menlo',
                   fontSize: 11,
                   lineHeight: 15,
-                  // DEV-only green debug text — intentional inline hex
+                  // DEV-only green debug text - intentional inline hex
                   color: '#7fffaf',
                 }}
               >

@@ -1,4 +1,4 @@
-// Shared Anthropic client — calls the `claude-proxy` Supabase Edge Function,
+// Shared Anthropic client - calls the `claude-proxy` Supabase Edge Function,
 // which holds ANTHROPIC_API_KEY server-side and forwards to Anthropic.
 // The public interface is unchanged: callers keep using complete / completeRaw
 // / completeJson / hasClaudeKey as before.
@@ -9,7 +9,7 @@ import { getPrivacyFlag } from './hooks';
 
 // Default model for all Claude calls unless a caller passes `model` explicitly.
 // Haiku is cheap and fast, the right fit for classification and short extraction
-// work. User-visible copy (reply drafts, daily briefs) overrides this — see
+// work. User-visible copy (reply drafts, daily briefs) overrides this - see
 // individual call sites in hooks.ts.
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 
@@ -31,7 +31,7 @@ export class ClaudeRateLimitError extends Error {
     super(
       reason === 'daily'
         ? 'Du har nået dagens grænse for Zolva. Prøv igen i morgen.'
-        : 'Zolva holder en kort pause — prøv igen om lidt.',
+        : 'Zolva holder en kort pause - prøv igen om lidt.',
     );
     this.name = 'ClaudeRateLimitError';
     this.retryAfterSec = retryAfterSec;
@@ -198,7 +198,7 @@ export async function completeJson<T>(opts: CompleteOptions & { schemaHint: stri
 
   // Preserve the caller's system shape: a string gets appended to with newlines;
   // an array-form ClaudeSystemBlock[] gets a trailing text block. Previously
-  // the array path was silently dropped — completeJson is rarely called with
+  // the array path was silently dropped - completeJson is rarely called with
   // arrays today but the type signature promises support.
   let systemWithSchema: string | ClaudeSystemBlock[];
   if (Array.isArray(opts.system)) {
@@ -217,7 +217,7 @@ export async function completeJson<T>(opts: CompleteOptions & { schemaHint: stri
 }
 
 // Parse a ClaudeCompletion looking for a single tool_use matching the named
-// tool, returning its input. Pure — no I/O. Throws on missing or wrong tool.
+// tool, returning its input. Pure - no I/O. Throws on missing or wrong tool.
 export function parseToolUseResult<T>(result: ClaudeCompletion, toolName: string): T {
   if (result.toolUses.length === 0) {
     throw new Error(`completeWithTool: no tool_use in response (stop_reason=${result.stopReason})`);
@@ -234,7 +234,7 @@ export function parseToolUseResult<T>(result: ClaudeCompletion, toolName: string
 // Force a single tool_use response and return its parsed input. Use this
 // instead of completeJson when the caller wants a guaranteed structured
 // shape (Anthropic's tool-use is more reliable than JSON-mode for vision
-// + extraction tasks). Throws on missing or wrong tool_use — callers
+// + extraction tasks). Throws on missing or wrong tool_use - callers
 // should route the error through mapClaudeError to surface 'parse-failed'.
 export async function completeWithTool<T>(opts: {
   system: CompleteOptions['system'];

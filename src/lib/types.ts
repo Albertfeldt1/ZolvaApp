@@ -56,11 +56,11 @@ export type UpcomingEvent = {
 export type MailProvider = 'google' | 'microsoft' | 'icloud';
 
 // Urgency tier assigned by the inbox sort. Drives the sectioned UI in
-// InboxScreen — tier 0 is always visible, the rest are collapsible.
-//   0 — haster (classifier confirmed reply needed, or subject keyword)
-//   1 — venter på dig (human-looking, undecided by classifier)
-//   2 — nyhedsbreve (body looks automated / classifier said no reply)
-//   3 — auto-mails (no-reply / mailer-daemon / marketing senders)
+// InboxScreen - tier 0 is always visible, the rest are collapsible.
+//   0 - haster (classifier confirmed reply needed, or subject keyword)
+//   1 - venter på dig (human-looking, undecided by classifier)
+//   2 - nyhedsbreve (body looks automated / classifier said no reply)
+//   3 - auto-mails (no-reply / mailer-daemon / marketing senders)
 export type UrgencyTier = 0 | 1 | 2 | 3;
 
 export type InboxMail = {
@@ -92,7 +92,7 @@ export type ReplyContext =
       provider: 'icloud';
       uid: number;
       subject: string;
-      fromEmail: string;   // address to reply to — sender of the original
+      fromEmail: string;   // address to reply to - sender of the original
     };
 
 export type MailDetail = {
@@ -130,7 +130,7 @@ export type ChatMessage = {
   from: 'zolva' | 'user';
   text: string;
   // ISO 8601 with timezone offset. Stamped on send so historical messages
-  // carry their original wall-clock when re-sent to Claude — without it the
+  // carry their original wall-clock when re-sent to Claude - without it the
   // model interprets phrases like "i dag kl 17:30" relative to the current
   // turn, not when the message was originally written.
   createdAt?: string;
@@ -146,7 +146,7 @@ export type IntegrationKey =
   | 'icloud';
 
 export type IntegrationStatus = 'connected' | 'pending' | 'expired' | 'disconnected';
-// 'pending' = transient user-initiated (OAuth in flight) — currently unused, reserved.
+// 'pending' = transient user-initiated (OAuth in flight) - currently unused, reserved.
 // 'expired' = persistent, credential rejected by provider, user must re-enter.
 
 export type Connection = {

@@ -5,7 +5,7 @@
 // admin is NOT signed in to Zolva; the only authentication is the HMAC-signed
 // `state` token we issued in microsoft-admin-consent-link.
 //
-// Deploy with --no-verify-jwt. Per-IP rate limit is generous (60/hour) — the
+// Deploy with --no-verify-jwt. Per-IP rate limit is generous (60/hour) - the
 // real defense is HMAC state verification.
 //
 // On admin_consent=True + valid state:
@@ -51,7 +51,7 @@ const HTML_HEAD = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Zolva — Godkendelse</title>
+<title>Zolva - Godkendelse</title>
 <style>
   :root { --ink:#1a1a1a; --paper:#ebe3d7; --sage:#5c7355; --warn:#8a3a3a; }
   * { box-sizing:border-box; }
@@ -137,7 +137,7 @@ serve(async (req) => {
     details: { admin_consent: adminConsent ?? null, ip },
   });
 
-  // Verify state regardless of outcome — we want to attribute failures to
+  // Verify state regardless of outcome - we want to attribute failures to
   // the requesting user when we can.
   if (!stateRaw) {
     await logEvent(client, {
@@ -225,7 +225,7 @@ serve(async (req) => {
   });
 
   // Best-effort push to the granting user. Failures here are logged but
-  // don't block the success page — the consent is already saved.
+  // don't block the success page - the consent is already saved.
   notifyGrantingUser(client, payload.requesting_user_id, payload.tenant_domain).catch((err) => {
     console.warn('[admin-consent-callback] push notify failed:', err);
   });

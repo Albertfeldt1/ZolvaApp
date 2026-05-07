@@ -27,7 +27,7 @@ export async function registerPushToken(): Promise<RegisterResult> {
 
   // iOS simulator cannot obtain a push token and expo-notifications emits a
   // yellow-box warning on every call. Short-circuit here so dev-on-sim is
-  // quiet — real devices keep working.
+  // quiet - real devices keep working.
   if (!Device.isDevice) return { ok: false, reason: 'no-token' };
 
   let tokenValue: string;
@@ -88,7 +88,7 @@ export async function unregisterPushToken(): Promise<void> {
 
 // Flip `enabled` on every mail_watcher row belonging to the user so the
 // server-side poller respects the newMail toggle. No-op if the user has
-// no connected mail accounts yet — the watcher rows only exist after
+// no connected mail accounts yet - the watcher rows only exist after
 // Google/Microsoft are linked (bootstrapped in auth.ts).
 export async function setMailWatchersEnabled(enabled: boolean): Promise<void> {
   const { data: sessionData } = await supabase.auth.getSession();

@@ -12,7 +12,7 @@ export type CalendarLabels = Partial<Record<CalendarLabelKey, CalendarLabelTarge
 
 // In-process change bus. setCalendarLabel notifies after a successful write
 // so views (Stemmestyring section) refresh even when the write originated
-// outside their own setLabel call — e.g. the disconnect-provider auto-clear
+// outside their own setLabel call - e.g. the disconnect-provider auto-clear
 // in auth.ts / icloud-credentials.ts. Without this the picker keeps showing
 // a calendar the user just disconnected.
 const labelsChangedListeners = new Set<() => void>();

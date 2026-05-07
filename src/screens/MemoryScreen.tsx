@@ -87,7 +87,7 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
   const { t, type, fonts, radius, spacing, surface } = useTheme();
   const { bottom: chromeBottom } = useChromeInsets();
 
-  // Category tints derived from signal colors — kept inline to avoid bloating surface tokens.
+  // Category tints derived from signal colors - kept inline to avoid bloating surface tokens.
   const CATEGORY_TONE = useMemo((): Record<NoteCategory, { bg: string; fg: string }> => ({
     task: { bg: surface.warningTint, fg: t.today },
     idea: { bg: 'rgba(176,122,224,0.15)', fg: t.mem },
@@ -210,7 +210,7 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
       >
         <TopBar eyebrow="HUSK" onBell={onOpenNotifications} onGear={onOpenSettings} />
 
-        {/* Display headline + tab chips — wrapped in a single glass
+        {/* Display headline + tab chips - wrapped in a single glass
             card backdrop so the hero region reads as a unit. */}
         <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.cardPad }}>
           <GlassFrostedCard
@@ -259,7 +259,7 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
         {/* ── Noter tab ── */}
         {tab === 'noter' && (
           <>
-            {/* Hint row with Stone — wrapped in a glass card backdrop so
+            {/* Hint row with Stone - wrapped in a glass card backdrop so
                 the prompt reads as a unit instead of floating on bare paper. */}
             <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
               <GlassFrostedCard style={{ padding: spacing.lg }}>
@@ -445,7 +445,7 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
                   </GlassFrostedCard>
                 )}
 
-                {/* Re-run scan + danger actions — wrapped in a bone card
+                {/* Re-run scan + danger actions - wrapped in a bone card
                     so the rows aren't fighting the lavender halo for
                     contrast. Each row is a clear button-row with a
                     separator hairline pulled in from the card padding. */}
@@ -532,7 +532,7 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
               </GlassFrostedCard>
             )}
 
-            {/* Danger action for chat — wrapped in a bone card so the
+            {/* Danger action for chat - wrapped in a bone card so the
                 row reads against the lavender halo. */}
             <GlassFrostedCard
               overlay={surface.bone}

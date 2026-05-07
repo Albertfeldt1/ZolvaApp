@@ -15,7 +15,7 @@ type TabPaneProps = {
 // Wraps a tab screen so it stays mounted across tab switches. Crossfades
 // opacity when active flips. Inactive panes don't intercept touches and sit
 // behind the active one. Keeping screens alive preserves their state, scroll
-// position, and already-fetched data — tab switches feel instant instead of
+// position, and already-fetched data - tab switches feel instant instead of
 // re-fetching on every visit.
 export function TabPane({ active, children }: TabPaneProps) {
   const opacity = useSharedValue(active ? 1 : 0);

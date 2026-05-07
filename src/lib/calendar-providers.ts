@@ -1,5 +1,5 @@
 // Lists calendars the connected accounts can write to. Used by the Settings
-// "Stemmestyring" picker. Filtering is best-effort — Google G Suite policy
+// "Stemmestyring" picker. Filtering is best-effort - Google G Suite policy
 // overrides and shared-with-edit-delegation inconsistencies will get past
 // this. Real write failures surface at Edge-Function write time.
 
@@ -91,7 +91,7 @@ export async function listIcloudCalendars(userId: string): Promise<ProviderCalen
   if (!res.ok) return [];
   return res.data.map<ProviderCalendar>((c) => ({
     provider: 'icloud',
-    id: c.url, // CalDAV URL is the write target — see ProviderCalendar.id comment
+    id: c.url, // CalDAV URL is the write target - see ProviderCalendar.id comment
     name: c.displayName,
     color: c.calendarColor ?? null,
     accountEmail: null,
@@ -116,7 +116,7 @@ export async function listWritableCalendars(opts: {
 
 // All calendars the user can READ. Includes shared / read-only calendars
 // (eg Birthdays, holidays, subscribed feeds) that the writable-only filter
-// drops. Used by the visibility picker on the calendar tab — read-only
+// drops. Used by the visibility picker on the calendar tab - read-only
 // calendars are still relevant for "do I want to see this on my calendar".
 export async function listAllCalendars(opts: {
   hasGoogle: boolean;

@@ -72,7 +72,7 @@ import { isDemoUser } from './src/lib/demo';
 import { syncUserProfile } from './src/lib/user-profile';
 import { writeSnapshotFromSources } from './src/lib/widget-bridge';
 
-// Module-level flag — persists across component re-renders and across
+// Module-level flag - persists across component re-renders and across
 // background/foreground transitions (JS VM stays warm), but resets on cold
 // start (new VM → module re-evaluated). That's exactly "play once per
 // cold launch, skip on resume from background".
@@ -115,7 +115,7 @@ export default function App() {
   // the user to whichever tab they came from (Today, Inbox, Calendar, Husk).
   const [previousTab, setPreviousTab] = useState<Exclude<TabId, 'settings'>>('today');
   // Tabs mount on first visit and stay mounted thereafter. Keeping screens
-  // alive preserves state, scroll, and fetched data — switching tabs becomes
+  // alive preserves state, scroll, and fetched data - switching tabs becomes
   // an instant crossfade instead of a remount + refetch.
   const [mountedTabs, setMountedTabs] = useState<Set<TabId>>(() => new Set([tab]));
   useEffect(() => {
@@ -127,7 +127,7 @@ export default function App() {
     });
   }, [tab]);
 
-  // On logout, force the active tab to Settings — that's the only screen
+  // On logout, force the active tab to Settings - that's the only screen
   // that renders the LoginCard. With chrome hidden in the logged-out
   // state, the user wouldn't have any other way to reach a login surface.
   useEffect(() => {
@@ -171,7 +171,7 @@ export default function App() {
 
   // Tracks "we've decided whether the consent modal needs to show". The
   // WhatsNew gate below blocks until this is true so we never present
-  // WhatsNew before the consent path is committed — iOS rejects two
+  // WhatsNew before the consent path is committed - iOS rejects two
   // simultaneous Modal presentations and leaves a phantom modal that eats
   // every touch on the screen behind it (manifests as a 'stale' screen).
   const [consentResolved, setConsentResolved] = useState(false);
@@ -202,7 +202,7 @@ export default function App() {
 
   // Open the onboarding-backfill chain whenever memory-enabled flips false → true,
   // regardless of which UI surface flipped it (MemoryConsentModal, MemoryScreen
-  // toggle, etc). Gate on having a Google/Microsoft provider connected — Apple
+  // toggle, etc). Gate on having a Google/Microsoft provider connected - Apple
   // -only sign-in lands on the empty "no accounts" state, which is a dead-end.
   const memoryEnabled = useMemoryEnabled();
   const prevMemoryEnabled = useRef(memoryEnabled);
@@ -225,7 +225,7 @@ export default function App() {
   // What's-new modal: one-shot per user per WHATS_NEW_VERSION. Defer until
   // (a) the consent check has resolved, (b) the consent modal isn't open,
   // and (c) the onboarding-backfill chain isn't open. iOS only allows one
-  // Modal transition at a time — racing presents leave a phantom Modal
+  // Modal transition at a time - racing presents leave a phantom Modal
   // that intercepts touches on the screen behind it.
   useEffect(() => {
     const uid = user?.id;
@@ -238,7 +238,7 @@ export default function App() {
     return () => { cancelled = true; };
   }, [user?.id, user, consentResolved, memoryConsentOpen, onboardingOpen]);
 
-  // One-shot Microsoft reconnect nudge — old tokens carry Calendars.Read,
+  // One-shot Microsoft reconnect nudge - old tokens carry Calendars.Read,
   // new code requires Calendars.ReadWrite for chatbot/voice calendar writes.
   useEffect(() => {
     const uid = user?.id;
@@ -279,7 +279,7 @@ export default function App() {
   }, [user?.id]);
 
   // Gate render on migrations. Screens read legacy AsyncStorage keys during
-  // mount — if a previous user's data hasn't been purged yet, it would leak
+  // mount - if a previous user's data hasn't been purged yet, it would leak
   // into the new session before the migration finishes.
   useEffect(() => {
     let cancelled = false;
@@ -324,7 +324,7 @@ export default function App() {
   // non-Settings tab. Captures changes from every code path (switchTab,
   // notification response handler, deep links) without needing each call
   // site to remember to update it. When tab flips to 'settings',
-  // previousTab is left alone — that's the value the back button reads.
+  // previousTab is left alone - that's the value the back button reads.
   useEffect(() => {
     if (tab !== 'settings') setPreviousTab(tab);
   }, [tab]);
@@ -359,7 +359,7 @@ export default function App() {
           setTab('memory');
           break;
         case 'microsoftConsentGranted':
-          // Admin granted the request — bring the user back to Settings so
+          // Admin granted the request - bring the user back to Settings so
           // they can finally tap "Connect Outlook" and proceed.
           setTab('settings');
           break;
@@ -383,7 +383,7 @@ export default function App() {
       }
       if (url.startsWith('zolva://calendar/event/')) {
         setTab('calendar');
-        // event-detail open is handled by CalendarScreen via the URL — left as a
+        // event-detail open is handled by CalendarScreen via the URL - left as a
         // follow-up. v1: tapping a meeting nudge lands the user on the calendar
         // tab focused on the right day.
         return;
@@ -391,7 +391,7 @@ export default function App() {
       if (url.startsWith('zolva://settings')) {
         setTab('settings');
         // Anchor (e.g. #calendars from voice oauthInvalid response) is read
-        // by SettingsScreen via the URL — left as a follow-up. v2: landing
+        // by SettingsScreen via the URL - left as a follow-up. v2: landing
         // the user on the Settings tab is enough to unblock label setup or
         // provider reconnect after a voice-action snippet tap.
         return;
@@ -544,8 +544,8 @@ export default function App() {
       <View style={styles.content}>
         {/* App-level airbrushy backdrop sits underneath all TabPanes. Each
             screen renders its own GlassHaloLayer on top when fully
-            visible, but during a tab crossfade — when both panes are at
-            partial opacity — this base layer shows through so the
+            visible, but during a tab crossfade - when both panes are at
+            partial opacity - this base layer shows through so the
             "behind" surface matches the airbrushy wash instead of
             flashing the bare paper background. */}
         <GlassHaloLayer />
@@ -698,7 +698,7 @@ export default function App() {
                   setOnboardingForceRerun(false);
                 }}
                 onConnectMore={() => {
-                  // Mark as shown so the chain doesn't reopen on next launch —
+                  // Mark as shown so the chain doesn't reopen on next launch -
                   // user is intentionally deferring. They'll re-trigger via
                   // Memory tab → Genscan once they're done connecting accounts.
                   const uid = user.id;
@@ -741,7 +741,7 @@ export default function App() {
             setMemoryConsentOpen(false);
             void markMemoryConsentShown(uid);
             // The chain trigger now lives in the memory-enabled transition
-            // watcher above — it fires regardless of which UI surface flipped
+            // watcher above - it fires regardless of which UI surface flipped
             // memory ON, so we don't need to fire it again here.
           }}
         />

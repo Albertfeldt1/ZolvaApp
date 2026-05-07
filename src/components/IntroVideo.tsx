@@ -6,7 +6,7 @@ import Animated, { FadeOut } from 'react-native-reanimated';
 
 // Bundled neon-Z ignite clip played on cold start. HEVC with a real alpha
 // channel (re-encoded from the source mp4 via ffmpeg luma-key), so AVPlayer
-// renders the black background as truly transparent — the gradient behind
+// renders the black background as truly transparent - the gradient behind
 // shows through, and the warm glow halo blends with smooth alpha falloff.
 const INTRO_SOURCE = require('../../assets/intro.mov');
 
@@ -23,7 +23,7 @@ export function IntroVideo({ onEnd }: Props) {
   const player = useVideoPlayer(INTRO_SOURCE, (p) => {
     p.loop = false;
     p.muted = true;
-    // Don't auto-play — we kick off play() below once the gradient has
+    // Don't auto-play - we kick off play() below once the gradient has
     // painted, otherwise the Z can start igniting against a half-rendered
     // backdrop and the splash → intro handoff looks like a flash.
   });

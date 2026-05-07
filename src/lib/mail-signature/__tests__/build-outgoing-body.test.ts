@@ -84,7 +84,7 @@ describe('buildOutgoingBody', () => {
   });
 });
 
-describe('buildOutgoingBody — imported signatures', () => {
+describe('buildOutgoingBody - imported signatures', () => {
   beforeEach(async () => {
     await (AsyncStorage as any).clear();
     __resetForTests();
@@ -141,7 +141,7 @@ describe('buildOutgoingBody — imported signatures', () => {
   });
 });
 
-describe('buildOutgoingBody — socials integration', () => {
+describe('buildOutgoingBody - socials integration', () => {
   beforeEach(async () => {
     await (AsyncStorage as any).clear();
     __resetForTests();
@@ -200,7 +200,7 @@ describe('buildOutgoingBody — socials integration', () => {
     expect(out.content).toContain('<a href="https://example.com"');
     expect(out.content).toContain('>her</a>');
     // No separate socials pill row (no unbound socials)
-    // The socials row div has a specific style — should not be present
+    // The socials row div has a specific style - should not be present
     expect(out.content).not.toContain('text-decoration:none">');
   });
 
@@ -220,7 +220,7 @@ describe('buildOutgoingBody — socials integration', () => {
         {
           type: 'github',
           url: 'https://github.com/albert',
-          // no target — unbound
+          // no target - unbound
         },
       ],
     };

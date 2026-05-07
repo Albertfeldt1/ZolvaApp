@@ -55,9 +55,9 @@ export async function loadRefreshToken(
 
 // Single structured log line emitted from `refreshAccessToken` on every exit
 // path (success or thrown). Greppable in production via `[oauth-refresh]`.
-// Pure instrumentation — does not change control flow or persist behavior.
+// Pure instrumentation - does not change control flow or persist behavior.
 //
-// Note: a successful refresh emits TWO [oauth-refresh] lines — one here
+// Note: a successful refresh emits TWO [oauth-refresh] lines - one here
 // (no `layer` field) and one from refresh-provider-token (layer: 'edge').
 // When grepping logs, distinguish by the `layer` field. Expect ~2x line
 // count vs. request count for the success path.

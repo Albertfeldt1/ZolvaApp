@@ -87,7 +87,7 @@ function providerDisplayName(p: 'google' | 'microsoft' | 'icloud'): string {
 
 export function loggedOut(): WidgetActionResponse {
   return {
-    dialog: 'Logget ud — åbn Zolva for at logge ind igen.',
+    dialog: 'Logget ud - åbn Zolva for at logge ind igen.',
     snippet: { mood: 'worried', summary: 'Logget ud', deepLink: 'zolva://settings' },
   };
 }

@@ -60,7 +60,7 @@ export function IcloudBriefSheet({ visible, onClose, onConnectGmail }: Props) {
               Indbakke-skærmen for at se din iCloud-mail.
             </Text>
 
-            {/* CTA — dark ink pill */}
+            {/* CTA - dark ink pill */}
             <Pressable
               style={{
                 marginTop: spacing.xs,

@@ -26,7 +26,7 @@ import { useTheme } from '../design/useTheme';
 
 // When the calendarList endpoint returns 403 it almost always means the
 // user authorized Google before we added calendar.calendarlist.readonly to
-// the scope list — the only fix is a full re-OAuth, not a refresh.
+// the scope list - the only fix is a full re-OAuth, not a refresh.
 function isScopeError(state: ProviderState): boolean {
   return state.kind === 'error' && /\b403\b/.test(state.message);
 }
@@ -37,19 +37,19 @@ type Props = {
 };
 
 type ProviderState =
-  | { kind: 'idle' }       // connected? unknown — usually means not signed in for this provider
+  | { kind: 'idle' }       // connected? unknown - usually means not signed in for this provider
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
   | { kind: 'ok'; calendars: ProviderCalendar[] };
 
 // Account-grouped picker matching Apple Calendar's "Calendars" sheet:
 // switch per row, color dot, name. Hidden state lives in AsyncStorage via
-// useCalendarVisibility — flipping a switch immediately bumps every
+// useCalendarVisibility - flipping a switch immediately bumps every
 // useCalendarItems consumer that opted into respectVisibility.
 //
 // Per-provider fetch (not aggregated through listAllCalendars) so a 401 on
 // Google doesn't collapse with iCloud's empty list into a misleading
-// "no calendars found" — the user needs to know which provider broke.
+// "no calendars found" - the user needs to know which provider broke.
 export function CalendarPickerSheet({ visible, onClose }: Props) {
   const { user, googleAccessToken, microsoftAccessToken, signInWithGoogle, signInWithMicrosoft } = useAuth();
   const { t, type, fonts, radius, spacing, surface } = useTheme();

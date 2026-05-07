@@ -28,9 +28,9 @@ const SYSTEM =
   '{kind}-brief direkte til brugeren.\n\n' +
   'ADRESSERINGSKRAV (obligatorisk):\n' +
   '- Skriv ALTID direkte til brugeren med "du", "dig", "din", "dit", "dine".\n' +
-  '- Omtal ALDRIG brugeren i 3. person ved navn — skriv "Du har et møde kl. 14", ' +
+  '- Omtal ALDRIG brugeren i 3. person ved navn - skriv "Du har et møde kl. 14", ' +
   'IKKE "Albert har et møde kl. 14". Brugerens navn må kun forekomme i hilsenen.\n' +
-  '- Skriv ALDRIG om brugeren som "han"/"hun"/"de" eller "brugeren" i body — kun "du".\n\n' +
+  '- Skriv ALDRIG om brugeren som "han"/"hun"/"de" eller "brugeren" i body - kun "du".\n\n' +
   'HILSEN (obligatorisk som første sætning i body, baseret på briefing-type):\n' +
   '- morning: "Godmorgen <Navn>." (hvis Bruger-feltet er tomt: "Godmorgen.")\n' +
   '- midday: "God eftermiddag <Navn>." (hvis tomt: "God eftermiddag.")\n' +
@@ -108,7 +108,7 @@ function formatEventLine(
 
 function formatHM(iso: string, timezone: string): string {
   // Naive ISO (no Z, no ±HH:mm after the time portion): already local time
-  // in the caller's zone — parse HH:mm straight from the string.
+  // in the caller's zone - parse HH:mm straight from the string.
   const naiveMatch = /^\d{4}-\d{2}-\d{2}T(\d{2}):(\d{2})/.exec(iso);
   const hasZoneDesignator = /(Z|[+-]\d{2}:?\d{2})$/.test(iso);
   if (naiveMatch && !hasZoneDesignator) {

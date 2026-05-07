@@ -108,7 +108,7 @@ async function persist(): Promise<void> {
 }
 
 // Kept as a compat entry point for App.tsx boot. Per-user hydration is
-// driven by auth state changes, so this is a no-op — settings arrive as
+// driven by auth state changes, so this is a no-op - settings arrive as
 // soon as the Supabase session resolves.
 export function initNotificationSettings(): void {}
 

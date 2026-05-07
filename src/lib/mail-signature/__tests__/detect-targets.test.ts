@@ -1,7 +1,7 @@
 // src/lib/mail-signature/__tests__/detect-targets.test.ts
 import { detectImportedTargets } from '../detect-targets';
 
-describe('detectImportedTargets — invalid / empty input', () => {
+describe('detectImportedTargets - invalid / empty input', () => {
   const empty = { words: [], glyphs: [], buttons: [], images: [] };
   it('returns empty arrays for empty string', () => {
     expect(detectImportedTargets('')).toEqual(empty);
@@ -20,7 +20,7 @@ describe('detectImportedTargets — invalid / empty input', () => {
   });
 });
 
-describe('detectImportedTargets — glyph categorization', () => {
+describe('detectImportedTargets - glyph categorization', () => {
   it('puts single-character tokens (icon stand-ins) into glyphs, not words', () => {
     const result = detectImportedTargets('<span>f</span><span>X</span><span>▶</span>');
     expect(result.glyphs).toEqual(expect.arrayContaining(['f', 'X', '▶']));
@@ -44,7 +44,7 @@ describe('detectImportedTargets — glyph categorization', () => {
   });
 });
 
-describe('detectImportedTargets — word extraction', () => {
+describe('detectImportedTargets - word extraction', () => {
   it('extracts words from plain text', () => {
     const result = detectImportedTargets('Hello world foo');
     expect(result.words).toContain('Hello');
@@ -93,7 +93,7 @@ describe('detectImportedTargets — word extraction', () => {
 
   it('splits on punctuation into tokens (and also exposes the whole run as a phrase)', () => {
     const result = detectImportedTargets('her. og, men; dig:');
-    // Individual tokens after punctuation split — even ≤2 char ones
+    // Individual tokens after punctuation split - even ≤2 char ones
     expect(result.words).toContain('her');
     expect(result.words).toContain('og');
     expect(result.words).toContain('men');
@@ -160,7 +160,7 @@ describe('detectImportedTargets — word extraction', () => {
   });
 });
 
-describe('detectImportedTargets — image extraction', () => {
+describe('detectImportedTargets - image extraction', () => {
   it('extracts image with alt as description', () => {
     const result = detectImportedTargets('<img src="https://example.com/logo.png" alt="Company Logo">');
     expect(result.images).toEqual([
@@ -203,12 +203,12 @@ describe('detectImportedTargets — image extraction', () => {
 
   it('handles img tags without src gracefully', () => {
     const result = detectImportedTargets('<img alt="No src here">');
-    // No valid src — nothing added
+    // No valid src - nothing added
     expect(result.images).toEqual([]);
   });
 });
 
-describe('detectImportedTargets — button detection', () => {
+describe('detectImportedTargets - button detection', () => {
   it('extracts <a> elements with a colored background as buttons', () => {
     const html =
       '<a href="#" style="background:#1877f2;padding:10px;color:#fff">Find me on Facebook</a>' +
@@ -293,7 +293,7 @@ describe('detectImportedTargets — button detection', () => {
   });
 });
 
-describe('detectImportedTargets — combined HTML', () => {
+describe('detectImportedTargets - combined HTML', () => {
   it('correctly separates words and images from realistic signature HTML', () => {
     const html = `
       <table>
@@ -312,7 +312,7 @@ describe('detectImportedTargets — combined HTML', () => {
     expect(result.words).toContain('Hangaard');
     expect(result.words).toContain('CEO');
     // Email shown as visible text content IS bindable. The href attribute
-    // value is still excluded — but here the email is also a text node
+    // value is still excluded - but here the email is also a text node
     // inside the <a>, so it appears in the candidates list.
     expect(result.words).toContain('albert@firma.dk');
     expect(result.images).toEqual([

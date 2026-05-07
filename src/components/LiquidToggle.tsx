@@ -58,7 +58,7 @@ export function LiquidToggle({
     transform: [{ translateX: progress.value * travel }],
   }));
 
-  // The GlassView (when liquidGlassReady) IS the capsule — matching the
+  // The GlassView (when liquidGlassReady) IS the capsule - matching the
   // pattern in LiquidTabBar where GlassView wraps content directly. Putting
   // it behind another View as an absolute-fill underlay does not reliably
   // render the UIGlassEffectView blur on iOS 26.

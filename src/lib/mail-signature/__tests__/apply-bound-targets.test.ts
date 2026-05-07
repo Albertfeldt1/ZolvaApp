@@ -69,7 +69,7 @@ describe('applyBoundTargets', () => {
     expect(result.unbound).toEqual([]);
   });
 
-  it('bound word inside an existing <a>…</a> preserves its other attributes — only the href is swapped', () => {
+  it('bound word inside an existing <a>…</a> preserves its other attributes - only the href is swapped', () => {
     const html = '<p><a href="http://x" target="_blank" data-x="y" style="color:red">her</a></p>';
     const link: SocialLink = {
       type: 'linkedin',
@@ -209,7 +209,7 @@ describe('applyBoundTargets', () => {
       target: { kind: 'word', text: 'her' },
     };
     const result = applyBoundTargets({ html, socials: [link] });
-    // html must be unchanged — no wrapping for dangerous URLs
+    // html must be unchanged - no wrapping for dangerous URLs
     expect(result.html).toBe(html);
     expect(result.unbound).toEqual([link]);
   });

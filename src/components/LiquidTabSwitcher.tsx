@@ -23,7 +23,7 @@ type Props<T extends string> = {
   tabs: ReadonlyArray<LiquidTabItem<T>>;
   active: T;
   onChange: (id: T) => void;
-  // Optional overrides — when supplied, replace the default uppercase
+  // Optional overrides - when supplied, replace the default uppercase
   // text style. Used by surfaces that want the glass+pill structure but a
   // different label voice (e.g. mixed-case labels with inline counts).
   textStyle?: TextStyle;

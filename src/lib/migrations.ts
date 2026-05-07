@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const MIGRATION_FLAG = 'zolva.migration.v1-user-scoped';
 
-// Pre-user-scoping keys. Nothing reads these anymore — any surviving
+// Pre-user-scoping keys. Nothing reads these anymore - any surviving
 // data belongs to a previous sign-in session and should be deleted.
 const LEGACY_GLOBAL_KEYS = [
   'zolva.memory.reminders',

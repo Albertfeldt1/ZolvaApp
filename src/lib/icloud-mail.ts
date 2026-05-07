@@ -19,7 +19,7 @@
 //      background revalidation. Subscribers (useMailItems) bump their
 //      refresh tick on cache update so the UI re-paints once fresh data
 //      arrives without user interaction.
-//   4. Revalidation failures keep the cache intact — we never blank the
+//   4. Revalidation failures keep the cache intact - we never blank the
 //      inbox just because the gateway hiccuped. The credential-rejected
 //      banner still surfaces for true auth-failed responses, so users see
 //      both their cached mails AND know to re-enter their ASP.
@@ -73,7 +73,7 @@ export type IcloudMessageBody = {
   messageIdHeader: string;
 };
 
-// Action-oriented error codes — names describe what the caller should do, not
+// Action-oriented error codes - names describe what the caller should do, not
 // the underlying storage state. Asymmetric reachability via the hook layer:
 // hooks gate on `loadCredential().kind === 'valid'` before calling listInbox,
 // so 'not-connected' is unreachable from the hot path. The hot path is
@@ -87,8 +87,8 @@ export type IcloudErrorCode =
   | 'gateway-unavailable'  // client-synthesized: Supabase gateway 5xx after retries exhausted
   | 'network'
   | 'timeout'
-  | 'not-connected'        // credential is 'absent' — caller should suppress UI silently
-  | 'credential-rejected'  // credential is 'invalid' — caller should surface re-entry banner
+  | 'not-connected'        // credential is 'absent' - caller should suppress UI silently
+  | 'credential-rejected'  // credential is 'invalid' - caller should surface re-entry banner
   | 'unauthorized';
 
 export type IcloudResult<T> =
@@ -105,12 +105,12 @@ export async function validate(
 // In-flight dedup: useMailItems has multiple consumers (useInboxWaiting,
 // useInboxArchived, useInboxCleared, useObservations), each instantiating
 // its own fetch effect. Without dedup, one screen render fires 4 parallel
-// IMAP logins per refresh — iCloud throttles per-account and the Supabase
+// IMAP logins per refresh - iCloud throttles per-account and the Supabase
 // gateway 502s when it can't keep up. Concurrent listInbox calls for the
 // same user with the same limit share one in-flight Promise.
 // Dedup map shared by fetchAndStore and revalidate so concurrent calls
-// for the same (user, limit) — including a foreground fetch overlapping
-// a background revalidation — never produce parallel IMAP logins. The
+// for the same (user, limit) - including a foreground fetch overlapping
+// a background revalidation - never produce parallel IMAP logins. The
 // foreground variant resolves to IcloudResult; the background variant
 // resolves to void, hence the union.
 const inflightListInbox = new Map<string, Promise<IcloudResult<IcloudMessage[]> | void>>();
@@ -167,7 +167,7 @@ async function hydrateSwrCache(userId: string): Promise<void> {
         });
       }
     } catch {
-      // Swallow — corrupted cache shouldn't block fresh fetches.
+      // Swallow - corrupted cache shouldn't block fresh fetches.
     }
   })();
   return swrHydrationPromise;
@@ -175,7 +175,7 @@ async function hydrateSwrCache(userId: string): Promise<void> {
 
 let swrPersistTimer: ReturnType<typeof setTimeout> | null = null;
 function persistSwrSoon(userId: string): void {
-  // Debounce — multiple updates in the same render tick collapse into
+  // Debounce - multiple updates in the same render tick collapse into
   // one storage write.
   if (swrPersistTimer) clearTimeout(swrPersistTimer);
   swrPersistTimer = setTimeout(() => {
@@ -203,7 +203,7 @@ export function subscribeToIcloudInboxCache(cb: (key: string) => void): () => vo
   };
 }
 
-// Cheap signature for change detection — only the top 12 message uids +
+// Cheap signature for change detection - only the top 12 message uids +
 // unread state. Misses preview/subject edits but catches the cases that
 // matter (new mail, mail read elsewhere, mail deleted).
 function signatureOf(messages: IcloudMessage[]): string {
@@ -248,7 +248,7 @@ export async function listInbox(
     return { ok: true, data: cached.data };
   }
 
-  // No cache yet — fall through to a synchronous fetch and cache it.
+  // No cache yet - fall through to a synchronous fetch and cache it.
   return fetchAndStore(userId, limit, key);
 }
 
@@ -296,7 +296,7 @@ async function revalidate(
   key: string,
   prevData: IcloudMessage[],
 ): Promise<void> {
-  // Don't pile revalidations on top of an in-flight fetch — let the in-
+  // Don't pile revalidations on top of an in-flight fetch - let the in-
   // flight one settle, callers will pick up the new cache on next call.
   if (inflightListInbox.has(key)) return;
 
@@ -364,7 +364,7 @@ async function listInboxImpl(
 }
 
 // Server-reported INBOX counts via IMAP STATUS. Cheaper than list-inbox
-// (no FETCH) and stable across reloads — the displayed total/unread don't
+// (no FETCH) and stable across reloads - the displayed total/unread don't
 // drift with the per-fetch limit window.
 export async function getInboxCounts(
   userId: string,
@@ -390,7 +390,7 @@ export async function getInboxCounts(
 }
 
 // Best-effort wipe of the server-side binding row so a freshly-rotated
-// Apple-Specific password can bind cleanly. Failures are non-fatal — the
+// Apple-Specific password can bind cleanly. Failures are non-fatal - the
 // 90-day cron sweep is the eventual fallback. Caller should not block the
 // UI on the result.
 export async function clearBinding(): Promise<IcloudResult<null>> {
@@ -429,7 +429,7 @@ export type IcloudComposeInput = {
   to: string[];
   cc?: string[];
   subject: string;
-  body: string;          // raw user body — signature is applied below
+  body: string;          // raw user body - signature is applied below
   replyToUid?: number;   // IMAP UID of original mail when replying
 };
 
@@ -478,7 +478,7 @@ export async function icloudSendMail(
     // The sent message is now in Sent (best-effort) and may also have been
     // delivered back to INBOX (when sending to self). Drop the cached inbox
     // so the next listInbox call sees the fresh state. Failure to clear the
-    // cache is not actionable — log and continue.
+    // cache is not actionable - log and continue.
     try { await clearInboxCache(userId); } catch (e) {
       if (__DEV__) console.warn('[icloud-mail] post-send cache clear failed:', e);
     }
@@ -536,10 +536,10 @@ async function call<T>(
   op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding' | 'send-mail' | 'append-draft',
   body: Record<string, unknown>,
 ): Promise<IcloudResult<T>> {
-  // Retry on Supabase gateway 5xx — cold-start contention on the edge
+  // Retry on Supabase gateway 5xx - cold-start contention on the edge
   // runtime occasionally returns 502/503 with an HTML body before our
   // function ever boots. The retry is gated on `gatewayFlake` (HTML/empty
-  // body from Supabase), which means the function never executed — so
+  // body from Supabase), which means the function never executed - so
   // even non-idempotent ops like send-mail can safely retry without
   // risking a duplicate send.
   let last = await callOnce<T>(op, body);
@@ -550,7 +550,7 @@ async function call<T>(
     if (__DEV__) console.warn(`[icloud-mail] ${op} retrying after gateway flake (waited ${delay}ms)`);
     last = await callOnce<T>(op, body);
   }
-  // Retries exhausted on a gateway flake — promote to a distinct code so the
+  // Retries exhausted on a gateway flake - promote to a distinct code so the
   // UI can blame the right party (us, not Apple).
   if (!last.ok && last.error === 'protocol' && last.gatewayFlake) {
     return { ok: false, error: 'gateway-unavailable' };
@@ -608,7 +608,7 @@ async function callOnce<T>(
   clearTimeout(timer);
   if (res.status === 200) {
     // validate + clear-binding + send-mail + append-draft return only `{ok: true, ...}`
-    // — caller doesn't consume any payload field.
+    // - caller doesn't consume any payload field.
     if (
       op === 'validate' ||
       op === 'clear-binding' ||
@@ -625,7 +625,7 @@ async function callOnce<T>(
   let errCode: IcloudErrorCode;
   // Read body as text first so we can log it raw if JSON.parse fails or the
   // server didn't include the expected fields. Supabase gateway 502s during
-  // cold-start return HTML, not JSON — without this we'd just see 'protocol'.
+  // cold-start return HTML, not JSON - without this we'd just see 'protocol'.
   const bodyText = await res.text();
   if (__DEV__) {
     console.warn(`[icloud-mail] ${op} non-200: status=${res.status} body=${bodyText.slice(0, 400)}`);
@@ -633,7 +633,7 @@ async function callOnce<T>(
   // Gateway 5xx with non-JSON body = upstream contention, worth retrying.
   // Two shapes seen in the wild:
   //   1. HTML error page (Cloudflare/Supabase classic gateway error)
-  //   2. Empty body — happens on edge-runtime worker spawn failure / cold-start
+  //   2. Empty body - happens on edge-runtime worker spawn failure / cold-start
   //      timeout, where the gateway gives up before the function emits anything
   // Function-emitted 5xx (502 protocol) carries JSON, so the parse below will
   // succeed and gatewayFlake stays false either way.

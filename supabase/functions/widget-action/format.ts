@@ -105,6 +105,6 @@ export function truncate(s: string, limit: number): string {
   const slice = s.slice(0, cap);
   const lastSpace = slice.lastIndexOf(' ');
   if (lastSpace >= 1) return slice.slice(0, lastSpace) + ELLIPSIS;
-  // No whitespace before the limit (very long compound word) — hard cut.
+  // No whitespace before the limit (very long compound word) - hard cut.
   return slice + ELLIPSIS;
 }

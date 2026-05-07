@@ -2,13 +2,13 @@
 //
 // Metadata-only OneDrive backfill. Lists items the user has touched
 // recently and returns CandidateMessage rows for the same Claude pipeline
-// mail/calendar/Google-Drive use. Mirrors google-drive.ts in shape — only
+// mail/calendar/Google-Drive use. Mirrors google-drive.ts in shape - only
 // the API surface differs.
 //
 // Filter: keep Office docs (Word/Excel/PowerPoint) plus OneNote. Limit to
 // files the user OWNS (createdBy is them) OR files where they were the
 // most recent modifier. Pure shared-with-me items the user never touched
-// are noise — they reflect what was sent to the user, not what the user
+// are noise - they reflect what was sent to the user, not what the user
 // is working on.
 
 import type { CandidateMessage } from '../onboarding-backfill.ts';

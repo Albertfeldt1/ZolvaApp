@@ -201,7 +201,7 @@ describe('stripIconStandIns', () => {
     expect(out).toContain('background:#000');
   });
 
-  it('iteratively cleans empty wrappers — strips inner cells then the empty row/table', () => {
+  it('iteratively cleans empty wrappers - strips inner cells then the empty row/table', () => {
     const html = '<table style="background:#1c2e3a"><tr><td style="background:#1c2e3a"></td><td style="background:#1c2e3a"></td></tr></table>';
     const out = stripIconStandIns(html);
     // Inner empty styled <td>s gone first, then empty <tr>, then empty <table>

@@ -1,4 +1,4 @@
-// Minimal ambient type shim for ical.js@1.5.0 — the upstream package ships no
+// Minimal ambient type shim for ical.js@1.5.0 - the upstream package ships no
 // .d.ts and there is no @types/ical.js. Only the surface area used by
 // src/lib/icloud-calendar.ts is declared. Extend as needed if more APIs land.
 

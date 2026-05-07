@@ -25,7 +25,7 @@ type Props = {
 export function BriefHistoryModal({ kind, onClose, onSelect }: Props) {
   // Cache the last non-null kind so the slide-down close animation has
   // content to render. Without this, kind flips to null synchronously
-  // and the inner View becomes null while iOS is still animating —
+  // and the inner View becomes null while iOS is still animating -
   // result: the modal vanishes instantly instead of sliding down.
   const [shownKind, setShownKind] = useState<BriefKind | null>(kind);
   useEffect(() => {

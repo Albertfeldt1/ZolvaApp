@@ -15,7 +15,7 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { jwtVerify, createRemoteJWKSet, type JWTPayload } from 'https://esm.sh/jose@5.9.6';
 
-// JWKS verification — duplicated from widget-action/jwt.ts intentionally.
+// JWKS verification - duplicated from widget-action/jwt.ts intentionally.
 // Refactor to _shared/jwt.ts in Phase 2 when widget-action is touched anyway.
 const JWKS_URL = new URL('https://auth.zolva.io/auth/v1/.well-known/jwks.json');
 let jwks = createRemoteJWKSet(JWKS_URL, {

@@ -21,14 +21,14 @@ const IMAP_HOST = 'imap.mail.me.com';
 const IMAP_PORT = 993;
 const CONNECT_TIMEOUT_MS = 5_000;
 // 30s, not 10s. The backfill fetches a window of message bodies in a
-// single IMAP transaction — over Supabase's edge → me.com path that
+// single IMAP transaction - over Supabase's edge → me.com path that
 // regularly exceeds 10s of wall time, especially when iCloud throttles or
 // a single message body is multi-MB. imap-proxy gets away with 10s because
 // it fetches ≤50 messages on the live-inbox path.
 const COMMAND_TIMEOUT_MS = 30_000;
 // Hard ceiling on the entire fetchIcloudCandidates call. Backstop for the
 // imapflow race where socket errors escape as event-loop rejections instead
-// of bubbling through the active fetch's promise — without this, a stalled
+// of bubbling through the active fetch's promise - without this, a stalled
 // connection left the worker hanging until function-level wall clock killed
 // it, and the backfill_jobs row stuck in 'queued' forever.
 const FETCH_DEADLINE_MS = 60_000;
@@ -56,7 +56,7 @@ export async function fetchIcloudCandidates(
 ): Promise<CandidateMessage[]> {
   // One retry with 5s backoff on transient transport errors. Apple's IMAP
   // path is intermittently unstable for Supabase edge IPs (TLS close-on-
-  // greeting, socket idle-timeouts) — single-shot fetches fail the user's
+  // greeting, socket idle-timeouts) - single-shot fetches fail the user's
   // entire onboarding when one attempt unluckily lands in a 30s window
   // when Apple is hiccuping. Two attempts catch most of these without
   // exceeding the 150s function wall-clock (60+5+60 = 125s worst case).
@@ -90,7 +90,7 @@ function isTransientImapError(err: unknown): boolean {
 
 // Race the inner work against an explicit deadline. imapflow's socket-timeout
 // can emit an unhandled rejection on the client's 'error' event instead of
-// rejecting the active fetch's promise — caller's try/catch never fires and
+// rejecting the active fetch's promise - caller's try/catch never fires and
 // the worker hangs until function wall-clock kills it. Our timeout always
 // reaches our own catch, so finishJob can mark the row 'failed'.
 function raceWithDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
@@ -199,7 +199,7 @@ function pickMessageDate(internalDate: unknown, envelopeDate: unknown): string {
   return isoOf(internalDate) ?? isoOf(envelopeDate) ?? new Date().toISOString();
 }
 
-// Naive HTML stripper — same lossy approach as imap-proxy's list-inbox
+// Naive HTML stripper - same lossy approach as imap-proxy's list-inbox
 // preview. Full BODYSTRUCTURE traversal is future work.
 function extractPreview(part: Uint8Array | undefined): string {
   if (!part) return '';

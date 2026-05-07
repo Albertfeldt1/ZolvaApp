@@ -37,7 +37,7 @@ export function GlassFrostedCard({
   // values further than expected, which made bone-white cards bleed
   // through to nothing on saturated backdrops (only the rim survived).
   // Detect the fill-style overlays and short-circuit to a plain View
-  // with the overlay as backgroundColor — no blur, no glass.
+  // with the overlay as backgroundColor - no blur, no glass.
   const isFillOverlay =
     !overlay ||
     overlay === surface.bone ||

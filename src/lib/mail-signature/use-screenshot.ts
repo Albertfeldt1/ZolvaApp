@@ -1,6 +1,6 @@
 // src/lib/mail-signature/use-screenshot.ts
 //
-// "Brug screenshot direkte" — picks an image, compresses it, and wraps
+// "Brug screenshot direkte" - picks an image, compresses it, and wraps
 // it as an ImportedSignature whose html is a single <img src="cid:zolva-sig">.
 // No AI call. Trade-off: pixel-perfect fidelity vs. no text-selection /
 // no per-element link binding. The user opts in.
@@ -20,7 +20,7 @@ export type UseScreenshotResult =
 export function buildImageOnlySignature(image: InlineImage, importedAt: number): ImportedSignature {
   // display:block + max-width keeps the screenshot from breaking the
   // layout in narrow Outlook panes; height:auto preserves aspect ratio.
-  // alt="" because the image IS the signature — there's no separate
+  // alt="" because the image IS the signature - there's no separate
   // text version that would benefit from a redundant alt.
   const html =
     `<table cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse">` +

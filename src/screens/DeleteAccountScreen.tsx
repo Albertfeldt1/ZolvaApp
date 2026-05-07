@@ -44,7 +44,7 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
     setError(null);
     try {
       if (demo) {
-        // Demo accounts don't exist in Supabase — just log the user out
+        // Demo accounts don't exist in Supabase - just log the user out
         // locally so the UI behaves like a deletion succeeded.
         await signOut();
         onDeleted();
@@ -76,7 +76,7 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
       if (!ok) {
         const detail = (data as { error?: string } | null)?.error ?? 'Ukendt fejl';
         setError({
-          message: `Sletning afbrudt: ${detail}. Prøv igen — dine data er ved at blive ryddet, og et gentaget forsøg fortsætter hvor det slap.`,
+          message: `Sletning afbrudt: ${detail}. Prøv igen - dine data er ved at blive ryddet, og et gentaget forsøg fortsætter hvor det slap.`,
           canRetry: true,
         });
         setBusy(false);
@@ -105,7 +105,7 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
       <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
         <GlassHaloLayer />
 
-        {/* Header — glass card with close button + eyebrow */}
+        {/* Header - glass card with close button + eyebrow */}
         <View
           style={{
             paddingTop: spacing.statusBarFallback,
@@ -126,7 +126,7 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
                   fontSize: 11,
                   letterSpacing: 0.88,
                   textTransform: 'uppercase',
-                  // '#D14343' — no danger token in current scheme; Zolva destructive red
+                  // '#D14343' - no danger token in current scheme; Zolva destructive red
                   color: '#D14343',
                 }}
               >
@@ -216,7 +216,7 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
                       width: 5,
                       height: 5,
                       borderRadius: 999,
-                      // '#D14343' — destructive bullet accent, no token
+                      // '#D14343' - destructive bullet accent, no token
                       backgroundColor: '#D14343',
                       marginTop: 8,
                     }}
@@ -255,7 +255,7 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
               }}
             >
               Vi forsøger også at tilbagekalde dine OAuth-tokens hos Google.
-              Microsoft understøtter ikke tilbagekaldelse via API — du kan selv
+              Microsoft understøtter ikke tilbagekaldelse via API - du kan selv
               fjerne adgangen i din Microsoft-konto bagefter.
             </Text>
 
@@ -265,7 +265,7 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
                 fontFamily: fonts.uiBold,
                 fontSize: 15,
                 lineHeight: 22,
-                // '#D14343' — irreversible warning, no token
+                // '#D14343' - irreversible warning, no token
                 color: '#D14343',
               }}
             >
@@ -275,12 +275,12 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
 
           {stage === 'intro' ? (
             <>
-              {/* "Continue to confirmation" — destructive red pill */}
+              {/* "Continue to confirmation" - destructive red pill */}
               <Pressable
                 style={({ pressed }) => [
                   {
                     marginTop: spacing.sm,
-                    // '#D14343' — destructive CTA background, no token
+                    // '#D14343' - destructive CTA background, no token
                     backgroundColor: '#D14343',
                     paddingVertical: 14,
                     borderRadius: radius.pill,
@@ -293,7 +293,7 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
               >
                 <Text
                   style={{
-                    // '#FFFFFF' — white text on destructive red pill
+                    // '#FFFFFF' - white text on destructive red pill
                     color: '#FFFFFF',
                     fontFamily: fonts.uiBold,
                     fontSize: 14.5,
@@ -303,7 +303,7 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
                 </Text>
               </Pressable>
 
-              {/* Cancel — ghost */}
+              {/* Cancel - ghost */}
               <Pressable
                 style={({ pressed }) => [
                   { paddingVertical: 14, alignItems: 'center' },
@@ -377,7 +377,7 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
                       fontFamily: fonts.ui,
                       fontSize: 13,
                       lineHeight: 19,
-                      // '#D14343' — error text, no token
+                      // '#D14343' - error text, no token
                       color: '#D14343',
                     }}
                   >
@@ -386,7 +386,7 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
                 </GlassFrostedCard>
               )}
 
-              {/* Delete permanently — destructive red pill (enabled) / glass pill (disabled) */}
+              {/* Delete permanently - destructive red pill (enabled) / glass pill (disabled) */}
               <Pressable
                 style={({ pressed }) => [
                   {
@@ -394,7 +394,7 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
                     borderRadius: radius.pill,
                     alignItems: 'center',
                     backgroundColor: typedCorrectly && !busy
-                      // '#D14343' — destructive CTA enabled, no token
+                      // '#D14343' - destructive CTA enabled, no token
                       ? '#D14343'
                       : surface.glass,
                   },
@@ -410,7 +410,7 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
                 accessibilityState={{ disabled: !typedCorrectly || busy }}
               >
                 {busy ? (
-                  // '#FFFFFF' — spinner on dark destructive pill
+                  // '#FFFFFF' - spinner on dark destructive pill
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
                   <Text
@@ -426,7 +426,7 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
                 )}
               </Pressable>
 
-              {/* Cancel — ghost */}
+              {/* Cancel - ghost */}
               <Pressable
                 style={({ pressed }) => [
                   { paddingVertical: 14, alignItems: 'center' },
@@ -456,7 +456,7 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
 
 // Supabase wraps non-2xx responses in FunctionsHttpError whose `.context` is
 // the raw Response. The default .message ("Edge Function returned a non-2xx
-// status code") hides the status and body — pull them out so the user (and
+// status code") hides the status and body - pull them out so the user (and
 // the logs) see what actually failed.
 async function extractFunctionError(err: unknown): Promise<string | null> {
   const ctx = (err as { context?: unknown })?.context;

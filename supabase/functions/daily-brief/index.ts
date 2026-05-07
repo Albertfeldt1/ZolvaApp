@@ -1,4 +1,4 @@
-// daily-brief — Supabase Edge Function (cron-driven, service-role).
+// daily-brief - Supabase Edge Function (cron-driven, service-role).
 //
 // Flow:
 //   1. Match current UTC 15-min window against work_preferences rows for
@@ -9,8 +9,8 @@
 //      send a push notification.
 //
 // CALLER GATING (same pattern as poll-mail):
-//   - Cron — must present `x-cron-secret: <CRON_SHARED_SECRET>`. Full batch.
-//   - Authenticated user — must present a valid user JWT. Batch scoped to
+//   - Cron - must present `x-cron-secret: <CRON_SHARED_SECRET>`. Full batch.
+//   - Authenticated user - must present a valid user JWT. Batch scoped to
 //     that user only (useful for manual "trigger mine now" tests).
 //   - Anything else → 401.
 //
@@ -150,7 +150,7 @@ function localHourMinute(now: Date, tz: string): { hour: number; minute: number 
       return { hour, minute };
     }
   } catch {
-    // Invalid IANA id — fall through to UTC.
+    // Invalid IANA id - fall through to UTC.
   }
   return { hour: now.getUTCHours(), minute: now.getUTCMinutes() };
 }
@@ -175,7 +175,7 @@ async function generateOneBrief(
   timezone: string,
 ): Promise<string> {
   // Memory toggle gate. The brief quotes facts and mail subjects, so when
-  // the user has memory off we must skip composition entirely — not just
+  // the user has memory off we must skip composition entirely - not just
   // pass empty arrays through (which would still burn a Claude call to
   // produce a content-free brief). Mirrors src/lib/profile.ts:2-3.
   const { data: profile, error: profileErr } = await client

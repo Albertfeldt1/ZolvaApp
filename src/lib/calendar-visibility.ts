@@ -1,5 +1,5 @@
 // AsyncStorage-backed map of hidden calendars per provider. Default model:
-// any calendar not in the hidden set is visible — matches Apple Calendar
+// any calendar not in the hidden set is visible - matches Apple Calendar
 // where new accounts/calendars come on by default. Storage is local-only
 // for v1 (no Supabase sync); switching devices means re-toggling.
 

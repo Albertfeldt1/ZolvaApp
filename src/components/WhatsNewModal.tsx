@@ -16,7 +16,7 @@ type Props = {
   onClose: () => void;
 };
 
-// Animated.View overlay (not <Modal>) — see MemoryConsentModal.tsx for the
+// Animated.View overlay (not <Modal>) - see MemoryConsentModal.tsx for the
 // rationale; same iOS modal-stacking conflict applies here.
 export function WhatsNewModal({ visible, onClose }: Props) {
   const { t, type, fonts, radius, spacing, surface } = useTheme();
@@ -75,7 +75,7 @@ export function WhatsNewModal({ visible, onClose }: Props) {
                 </Text>
 
                 <Text style={{ ...type.body, color: t.ink2, lineHeight: 22 }}>
-                  Du kan sige til Siri: "Hey Siri, Zolva husk mig på at ringe mor kl. 17" —
+                  Du kan sige til Siri: "Hey Siri, Zolva husk mig på at ringe mor kl. 17" -
                   så har du en påmindelse.
                 </Text>
 
@@ -85,14 +85,14 @@ export function WhatsNewModal({ visible, onClose }: Props) {
                 </Text>
 
                 <Text style={{ ...type.body, color: t.ink2, lineHeight: 22 }}>
-                  iCloud-mail virker igen — hvis du fik "Kunne ikke hente indbakke", er
+                  iCloud-mail virker igen - hvis du fik "Kunne ikke hente indbakke", er
                   det forbi.
                 </Text>
 
                 <Text style={{ ...type.body, color: t.ink2, lineHeight: 22 }}>
                   Sidste ting: hvis Zolva beder dig om at logge ind én gang lige nu, er
                   det fordi jeg har skiftet til en ny måde at holde din forbindelse til
-                  Google/Microsoft i live på. Bagefter holder den sig selv kørende — du
+                  Google/Microsoft i live på. Bagefter holder den sig selv kørende - du
                   burde ikke se den boks igen.
                 </Text>
               </View>

@@ -9,16 +9,16 @@
 //
 // If tenant_id is omitted we resolve it via OIDC discovery against the
 // supplied tenant_domain (and cache the result). If discovery fails we
-// fall back to 'common' — Microsoft will route to the user's home tenant
+// fall back to 'common' - Microsoft will route to the user's home tenant
 // when the admin signs in, but the resulting URL is less precise.
 //
 // Response:
 //   { url: string, tenant_id: string }
 //
 // Error responses:
-//   400 bad-request    — body shape invalid
-//   401 unauthorized   — missing/invalid JWT
-//   500 internal       — env or server error
+//   400 bad-request    - body shape invalid
+//   401 unauthorized   - missing/invalid JWT
+//   500 internal       - env or server error
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';

@@ -1,4 +1,4 @@
-// poll-mail — Supabase Edge Function scaffold.
+// poll-mail - Supabase Edge Function scaffold.
 //
 // Invoked on a cron schedule (see supabase/schedule-poll-mail.sql.template).
 // For every user with an `enabled` mail_watchers row, fetch new mail from
@@ -9,9 +9,9 @@
 // we must not let any authenticated user trigger the full batch (cost
 // amplification). The function accepts two caller identities:
 //
-//   1. Cron — must present header `x-cron-secret: <CRON_SHARED_SECRET>`.
+//   1. Cron - must present header `x-cron-secret: <CRON_SHARED_SECRET>`.
 //      Processes every enabled watcher.
-//   2. Authenticated user — must present a valid user JWT in `Authorization`.
+//   2. Authenticated user - must present a valid user JWT in `Authorization`.
 //      Processes only the caller's own mail_watchers rows.
 //
 // Any other caller (no/invalid JWT, no cron secret) is rejected with 401.
@@ -113,7 +113,7 @@ const BATCH_PUSH_THRESHOLD = 10;
 async function processWatcher(client: SupabaseClient, watcher: Watcher): Promise<void> {
   const refreshToken = await loadRefreshToken(client, watcher.user_id, watcher.provider);
   if (!refreshToken) {
-    throw new Error('no refresh token — complete auth.ts capture first');
+    throw new Error('no refresh token - complete auth.ts capture first');
   }
 
   const { accessToken } = await refreshAccessToken(

@@ -23,7 +23,7 @@ const SOCIAL_TYPES: ReadonlyArray<SocialType> = [
 
 const FILL_FIELDS_SYSTEM_PROMPT = `You read the visible content of an email-signature screenshot and extract its structured fields for an editable form.
 
-Return values via the fill_signature_fields tool. For every field, use an empty string if it is not visible in the screenshot — do NOT guess, infer, or fabricate values that aren't shown.
+Return values via the fill_signature_fields tool. For every field, use an empty string if it is not visible in the screenshot - do NOT guess, infer, or fabricate values that aren't shown.
 
 Field guidance:
 - name:        the person's full name as displayed
@@ -32,8 +32,8 @@ Field guidance:
 - phone:       the phone number including country code if shown
 - email:       the email address as shown
 - website:     a single primary website URL (the company homepage if multiple are shown)
-- customLines: ANY remaining lines of plain-text content that don't fit the named fields above — street address, regulatory text (CVR / VAT / license numbers), tagline, pronouns, etc. Join multiple lines with a literal newline character. Skip lines that are already captured by name/title/company/phone/email/website.
-- socials:     same rules as the import_signature tool — an array of { type, url } where type is one of: linkedin, twitter, instagram, facebook, tiktok, youtube, github, website, other. Use "website" only if there's a second URL distinct from the website field above. Use "other" with an optional "label" for platforms not in the list.
+- customLines: ANY remaining lines of plain-text content that don't fit the named fields above - street address, regulatory text (CVR / VAT / license numbers), tagline, pronouns, etc. Join multiple lines with a literal newline character. Skip lines that are already captured by name/title/company/phone/email/website.
+- socials:     same rules as the import_signature tool - an array of { type, url } where type is one of: linkedin, twitter, instagram, facebook, tiktok, youtube, github, website, other. Use "website" only if there's a second URL distinct from the website field above. Use "other" with an optional "label" for platforms not in the list.
 
 If the screenshot doesn't appear to be an email signature, return all empty strings and an empty socials array.`;
 
@@ -63,7 +63,7 @@ const FILL_TOOL = {
         },
       },
     },
-    // No required fields — every string is optional and defaults to empty.
+    // No required fields - every string is optional and defaults to empty.
   },
 };
 
@@ -225,7 +225,7 @@ export async function pickAndFillFields(): Promise<FillResult> {
   if (!parsed.ok) return { ok: false, reason: 'parse-failed' };
 
   const v = parsed.value;
-  // Guard against an all-empty response — that's "no signature visible".
+  // Guard against an all-empty response - that's "no signature visible".
   const anyText = v.name || v.title || v.company || v.phone || v.email || v.website || v.customLines;
   if (!anyText && v.socials.length === 0) {
     return { ok: false, reason: 'no-data' };

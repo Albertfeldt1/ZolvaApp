@@ -23,7 +23,7 @@ import { discoverCalendarHome } from './icloud-calendar';
 
 // Tiny pub/sub so React components reading iCloud cred state can re-poll
 // when saveCredential / clearCredential succeed. The setup screen lives in
-// App.tsx and the cred-reading sections live in SettingsScreen — neither
+// App.tsx and the cred-reading sections live in SettingsScreen - neither
 // has a direct ref to the other, so a module-level event bus is the
 // minimal-coupling fix.
 type CredsListener = () => void;
@@ -39,7 +39,7 @@ function notifyCredsChanged(): void {
 }
 
 export type SyncCursor = { uidValidity: number; lastUid: number };
-// v1 ignores SyncCursor — included so the storage shape doesn't have to
+// v1 ignores SyncCursor - included so the storage shape doesn't have to
 // change when/if server-side polling is added later.
 
 export type IcloudCredential = {
@@ -63,7 +63,7 @@ type StoredShape = {
   invalidReason?: string;
 };
 
-// Empty userId returns 'absent' (not throw) — read paths run during auth-state resolution.
+// Empty userId returns 'absent' (not throw) - read paths run during auth-state resolution.
 export async function loadCredential(userId: string): Promise<IcloudCredentialState> {
   if (!userId) return { kind: 'absent' };
   const raw = await secureStorage.getItem(credKey(userId));
@@ -153,8 +153,8 @@ async function callLinkEndpoint(
       switch (parsed.code) {
         case 'reauth_required': throw new IcloudLinkFailure('reauth-required', `${status} reauth_required`);
         case 'rate_limited':    throw new IcloudLinkFailure('rate-limited', `${status} rate_limited`);
-        case 'unauthorized':    throw new IcloudLinkFailure('server', `${status} unauthorized — check JWT auth`);
-        case 'invalid_request': throw new IcloudLinkFailure('server', `${status} invalid_request — body validation`);
+        case 'unauthorized':    throw new IcloudLinkFailure('server', `${status} unauthorized - check JWT auth`);
+        case 'invalid_request': throw new IcloudLinkFailure('server', `${status} invalid_request - body validation`);
         case 'server_error':    throw new IcloudLinkFailure('server', `${status} server_error`);
         default:                throw new IcloudLinkFailure('server', `${status} ${parsed.code}`);
       }
@@ -175,7 +175,7 @@ async function callLinkEndpoint(
 
 async function callRevokeEndpoint(): Promise<void> {
   // Revoke is best-effort. Local clear must still happen; if the server
-  // call fails, we log and proceed — the user has explicitly chosen to
+  // call fails, we log and proceed - the user has explicitly chosen to
   // disconnect. Stale server rows get cleared on next link or on
   // ON DELETE CASCADE if the auth.users row is deleted.
   try {
@@ -249,7 +249,7 @@ export async function markInvalid(userId: string, reason?: string): Promise<void
 export async function clearCredential(userId: string): Promise<void> {
   if (!userId) throw new Error('clearCredential: missing userId');
 
-  // Auto-clear any voice-routing labels pointing at iCloud — a stale
+  // Auto-clear any voice-routing labels pointing at iCloud - a stale
   // label can never silently mis-route a voice call to a calendar the
   // user has just disconnected. Mirrors the disconnectProvider auto-clear
   // for google/microsoft in auth.ts.
@@ -271,10 +271,10 @@ export async function clearCredential(userId: string): Promise<void> {
   }
 
   // Server revoke (best-effort). Even if it fails, we proceed with the
-  // local clear — the user explicitly asked to disconnect.
+  // local clear - the user explicitly asked to disconnect.
   await callRevokeEndpoint();
   await secureStorage.deleteItem(credKey(userId));
-  // Wipe the SWR inbox cache too — otherwise the next Apple ID on the
+  // Wipe the SWR inbox cache too - otherwise the next Apple ID on the
   // same device (or this user reconnecting with a different account)
   // would see the previous account's mails until the first successful
   // fetch lands.

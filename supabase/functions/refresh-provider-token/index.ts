@@ -1,22 +1,22 @@
-// refresh-provider-token — Supabase Edge Function (user-scoped).
+// refresh-provider-token - Supabase Edge Function (user-scoped).
 //
 // Exchanges the user's stored OAuth refresh_token for a fresh access_token
 // by POSTing to the provider's token endpoint with the server-held
-// client_secret. Keeps OAuth secrets off the device and — critically —
+// client_secret. Keeps OAuth secrets off the device and - critically -
 // keeps ASWebAuthenticationSession out of the hot path, so iOS stops
 // showing its "Zolva wants to use supabase.co to sign you in" dialog
 // every time provider tokens age out (~hourly).
 //
 // Caller: authenticated user only. Reads user JWT from Authorization
 // header, verifies via anon client, then uses service-role internally
-// to pull the refresh_token row. No cron path — this is per-user.
+// to pull the refresh_token row. No cron path - this is per-user.
 //
 // Response:
-//   200 { access_token, expires_in }  — fresh token ready to use
-//   401 { error: 'unauthorized' }      — no/invalid user JWT
-//   401 { error: 'refresh-rejected' }  — provider rejected the refresh_token
+//   200 { access_token, expires_in }  - fresh token ready to use
+//   401 { error: 'unauthorized' }      - no/invalid user JWT
+//   401 { error: 'refresh-rejected' }  - provider rejected the refresh_token
 //                                        (user needs full re-auth)
-//   404 { error: 'no-refresh-token' }  — no stored grant for this user+provider
+//   404 { error: 'no-refresh-token' }  - no stored grant for this user+provider
 //   400/500 otherwise
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
@@ -43,7 +43,7 @@ type EdgeOutcome =
   | 'refresh_rejected'
   | 'failed';
 
-// Note: a successful refresh emits TWO [oauth-refresh] lines — one from
+// Note: a successful refresh emits TWO [oauth-refresh] lines - one from
 // oauth.ts (no `layer` field) and one from this edge handler
 // (layer: 'edge'). When grepping logs, distinguish by the `layer` field.
 // Expect ~2x line count vs. request count for the success path.

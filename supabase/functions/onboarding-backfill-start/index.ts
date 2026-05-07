@@ -1,7 +1,7 @@
 // supabase/functions/onboarding-backfill-start/index.ts
 //
 // Creates per-source backfill_jobs rows and runs the workers inline within
-// the request scope. JWT-gated. Idempotent — if jobs already exist for
+// the request scope. JWT-gated. Idempotent - if jobs already exist for
 // this user, returns those without re-running.
 //
 // Body: { kinds?: ('mail' | 'calendar')[] }  // default: both
@@ -29,7 +29,7 @@ import { fetchOnedriveCandidates } from '../_shared/backfill-providers/onedrive.
 
 // Mail-side iCloud connectedness: presence of an icloud_credential_bindings
 // row, written by imap-proxy on first successful IMAP call. We deliberately
-// do NOT use user_icloud_calendar_creds (the calendar-only table) — that row
+// do NOT use user_icloud_calendar_creds (the calendar-only table) - that row
 // can outlive an inbox connection (e.g. user set up calendar long ago, never
 // connected mail), and gating the backfill on it would scan inboxes the
 // user never authorized for mail.
@@ -52,15 +52,15 @@ type MailProvider = 'google' | 'microsoft' | 'icloud';
 type CalProvider = 'google' | 'microsoft';
 type Kind = 'mail' | 'calendar' | 'drive';
 
-const MAIL_SYSTEM = `Du analyserer en samling emails for at finde få vedvarende fakta om brugeren — ikke om emails.
+const MAIL_SYSTEM = `Du analyserer en samling emails for at finde få vedvarende fakta om brugeren - ikke om emails.
 
 REGLER:
 
-1. Konsolidér på tværs af alle emails. Hvis flere emails handler om samme person, projekt eller tema, returnér ÉT fakta — aldrig flere. Den endelige liste skal være distinkt.
+1. Konsolidér på tværs af alle emails. Hvis flere emails handler om samme person, projekt eller tema, returnér ÉT fakta - aldrig flere. Den endelige liste skal være distinkt.
 
 2. Højst 3 fakta pr. svar. Vælg de stærkeste, mest specifikke signaler. Hellere færre, præcise fakta end mange svage.
 
-3. Kategori — vælg én og kun én pr. fakta. Disambiguering:
+3. Kategori - vælg én og kun én pr. fakta. Disambiguering:
    - relationship: en navngiven person brugeren har gentagen kontakt med (kollega, kunde, partner). Brug hvis personens navn nævnes.
    - role: brugerens rolle, titel, firma eller funktion ("freelance backend-udvikler", "marketingchef hos Acme").
    - preference: brugerens vane, værktøj eller måde at arbejde på ("foretrækker AI-værktøjer", "arbejder primært remote").
@@ -101,9 +101,9 @@ REGLER:
 Output (kun det her):
 [{"text": "...", "category": "relationship|role|preference|project|commitment", "confidence": 0.0-1.0, "referentDate": null}]`;
 
-const DRIVE_SYSTEM = `Du analyserer metadata om brugerens nyligt redigerede dokumenter i deres skylager (Google Drive eller OneDrive) — titel, type, samarbejdere, ejer — og finder få vedvarende fakta om brugeren, ikke om dokumenterne.
+const DRIVE_SYSTEM = `Du analyserer metadata om brugerens nyligt redigerede dokumenter i deres skylager (Google Drive eller OneDrive) - titel, type, samarbejdere, ejer - og finder få vedvarende fakta om brugeren, ikke om dokumenterne.
 
-VIGTIGT: Du har KUN metadata — ikke dokumentindhold. Drag konklusioner ud fra titler og samarbejdsmønstre, ikke ud fra hvad du formoder dokumentet siger.
+VIGTIGT: Du har KUN metadata - ikke dokumentindhold. Drag konklusioner ud fra titler og samarbejdsmønstre, ikke ud fra hvad du formoder dokumentet siger.
 
 REGLER:
 
@@ -124,7 +124,7 @@ REGLER:
 
 5. Ignorér enkeltstående filer uden gentagne mønstre. Ignorér generiske titler ("Untitled document", "Notes", "Test").
 
-6. Antag IKKE indhold. Hvis en titel er "Q2-budget", er det rimeligt at sige at brugeren arbejder på Q2-budget — men sig ikke noget om talene i det.
+6. Antag IKKE indhold. Hvis en titel er "Q2-budget", er det rimeligt at sige at brugeren arbejder på Q2-budget - men sig ikke noget om talene i det.
 
 Output (kun det her, intet andet, ingen markdown):
 [{"text": "...", "category": "relationship|role|preference|project|commitment", "confidence": 0.0-1.0, "referentDate": "YYYY-MM-DD" | null}]`;
@@ -243,7 +243,7 @@ serve(async (req) => {
 
   // Create jobs. The unique index on (user_id, kind, provider) handles the
   // race where two near-simultaneous "Start" requests both pass the
-  // idempotency check above — the second insert returns 23505 and we
+  // idempotency check above - the second insert returns 23505 and we
   // re-fetch the rows the first request just created. Spec L185 calls for
   // a Postgres advisory lock; this is the simpler equivalent that works
   // with supabase-js's pooled-connection model (no transactional lifetime
@@ -259,7 +259,7 @@ serve(async (req) => {
     .select();
   let jobs = insertedJobs;
   if (jobErr) {
-    // 23505 = unique_violation. Re-fetch — the other request created them.
+    // 23505 = unique_violation. Re-fetch - the other request created them.
     if (jobErr.code === '23505') {
       const { data: refetched } = await service
         .from('backfill_jobs')
@@ -280,7 +280,7 @@ serve(async (req) => {
     providers: providers.map((p) => `${p.provider}:${p.kind}`),
   });
 
-  // Run all jobs in parallel — but DON'T await them in the request scope.
+  // Run all jobs in parallel - but DON'T await them in the request scope.
   // The client's progress screen polls backfill-status to drive its
   // animation, which only works if this endpoint returns as soon as the
   // jobs are queued. EdgeRuntime.waitUntil keeps the workers running
@@ -343,11 +343,11 @@ async function runJob(
   try {
     let factsThisJob = 0;
     // Cross-batch anti-context. Texts of facts already extracted in this
-    // run get passed back to Claude as "do not repeat these" — stops
+    // run get passed back to Claude as "do not repeat these" - stops
     // semantic dupes (different wording, same theme) from piling up.
     const priorFactTexts: string[] = [];
 
-    // iCloud uses IMAP with a stored app-specific password — no OAuth
+    // iCloud uses IMAP with a stored app-specific password - no OAuth
     // refresh path. Branch early so the Google/Microsoft token-refresh
     // logic below stays untouched.
     if (job.provider === 'icloud') {

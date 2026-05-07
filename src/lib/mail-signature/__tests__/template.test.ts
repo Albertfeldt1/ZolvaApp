@@ -232,11 +232,11 @@ describe('escapeWithLinksAndBrs (inline markdown links in customLines)', () => {
     expect(escapeWithLinksAndBrs('[ring](tel:+4512345678)')).toContain('href="tel:+4512345678"');
   });
 
-  it('rejects javascript: and other unsafe schemes — keeps raw markdown as escaped text', () => {
+  it('rejects javascript: and other unsafe schemes - keeps raw markdown as escaped text', () => {
     const out = escapeWithLinksAndBrs('[evil](javascript:alert(1))');
     expect(out).not.toContain('<a ');
     expect(out).not.toMatch(/href=/);
-    // The literal string is rendered as escaped text — harmless in body
+    // The literal string is rendered as escaped text - harmless in body
     // copy, only dangerous if it landed in an href (which it doesn't).
     expect(out).toContain('[evil]');
   });

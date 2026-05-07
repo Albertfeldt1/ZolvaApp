@@ -43,7 +43,7 @@ export const directions: Record<DirectionId, DirectionTokens> = {
 
 export const DEFAULT_DIRECTION: DirectionId = 'G';
 
-// One font family everywhere — SpaceGrotesk handles display, UI, and the
+// One font family everywhere - SpaceGrotesk handles display, UI, and the
 // "mono" eyebrows. Aliases stay so existing call sites don't need to know
 // which variant they're getting; only the underlying weight differs.
 export const fontFamilies = {
@@ -96,7 +96,7 @@ export const stoneTokens = {
   shadowCast: 'rgba(60,90,70,0.35)',
 } as const;
 
-// Hero stat card — pulled out so consumers don't carry literals.
+// Hero stat card - pulled out so consumers don't carry literals.
 // `bigLineHeight` must be >= `bigSize` or RN clips the top of large
 // display digits (notably "0" / "8" rendered in Space Grotesk 64pt).
 export const heroStat = {
@@ -108,7 +108,7 @@ export const heroStat = {
   ribbonHeight: 8,
 } as const;
 
-// BlurView intensities — direction G is light, intensities map well across iOS;
+// BlurView intensities - direction G is light, intensities map well across iOS;
 // Android uses lower values everywhere because the native blur is weaker.
 export const blur = {
   card: 45,
@@ -137,7 +137,7 @@ export const shadows: Record<'softCard' | 'elevated' | 'fab' | 'tabBar' | 'stone
   stoneCast: { shadowColor: '#5C7355', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.35, shadowRadius: 12, elevation: 6 },
 };
 
-// Surface overlays — direction-aware. Glass overlays sit above the BlurView
+// Surface overlays - direction-aware. Glass overlays sit above the BlurView
 // to give the frosted look its tint and saturation; the dark variants flip
 // the ratios for Twilight (E).
 export type SurfaceTokens = {
@@ -149,7 +149,7 @@ export type SurfaceTokens = {
   glassDark: string;
   glassDarkText: string;
   glassDarkTextSoft: string;
-  /** Near-opaque card surface — for "bone white" hero/section backdrops
+  /** Near-opaque card surface - for "bone white" hero/section backdrops
    *  where translucency would let halos bleed through too aggressively. */
   bone: string;
   scrim: string;
@@ -160,7 +160,7 @@ export type SurfaceTokens = {
   tabActive: string;
   warningTint: string;
   ribbonTrack: string;
-  /** Semantic state — connected / OK / done. Direction G has no green
+  /** Semantic state - connected / OK / done. Direction G has no green
    *  signal, so success is encoded here as a universally-understood
    *  state cue instead of being derived from a direction signal hue. */
   successText: string;

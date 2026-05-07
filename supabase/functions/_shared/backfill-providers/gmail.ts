@@ -16,7 +16,7 @@ export async function fetchGmailCandidates(
 ): Promise<CandidateMessage[]> {
   // Single page (no pageToken loop). With maxFetch=200 and a typical
   // post-filter survivor rate of ~25-50%, this gives a 50-fact target with
-  // headroom; heavily-promotional inboxes may yield <50 — that's acceptable
+  // headroom; heavily-promotional inboxes may yield <50 - that's acceptable
   // for an onboarding skim. Pagination would be a v2 ask if telemetry shows
   // a real shortfall.
   // Step 1: list IDs from inbox, excluding category labels via Gmail's q syntax.
