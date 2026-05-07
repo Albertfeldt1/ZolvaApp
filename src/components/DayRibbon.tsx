@@ -8,6 +8,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { colors, fonts, radii } from '../theme';
+import { useTheme } from '../design/useTheme';
 
 export type RibbonAttendee = {
   name?: string;
@@ -76,6 +77,7 @@ type Props = {
 };
 
 export function DayRibbon({ events = [], now }: Props) {
+  const { t, surface } = useTheme();
   const ticks = Array.from({ length: SPAN + 1 });
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [descExpanded, setDescExpanded] = useState(false);
@@ -125,7 +127,7 @@ export function DayRibbon({ events = [], now }: Props) {
   return (
     <View style={styles.wrap}>
       <Animated.View
-        style={[styles.track, trackAnimStyle]}
+        style={[styles.track, { backgroundColor: surface.scrim }, trackAnimStyle]}
         onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}
       >
         {ticks.map((_, i) => (
@@ -148,9 +150,7 @@ export function DayRibbon({ events = [], now }: Props) {
           />
         ))}
         {nowPct !== null && !selectedEvent && (
-          <View style={[styles.nowLine, { left: `${nowPct}%` }]}>
-            <View style={styles.nowDot} />
-          </View>
+          <View style={[styles.nowLine, { left: `${nowPct}%`, backgroundColor: t.ink }]} />
         )}
         {events.length === 0 && (
           <View pointerEvents="none" style={styles.emptyOverlay}>
