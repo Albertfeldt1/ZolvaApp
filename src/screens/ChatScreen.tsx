@@ -22,6 +22,13 @@ import { formatClock, formatToday } from '../lib/date';
 import { useChat, useChatSuggestions } from '../lib/hooks';
 import type { ChatMessage } from '../lib/types';
 
+// Vertical space the floating chips + input dock occupy at rest. Used
+// as ScrollView.contentContainerStyle.paddingBottom so the last message
+// can scroll above the dock instead of being permanently pinned under
+// it. Chips ~44pt + dock padding 12 + dock row ~36 + bottom safe-area
+// reserve 24 ≈ 116pt; bumped to 130 for breathing room.
+const BOTTOM_DOCK_RESERVE = 130;
+
 type Props = { onBack: () => void; initialDraft?: string; initialDraftAutoSend?: boolean };
 
 export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props) {
@@ -129,14 +136,18 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
           </GlassFrostedCard>
         </View>
 
-        {/* Messages */}
+        {/* Messages. ScrollView flex-fills the body and the chips +
+            input dock float above it as absolutely-positioned siblings,
+            so messages can scroll UNDER the dock. paddingBottom equal
+            to (chips + dock height + safe-area) keeps the last message
+            from getting pinned underneath the dock at rest. */}
         <ScrollView
           ref={scrollRef}
           style={{ flex: 1 }}
           contentContainerStyle={{
             padding: spacing.screenPad,
             paddingTop: spacing.md,
-            paddingBottom: spacing.md,
+            paddingBottom: BOTTOM_DOCK_RESERVE,
             gap: spacing.md - 2,
           }}
           showsVerticalScrollIndicator={false}
@@ -179,34 +190,44 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
           {typing && <TypingIndicator t={t} spacing={spacing} radius={radius} />}
         </ScrollView>
 
-        {/* Suggestion pills - naked chips (no card backdrop) tucked just
-            above the input. Infinite horizontal scroll: the data is
-            tripled and the list silently snaps from the trailing copy
-            back to the middle copy when the user scrolls past it, so
-            either direction loops forever without a visible seam. */}
-        {suggestions.length > 0 && (
-          <View style={{ paddingBottom: spacing.xs, opacity: typing ? 0.4 : 1 }}>
-            <SuggestionsCarousel
-              suggestions={suggestions}
-              onSelect={submit}
-              disabled={typing}
-              chipStyle={{
-                paddingVertical: spacing.sm,
-                paddingHorizontal: spacing.md,
-                borderRadius: radius.pill,
-                backgroundColor: 'transparent',
-              }}
-              textStyle={{ ...type.bodySm, color: t.ink2 }}
-              contentPadding={spacing.screenPad}
-              gap={spacing.sm - 2}
-            />
-          </View>
-        )}
+        {/* Floating chips + dock. Absolute-positioned at the bottom so
+            chat content scrolls UNDER them - matches iMessage where the
+            composer floats over the message stream. The wrapping View
+            is transparent; only the dock's pill (added below) carries
+            any fill, and that's a hairline frosted card so messages
+            remain perceptible behind it. */}
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+          }}
+        >
+          {suggestions.length > 0 && (
+            <View style={{ paddingBottom: spacing.xs, opacity: typing ? 0.4 : 1 }}>
+              <SuggestionsCarousel
+                suggestions={suggestions}
+                onSelect={submit}
+                disabled={typing}
+                chipStyle={{
+                  paddingVertical: spacing.sm,
+                  paddingHorizontal: spacing.md,
+                  borderRadius: radius.pill,
+                  backgroundColor: 'transparent',
+                }}
+                textStyle={{ ...type.bodySm, color: t.ink2 }}
+                contentPadding={spacing.screenPad}
+                gap={spacing.sm - 2}
+              />
+            </View>
+          )}
 
-        {/* Input dock — pill-shaped transparent composer. Just a plus glyph
-            on the left and the text field. Submission happens via the
-            keyboard return key (returnKeyType="send"); no inline button. */}
-        <View style={{ padding: spacing.md, paddingBottom: spacing.xl }}>
+          {/* Input dock - pill-shaped transparent composer. Just a plus glyph
+              on the left and the text field. Submission happens via the
+              keyboard return key (returnKeyType="send"); no inline button. */}
+          <View style={{ padding: spacing.md, paddingBottom: spacing.xl }}>
           <View
             style={{
               flexDirection: 'row',
@@ -258,6 +279,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
               returnKeyType="send"
               editable={true}
             />
+          </View>
           </View>
         </View>
       </View>
