@@ -207,10 +207,8 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
               eats into the bottom-left/bottom-right corners where the
               plus icon and send button sit, cropping them visually. */}
           <GlassFrostedCard radius={radius.card} style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}>
-            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm }}>
-              <View style={{ paddingBottom: 6 }}>
-                <DesignIcon.plus size={18} color={t.ink3} />
-              </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+              <DesignIcon.plus size={18} color={t.ink3} />
               <TextInput
                 value={input}
                 onChangeText={setInput}
@@ -224,13 +222,13 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
                   fontFamily: fonts.ui,
                   fontSize: type.body.fontSize,
                   color: t.ink,
-                  paddingVertical: 0,
-                  // Min ≈ single line; max ≈ 5 lines so the bubble grows
-                  // with the message instead of trailing off horizontally.
-                  // Past max, the field scrolls internally.
-                  minHeight: 22,
+                  // paddingTop/paddingBottom: 0 overrides iOS multiline's
+                  // implicit padding so the empty composer matches the
+                  // single-line height the dock used before. Cap at 120pt
+                  // (≈ 5 lines) and scroll internally past that.
+                  paddingTop: 0,
+                  paddingBottom: 0,
                   maxHeight: 120,
-                  textAlignVertical: 'top',
                 }}
                 onSubmitEditing={() => !typing && input.trim() && submit(input.trim())}
                 returnKeyType="send"
@@ -378,10 +376,13 @@ function TypingDot({ delay, stoneColor }: { delay: number; stoneColor: string })
   );
 }
 
-// Infinite horizontal scroll for suggestion chips. Triples the data and
-// silently jumps from the outer copies back to the middle one when the
-// user crosses a boundary — so swiping in either direction loops forever
-// with no visible seam.
+// Infinite horizontal scroll for suggestion chips. Mirrors the data N×
+// (5 copies) and silently jumps from the outermost copies back toward
+// the middle when the user crosses a boundary, so swiping in either
+// direction loops forever with no visible seam. 5 copies (vs 3) gives
+// the user 3 full unique-prompt scroll-distances of safe travel before
+// any snap fires — enough that the boundary teleport never happens
+// during the visible portion of a normal swipe.
 type SuggestionsCarouselProps = {
   suggestions: string[];
   onSelect: (q: string) => void;
@@ -407,10 +408,12 @@ function SuggestionsCarousel({
   const contentWidth = useRef(0);
   const initialised = useRef(false);
 
-  // Triple the array. Middle copy is the "live" one; outer copies are the
-  // bumpers we snap back from.
+  // 5 copies. Land in copy index 2 (middle); copies 0 and 4 are bumpers
+  // we snap back from. Gives the user 3 unique-list widths of safe scroll
+  // before any teleport.
+  const COPIES = 5;
   const data = useMemo(
-    () => [...suggestions, ...suggestions, ...suggestions],
+    () => Array(COPIES).fill(null).flatMap(() => suggestions),
     [suggestions],
   );
 
@@ -418,8 +421,8 @@ function SuggestionsCarousel({
     contentWidth.current = w;
     if (!initialised.current && w > 0) {
       initialised.current = true;
-      // Land in the middle copy on first layout.
-      listRef.current?.scrollToOffset({ offset: w / 3, animated: false });
+      // Land in the middle copy (index 2 of 5) on first layout.
+      listRef.current?.scrollToOffset({ offset: (w / COPIES) * 2, animated: false });
     }
   };
 
@@ -427,12 +430,14 @@ function SuggestionsCarousel({
     const w = contentWidth.current;
     if (w === 0) return;
     const x = e.nativeEvent.contentOffset.x;
-    const oneCopy = w / 3;
-    if (x >= 2 * oneCopy) {
-      // In the trailing copy — jump back one copy width.
+    const oneCopy = w / COPIES;
+    // Snap when the user has fully entered the outermost copy (index 4
+    // for forward, index 0 for backward). Teleport by one full unique-
+    // list width back toward center, preserving sub-copy offset so the
+    // jump is invisible.
+    if (x >= 4 * oneCopy) {
       listRef.current?.scrollToOffset({ offset: x - oneCopy, animated: false });
-    } else if (x < oneCopy * 0.5) {
-      // In the leading copy — jump forward one copy width.
+    } else if (x < oneCopy) {
       listRef.current?.scrollToOffset({ offset: x + oneCopy, animated: false });
     }
   };
