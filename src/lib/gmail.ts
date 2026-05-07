@@ -210,6 +210,43 @@ function parseGmailDate(header: string, internalDate?: string): Date {
   return new Date();
 }
 
+// Pull a small batch of the user's recent sent mails - body text only,
+// for the style-summary analyzer. Skips threads where the user is just
+// quoting a previous reply (heuristic: body shorter than 30 chars after
+// trimming) since those add no style signal. Returns plain text bodies
+// trimmed to ~600 chars each so the combined prompt fits comfortably
+// inside Claude's context for a Sonnet style call.
+export async function listSentSamples(maxResults = 12): Promise<string[]> {
+  return tryWithRefresh('google', async (accessToken) => {
+    const headers = { Authorization: `Bearer ${accessToken}` };
+    const listRes = await fetchListWithRetry(
+      `${BASE}/messages?q=${encodeURIComponent('in:sent -in:chats')}&maxResults=${maxResults}`,
+      { headers },
+    );
+    if (listRes.status === 401 || listRes.status === 403) {
+      throw new ProviderAuthError('google', `Gmail afvist (${listRes.status}).`);
+    }
+    if (!listRes.ok) return [];
+    const list = (await listRes.json()) as RawMessageList;
+    const ids = (list.messages ?? []).map((m) => m.id);
+    if (ids.length === 0) return [];
+    const settled = await Promise.allSettled(
+      ids.map(async (id) => {
+        const res = await fetchWithTimeout('google', `${BASE}/messages/${id}?format=full`, {
+          headers,
+        });
+        if (!res.ok) return null;
+        const data = (await res.json()) as RawMessage;
+        const body = extractBody(data.payload) ?? data.snippet ?? '';
+        return body.trim().slice(0, 600);
+      }),
+    );
+    return settled
+      .map((r) => (r.status === 'fulfilled' ? r.value : null))
+      .filter((b): b is string => !!b && b.length >= 30);
+  });
+}
+
 export async function getMessageBody(id: string): Promise<GmailMessageBody> {
   return tryWithRefresh('google', async (accessToken) => {
     const res = await fetchWithTimeout('google', `${BASE}/messages/${id}?format=full`, {

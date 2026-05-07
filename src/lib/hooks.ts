@@ -55,6 +55,7 @@ import {
   initialsOf,
   listInboxMessages as listGmailMessages,
   getInboxCounts as getGmailInboxCounts,
+  listSentSamples as listGmailSentSamples,
   sendMail as gmailSendMail,
   sendReply as gmailSendReply,
 } from './gmail';
@@ -66,9 +67,15 @@ import {
   listCalendarEventsForCalendars as listGraphEventsForCalendars,
   listInboxMessages as listGraphMessages,
   getInboxCounts as getGraphInboxCounts,
+  listSentSamples as listGraphSentSamples,
   replyToMessage as graphReplyToMessage,
   sendMail as graphSendMail,
 } from './microsoft-graph';
+import {
+  combineStyleForPrompt,
+  ensureStyleSummary,
+  loadCombinedStyle,
+} from './style-summary';
 import { loadCredential } from './icloud-credentials';
 import { useIntegrationFlags, isIntegrationEffectivelyEnabled, clearIntegrationFlags } from './integration-flags';
 import { detectAdminConsentRequired } from './admin-consent';
@@ -1869,13 +1876,25 @@ const TONE_INSTRUCTIONS: Record<string, string> = {
   Formel: 'Skriv kort (1-2 sætninger), formelt og professionelt. Undgå slang.',
 };
 
-function draftSystemPrompt(tone: string, userName: string | null): string {
+function draftSystemPrompt(
+  tone: string,
+  userName: string | null,
+  styleCue: string | null,
+): string {
   const toneLine = TONE_INSTRUCTIONS[tone] ?? TONE_INSTRUCTIONS.Venlig;
   const whoLine = userName
     ? `Du skriver et svar på vegne af ${userName} (én person, ikke et team eller en virksomhed).`
     : 'Du skriver et svar på vegne af brugeren (én person, ikke et team eller en virksomhed).';
+  // The style cue is a 2-3 sentence Claude-generated summary of how
+  // the user actually writes, derived from samples of their sent mail.
+  // We append it AFTER the explicit tone preference so the manual
+  // setting still wins on overall length/formality, but the style cue
+  // shapes vocabulary, sign-offs, and sentence rhythm.
+  const styleLine = styleCue
+    ? `Brugerens egen skrivestil (efterlign så vidt muligt): ${styleCue} `
+    : '';
   return (
-    `${whoLine} ${toneLine} Skriv altid på dansk. ` +
+    `${whoLine} ${toneLine} ${styleLine}Skriv altid på dansk. ` +
     // The pronoun rule: default hard to "jeg". Drafts kept slipping into "vi"
     // when the incoming mail was business-styled (e.g. an invoice question),
     // which reads wrong from a personal assistant. Override only when the
@@ -1905,6 +1924,7 @@ async function generateDraft(
   tone: string,
   userName: string | null,
   signal: AbortSignal,
+  styleCue: string | null = null,
 ): Promise<string> {
   // Include the preview body so Claude can actually read what's being asked,
   // not just the subject line. 800 chars matches the classifier window - the
@@ -1917,7 +1937,7 @@ async function generateDraft(
     : `Fra: ${mail.from}\nEmne: ${mail.subject}\n\nSkriv et kort svar på dansk.`;
   return complete({
     model: DRAFT_MODEL,
-    system: draftSystemPrompt(tone, userName),
+    system: draftSystemPrompt(tone, userName, styleCue),
     messages: [{ role: 'user', content: userBlock }],
     maxTokens: 160,
     temperature: 0.6,
@@ -2046,9 +2066,16 @@ export function useInboxWaiting(): InboxWaitingResult {
       }
       if (pending.length === 0) return;
 
+      // Load the user's combined writing-style summary once per batch -
+      // every draft in this round shares the same cue, so we don't pay
+      // per-mail. Style summary is regenerated weekly elsewhere; this
+      // call is a single Supabase row fetch.
+      const styleStruct = await loadCombinedStyle(uid).catch(() => null);
+      const styleCue = styleStruct ? combineStyleForPrompt(styleStruct) : null;
+
       const results = await Promise.all(
         pending.map((m) =>
-          generateDraft(m, tone, userName, controller.signal)
+          generateDraft(m, tone, userName, controller.signal, styleCue)
             .then((text) => {
               if (!text) return null;
               setDraftInCache(draftKey(m.id), text);
@@ -2296,6 +2323,29 @@ export function useMailDetail(
   return state;
 }
 
+// Fire-and-forget: kick the style-summary analyzer for each currently-
+// connected provider when the user's tokens are present. The analyzer
+// itself is TTL-gated (14 days) so this is cheap to call on every
+// session and free when the cue is fresh. New-provider connection
+// triggers re-analysis automatically because the dependency array
+// flips when a new access token appears.
+export function useStyleSummaryRefresh(): void {
+  const { user, googleAccessToken, microsoftAccessToken } = useAuth();
+  const userId = user?.id ?? '';
+  useEffect(() => {
+    if (!userId) return;
+    if (googleAccessToken) {
+      void ensureStyleSummary(userId, 'google', () => listGmailSentSamples(12));
+    }
+    if (microsoftAccessToken) {
+      void ensureStyleSummary(userId, 'microsoft', () => listGraphSentSamples(12));
+    }
+    // iCloud is wired in a follow-up - needs a 'list-sent' op on the
+    // imap-proxy edge function, which is heavier than the Gmail/Graph
+    // additions and ships in the next iteration.
+  }, [userId, googleAccessToken, microsoftAccessToken]);
+}
+
 // On-demand draft generator for the mail detail screen's "Generer udkast"
 // button. Reuses the same generateDraft path as the autonomy auto-draft
 // flow but lets the caller pass a richer body (the full mail text fetched
@@ -2336,7 +2386,15 @@ export function useGenerateDraftAction() {
           isRead: true,
           preview: input.body,
         };
-        const draft = await generateDraft(synthetic, tone, userName, controller.signal);
+        // Pull the user's combined writing-style summary so the draft
+        // sounds like them. Fire-and-forget the failure path - draft
+        // generation should never fail just because the style cue
+        // isn't available.
+        const styleStruct = user?.id
+          ? await loadCombinedStyle(user.id).catch(() => null)
+          : null;
+        const styleCue = styleStruct ? combineStyleForPrompt(styleStruct) : null;
+        const draft = await generateDraft(synthetic, tone, userName, controller.signal, styleCue);
         return draft.trim();
       } catch (err) {
         if ((err as Error).name === 'AbortError') return null;

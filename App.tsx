@@ -61,6 +61,7 @@ import {
   markMsReconnectPromptShown,
   shouldShowWhatsNew,
   markWhatsNewShown,
+  useStyleSummaryRefresh,
 } from './src/lib/hooks';
 import { MemoryConsentModal } from './src/components/MemoryConsentModal';
 import { WhatsNewModal, WHATS_NEW_VERSION } from './src/components/WhatsNewModal';
@@ -105,6 +106,12 @@ export default function App() {
   const designFonts = useDesignFonts();
 
   const { user, initializing: authInitializing, googleAccessToken, microsoftAccessToken, signInWithMicrosoft, disconnectProvider } = useAuth();
+  // Fire-and-forget: re-analyze the user's writing style whenever a
+  // mail provider connects or the cached summary ages past its TTL.
+  // Hook is internally TTL-gated so this is essentially free on warm
+  // launches and only does real work on the first connect of each
+  // provider (or every 14 days thereafter).
+  useStyleSummaryRefresh();
   const [introPlaying, setIntroPlaying] = useState(!introShownThisSession);
   const dismissIntro = () => {
     introShownThisSession = true;

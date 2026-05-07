@@ -273,6 +273,26 @@ export async function listInboxMessages(top = 12): Promise<GraphMessage[]> {
   });
 }
 
+// Pull a small batch of recent sent mails - body text only - for the
+// style-summary analyzer. Same shape/intent as gmail.listSentSamples.
+// Skips empty / near-empty bodies that add no style signal.
+export async function listSentSamples(top = 12): Promise<string[]> {
+  return tryWithRefresh('microsoft', async (token) => {
+    const data = await graphFetch<{ value: RawMessageFull[] }>(
+      token,
+      `/me/mailFolders/sentitems/messages?$top=${top}&$select=id,body,bodyPreview&$orderby=sentDateTime desc`,
+    );
+    const samples: string[] = [];
+    for (const m of data.value ?? []) {
+      const raw = m.body?.content ?? '';
+      const text = (m.body?.contentType === 'html' ? stripHtml(raw) : raw) || m.bodyPreview || '';
+      const trimmed = text.trim().slice(0, 600);
+      if (trimmed.length >= 30) samples.push(trimmed);
+    }
+    return samples;
+  });
+}
+
 export async function getMessageBody(id: string): Promise<GraphMessageBody> {
   return tryWithRefresh('microsoft', async (token) => {
     const data = await graphFetch<RawMessageFull>(
