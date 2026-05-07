@@ -203,19 +203,30 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
         {/* Input dock */}
         <View style={{ padding: spacing.md, paddingBottom: spacing.xl }}>
           <GlassFrostedCard radius={radius.pill} style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-              <DesignIcon.plus size={18} color={t.ink3} />
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm }}>
+              <View style={{ paddingBottom: 6 }}>
+                <DesignIcon.plus size={18} color={t.ink3} />
+              </View>
               <TextInput
                 value={input}
                 onChangeText={setInput}
                 placeholder="Spørg om noget…"
                 placeholderTextColor={t.ink4}
+                multiline
+                scrollEnabled
+                blurOnSubmit
                 style={{
                   flex: 1,
                   fontFamily: fonts.ui,
                   fontSize: type.body.fontSize,
                   color: t.ink,
                   paddingVertical: 0,
+                  // Min ≈ single line; max ≈ 5 lines so the bubble grows
+                  // with the message instead of trailing off horizontally.
+                  // Past max, the field scrolls internally.
+                  minHeight: 22,
+                  maxHeight: 120,
+                  textAlignVertical: 'top',
                 }}
                 onSubmitEditing={() => !typing && input.trim() && submit(input.trim())}
                 returnKeyType="send"
