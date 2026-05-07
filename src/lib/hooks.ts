@@ -3743,6 +3743,9 @@ async function runMailComposeTool(
       }
       await gmailSendMail({ to, cc, subject, body, ...threadHeaders });
       void recordSentMailSafe(ctx.userId, { provider: 'google', to, cc, subject, body, replyToId: replyToUnifiedId });
+      // Mirror useSendReply's UX: replies dismiss the original from the
+      // inbox so it exits "Venter på dig" and lands in "Læst".
+      if (replyToUnifiedId) markMailDismissed(replyToUnifiedId);
       return { text: 'Mailen er sendt fra Gmail.', isError: false };
     }
 
@@ -3770,6 +3773,7 @@ async function runMailComposeTool(
       });
       if (!r.ok) return { text: mapIcloudComposeError(r.error), isError: true };
       void recordSentMailSafe(ctx.userId, { provider: 'icloud', to, cc, subject, body, replyToId: replyToUnifiedId });
+      if (replyToUnifiedId) markMailDismissed(replyToUnifiedId);
       return {
         text: providerReplyIdNum
           ? 'Svaret er sendt fra iCloud.'
@@ -3789,6 +3793,9 @@ async function runMailComposeTool(
       // direct keeps the call shorter.
       await graphReplyToMessage(providerReplyId, body);
       void recordSentMailSafe(ctx.userId, { provider: 'microsoft', to, cc, subject, body, replyToId: replyToUnifiedId });
+      // Outlook's reply endpoint already archives server-side; the local
+      // dismiss makes the disappear immediate (before the inbox re-fetches).
+      if (replyToUnifiedId) markMailDismissed(replyToUnifiedId);
       return { text: 'Svaret er sendt fra Outlook.', isError: false };
     }
     await graphSendMail({ to, cc, subject, body });
