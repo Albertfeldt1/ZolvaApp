@@ -559,22 +559,61 @@ const dismissedMailIds = new Set<string>();
 // at the original. We don't have gmail.modify or an iCloud \Seen-write
 // path, so the only persistent server-side read state we get is from
 // Outlook's auto-archive after reply. This local set bridges the gap.
+//
+// Persisted per-user via AsyncStorage so the "I already replied to this"
+// state survives backgrounding and worker recycles — without persistence,
+// the in-memory set was lost on cold-open and replied-to mails would
+// bounce back into "Venter" the next time the inbox refreshed.
 const repliedMailIds = new Set<string>();
+const REPLIED_STORAGE_KEY = (uid: string) => `zolva.replied-mails.v1.${uid}`;
 const dismissListeners = new Set<() => void>();
 
-// Clear both sets whenever the active user changes. The first notification
-// from subscribeUserId is the initial uid — skip it so we don't fire a
-// no-op refresh before any data has been dismissed.
-let dismissInitialSeen = false;
-subscribeUserId(() => {
-  if (!dismissInitialSeen) {
-    dismissInitialSeen = true;
+let repliedHydratedFor: string | null = null;
+let repliedActiveUid: string | null = null;
+async function hydrateRepliedFor(uid: string | null): Promise<void> {
+  repliedActiveUid = uid;
+  if (!uid) {
+    repliedMailIds.clear();
+    repliedHydratedFor = null;
+    dismissListeners.forEach((l) => l());
     return;
   }
-  if (dismissedMailIds.size === 0 && repliedMailIds.size === 0) return;
-  dismissedMailIds.clear();
+  if (repliedHydratedFor === uid) return;
   repliedMailIds.clear();
+  try {
+    const raw = await AsyncStorage.getItem(REPLIED_STORAGE_KEY(uid));
+    if (raw) {
+      const ids = JSON.parse(raw) as string[];
+      if (Array.isArray(ids)) for (const id of ids) repliedMailIds.add(id);
+    }
+  } catch (err) {
+    if (__DEV__) console.warn('[hooks] replied hydrate failed:', err);
+  }
+  repliedHydratedFor = uid;
   dismissListeners.forEach((l) => l());
+}
+
+async function persistReplied(): Promise<void> {
+  if (!repliedActiveUid) return;
+  try {
+    await AsyncStorage.setItem(
+      REPLIED_STORAGE_KEY(repliedActiveUid),
+      JSON.stringify(Array.from(repliedMailIds)),
+    );
+  } catch (err) {
+    if (__DEV__) console.warn('[hooks] replied persist failed:', err);
+  }
+}
+
+// Clear dismissed (in-memory only) and re-hydrate replied (from storage)
+// whenever the active user changes — including the initial subscribe so
+// replied state is loaded on app open.
+subscribeUserId((uid) => {
+  if (dismissedMailIds.size > 0) {
+    dismissedMailIds.clear();
+    dismissListeners.forEach((l) => l());
+  }
+  void hydrateRepliedFor(uid ?? null);
 });
 
 function markMailDismissed(id: string): void {
@@ -587,6 +626,7 @@ function markMailReplied(id: string): void {
   if (repliedMailIds.has(id)) return;
   repliedMailIds.add(id);
   dismissListeners.forEach((l) => l());
+  void persistReplied();
 }
 
 function useDismissedMailIds(): Set<string> {
