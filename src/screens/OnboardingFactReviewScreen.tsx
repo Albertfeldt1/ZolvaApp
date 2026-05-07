@@ -25,12 +25,11 @@ import {
   View,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { GlassView } from 'expo-glass-effect';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { Stone } from '../design/primitives/Stone';
-import { liquidGlassReady } from '../lib/liquid-glass';
 import { useTheme } from '../design/useTheme';
 import { subscribeUserId } from '../lib/auth';
 import { invalidatePreamble } from '../lib/profile';
@@ -430,11 +429,12 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
       </ScrollView>
 
       {/* Frosted footer — absolute-positioned over the ScrollView so
-          list content visibly scrolls (and blurs) behind the bar.
-          iOS 26+ uses native Liquid Glass; older iOS / Android falls
-          back to BlurView. Either way the list reads as a continuous
-          surface that fades into the bar instead of being hard-cut by
-          an opaque card. */}
+          list content visibly scrolls (and blurs) behind the bar. A
+          LinearGradient sits on TOP of the blur for the upper ~16 px,
+          fading from transparent to the blur tint. That hides the
+          hard top edge BlurView would otherwise show, so the list
+          appears to fade smoothly into the bar instead of being cut
+          off by a visible horizontal seam. */}
       <View
         pointerEvents="box-none"
         style={{
@@ -444,34 +444,35 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
           bottom: 0,
         }}
       >
-        {liquidGlassReady ? (
-          <GlassView
-            glassEffectStyle="regular"
-            colorScheme={t.mode === 'dark' ? 'dark' : 'light'}
-          >
-            <FooterButtonContent
-              save={save}
-              saving={saving}
-              checkedCount={checkedCount}
-              t={t}
-              fonts={fonts}
-              radius={radius}
-              spacing={spacing}
-            />
-          </GlassView>
-        ) : (
-          <BlurView intensity={50} tint={t.mode === 'dark' ? 'dark' : 'light'}>
-            <FooterButtonContent
-              save={save}
-              saving={saving}
-              checkedCount={checkedCount}
-              t={t}
-              fonts={fonts}
-              radius={radius}
-              spacing={spacing}
-            />
-          </BlurView>
-        )}
+        <BlurView
+          intensity={45}
+          tint={t.mode === 'dark' ? 'dark' : 'light'}
+          style={{ overflow: 'hidden' }}
+        >
+          <LinearGradient
+            pointerEvents="none"
+            colors={[
+              t.mode === 'dark' ? 'rgba(15,16,20,0)' : 'rgba(251,251,250,0)',
+              t.mode === 'dark' ? 'rgba(15,16,20,0.55)' : 'rgba(251,251,250,0.55)',
+            ]}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 24,
+            }}
+          />
+          <FooterButtonContent
+            save={save}
+            saving={saving}
+            checkedCount={checkedCount}
+            t={t}
+            fonts={fonts}
+            radius={radius}
+            spacing={spacing}
+          />
+        </BlurView>
       </View>
     </View>
   );
