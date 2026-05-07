@@ -445,22 +445,30 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
         }}
       >
         <BlurView
-          intensity={45}
+          intensity={32}
           tint={t.mode === 'dark' ? 'dark' : 'light'}
           style={{ overflow: 'hidden' }}
         >
+          {/* Top fade: fully-opaque paper at the very top → transparent
+              halfway down. Hides BlurView's natural hard top edge so
+              the blur reveals gradually. Multi-stop because two-stop
+              linear interpolation still reads as a faint band; an
+              ease-style curve disguises the transition entirely. */}
           <LinearGradient
             pointerEvents="none"
             colors={[
+              t.mode === 'dark' ? 'rgba(15,16,20,0.95)' : 'rgba(251,251,250,0.95)',
+              t.mode === 'dark' ? 'rgba(15,16,20,0.6)' : 'rgba(251,251,250,0.6)',
+              t.mode === 'dark' ? 'rgba(15,16,20,0.25)' : 'rgba(251,251,250,0.25)',
               t.mode === 'dark' ? 'rgba(15,16,20,0)' : 'rgba(251,251,250,0)',
-              t.mode === 'dark' ? 'rgba(15,16,20,0.55)' : 'rgba(251,251,250,0.55)',
             ]}
+            locations={[0, 0.4, 0.75, 1]}
             style={{
               position: 'absolute',
               top: 0,
               left: 0,
               right: 0,
-              height: 24,
+              height: 70,
             }}
           />
           <FooterButtonContent
