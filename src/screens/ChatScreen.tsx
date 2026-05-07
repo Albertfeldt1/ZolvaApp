@@ -116,40 +116,55 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
             zIndex: 1,
           }}
         >
-          <GlassFrostedCard
-            radius={radius.card}
-            style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-              <Pressable
-                onPress={onBack}
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: radius.pill,
-                  backgroundColor: surface.iconButton,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Tilbage"
-              >
-                <ChevronLeft size={18} color={t.ink} strokeWidth={1.75} />
-              </Pressable>
-
-              <Stone size={36} />
-
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: fonts.display, fontSize: 20, fontWeight: '600', letterSpacing: -0.4, color: t.ink }}>
-                  Zolva
-                </Text>
-                <Text style={{ ...type.eyebrow, color: t.ink3, textTransform: 'none', letterSpacing: 0.6 }}>
-                  Læser kalender og mail
-                </Text>
-              </View>
-
-            </View>
-          </GlassFrostedCard>
+          {liquidGlassReady ? (
+            <GlassView
+              glassEffectStyle="regular"
+              colorScheme="auto"
+              style={{ borderRadius: radius.card, overflow: 'hidden' }}
+            >
+              <HeaderRow
+                onBack={onBack}
+                t={t}
+                fonts={fonts}
+                type={type}
+                radius={radius}
+                spacing={spacing}
+                surface={surface}
+              />
+            </GlassView>
+          ) : (
+            <GlassFrostedCard
+              radius={radius.card}
+              style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}
+            >
+              <HeaderRow
+                onBack={onBack}
+                t={t}
+                fonts={fonts}
+                type={type}
+                radius={radius}
+                spacing={spacing}
+                surface={surface}
+              />
+            </GlassFrostedCard>
+          )}
+          {/* Soft fade below the header so its bottom edge feathers into
+              the chat surface instead of cutting hard. Same intent as
+              the bottom dock scrim but fading the OPPOSITE direction
+              (transparent at top, lightly tinted at bottom inverse) so
+              the visual weight of the header dissipates downward. */}
+          <LinearGradient
+            pointerEvents="none"
+            colors={['rgba(252,251,248,0.55)', 'rgba(252,251,248,0)']}
+            locations={[0, 1]}
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: -28,
+              height: 28,
+            }}
+          />
         </View>
 
         {/* Messages. ScrollView flex-fills the body and the chips +
@@ -315,6 +330,57 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
 }
 
 // ─── Inline markdown - bold segments ───────────────────────────────────────
+
+// Header content (back button, Stone, "Zolva" title). Pulled out so
+// the header can swap between Liquid Glass (iOS 26+) and the legacy
+// GlassFrostedCard fallback without duplicating the row markup.
+function HeaderRow(props: {
+  onBack: () => void;
+  t: ThemeSlice['t'];
+  fonts: ThemeSlice['fonts'];
+  type: ThemeSlice['type'];
+  radius: ThemeSlice['radius'];
+  spacing: ThemeSlice['spacing'];
+  surface: ThemeSlice['surface'];
+}) {
+  const { onBack, t, fonts, type, radius, spacing, surface } = props;
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.cardPad,
+      }}
+    >
+      <Pressable
+        onPress={onBack}
+        style={{
+          width: 34,
+          height: 34,
+          borderRadius: radius.pill,
+          backgroundColor: surface.iconButton,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Tilbage"
+      >
+        <ChevronLeft size={18} color={t.ink} strokeWidth={1.75} />
+      </Pressable>
+      <Stone size={36} />
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontFamily: fonts.display, fontSize: 20, fontWeight: '600', letterSpacing: -0.4, color: t.ink }}>
+          Zolva
+        </Text>
+        <Text style={{ ...type.eyebrow, color: t.ink3, textTransform: 'none', letterSpacing: 0.6 }}>
+          Læser kalender og mail
+        </Text>
+      </View>
+    </View>
+  );
+}
 
 // The composer's plus icon + multiline TextInput row. Pulled out so the
 // dock can swap its outer container between an iOS Liquid Glass surface
