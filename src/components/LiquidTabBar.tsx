@@ -128,54 +128,63 @@ export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: P
   return (
     <View style={styles.wrap}>
       <GlassContainer spacing={20} style={styles.container}>
-        {showAsk && (
-          <GlassView
-            glassEffectStyle="regular"
-            isInteractive
-            tintColor="rgba(26,30,28,0.55)"
-            colorScheme="auto"
-            style={styles.fab}
-          >
-            <Pressable onPress={onAskZolva} style={styles.fabPressable}>
-              <Stone size={24} />
-              <Text style={styles.fabText}>Spørg Zolva</Text>
-            </Pressable>
-          </GlassView>
-        )}
-        {/* barAnchor has no overflow:hidden so the pill sibling can briefly
-            protrude past the bar's vertical bounds during a tab switch. */}
-        <View style={styles.barAnchor}>
-          <GlassView
-            glassEffectStyle="regular"
-            colorScheme="auto"
-            style={styles.bar}
-          >
-            <View
-              style={styles.tabsRow}
-              onLayout={(e) => setRowWidth(e.nativeEvent.layout.width)}
-              {...panResponder.panHandlers}
-            >
-              {TABS.map(({ id, label, Icon }) => {
-                const isActive = active === id;
-                const color = isActive ? colors.ink : colors.stone;
-                return (
-                  <Pressable key={id} style={styles.tab} onPress={() => onChange(id)}>
-                    <Icon size={20} color={color} strokeWidth={isActive ? 1.7 : 1.4} />
-                    <Text style={[styles.tabLabel, { color }]}>{label}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </GlassView>
-          {rowWidth > 0 && (
-            <AnimatedGlassView
-              glassEffectStyle="clear"
-              isInteractive
-              tintColor="rgba(255,255,255,0.30)"
+        {/* Row layout: bar expands to fill, FAB sits flush at the right
+            edge at the same vertical level — mirrors the iOS Reminders
+            "segmented control + search circle" pairing. */}
+        <View style={styles.row}>
+          {/* barAnchor has no overflow:hidden so the pill sibling can briefly
+              protrude past the bar's vertical bounds during a tab switch. */}
+          <View style={styles.barAnchor}>
+            <GlassView
+              glassEffectStyle="regular"
               colorScheme="auto"
-              style={[styles.activePill, pillStyle]}
-              pointerEvents="none"
-            />
+              style={styles.bar}
+            >
+              <View
+                style={styles.tabsRow}
+                onLayout={(e) => setRowWidth(e.nativeEvent.layout.width)}
+                {...panResponder.panHandlers}
+              >
+                {TABS.map(({ id, label, Icon }) => {
+                  const isActive = active === id;
+                  const color = isActive ? colors.ink : colors.stone;
+                  return (
+                    <Pressable key={id} style={styles.tab} onPress={() => onChange(id)}>
+                      <Icon size={20} color={color} strokeWidth={isActive ? 1.7 : 1.4} />
+                      <Text style={[styles.tabLabel, { color }]}>{label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </GlassView>
+            {rowWidth > 0 && (
+              <AnimatedGlassView
+                glassEffectStyle="clear"
+                isInteractive
+                tintColor="rgba(255,255,255,0.30)"
+                colorScheme="auto"
+                style={[styles.activePill, pillStyle]}
+                pointerEvents="none"
+              />
+            )}
+          </View>
+          {showAsk && (
+            <GlassView
+              glassEffectStyle="regular"
+              isInteractive
+              tintColor="rgba(26,30,28,0.55)"
+              colorScheme="auto"
+              style={styles.fab}
+            >
+              <Pressable
+                onPress={onAskZolva}
+                style={styles.fabPressable}
+                accessibilityLabel="Spørg Zolva"
+                accessibilityRole="button"
+              >
+                <Stone size={26} />
+              </Pressable>
+            </GlassView>
           )}
         </View>
       </GlassContainer>
@@ -186,32 +195,33 @@ export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: P
 const styles = StyleSheet.create({
   wrap: {},
   container: {},
+  // Bottom row: tab bar grows to fill the gap between the screen edge and
+  // the FAB; FAB is a fixed-size circle on the right at the same vertical
+  // baseline. Horizontal/bottom insets live here so both children share
+  // the same coordinate space and render flush.
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginLeft: 24,
+    marginRight: 24,
+    marginBottom: Platform.OS === 'ios' ? 24 : 14,
+  },
   fab: {
-    alignSelf: 'flex-end',
-    // Match the bar's right edge (barAnchor.marginHorizontal) so the FAB
-    // hangs flush above the bar instead of jutting out toward the screen.
-    marginRight: 48,
-    marginBottom: 12,
+    width: 52,
+    height: 52,
     borderRadius: 999,
     overflow: 'hidden',
   },
   fabPressable: {
-    flexDirection: 'row',
+    flex: 1,
     alignItems: 'center',
-    gap: 10,
-    paddingLeft: 12,
-    paddingRight: 18,
-    paddingVertical: 10,
+    justifyContent: 'center',
   },
-  fabText: { fontFamily: fonts.uiSemi, fontSize: 13.5, color: colors.paper },
-  // Margins live on the anchor (not on the bar GlassView) so the pill
-  // sibling can absolute-position relative to a coordinate space that
-  // matches the bar's footprint. Wider horizontal margins (vs the
-  // previous 20pt) match Apple's iOS 26 reference where the bar floats
-  // as a narrower pill, not a near-edge-to-edge surface.
+  // Bar takes the rest of the row's width. No own margins — the row owns
+  // those. Pill siblings still absolute-position against this anchor.
   barAnchor: {
-    marginHorizontal: 48,
-    marginBottom: Platform.OS === 'ios' ? 24 : 14,
+    flex: 1,
   },
   // Fully pill-shaped bar (capsule). With 999 borderRadius, the corner
   // matches the active-pill's own 999 — both read as proper capsules.
