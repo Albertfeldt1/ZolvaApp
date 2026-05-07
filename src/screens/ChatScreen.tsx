@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
+import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { Icon as DesignIcon } from '../design/primitives/Icon';
 import { Stone } from '../design/primitives/Stone';
 import { useTheme } from '../design/useTheme';
@@ -82,12 +83,8 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={0}
     >
-      {/* No GlassHaloLayer here - the airbrushy halo's white + mem
-          quadrants converge at the bottom of the screen and read as a
-          visible "backdrop" panel behind the suggestion chips and input
-          dock. Clean t.paper surface keeps focus on the messages and
-          matches iMessage/WhatsApp-style chat surfaces. */}
       <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
+        <GlassHaloLayer />
 
         {/* Header - wrapped in a glass card so the back button + Stone +
             title sit on a backdrop instead of floating on the halo paper. */}
