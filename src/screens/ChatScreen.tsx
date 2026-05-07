@@ -202,7 +202,11 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
 
         {/* Input dock */}
         <View style={{ padding: spacing.md, paddingBottom: spacing.xl }}>
-          <GlassFrostedCard radius={radius.pill} style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}>
+          {/* Use card (24) instead of pill (9999) — once the input grows
+              multi-line the pill arc has a ~60pt radius and the curve
+              eats into the bottom-left/bottom-right corners where the
+              plus icon and send button sit, cropping them visually. */}
+          <GlassFrostedCard radius={radius.card} style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm }}>
               <View style={{ paddingBottom: 6 }}>
                 <DesignIcon.plus size={18} color={t.ink3} />
