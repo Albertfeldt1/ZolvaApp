@@ -15,7 +15,6 @@ import {
   View,
 } from 'react-native';
 import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
-import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { Icon as DesignIcon } from '../design/primitives/Icon';
 import { Stone } from '../design/primitives/Stone';
 import { useTheme } from '../design/useTheme';
@@ -76,8 +75,12 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={0}
     >
+      {/* No GlassHaloLayer here - the airbrushy halo's white + mem
+          quadrants converge at the bottom of the screen and read as a
+          visible "backdrop" panel behind the suggestion chips and input
+          dock. Clean t.paper surface keeps focus on the messages and
+          matches iMessage/WhatsApp-style chat surfaces. */}
       <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
-        <GlassHaloLayer />
 
         {/* Header - wrapped in a glass card so the back button + Stone +
             title sit on a backdrop instead of floating on the halo paper. */}
@@ -191,7 +194,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
                 paddingVertical: spacing.sm,
                 paddingHorizontal: spacing.md,
                 borderRadius: radius.pill,
-                backgroundColor: surface.scrim,
+                backgroundColor: 'transparent',
               }}
               textStyle={{ ...type.bodySm, color: t.ink2 }}
               contentPadding={spacing.screenPad}
@@ -200,60 +203,62 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
           </View>
         )}
 
-        {/* Input dock */}
+        {/* Input dock — pill-shaped transparent composer. Just a plus glyph
+            on the left and the text field. Submission happens via the
+            keyboard return key (returnKeyType="send"); no inline button. */}
         <View style={{ padding: spacing.md, paddingBottom: spacing.xl }}>
-          {/* Use card (24) instead of pill (9999) - once the input grows
-              multi-line the pill arc has a ~60pt radius and the curve
-              eats into the bottom-left/bottom-right corners where the
-              plus icon and send button sit, cropping them visually. */}
-          <GlassFrostedCard radius={radius.card} style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-              <DesignIcon.plus size={18} color={t.ink3} />
-              <TextInput
-                value={input}
-                onChangeText={setInput}
-                placeholder="Spørg om noget…"
-                placeholderTextColor={t.ink4}
-                multiline
-                scrollEnabled
-                blurOnSubmit
-                style={{
-                  flex: 1,
-                  fontFamily: fonts.ui,
-                  fontSize: type.body.fontSize,
-                  color: t.ink,
-                  // paddingTop/paddingBottom: 0 overrides iOS multiline's
-                  // implicit padding so the empty composer matches the
-                  // single-line height the dock used before. Cap at 120pt
-                  // (≈ 5 lines) and scroll internally past that.
-                  paddingTop: 0,
-                  paddingBottom: 0,
-                  maxHeight: 120,
-                }}
-                onSubmitEditing={() => !typing && input.trim() && submit(input.trim())}
-                returnKeyType="send"
-                editable={true}
-              />
-              <Pressable
-                onPress={() => !typing && input.trim() && submit(input.trim())}
-                disabled={typing || input.trim().length === 0}
-                style={({ pressed }) => ({
-                  width: 32,
-                  height: 32,
-                  borderRadius: radius.pill,
-                  backgroundColor: t.ink,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  opacity: typing || input.trim().length === 0 ? 0.4 : pressed ? 0.7 : 1,
-                })}
-                accessibilityRole="button"
-                accessibilityLabel="Send"
-                accessibilityState={{ disabled: typing || input.trim().length === 0 }}
-              >
-                <DesignIcon.send size={14} color="#FFFFFF" />
-              </Pressable>
-            </View>
-          </GlassFrostedCard>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing.sm,
+              paddingVertical: spacing.sm + 2,
+              paddingHorizontal: spacing.md,
+            }}
+          >
+            {/* Plus is its own touch target — without the Pressable
+                wrapper, taps on the icon fall through to the surrounding
+                pill and focus the TextInput instead of doing the plus's
+                own action (future attachments menu). */}
+            <Pressable
+              hitSlop={8}
+              onPress={() => {
+                /* TODO: wire to attachments menu */
+              }}
+              style={({ pressed }) => ({
+                opacity: pressed ? 0.5 : 1,
+              })}
+              accessibilityRole="button"
+              accessibilityLabel="Tilføj"
+            >
+              <DesignIcon.plus size={20} color={t.ink3} />
+            </Pressable>
+            <TextInput
+              value={input}
+              onChangeText={setInput}
+              placeholder="Spørg Zolva"
+              placeholderTextColor={t.ink4}
+              autoFocus
+              multiline
+              scrollEnabled
+              blurOnSubmit
+              style={{
+                flex: 1,
+                fontFamily: fonts.ui,
+                fontSize: type.body.fontSize,
+                color: t.ink,
+                // Strip iOS multiline's implicit padding so the empty
+                // composer hugs a single-line height; cap growth at ~5
+                // lines and scroll internally beyond.
+                paddingTop: 0,
+                paddingBottom: 0,
+                maxHeight: 120,
+              }}
+              onSubmitEditing={() => !typing && input.trim() && submit(input.trim())}
+              returnKeyType="send"
+              editable={true}
+            />
+          </View>
         </View>
       </View>
     </KeyboardAvoidingView>
