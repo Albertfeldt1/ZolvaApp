@@ -162,10 +162,10 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
               left: 0,
               right: 0,
               // Originally bottom:-28 (gradient fully below header).
-              // Nudged up 15pt then another 25pt = 40pt total, so the
-              // gradient sits over the bottom of the header card and
-              // feathers into the chat surface from there.
-              bottom: 12,
+              // Nudged up 15 + 25 + 40 = 80pt total, so the gradient
+              // now sits firmly over the header card and feathers
+              // upward through it.
+              bottom: 52,
               height: 28,
             }}
           />
