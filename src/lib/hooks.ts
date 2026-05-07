@@ -553,25 +553,39 @@ type NormalizedMail = {
 };
 
 const dismissedMailIds = new Set<string>();
+// Mails the user has replied to. Distinct from dismissed: dismissed mails
+// disappear into Archived, replied mails should drop out of "Venter på
+// dig" but resurface under "Læst" — the user often wants to glance back
+// at the original. We don't have gmail.modify or an iCloud \Seen-write
+// path, so the only persistent server-side read state we get is from
+// Outlook's auto-archive after reply. This local set bridges the gap.
+const repliedMailIds = new Set<string>();
 const dismissListeners = new Set<() => void>();
 
-// Clear the dismissed set whenever the active user changes. The first
-// notification from subscribeUserId is the initial uid — skip it so we
-// don't fire a no-op refresh before any data has been dismissed.
+// Clear both sets whenever the active user changes. The first notification
+// from subscribeUserId is the initial uid — skip it so we don't fire a
+// no-op refresh before any data has been dismissed.
 let dismissInitialSeen = false;
 subscribeUserId(() => {
   if (!dismissInitialSeen) {
     dismissInitialSeen = true;
     return;
   }
-  if (dismissedMailIds.size === 0) return;
+  if (dismissedMailIds.size === 0 && repliedMailIds.size === 0) return;
   dismissedMailIds.clear();
+  repliedMailIds.clear();
   dismissListeners.forEach((l) => l());
 });
 
 function markMailDismissed(id: string): void {
   if (dismissedMailIds.has(id)) return;
   dismissedMailIds.add(id);
+  dismissListeners.forEach((l) => l());
+}
+
+function markMailReplied(id: string): void {
+  if (repliedMailIds.has(id)) return;
+  repliedMailIds.add(id);
   dismissListeners.forEach((l) => l());
 }
 
@@ -585,6 +599,16 @@ function useDismissedMailIds(): Set<string> {
     };
   }, []);
   return dismissedMailIds;
+}
+
+function useRepliedMailIds(): Set<string> {
+  const [, setVersion] = useState(0);
+  useEffect(() => {
+    const listener = () => setVersion((v) => v + 1);
+    dismissListeners.add(listener);
+    return () => { dismissListeners.delete(listener); };
+  }, []);
+  return repliedMailIds;
 }
 
 const CALENDAR_FETCH_TIMEOUT_MS = 20_000;
@@ -1801,6 +1825,7 @@ export function useInboxWaiting(): InboxWaitingResult {
   const demo = isDemoUser(user);
   const { items, loading, error, providerErrors } = useMailItems();
   const dismissed = useDismissedMailIds();
+  const replied = useRepliedMailIds();
   const { data: workRows } = useWorkPreferences();
   const { data: profile } = useUser();
   const autonomy = prefValue(workRows, 'autonomy');
@@ -1962,7 +1987,7 @@ export function useInboxWaiting(): InboxWaitingResult {
   //   tier 3: from a no-reply sender (mailer-daemon, marketing@, …)
   // Date-desc within each tier.
   const sortedWaiting = items
-    .filter((m) => !m.isRead && !dismissed.has(m.id))
+    .filter((m) => !m.isRead && !dismissed.has(m.id) && !replied.has(m.id))
     .slice() // don't mutate the upstream array
     .sort((a, b) => {
       const ta = urgencyTier(a);
@@ -1984,8 +2009,12 @@ export function useInboxWaiting(): InboxWaitingResult {
     aiDraft: drafts[m.id] ?? null,
     tier: urgencyTier(m),
   }));
+  // Læst includes server-marked read mails AND mails the user has just
+  // replied to in this session (locally tracked) — without the second
+  // clause, replied-to Gmail/iCloud mails would vanish entirely (we have
+  // no scope to set the read flag server-side for those providers).
   const read: InboxMail[] = items
-    .filter((m) => m.isRead && !dismissed.has(m.id))
+    .filter((m) => !dismissed.has(m.id) && (m.isRead || replied.has(m.id)))
     .map((m, i) => ({
       id: m.id,
       provider: m.provider,
@@ -2165,7 +2194,7 @@ export function useSendReply() {
       setError(null);
       if (demo) {
         await new Promise((r) => setTimeout(r, 400));
-        markMailDismissed(mailId);
+        markMailReplied(mailId);
         setSending(false);
         return true;
       }
@@ -2236,7 +2265,7 @@ export function useSendReply() {
         if (__DEV__) console.warn('[hooks] archive after send failed:', err);
       }
 
-      markMailDismissed(mailId);
+      markMailReplied(mailId);
       setSending(false);
       return true;
     },
@@ -3745,7 +3774,7 @@ async function runMailComposeTool(
       void recordSentMailSafe(ctx.userId, { provider: 'google', to, cc, subject, body, replyToId: replyToUnifiedId });
       // Mirror useSendReply's UX: replies dismiss the original from the
       // inbox so it exits "Venter på dig" and lands in "Læst".
-      if (replyToUnifiedId) markMailDismissed(replyToUnifiedId);
+      if (replyToUnifiedId) markMailReplied(replyToUnifiedId);
       return { text: 'Mailen er sendt fra Gmail.', isError: false };
     }
 
@@ -3773,7 +3802,7 @@ async function runMailComposeTool(
       });
       if (!r.ok) return { text: mapIcloudComposeError(r.error), isError: true };
       void recordSentMailSafe(ctx.userId, { provider: 'icloud', to, cc, subject, body, replyToId: replyToUnifiedId });
-      if (replyToUnifiedId) markMailDismissed(replyToUnifiedId);
+      if (replyToUnifiedId) markMailReplied(replyToUnifiedId);
       return {
         text: providerReplyIdNum
           ? 'Svaret er sendt fra iCloud.'
@@ -3795,7 +3824,7 @@ async function runMailComposeTool(
       void recordSentMailSafe(ctx.userId, { provider: 'microsoft', to, cc, subject, body, replyToId: replyToUnifiedId });
       // Outlook's reply endpoint already archives server-side; the local
       // dismiss makes the disappear immediate (before the inbox re-fetches).
-      if (replyToUnifiedId) markMailDismissed(replyToUnifiedId);
+      if (replyToUnifiedId) markMailReplied(replyToUnifiedId);
       return { text: 'Svaret er sendt fra Outlook.', isError: false };
     }
     await graphSendMail({ to, cc, subject, body });
