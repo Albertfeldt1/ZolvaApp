@@ -229,7 +229,13 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
               iOS / Android fall through to a transparent View with no
               backdrop. Submission via keyboard return (returnKeyType
               "send") - no inline send button. */}
-          <View style={{ padding: spacing.md, paddingBottom: spacing.xl }}>
+          <View
+            style={{
+              paddingTop: spacing.md,
+              paddingBottom: spacing.xl,
+              paddingHorizontal: spacing.xxl,
+            }}
+          >
             {liquidGlassReady ? (
               <GlassView
                 glassEffectStyle="regular"
