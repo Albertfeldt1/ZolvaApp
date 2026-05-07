@@ -1,5 +1,6 @@
 {
   "imports": {
-    "imapflow": "npm:imapflow@1.3.2"
+    "imapflow": "npm:imapflow@1.3.2",
+    "nodemailer": "npm:nodemailer@6.9.16"
   }
 }

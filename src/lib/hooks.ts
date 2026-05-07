@@ -92,7 +92,16 @@ import {
   GENERIC_CONFUSED_FALLBACK,
   CHAT_GUARD_DEBUG_TAG,
 } from './chat-claim-guard';
-import { getMessageBody as getIcloudMessageBody, listInbox as listIcloudMessages, getInboxCounts as getIcloudInboxCounts, subscribeToIcloudInboxCache } from './icloud-mail';
+import {
+  getMessageBody as getIcloudMessageBody,
+  listInbox as listIcloudMessages,
+  getInboxCounts as getIcloudInboxCounts,
+  subscribeToIcloudInboxCache,
+  icloudSendMail,
+  icloudAppendDraft,
+  type IcloudErrorCode,
+} from './icloud-mail';
+import { recordSentMail, type RecordSentMailInput } from './sent-mails';
 import { listEvents as listIcloudEvents } from './icloud-calendar';
 import {
   readCalendarLabels,
@@ -544,26 +553,106 @@ type NormalizedMail = {
 };
 
 const dismissedMailIds = new Set<string>();
+// Mails the user has replied to. Distinct from dismissed: dismissed mails
+// disappear into Archived, replied mails should drop out of "Venter på
+// dig" but resurface under "Læst" — the user often wants to glance back
+// at the original. We don't have gmail.modify or an iCloud \Seen-write
+// path, so the only persistent server-side read state we get is from
+// Outlook's auto-archive after reply. This local set bridges the gap.
+//
+// Persisted per-user via AsyncStorage so the "I already replied to this"
+// state survives backgrounding and worker recycles — without persistence,
+// the in-memory set was lost on cold-open and replied-to mails would
+// bounce back into "Venter" the next time the inbox refreshed.
+const repliedMailIds = new Set<string>();
+const REPLIED_STORAGE_KEY = (uid: string) => `zolva.replied-mails.v1.${uid}`;
 const dismissListeners = new Set<() => void>();
 
-// Clear the dismissed set whenever the active user changes. The first
-// notification from subscribeUserId is the initial uid — skip it so we
-// don't fire a no-op refresh before any data has been dismissed.
-let dismissInitialSeen = false;
-subscribeUserId(() => {
-  if (!dismissInitialSeen) {
-    dismissInitialSeen = true;
+let repliedHydratedFor: string | null = null;
+let repliedActiveUid: string | null = null;
+async function hydrateRepliedFor(uid: string | null): Promise<void> {
+  repliedActiveUid = uid;
+  if (!uid) {
+    repliedMailIds.clear();
+    repliedHydratedFor = null;
+    dismissListeners.forEach((l) => l());
     return;
   }
-  if (dismissedMailIds.size === 0) return;
-  dismissedMailIds.clear();
+  if (repliedHydratedFor === uid) return;
+  repliedMailIds.clear();
+  try {
+    const raw = await AsyncStorage.getItem(REPLIED_STORAGE_KEY(uid));
+    if (raw) {
+      const ids = JSON.parse(raw) as string[];
+      if (Array.isArray(ids)) for (const id of ids) repliedMailIds.add(id);
+    }
+  } catch (err) {
+    if (__DEV__) console.warn('[hooks] replied hydrate failed:', err);
+  }
+  repliedHydratedFor = uid;
   dismissListeners.forEach((l) => l());
+}
+
+async function persistReplied(): Promise<void> {
+  if (!repliedActiveUid) return;
+  try {
+    await AsyncStorage.setItem(
+      REPLIED_STORAGE_KEY(repliedActiveUid),
+      JSON.stringify(Array.from(repliedMailIds)),
+    );
+  } catch (err) {
+    if (__DEV__) console.warn('[hooks] replied persist failed:', err);
+  }
+}
+
+// Clear dismissed (in-memory only) and re-hydrate replied (from storage)
+// whenever the active user changes — including the initial subscribe so
+// replied state is loaded on app open.
+subscribeUserId((uid) => {
+  if (dismissedMailIds.size > 0) {
+    dismissedMailIds.clear();
+    dismissListeners.forEach((l) => l());
+  }
+  void hydrateRepliedFor(uid ?? null);
 });
 
 function markMailDismissed(id: string): void {
   if (dismissedMailIds.has(id)) return;
   dismissedMailIds.add(id);
   dismissListeners.forEach((l) => l());
+}
+
+function markMailReplied(id: string): void {
+  if (repliedMailIds.has(id)) return;
+  repliedMailIds.add(id);
+  dismissListeners.forEach((l) => l());
+  void persistReplied();
+}
+
+// Public archive helper — used by the inbox-row swipe gesture. Microsoft
+// is the only provider where we can archive server-side (graph-modify is
+// part of the scope set we already request). Gmail and iCloud are local-
+// only because we don't request gmail.modify and our IMAP proxy has no
+// archive op. Failures are best-effort; the local dismissal still runs.
+export async function archiveMailInline(id: string, provider: MailProvider): Promise<void> {
+  try {
+    if (provider === 'microsoft') await graphArchiveMessage(id);
+  } catch (err) {
+    if (__DEV__) console.warn('[hooks] archiveMailInline graph error:', err);
+  }
+  markMailDismissed(id);
+}
+
+// Public delete helper. For v1, this routes to the same local-dismiss
+// path as archive — real server-side delete (graph DELETE for Outlook,
+// IMAP STORE \Deleted + EXPUNGE for iCloud, gmail.modify for Gmail) is
+// follow-up work. The visual differentiation (red "Slet" vs neutral
+// "Arkivér") signals intent today; the backend action is the same.
+export async function deleteMailInline(id: string, provider: MailProvider): Promise<void> {
+  // Currently identical to archive. Kept as a separate export so the
+  // call site stays semantically correct; when we wire real server-side
+  // delete, only this body changes.
+  await archiveMailInline(id, provider);
 }
 
 function useDismissedMailIds(): Set<string> {
@@ -576,6 +665,16 @@ function useDismissedMailIds(): Set<string> {
     };
   }, []);
   return dismissedMailIds;
+}
+
+function useRepliedMailIds(): Set<string> {
+  const [, setVersion] = useState(0);
+  useEffect(() => {
+    const listener = () => setVersion((v) => v + 1);
+    dismissListeners.add(listener);
+    return () => { dismissListeners.delete(listener); };
+  }, []);
+  return repliedMailIds;
 }
 
 const CALENDAR_FETCH_TIMEOUT_MS = 20_000;
@@ -1792,6 +1891,7 @@ export function useInboxWaiting(): InboxWaitingResult {
   const demo = isDemoUser(user);
   const { items, loading, error, providerErrors } = useMailItems();
   const dismissed = useDismissedMailIds();
+  const replied = useRepliedMailIds();
   const { data: workRows } = useWorkPreferences();
   const { data: profile } = useUser();
   const autonomy = prefValue(workRows, 'autonomy');
@@ -1953,7 +2053,7 @@ export function useInboxWaiting(): InboxWaitingResult {
   //   tier 3: from a no-reply sender (mailer-daemon, marketing@, …)
   // Date-desc within each tier.
   const sortedWaiting = items
-    .filter((m) => !m.isRead && !dismissed.has(m.id))
+    .filter((m) => !m.isRead && !dismissed.has(m.id) && !replied.has(m.id))
     .slice() // don't mutate the upstream array
     .sort((a, b) => {
       const ta = urgencyTier(a);
@@ -1975,8 +2075,12 @@ export function useInboxWaiting(): InboxWaitingResult {
     aiDraft: drafts[m.id] ?? null,
     tier: urgencyTier(m),
   }));
+  // Læst includes server-marked read mails AND mails the user has just
+  // replied to in this session (locally tracked) — without the second
+  // clause, replied-to Gmail/iCloud mails would vanish entirely (we have
+  // no scope to set the read flag server-side for those providers).
   const read: InboxMail[] = items
-    .filter((m) => m.isRead && !dismissed.has(m.id))
+    .filter((m) => !dismissed.has(m.id) && (m.isRead || replied.has(m.id)))
     .map((m, i) => ({
       id: m.id,
       provider: m.provider,
@@ -2116,7 +2220,12 @@ export function useMailDetail(
               from: r.data.from,
               subject: r.data.subject,
               body: r.data.body,
-              replyContext: { provider: 'icloud', uid, subject: r.data.subject },
+              replyContext: {
+                provider: 'icloud',
+                uid,
+                subject: r.data.subject,
+                fromEmail: r.data.fromEmail,
+              },
             };
           })();
 
@@ -2151,7 +2260,7 @@ export function useSendReply() {
       setError(null);
       if (demo) {
         await new Promise((r) => setTimeout(r, 400));
-        markMailDismissed(mailId);
+        markMailReplied(mailId);
         setSending(false);
         return true;
       }
@@ -2165,13 +2274,42 @@ export function useSendReply() {
             references: ctx.references,
             body,
           });
+          await recordSentMailSafe(user?.id ?? null, {
+            provider: 'google',
+            to: [ctx.replyTo],
+            subject: ctx.subject,
+            body,
+            replyToId: mailId,
+          });
         } else if (ctx.provider === 'microsoft') {
           await graphReplyToMessage(ctx.messageId, body);
+          await recordSentMailSafe(user?.id ?? null, {
+            provider: 'microsoft',
+            to: [],          // graphReplyToMessage uses the original recipients server-side
+            subject: '',     // not exposed via this code path; keep empty for the log
+            body,
+            replyToId: mailId,
+          });
         } else {
-          // iCloud reply requires SMTP — not implemented in v1. Surface a
-          // recoverable error so the UI can show a Danish message rather
-          // than crashing. User can copy text + send from Apple Mail.
-          throw new Error('Svar på iCloud-mail er ikke understøttet endnu. Brug Apple Mail.');
+          if (!user?.id) throw new Error('Ikke logget ind.');
+          if (!ctx.fromEmail) throw new Error('Manglende afsender-adresse.');
+          const replySubject = /^re:/i.test(ctx.subject.trim())
+            ? ctx.subject.trim()
+            : `Re: ${ctx.subject.trim()}`;
+          const r = await icloudSendMail(user.id, {
+            to: [ctx.fromEmail],
+            subject: replySubject,
+            body,
+            replyToUid: ctx.uid,
+          });
+          if (!r.ok) throw new Error(`icloud:${r.error}`);
+          await recordSentMailSafe(user.id, {
+            provider: 'icloud',
+            to: [ctx.fromEmail],
+            subject: replySubject,
+            body,
+            replyToId: mailId,
+          });
         }
       } catch (err) {
         const e = err instanceof Error ? err : new Error(String(err));
@@ -2193,7 +2331,7 @@ export function useSendReply() {
         if (__DEV__) console.warn('[hooks] archive after send failed:', err);
       }
 
-      markMailDismissed(mailId);
+      markMailReplied(mailId);
       setSending(false);
       return true;
     },
@@ -3104,17 +3242,13 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       'spørg "Skal jeg gemme det som udkast?" eller "Skal jeg sende det nu?".',
     'Hvis udkastet/sendingen er et SVAR på en eksisterende mail (brugeren henviser ' +
       'til en mail de har modtaget), så send det fulde unified-ID i `reply_to_id` ' +
-      '(fx "google:abc" eller "microsoft:abc") — så bevares tråden korrekt. ' +
+      '(fx "google:abc", "microsoft:abc" eller "icloud:123") — så bevares tråden korrekt. ' +
       'Brug list_recent_mail eller read_mail_thread til at finde det rigtige ID.',
     'Skriv ALDRIG en signatur/underskrift selv i `body` — Zolva tilføjer ' +
       'automatisk brugerens egen signatur. Skriv kun selve beskeden.',
-    'SKRIVE-værktøjerne (create_draft og send_mail) understøtter kun Gmail ' +
-      '(provider="google") og Outlook (provider="microsoft") — IKKE iCloud. ' +
-      'Hvis brugeren beder dig sende eller udkaste fra deres iCloud-konto, ' +
-      'forklar at det ikke er muligt endnu og foreslå Apple Mail-appen i stedet, ' +
-      'eller tilbyd at lægge udkastet på Gmail/Outlook hvis det er forbundet. ' +
-      'Denne begrænsning gælder KUN skrivning — list_recent_mail og read_mail_thread ' +
-      'kan stadig læse iCloud-mails.',
+    'SKRIVE-værktøjerne (create_draft og send_mail) understøtter Gmail ' +
+      '(provider="google"), Outlook (provider="microsoft") og iCloud ' +
+      '(provider="icloud"). Vælg ud fra hvor brugeren har konteksten.',
   ]
     .filter(Boolean)
     .join(' ');
@@ -3142,7 +3276,7 @@ function filterToolsByCtx(
 ): ClaudeToolSchema[] {
   const anyMail = ctx.gmail || ctx.outlookMail || ctx.icloud;
   const anyCal = ctx.googleCalendar || ctx.outlookCalendar || ctx.icloud;
-  const anyComposeMail = ctx.gmail || ctx.outlookMail;
+  const anyComposeMail = ctx.gmail || ctx.outlookMail || ctx.icloud;
   return tools.filter((t) => {
     switch (t.name) {
       // Drive / OneDrive — single-integration tools
@@ -3162,7 +3296,7 @@ function filterToolsByCtx(
       case 'update_calendar_event':
       case 'delete_calendar_event':
         return anyCal;
-      // Mail compose — Gmail or Outlook (no iCloud compose)
+      // Mail compose — needs any mail provider
       case 'create_draft':
       case 'send_mail':
         return anyComposeMail;
@@ -3422,13 +3556,13 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'create_draft',
     description:
-      'Opret et udkast til en mail. Brug når brugeren siger "lav et udkast", "skriv en mail", "udarbejd et svar" eller lignende. Udkastet gemmes i brugerens mailkonto (Gmail eller Outlook) — det bliver IKKE sendt. BEKRÆFT ALTID modtager, emne og indhold med brugeren før du kalder værktøjet. Brugerens signatur tilføjes automatisk. Hvis udkastet er et svar på en eksisterende mail, send det fulde unified-ID i `reply_to_id` (fx "google:abc" eller "microsoft:abc") — så bevares tråden. iCloud understøttes ikke.',
+      'Opret et udkast til en mail. Brug når brugeren siger "lav et udkast", "skriv en mail", "udarbejd et svar" eller lignende. Udkastet gemmes i brugerens mailkonto (Gmail, Outlook eller iCloud) — det bliver IKKE sendt. BEKRÆFT ALTID modtager, emne og indhold med brugeren før du kalder værktøjet. Brugerens signatur tilføjes automatisk. Hvis udkastet er et svar på en eksisterende mail, send det fulde unified-ID i `reply_to_id` (fx "google:abc", "microsoft:abc" eller "icloud:123") — så bevares tråden.',
     input_schema: {
       type: 'object',
       properties: {
         provider: {
           type: 'string',
-          enum: ['google', 'microsoft'],
+          enum: ['google', 'microsoft', 'icloud'],
           description: 'Hvilken konto udkastet lægges på. Vælg ud fra hvor brugeren har konteksten.',
         },
         to: {
@@ -3447,11 +3581,11 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'send_mail',
     description:
-      'Send en mail med det samme. Brug KUN når brugeren udtrykkeligt siger "send", "afsend" eller "send afsted" — IKKE ved "udkast", "skriv", eller "lav et svar". Når i tvivl, brug create_draft. BEKRÆFT ALTID modtager, emne og indhold med brugeren før du kalder værktøjet. Brugerens signatur tilføjes automatisk. iCloud understøttes ikke.',
+      'Send en mail med det samme. Brug KUN når brugeren udtrykkeligt siger "send", "afsend" eller "send afsted" — IKKE ved "udkast", "skriv", eller "lav et svar". Når i tvivl, brug create_draft. BEKRÆFT ALTID modtager, emne og indhold med brugeren før du kalder værktøjet. Brugerens signatur tilføjes automatisk.',
     input_schema: {
       type: 'object',
       properties: {
-        provider: { type: 'string', enum: ['google', 'microsoft'] },
+        provider: { type: 'string', enum: ['google', 'microsoft', 'icloud'] },
         to: { type: 'array', items: { type: 'string' } },
         cc: { type: 'array', items: { type: 'string' } },
         subject: { type: 'string' },
@@ -3526,7 +3660,7 @@ function parseWritePatch(input: Record<string, unknown>): ParseResult<Partial<Wr
   return { ok: true, data: patch };
 }
 
-type MailComposeProvider = 'google' | 'microsoft';
+type MailComposeProvider = 'google' | 'microsoft' | 'icloud';
 
 type MailComposeParsed = {
   provider: MailComposeProvider;
@@ -3549,10 +3683,10 @@ function parseEmailList(v: unknown): string[] {
 
 function parseMailComposeInput(input: Record<string, unknown>): ParseResult<MailComposeParsed> {
   const provider = input.provider;
-  if (provider !== 'google' && provider !== 'microsoft') {
+  if (provider !== 'google' && provider !== 'microsoft' && provider !== 'icloud') {
     return {
       ok: false,
-      reason: '`provider` skal være "google" eller "microsoft". iCloud-mail kan ikke sendes fra Zolva endnu.',
+      reason: '`provider` skal være "google", "microsoft" eller "icloud".',
     };
   }
   const to = parseEmailList(input.to);
@@ -3583,6 +3717,43 @@ function splitUnifiedId(unified: string): { provider: string; id: string } | nul
   return { provider: unified.slice(0, colon), id: unified.slice(colon + 1) };
 }
 
+// Record a successful send into the local sent-mails log without ever
+// throwing back into the caller. The send already succeeded — a logging
+// failure must not surface to the user as a send failure.
+async function recordSentMailSafe(
+  userId: string | null,
+  input: RecordSentMailInput,
+): Promise<void> {
+  if (!userId) return;
+  try {
+    await recordSentMail(userId, input);
+  } catch (e) {
+    if (__DEV__) console.warn('[hooks] recordSentMail failed:', e);
+  }
+}
+
+function mapIcloudComposeError(code: IcloudErrorCode): string {
+  switch (code) {
+    case 'auth-failed':
+    case 'credential-rejected':
+      return 'Apple afviste login. Din app-specific password er måske udløbet — opdater under Indstillinger.';
+    case 'rate-limited':
+      return 'For mange iCloud-mails sendt fra Zolva i dag. Prøv igen om en time.';
+    case 'network':
+    case 'timeout':
+    case 'temporarily-unavailable':
+    case 'gateway-unavailable':
+      return 'iCloud kunne ikke nås. Prøv igen om lidt.';
+    case 'not-connected':
+      return 'Brugeren har ikke forbundet en iCloud-konto. Foreslå at forbinde iCloud under Indstillinger.';
+    case 'unauthorized':
+      return 'Bruger-session udløbet. Log ind igen.';
+    case 'protocol':
+    default:
+      return 'iCloud afviste afsendelsen.';
+  }
+}
+
 async function runMailComposeTool(
   name: 'create_draft' | 'send_mail',
   input: Record<string, unknown>,
@@ -3604,6 +3775,12 @@ async function runMailComposeTool(
       isError: true,
     };
   }
+  if (provider === 'icloud' && !ctx.icloud) {
+    return {
+      text: 'Brugeren har ikke forbundet en iCloud-konto. Foreslå at forbinde iCloud under Indstillinger.',
+      isError: true,
+    };
+  }
 
   // For replies, resolve the original message id from the unified id. We
   // also reject mismatched providers (e.g. provider=google with a microsoft:
@@ -3619,6 +3796,15 @@ async function runMailComposeTool(
       };
     }
     providerReplyId = split?.id ?? replyToUnifiedId;
+  }
+
+  let providerReplyIdNum: number | undefined;
+  if (provider === 'icloud' && providerReplyId !== undefined) {
+    const n = Number(providerReplyId);
+    if (!Number.isFinite(n)) {
+      return { text: 'Ugyldigt iCloud reply-ID.', isError: true };
+    }
+    providerReplyIdNum = n;
   }
 
   try {
@@ -3651,7 +3837,44 @@ async function runMailComposeTool(
         return { text: `Udkast oprettet i Gmail (id: ${r.id || 'ukendt'}).`, isError: false };
       }
       await gmailSendMail({ to, cc, subject, body, ...threadHeaders });
+      void recordSentMailSafe(ctx.userId, { provider: 'google', to, cc, subject, body, replyToId: replyToUnifiedId });
+      // Mirror useSendReply's UX: replies dismiss the original from the
+      // inbox so it exits "Venter på dig" and lands in "Læst".
+      if (replyToUnifiedId) markMailReplied(replyToUnifiedId);
       return { text: 'Mailen er sendt fra Gmail.', isError: false };
+    }
+
+    if (provider === 'icloud') {
+      if (!ctx.userId) {
+        return { text: 'Ingen bruger-session.', isError: true };
+      }
+      if (name === 'create_draft') {
+        const r = await icloudAppendDraft(ctx.userId, {
+          to,
+          cc,
+          subject,
+          body,
+          replyToUid: providerReplyIdNum,
+        });
+        if (!r.ok) return { text: mapIcloudComposeError(r.error), isError: true };
+        return { text: 'Udkast oprettet i iCloud.', isError: false };
+      }
+      const r = await icloudSendMail(ctx.userId, {
+        to,
+        cc,
+        subject,
+        body,
+        replyToUid: providerReplyIdNum,
+      });
+      if (!r.ok) return { text: mapIcloudComposeError(r.error), isError: true };
+      void recordSentMailSafe(ctx.userId, { provider: 'icloud', to, cc, subject, body, replyToId: replyToUnifiedId });
+      if (replyToUnifiedId) markMailReplied(replyToUnifiedId);
+      return {
+        text: providerReplyIdNum
+          ? 'Svaret er sendt fra iCloud.'
+          : 'Mailen er sendt fra iCloud.',
+        isError: false,
+      };
     }
 
     // Microsoft
@@ -3664,9 +3887,14 @@ async function runMailComposeTool(
       // server-side. graphSendMail with replyToId routes here too, but going
       // direct keeps the call shorter.
       await graphReplyToMessage(providerReplyId, body);
+      void recordSentMailSafe(ctx.userId, { provider: 'microsoft', to, cc, subject, body, replyToId: replyToUnifiedId });
+      // Outlook's reply endpoint already archives server-side; the local
+      // dismiss makes the disappear immediate (before the inbox re-fetches).
+      if (replyToUnifiedId) markMailReplied(replyToUnifiedId);
       return { text: 'Svaret er sendt fra Outlook.', isError: false };
     }
     await graphSendMail({ to, cc, subject, body });
+    void recordSentMailSafe(ctx.userId, { provider: 'microsoft', to, cc, subject, body, replyToId: replyToUnifiedId });
     return { text: 'Mailen er sendt fra Outlook.', isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

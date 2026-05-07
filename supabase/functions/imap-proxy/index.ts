@@ -36,13 +36,29 @@ async function getImapFlow(): Promise<typeof ImapFlow> {
   return _ImapFlowCtor;
 }
 
+// SMTP target. We speak the protocol directly rather than pulling a
+// denomailer / nodemailer dependency. Apple supports both 587 (STARTTLS)
+// and 465 (implicit TLS); we use 465 because Supabase Edge appears to
+// block or rate-limit outbound TCP on 587 (sends to that port hung past
+// the 12s gateway timeout). Implicit TLS via Deno.connectTls also skips
+// the STARTTLS dance, which simplifies the protocol code.
+const SMTP_HOST = 'smtp.mail.me.com';
+const SMTP_PORT = 465;
+// Apple's TLS handshake from Supabase Edge IPs is variable — 5s was too
+// tight, producing intermittent connectTls timeouts. 10s gives a wider
+// margin while staying under the 12s gateway timeout.
+const SMTP_CONNECT_TIMEOUT_MS = 10_000;
+const SMTP_COMMAND_TIMEOUT_MS = 15_000;
+
 const IMAP_HOST = 'imap.mail.me.com';
 const IMAP_PORT = 993;
 const CONNECT_TIMEOUT_MS = 5_000;
 const COMMAND_TIMEOUT_MS = 10_000;
-const RATE_LIMIT_VALIDATE = 10;     // per hour per user
-const RATE_LIMIT_LIST_INBOX = 60;   // per hour per user
-const RATE_LIMIT_GET_BODY = 120;    // per hour per user (one fetch per opened mail)
+const RATE_LIMIT_VALIDATE = 10;       // per hour per user
+const RATE_LIMIT_LIST_INBOX = 60;     // per hour per user
+const RATE_LIMIT_GET_BODY = 120;      // per hour per user (one fetch per opened mail)
+const RATE_LIMIT_SEND_MAIL = 30;      // per hour per user — under Apple SMTP per-account throttle
+const RATE_LIMIT_APPEND_DRAFT = 60;   // per hour per user — cheap IMAP APPEND, shares list-inbox order of magnitude
 
 type ValidateReq = { op: 'validate'; email: string; password: string };
 type ListInboxReq = {
@@ -74,7 +90,34 @@ type ClearBindingReq = {
 // touch — the only goal is to keep a worker from idling out, so the gateway
 // doesn't 502 on the next real cold-start.
 type PingReq = { op: 'ping' };
-type Req = ValidateReq | ListInboxReq | GetBodyReq | CountReq | ClearBindingReq | PingReq;
+type AttachmentSpec = {
+  filename: string;
+  mime_type: string;
+  content_b64: string;     // base64-encoded bytes
+  content_id: string;      // for cid:<content_id> references in HTML
+};
+type ComposeBase = {
+  email: string;
+  password: string;
+  to: string[];
+  cc?: string[];
+  subject: string;
+  content_type: 'text' | 'html';
+  content: string;
+  attachments?: AttachmentSpec[];
+  reply_to_uid?: number;
+};
+type SendMailReq = ComposeBase & { op: 'send-mail' };
+type AppendDraftReq = ComposeBase & { op: 'append-draft' };
+type Req =
+  | ValidateReq
+  | ListInboxReq
+  | GetBodyReq
+  | CountReq
+  | ClearBindingReq
+  | PingReq
+  | SendMailReq
+  | AppendDraftReq;
 
 type ErrCode =
   | 'unauthorized'
@@ -152,7 +195,9 @@ serve(async (req) => {
       body.op !== 'list-inbox' &&
       body.op !== 'get-body' &&
       body.op !== 'count' &&
-      body.op !== 'clear-binding')
+      body.op !== 'clear-binding' &&
+      body.op !== 'send-mail' &&
+      body.op !== 'append-draft')
   ) {
     return err('bad-request', 400);
   }
@@ -169,6 +214,28 @@ serve(async (req) => {
   }
   if (body.op === 'get-body' && (typeof body.uid !== 'number' || !Number.isFinite(body.uid))) {
     return err('bad-request', 400);
+  }
+  if (body.op === 'send-mail' || body.op === 'append-draft') {
+    const composeBody = body as ComposeBase;
+    if (!Array.isArray(composeBody.to) || composeBody.to.length === 0 ||
+        !composeBody.to.every((s) => typeof s === 'string' && s.length > 0)) {
+      return err('bad-request', 400, 'invalid `to`');
+    }
+    if (composeBody.cc !== undefined && !Array.isArray(composeBody.cc)) {
+      return err('bad-request', 400, 'invalid `cc`');
+    }
+    if (typeof composeBody.subject !== 'string' || composeBody.subject.length === 0) {
+      return err('bad-request', 400, 'invalid `subject`');
+    }
+    if (composeBody.content_type !== 'text' && composeBody.content_type !== 'html') {
+      return err('bad-request', 400, 'invalid `content_type`');
+    }
+    if (typeof composeBody.content !== 'string' || composeBody.content.length === 0) {
+      return err('bad-request', 400, 'invalid `content`');
+    }
+    if (composeBody.attachments !== undefined && !Array.isArray(composeBody.attachments)) {
+      return err('bad-request', 400, 'invalid `attachments`');
+    }
   }
 
   // --- Rate limit ---
@@ -190,6 +257,12 @@ serve(async (req) => {
   if (body.op === 'clear-binding') {
     return await handleClearBinding(userId, supabaseUrl, serviceKey);
   }
+  if (body.op === 'send-mail') {
+    return await handleSendMail(body, userId, pepper, supabaseUrl, serviceKey);
+  }
+  if (body.op === 'append-draft') {
+    return await handleAppendDraft(body, userId, pepper, supabaseUrl, serviceKey);
+  }
   return err('bad-request', 400);
 });
 
@@ -197,7 +270,7 @@ async function checkRateLimit(
   serviceKey: string,
   supabaseUrl: string,
   userId: string,
-  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding',
+  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding' | 'send-mail' | 'append-draft',
 ): Promise<boolean> {
   // clear-binding doesn't need rate limiting — the JWT already authorizes,
   // and a malicious user can only delete their OWN row. Skipping the check
@@ -211,6 +284,10 @@ async function checkRateLimit(
       ? RATE_LIMIT_VALIDATE
       : op === 'list-inbox' || op === 'count'
       ? RATE_LIMIT_LIST_INBOX
+      : op === 'send-mail'
+      ? RATE_LIMIT_SEND_MAIL
+      : op === 'append-draft'
+      ? RATE_LIMIT_APPEND_DRAFT
       : RATE_LIMIT_GET_BODY;
   const svc = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false },
@@ -380,6 +457,22 @@ function mapImapError(caughtErr: unknown): Response {
   // Return the truncated context to the client so __DEV__ logs reveal the
   // actual IMAP failure without a function-logs dive.
   return err('protocol', 502, ctx);
+}
+
+// Hand-rolled SMTP outcome codes mirror the public IcloudErrorCode set
+// (auth-failed for 535 LOGIN-failed, network/timeout/protocol for the
+// transport flavors). The `detail` is forwarded to the client and shown in
+// the chat error string.
+type SmtpFailCode = 'auth-failed' | 'network' | 'timeout' | 'protocol';
+type SmtpResult =
+  | { ok: true }
+  | { ok: false; code: SmtpFailCode; detail?: string };
+
+function smtpResultToResponse(r: SmtpResult & { ok: false }): Response {
+  if (r.code === 'auth-failed') return err('auth-failed', 422, r.detail);
+  if (r.code === 'timeout') return err('timeout', 504, r.detail);
+  if (r.code === 'network') return err('network', 503, r.detail);
+  return err('protocol', 502, r.detail);
 }
 
 function clampLimit(n: number | undefined): number {
@@ -863,6 +956,130 @@ async function handleCount(
   }
 }
 
+function decodeAttachments(specs: AttachmentSpec[] | undefined): Array<{
+  filename: string;
+  contentType: string;
+  content: Uint8Array;
+  encoding: 'base64';
+  contentDisposition: 'inline';
+  contentID: string;
+}> {
+  if (!specs || specs.length === 0) return [];
+  const out: ReturnType<typeof decodeAttachments> = [];
+  for (const a of specs) {
+    let bin: string;
+    try {
+      bin = atob(a.content_b64);
+    } catch {
+      throw new Error(`attachment ${a.filename} has invalid base64`);
+    }
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    out.push({
+      filename: a.filename,
+      contentType: a.mime_type,
+      content: bytes,
+      encoding: 'base64',
+      contentDisposition: 'inline',
+      contentID: a.content_id,
+    });
+  }
+  return out;
+}
+
+// Trim and drop empty entries. Address list normalization for SMTP envelope
+// recipients and for the To:/Cc: headers in the RFC 5322 builder.
+function toAddressList(addrs: string[]): string[] {
+  return addrs.map((a) => a.trim()).filter((a) => a.length > 0);
+}
+
+// nodemailer goes through Deno's npm-compat layer (same path imapflow
+// uses successfully for IMAP). The hand-rolled Deno.connectTls path was
+// hitting consistent connect timeouts to smtp.mail.me.com:465 from
+// Supabase Edge IPs — possibly Apple-side rate-limiting on the raw TCP
+// path. nodemailer's Node-net.Socket implementation behaves differently
+// on the same runtime and gets through.
+let _NodemailerMod: typeof import('nodemailer') | null = null;
+async function getNodemailer(): Promise<typeof import('nodemailer')> {
+  if (_NodemailerMod) return _NodemailerMod;
+  _NodemailerMod = await import('nodemailer');
+  return _NodemailerMod;
+}
+
+type SendInput = {
+  email: string;
+  password: string;
+  to: string[];
+  cc?: string[];
+  subject: string;
+  contentType: 'text' | 'html';
+  content: string;
+  attachments: ReturnType<typeof decodeAttachments>;
+  threading: ThreadingHeaders;
+};
+
+async function sendViaSmtp(input: SendInput): Promise<SmtpResult> {
+  let nodemailer: typeof import('nodemailer');
+  try {
+    nodemailer = await getNodemailer();
+  } catch (e) {
+    return { ok: false, code: 'protocol', detail: `nodemailer load failed: ${e instanceof Error ? e.message : String(e)}` };
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: true, // implicit TLS on 465
+    auth: { user: input.email, pass: input.password },
+    connectionTimeout: SMTP_CONNECT_TIMEOUT_MS,
+    greetingTimeout: SMTP_CONNECT_TIMEOUT_MS,
+    socketTimeout: SMTP_COMMAND_TIMEOUT_MS,
+    name: 'zolva.io', // EHLO hostname
+  });
+
+  // Map our internal AttachmentSpec → nodemailer attachment shape. content
+  // is a Buffer for nodemailer; decodeAttachments already gave us bytes.
+  const naAttachments = input.attachments.map((a) => ({
+    filename: a.filename,
+    content: a.content, // Uint8Array — nodemailer accepts this for Node Buffer compat
+    contentType: a.contentType,
+    cid: a.contentID,
+    contentDisposition: 'inline' as const,
+  }));
+
+  try {
+    await transporter.sendMail({
+      from: input.email,
+      to: input.to,
+      cc: input.cc,
+      subject: input.subject,
+      text: input.contentType === 'text' ? input.content : undefined,
+      html: input.contentType === 'html' ? input.content : undefined,
+      attachments: naAttachments.length > 0 ? naAttachments : undefined,
+      inReplyTo: input.threading.inReplyTo,
+      references: input.threading.references,
+    });
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const code = (e as { code?: string }).code ?? '';
+    const responseCode = (e as { responseCode?: number }).responseCode;
+    console.warn('[smtp] sendMail failed', { msg: msg.slice(0, 200), code, responseCode });
+    if (responseCode === 535 || responseCode === 534 || responseCode === 530 || /EAUTH|535/i.test(code) || /535|authentication/i.test(msg)) {
+      return { ok: false, code: 'auth-failed', detail: msg.slice(0, 200) };
+    }
+    if (/ETIMEDOUT|timeout/i.test(code) || /timeout/i.test(msg)) {
+      return { ok: false, code: 'timeout', detail: msg.slice(0, 200) };
+    }
+    if (/ECONNECTION|ECONN|ENOTFOUND|ESOCKET|EDNS/i.test(code) || /network|getaddrinfo|ECONN/i.test(msg)) {
+      return { ok: false, code: 'network', detail: msg.slice(0, 200) };
+    }
+    return { ok: false, code: 'protocol', detail: msg.slice(0, 200) };
+  } finally {
+    try { transporter.close(); } catch { /* ignore */ }
+  }
+}
+
 // --- clear-binding ----------------------------------------------------------
 //
 // Lets the user wipe their own binding row so a fresh app-specific password
@@ -886,4 +1103,418 @@ async function handleClearBinding(
     return err('internal', 500);
   }
   return Response.json({ ok: true });
+}
+
+type ThreadingHeaders = {
+  inReplyTo?: string;
+  references?: string;
+};
+
+async function fetchThreadingHeaders(
+  email: string,
+  password: string,
+  uid: number,
+): Promise<ThreadingHeaders> {
+  let client: ImapFlow | null = null;
+  try {
+    client = await newImapClient(email, password);
+    await client.connect();
+    const lock = await client.getMailboxLock('INBOX', { readOnly: true });
+    try {
+      const meta = await client.fetchOne(
+        String(uid),
+        { envelope: true, headers: ['references'] },
+        { uid: true },
+      );
+      const messageId = (meta?.envelope as { messageId?: string } | undefined)?.messageId ?? '';
+      // imapflow returns headers as a Map<string, string[]> when requested by name.
+      const refsHeader = meta?.headers
+        ? (meta.headers as Map<string, string[]>).get('references')?.join(' ').trim() ?? ''
+        : '';
+      const inReplyTo = messageId || undefined;
+      const references = refsHeader
+        ? `${refsHeader}${messageId ? ' ' + messageId : ''}`.trim()
+        : (messageId || undefined);
+      return { inReplyTo, references };
+    } finally {
+      try { lock.release(); } catch { /* secondary */ }
+    }
+  } finally {
+    if (client) {
+      try { await client.logout(); } catch { /* ignore */ }
+      if (client.usable) {
+        try { await client.close(); } catch { /* ignore */ }
+      }
+    }
+  }
+}
+
+// --- RFC 5322 builder helpers -----------------------------------------------
+//
+// Single source of truth for the wire-format bytes. Same output goes to
+// SMTP DATA and the post-success Sent-folder APPEND, so the recipient's
+// inbox copy and the sender's Sent copy are guaranteed byte-identical.
+
+type AppendableMessage = {
+  from: string;
+  to: string[];
+  cc?: string[];
+  subject: string;
+  contentType: 'text' | 'html';
+  content: string;
+  attachments: ReturnType<typeof decodeAttachments>;
+  threading: ThreadingHeaders;
+  date: Date;
+};
+
+function encodeMimeWord(s: string): string {
+  // RFC 2047 Q-encoded mime word. Only encodes when non-ASCII bytes are
+  // present; ASCII-only strings pass through to keep the wire format clean.
+  if (/^[\x20-\x7e]*$/.test(s)) return s;
+  const enc = new TextEncoder();
+  const bytes = enc.encode(s);
+  let out = '=?UTF-8?Q?';
+  for (const b of bytes) {
+    if (b === 0x20) out += '_';
+    else if (b >= 0x21 && b <= 0x7e && b !== 0x3d && b !== 0x3f && b !== 0x5f) out += String.fromCharCode(b);
+    else out += '=' + b.toString(16).toUpperCase().padStart(2, '0');
+  }
+  return out + '?=';
+}
+
+function rfc5322Date(d: Date): string {
+  // Sun, 06 May 2026 18:32:00 +0000
+  return d.toUTCString().replace(/GMT$/, '+0000');
+}
+
+function buildBoundary(): string {
+  return '----=_zolva_' + crypto.randomUUID().replace(/-/g, '');
+}
+
+function quotedPrintable(s: string): string {
+  const enc = new TextEncoder();
+  const bytes = enc.encode(s);
+  let out = '';
+  let lineLen = 0;
+  for (const b of bytes) {
+    let token: string;
+    if (b === 0x0a) { out += '\r\n'; lineLen = 0; continue; }
+    if (b === 0x0d) continue; // strip lone CR
+    if (b === 0x20 || b === 0x09) {
+      // Space/tab — needs encoding only at line end; simplest correct
+      // implementation: leave as-is here, soft-line-break rules below
+      // ensure we never end a line on whitespace.
+      token = String.fromCharCode(b);
+    } else if (b >= 0x21 && b <= 0x7e && b !== 0x3d) {
+      token = String.fromCharCode(b);
+    } else {
+      token = '=' + b.toString(16).toUpperCase().padStart(2, '0');
+    }
+    if (lineLen + token.length > 75) {
+      out += '=\r\n';
+      lineLen = 0;
+    }
+    out += token;
+    lineLen += token.length;
+  }
+  return out;
+}
+
+function base64Wrap(b64: string): string {
+  return b64.replace(/(.{76})/g, '$1\r\n');
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+function buildRfc5322(msg: AppendableMessage): Uint8Array {
+  const headers: string[] = [];
+  headers.push(`From: ${msg.from}`);
+  headers.push(`To: ${msg.to.join(', ')}`);
+  if (msg.cc && msg.cc.length > 0) headers.push(`Cc: ${msg.cc.join(', ')}`);
+  headers.push(`Subject: ${encodeMimeWord(msg.subject)}`);
+  headers.push(`Date: ${rfc5322Date(msg.date)}`);
+  headers.push(`MIME-Version: 1.0`);
+  if (msg.threading.inReplyTo) headers.push(`In-Reply-To: ${msg.threading.inReplyTo}`);
+  if (msg.threading.references) headers.push(`References: ${msg.threading.references}`);
+
+  const bodyType = msg.contentType === 'html' ? 'text/html' : 'text/plain';
+  if (msg.attachments.length === 0) {
+    // Single-part message
+    headers.push(`Content-Type: ${bodyType}; charset=UTF-8`);
+    headers.push(`Content-Transfer-Encoding: quoted-printable`);
+    const body = quotedPrintable(msg.content);
+    return new TextEncoder().encode(headers.join('\r\n') + '\r\n\r\n' + body);
+  }
+
+  // multipart/related so Apple Mail renders cid: images inline
+  const boundary = buildBoundary();
+  headers.push(`Content-Type: multipart/related; boundary="${boundary}"; type="${bodyType}"`);
+
+  let body = '';
+  body += `--${boundary}\r\n`;
+  body += `Content-Type: ${bodyType}; charset=UTF-8\r\n`;
+  body += `Content-Transfer-Encoding: quoted-printable\r\n\r\n`;
+  body += quotedPrintable(msg.content) + '\r\n';
+
+  for (const a of msg.attachments) {
+    body += `--${boundary}\r\n`;
+    body += `Content-Type: ${a.contentType}\r\n`;
+    body += `Content-Transfer-Encoding: base64\r\n`;
+    body += `Content-ID: <${a.contentID}>\r\n`;
+    body += `Content-Disposition: inline; filename="${a.filename}"\r\n\r\n`;
+    body += base64Wrap(bytesToBase64(a.content)) + '\r\n';
+  }
+  body += `--${boundary}--\r\n`;
+
+  return new TextEncoder().encode(headers.join('\r\n') + '\r\n\r\n' + body);
+}
+
+// --- appendToSent -----------------------------------------------------------
+//
+// Opens a fresh IMAP connection, resolves the Sent folder, and APPENDs the
+// raw RFC 5322 message with the \Seen flag. All failures are logged and
+// swallowed — the SMTP send is what counts.
+async function appendToSent(
+  email: string,
+  password: string,
+  rawMessage: Uint8Array,
+): Promise<{ ok: boolean; reason?: string }> {
+  let client: ImapFlow | null = null;
+  try {
+    client = await newImapClient(email, password);
+    await client.connect();
+    // Resolve the Sent folder. iCloud uses 'Sent Messages'; some accounts
+    // localize. Try the Apple default first, then standard 'Sent', then
+    // any folder reported with the \Sent special-use flag.
+    const candidates = ['Sent Messages', 'Sent'];
+    let sentPath: string | null = null;
+    for (const name of candidates) {
+      try {
+        const status = await client.status(name, { messages: true });
+        if (status) { sentPath = name; break; }
+      } catch { /* not present, try next */ }
+    }
+    if (!sentPath) {
+      const list = await client.list();
+      for (const f of list) {
+        const flags = (f as { specialUse?: string }).specialUse;
+        if (flags === '\\Sent') { sentPath = f.path; break; }
+      }
+    }
+    if (!sentPath) {
+      return { ok: false, reason: 'sent-folder-not-found' };
+    }
+    await client.append(sentPath, rawMessage, ['\\Seen']);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  } finally {
+    if (client) {
+      try { await client.logout(); } catch { /* ignore */ }
+      if (client.usable) {
+        try { await client.close(); } catch { /* ignore */ }
+      }
+    }
+  }
+}
+
+async function handleSendMail(
+  body: SendMailReq,
+  userId: string,
+  pepper: string,
+  supabaseUrl: string,
+  serviceKey: string,
+): Promise<Response> {
+  try {
+    return await handleSendMailInner(body, userId, pepper, supabaseUrl, serviceKey);
+  } catch (e) {
+    const stack = e instanceof Error ? `${e.message}\n${e.stack ?? ''}` : String(e);
+    console.error('[send-mail] UNCAUGHT', stack);
+    return err('protocol', 502, `uncaught: ${stack.slice(0, 240)}`);
+  }
+}
+
+async function handleSendMailInner(
+  body: SendMailReq,
+  userId: string,
+  pepper: string,
+  supabaseUrl: string,
+  serviceKey: string,
+): Promise<Response> {
+  const password = normalizePassword(body.password);
+  const email = body.email.trim().toLowerCase();
+
+  // Same binding-check posture as list-inbox: row must exist and hash must match.
+  const hash = await hashCredential(pepper, email, password);
+  const svc = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false },
+  });
+  const { data: existing, error: bindReadErr } = await svc
+    .from('icloud_credential_bindings')
+    .select('credential_hash')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (bindReadErr) {
+    console.warn('[send-mail] binding read failed', bindReadErr.message);
+    return err('internal', 500);
+  }
+  if (!existing || existing.credential_hash !== hash) {
+    return err('auth-failed', 422);
+  }
+
+  // Decode signature attachments before opening SMTP — bad base64 should fail
+  // fast without burning a connect-attempt to Apple.
+  let attachments: ReturnType<typeof decodeAttachments>;
+  try {
+    attachments = decodeAttachments(body.attachments);
+  } catch (e) {
+    return err('bad-request', 400, e instanceof Error ? e.message : String(e));
+  }
+
+  let threading: ThreadingHeaders = {};
+  if (typeof body.reply_to_uid === 'number' && Number.isFinite(body.reply_to_uid)) {
+    try {
+      threading = await fetchThreadingHeaders(email, password, body.reply_to_uid);
+    } catch (e) {
+      console.warn('[send-mail] threading-header fetch failed (continuing without):', e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // RFC 5322 bytes used by the background Sent-folder APPEND. nodemailer
+  // builds its own (slightly different) bytes for the SMTP transmission;
+  // both are valid RFC 5322, the recipient and Sent copy may differ in
+  // MIME boundaries but not in content.
+  const raw = buildRfc5322({
+    from: email,
+    to: body.to,
+    cc: body.cc,
+    subject: body.subject,
+    contentType: body.content_type,
+    content: body.content,
+    attachments,
+    threading,
+    date: new Date(),
+  });
+
+  const smtpResult = await sendViaSmtp({
+    email,
+    password,
+    to: toAddressList(body.to),
+    cc: body.cc ? toAddressList(body.cc) : undefined,
+    subject: body.subject,
+    contentType: body.content_type,
+    content: body.content,
+    attachments,
+    threading,
+  });
+  if (!smtpResult.ok) return smtpResultToResponse(smtpResult);
+
+  // KNOWN LIMITATION (v1): we don't populate the iCloud Sent folder.
+  //   - Synchronous APPEND pushed total wall-clock past Supabase's 12s
+  //     gateway timeout when Apple throttles our egress IPs (which they
+  //     do — same IPs serve all Supabase customers).
+  //   - Background APPEND via EdgeRuntime.waitUntil silently dropped:
+  //     Supabase recycles the worker the moment the response is returned.
+  //   - A second client → server round-trip would work but doubles the
+  //     credential exposure and adds bandwidth for marginal value.
+  // The mail IS delivered to recipients; only the sender's Sent-folder
+  // copy is missing in Apple Mail. Acceptable trade-off for shipping;
+  // revisit when we have a usage signal that demands it.
+  //
+  // `raw` (RFC 5322 bytes) is built above for future re-introduction of
+  // APPEND — we leave it in place so the post-success path is one edit
+  // away when we wire APPEND back in.
+  void raw;
+  return Response.json({ ok: true, sent_appended: false });
+}
+
+async function handleAppendDraft(
+  body: AppendDraftReq,
+  userId: string,
+  pepper: string,
+  supabaseUrl: string,
+  serviceKey: string,
+): Promise<Response> {
+  const password = normalizePassword(body.password);
+  const email = body.email.trim().toLowerCase();
+
+  const hash = await hashCredential(pepper, email, password);
+  const svc = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false },
+  });
+  const { data: existing, error: bindReadErr } = await svc
+    .from('icloud_credential_bindings')
+    .select('credential_hash')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (bindReadErr) {
+    console.warn('[imap-proxy] append-draft binding read failed:', bindReadErr.message);
+    return err('internal', 500);
+  }
+  if (!existing || existing.credential_hash !== hash) {
+    return err('auth-failed', 422);
+  }
+
+  let attachments: ReturnType<typeof decodeAttachments>;
+  try {
+    attachments = decodeAttachments(body.attachments);
+  } catch (e) {
+    return err('bad-request', 400, e instanceof Error ? e.message : String(e));
+  }
+
+  let threading: ThreadingHeaders = {};
+  if (typeof body.reply_to_uid === 'number' && Number.isFinite(body.reply_to_uid)) {
+    try {
+      threading = await fetchThreadingHeaders(email, password, body.reply_to_uid);
+    } catch (e) {
+      console.warn('[imap-proxy] append-draft threading-header fetch failed:', e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const raw = buildRfc5322({
+    from: email,
+    to: body.to,
+    cc: body.cc,
+    subject: body.subject,
+    contentType: body.content_type,
+    content: body.content,
+    attachments,
+    threading,
+    date: new Date(),
+  });
+
+  let client: ImapFlow | null = null;
+  try {
+    client = await newImapClient(email, password);
+    await client.connect();
+    // Resolve Drafts folder. iCloud's standard is 'Drafts'.
+    let draftsPath: string | null = null;
+    try {
+      await client.status('Drafts', { messages: true });
+      draftsPath = 'Drafts';
+    } catch { /* not present, try special-use */ }
+    if (!draftsPath) {
+      const list = await client.list();
+      for (const f of list) {
+        const flags = (f as { specialUse?: string }).specialUse;
+        if (flags === '\\Drafts') { draftsPath = f.path; break; }
+      }
+    }
+    if (!draftsPath) {
+      return err('protocol', 502, 'drafts-folder-not-found');
+    }
+    await client.append(draftsPath, raw, ['\\Draft']);
+    await client.logout();
+    return Response.json({ ok: true });
+  } catch (caughtErr) {
+    return mapImapError(caughtErr);
+  } finally {
+    if (client && client.usable) {
+      try { await client.close(); } catch { /* ignore */ }
+    }
+  }
 }

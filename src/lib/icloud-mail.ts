@@ -28,6 +28,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { loadCredential, markInvalid } from './icloud-credentials';
 import { parseFromHeader } from './gmail';
+import { buildOutgoingBody } from './mail-signature';
+import type { InlineAttachmentSpec } from './mail-signature';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
 if (!SUPABASE_URL) {
@@ -38,6 +40,8 @@ const PROXY_URL = `${SUPABASE_URL}/functions/v1/imap-proxy`;
 const VALIDATE_TIMEOUT_MS = 30_000;
 const LIST_INBOX_TIMEOUT_MS = 25_000;
 const GET_BODY_TIMEOUT_MS = 25_000;
+const SEND_MAIL_TIMEOUT_MS = 35_000;     // SMTP connect+send + IMAP APPEND headroom
+const APPEND_DRAFT_TIMEOUT_MS = 25_000;
 
 // Codes the edge function may return on the wire. 'network', 'not-connected'
 // and 'credential-rejected' are client-synthesized and must not be accepted
@@ -421,6 +425,97 @@ export async function getMessageBody(
   };
 }
 
+export type IcloudComposeInput = {
+  to: string[];
+  cc?: string[];
+  subject: string;
+  body: string;          // raw user body — signature is applied below
+  replyToUid?: number;   // IMAP UID of original mail when replying
+};
+
+function attachmentsToWire(specs: InlineAttachmentSpec[]): Array<{
+  filename: string;
+  mime_type: string;
+  content_b64: string;
+  content_id: string;
+}> {
+  return specs.map((s) => ({
+    filename: s.filename,
+    mime_type: s.mimeType,
+    content_b64: s.contentBytes,
+    content_id: s.contentId,
+  }));
+}
+
+export async function icloudSendMail(
+  userId: string,
+  input: IcloudComposeInput,
+): Promise<IcloudResult<null>> {
+  const cred = await loadCredential(userId);
+  if (cred.kind === 'absent') return { ok: false, error: 'not-connected' };
+  if (cred.kind === 'invalid') return { ok: false, error: 'credential-rejected' };
+
+  const built = await buildOutgoingBody(input.body);
+  const reqBody: Record<string, unknown> = {
+    email: cred.credential.email,
+    password: cred.credential.password,
+    to: input.to,
+    cc: input.cc,
+    subject: input.subject,
+    content_type: built.contentType,
+    content: built.content,
+    attachments: built.attachments.length > 0 ? attachmentsToWire(built.attachments) : undefined,
+  };
+  if (typeof input.replyToUid === 'number' && Number.isFinite(input.replyToUid)) {
+    reqBody.reply_to_uid = input.replyToUid;
+  }
+
+  const res = await call<null>('send-mail', reqBody);
+  if (!res.ok && res.error === 'auth-failed') {
+    await markInvalid(userId, 'imap-rejected');
+  }
+  if (res.ok) {
+    // The sent message is now in Sent (best-effort) and may also have been
+    // delivered back to INBOX (when sending to self). Drop the cached inbox
+    // so the next listInbox call sees the fresh state. Failure to clear the
+    // cache is not actionable — log and continue.
+    try { await clearInboxCache(userId); } catch (e) {
+      if (__DEV__) console.warn('[icloud-mail] post-send cache clear failed:', e);
+    }
+  }
+  return res;
+}
+
+export async function icloudAppendDraft(
+  userId: string,
+  input: IcloudComposeInput,
+): Promise<IcloudResult<null>> {
+  const cred = await loadCredential(userId);
+  if (cred.kind === 'absent') return { ok: false, error: 'not-connected' };
+  if (cred.kind === 'invalid') return { ok: false, error: 'credential-rejected' };
+
+  const built = await buildOutgoingBody(input.body);
+  const reqBody: Record<string, unknown> = {
+    email: cred.credential.email,
+    password: cred.credential.password,
+    to: input.to,
+    cc: input.cc,
+    subject: input.subject,
+    content_type: built.contentType,
+    content: built.content,
+    attachments: built.attachments.length > 0 ? attachmentsToWire(built.attachments) : undefined,
+  };
+  if (typeof input.replyToUid === 'number' && Number.isFinite(input.replyToUid)) {
+    reqBody.reply_to_uid = input.replyToUid;
+  }
+
+  const res = await call<null>('append-draft', reqBody);
+  if (!res.ok && res.error === 'auth-failed') {
+    await markInvalid(userId, 'imap-rejected');
+  }
+  return res;
+}
+
 type RawMessage = {
   uid: number;
   from: string;
@@ -438,13 +533,15 @@ type RawMessage = {
 const GATEWAY_RETRY_BACKOFF_MS = [1_500, 4_000];
 
 async function call<T>(
-  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding',
+  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding' | 'send-mail' | 'append-draft',
   body: Record<string, unknown>,
 ): Promise<IcloudResult<T>> {
   // Retry on Supabase gateway 5xx — cold-start contention on the edge
   // runtime occasionally returns 502/503 with an HTML body before our
-  // function ever boots. All four ops are idempotent server-side, so the
-  // retry is safe.
+  // function ever boots. The retry is gated on `gatewayFlake` (HTML/empty
+  // body from Supabase), which means the function never executed — so
+  // even non-idempotent ops like send-mail can safely retry without
+  // risking a duplicate send.
   let last = await callOnce<T>(op, body);
   if (last.ok) return last;
   for (const delay of GATEWAY_RETRY_BACKOFF_MS) {
@@ -469,7 +566,7 @@ type CallOnceResult<T> =
   | { ok: false; error: IcloudErrorCode; gatewayFlake?: boolean };
 
 async function callOnce<T>(
-  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding',
+  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding' | 'send-mail' | 'append-draft',
   body: Record<string, unknown>,
 ): Promise<CallOnceResult<T>> {
   const session = await supabase.auth.getSession();
@@ -481,7 +578,9 @@ async function callOnce<T>(
     op === 'validate' ? VALIDATE_TIMEOUT_MS
     : op === 'list-inbox' ? LIST_INBOX_TIMEOUT_MS
     : op === 'get-body' ? GET_BODY_TIMEOUT_MS
-    : VALIDATE_TIMEOUT_MS; // clear-binding: same 30s ceiling as validate
+    : op === 'send-mail' ? SEND_MAIL_TIMEOUT_MS
+    : op === 'append-draft' ? APPEND_DRAFT_TIMEOUT_MS
+    : VALIDATE_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
@@ -508,8 +607,16 @@ async function callOnce<T>(
   }
   clearTimeout(timer);
   if (res.status === 200) {
-    // validate + clear-binding return only `{ok: true}` — no payload.
-    if (op === 'validate' || op === 'clear-binding') return { ok: true, data: null as T };
+    // validate + clear-binding + send-mail + append-draft return only `{ok: true, ...}`
+    // — caller doesn't consume any payload field.
+    if (
+      op === 'validate' ||
+      op === 'clear-binding' ||
+      op === 'send-mail' ||
+      op === 'append-draft'
+    ) {
+      return { ok: true, data: null as T };
+    }
     const j = (await res.json()) as Record<string, unknown>;
     // Strip the wire envelope's `ok` so it doesn't leak into IcloudResult.data.
     const { ok: _wire, ...payload } = j;
