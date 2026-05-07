@@ -144,6 +144,25 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
 
   const { data: slots, loading: scheduleLoading, error: scheduleError } = useDaySchedule(selectedDate);
   const hasEvents = slots.some((s) => s.event);
+  // All-day events render inline (pinned above grid); timed events render as
+  // absolute overlays on the hour grid so duration → height correctly.
+  const allDaySlots = useMemo(() => slots.filter((s) => s.hour === '—'), [slots]);
+  const hourSlots = useMemo(() => slots.filter((s) => s.hour !== '—'), [slots]);
+  // Hours touched by any timed event — used to suppress the "—" placeholder
+  // there so it doesn't overlap the (now behind-the-grid) chip.
+  const coveredHours = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of hourSlots) {
+      if (!s.event) continue;
+      const startH = parseInt(s.hour, 10);
+      const totalMin = s.event.startMinute + s.event.durationMinutes;
+      const spanHours = Math.ceil(totalMin / 60);
+      for (let h = 0; h < spanHours; h++) {
+        set.add(String((startH + h) % 24).padStart(2, '0'));
+      }
+    }
+    return set;
+  }, [hourSlots]);
   const hasProvider = useHasProvider();
   const { bottom: chromeBottom } = useChromeInsets();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -468,79 +487,170 @@ export function CalendarScreen({ onGoToSettings, onOpenNotifications }: Props) {
                 />
               )
             ) : (
-              <View style={{ position: 'relative' }}>
-                {slots.map((row, i) => (
+              <View>
+                {/* All-day events: pinned inline above the hour grid. */}
+                {allDaySlots.map((row, i) => (
                   <View
-                    key={i}
+                    key={`ad-${row.event?.id ?? i}`}
                     style={[
                       { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start', paddingVertical: spacing.md },
                       i > 0 && { borderTopWidth: 1, borderTopColor: t.line },
                     ]}
-                    onLayout={(e) =>
-                      onRowLayout(row.hour, e.nativeEvent.layout.y, e.nativeEvent.layout.height)
-                    }
                   >
-                    {/* Hour label */}
                     <Text style={{
                       width: 48,
                       fontFamily: fonts.mono,
                       fontSize: type.eyebrow.fontSize,
                       letterSpacing: type.eyebrow.letterSpacing,
-                      color: row.event ? t.ink3 : t.ink4,
+                      color: t.ink3,
                       lineHeight: 22,
                     }}>
                       {row.hour}
                     </Text>
-                    <View style={{ flex: 1 }}>
-                      {row.event ? (
-                        <View style={{
-                          borderRadius: radius.cardSm,
-                          paddingVertical: spacing.sm,
-                          paddingHorizontal: spacing.md,
-                          backgroundColor: toneColor(row.event.tone),
-                          ...shadows.softCard,
+                    {row.event && (
+                      <View style={{
+                        flex: 1,
+                        borderRadius: radius.cardSm,
+                        paddingVertical: spacing.sm,
+                        paddingHorizontal: spacing.md,
+                        backgroundColor: toneColor(row.event.tone),
+                        ...shadows.softCard,
+                      }}>
+                        <Text style={{ fontFamily: fonts.uiBold, fontSize: type.bodySm.fontSize, color: '#fff' }}>
+                          {row.event.title}
+                        </Text>
+                        <Text style={{
+                          fontFamily: fonts.mono,
+                          fontSize: type.eyebrow.fontSize,
+                          letterSpacing: type.eyebrow.letterSpacing,
+                          color: 'rgba(255,255,255,0.85)',
+                          marginTop: 1,
                         }}>
-                          {/* White on signal color — direction-agnostic chip text */}
-                          <Text style={{ fontFamily: fonts.uiBold, fontSize: type.bodySm.fontSize, color: '#fff' }}>
+                          {row.event.sub}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                ))}
+
+                {/* Hour grid: timed events render as absolute washes BEHIND
+                    the static rows so the hour labels and dividers stay
+                    legible on top. Source order = paint order in RN. */}
+                <View style={{ position: 'relative' }}>
+                  {/* Event chip washes — drawn first so the grid sits on top. */}
+                  {hourSlots.map((row, i) => {
+                    if (!row.event) return null;
+                    const layout = rowLayouts[row.hour];
+                    if (!layout) return null;
+                    const top = layout.y + (row.event.startMinute / 60) * layout.height;
+                    const height = Math.max(24, (row.event.durationMinutes / 60) * layout.height - 2);
+                    return (
+                      <View
+                        key={`ev-${row.event.id ?? i}`}
+                        pointerEvents="none"
+                        style={{
+                          position: 'absolute',
+                          left: 60,
+                          right: 0,
+                          top,
+                          height,
+                          borderRadius: radius.cardSm,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {/* Translucent fill — opacity stays here so the
+                            title/sub text below can render fully opaque. */}
+                        <View
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            backgroundColor: toneColor(row.event.tone),
+                            opacity: 0.55,
+                          }}
+                        />
+                        <View style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md }}>
+                          <Text
+                            numberOfLines={1}
+                            style={{ fontFamily: fonts.uiBold, fontSize: type.bodySm.fontSize, color: '#fff' }}
+                          >
                             {row.event.title}
                           </Text>
-                          <Text style={{
-                            fontFamily: fonts.mono,
-                            fontSize: type.eyebrow.fontSize,
-                            letterSpacing: type.eyebrow.letterSpacing,
-                            color: 'rgba(255,255,255,0.85)',
-                            marginTop: 1,
-                          }}>
+                          <Text
+                            numberOfLines={1}
+                            style={{
+                              fontFamily: fonts.mono,
+                              fontSize: type.eyebrow.fontSize,
+                              letterSpacing: type.eyebrow.letterSpacing,
+                              color: 'rgba(255,255,255,0.9)',
+                              marginTop: 1,
+                            }}
+                          >
                             {row.event.sub}
                           </Text>
                         </View>
-                      ) : (
-                        <Text style={{ fontFamily: fonts.ui, fontSize: type.bodySm.fontSize, color: t.ink4 }}>
+                      </View>
+                    );
+                  })}
+
+                  {/* Static hour rows — rendered after washes so labels and
+                      dividers draw on top of the chip backgrounds. */}
+                  {hourSlots.map((row, i) => (
+                    <View
+                      key={i}
+                      style={[
+                        {
+                          flexDirection: 'row',
+                          gap: spacing.md,
+                          alignItems: 'flex-start',
+                          paddingVertical: spacing.md,
+                          minHeight: 56,
+                        },
+                        i > 0 && { borderTopWidth: 1, borderTopColor: t.line },
+                      ]}
+                      onLayout={(e) =>
+                        onRowLayout(row.hour, e.nativeEvent.layout.y, e.nativeEvent.layout.height)
+                      }
+                    >
+                      <Text style={{
+                        width: 48,
+                        fontFamily: fonts.mono,
+                        fontSize: type.eyebrow.fontSize,
+                        letterSpacing: type.eyebrow.letterSpacing,
+                        color: coveredHours.has(row.hour) ? t.ink3 : t.ink4,
+                        lineHeight: 22,
+                      }}>
+                        {row.hour}
+                      </Text>
+                      {!coveredHours.has(row.hour) && (
+                        <Text style={{ fontFamily: fonts.ui, fontSize: type.bodySm.fontSize, color: t.ink4, lineHeight: 22 }}>
                           —
                         </Text>
                       )}
                     </View>
-                  </View>
-                ))}
+                  ))}
 
-                {/* Current-time indicator */}
-                {showNowLine && (
-                  <View
-                    style={{
-                      position: 'absolute',
-                      left: 0,
-                      right: 0,
-                      top: nowTop,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      zIndex: 10,
-                    }}
-                    pointerEvents="none"
-                  >
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: t.today }} />
-                    <View style={{ flex: 1, height: 1.5, backgroundColor: t.today }} />
-                  </View>
-                )}
+                  {/* Current-time indicator */}
+                  {showNowLine && (
+                    <View
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        right: 0,
+                        top: nowTop,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        zIndex: 10,
+                      }}
+                      pointerEvents="none"
+                    >
+                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: t.today }} />
+                      <View style={{ flex: 1, height: 1.5, backgroundColor: t.today }} />
+                    </View>
+                  )}
+                </View>
               </View>
             )}
             </GlassFrostedCard>

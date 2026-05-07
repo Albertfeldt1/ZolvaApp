@@ -276,7 +276,14 @@ export function demoDaySchedule(): CalendarSlot[] {
     if (idx < 0 || idx >= SLOT_COUNT) return;
     slots[idx] = {
       hour: slots[idx].hour,
-      event: { id: `d-sch-${e.id}`, title: e.title, sub: e.sub, tone: e.tone },
+      event: {
+        id: `d-sch-${e.id}`,
+        title: e.title,
+        sub: e.sub,
+        tone: e.tone,
+        startMinute: e.min,
+        durationMinutes: e.durationMin,
+      },
     };
   });
   return slots;
