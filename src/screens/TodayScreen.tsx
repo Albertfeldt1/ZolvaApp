@@ -11,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
@@ -543,33 +544,36 @@ export function TodayScreen({
             ) : (
               <View style={{ gap: spacing.md - 2 }}>
                 {upcoming.slice(0, 5).map((e, i) => (
-                  <Pressable
+                  <TouchableOpacity
                     key={e.id}
+                    activeOpacity={0.55}
                     onPress={() => {
                       Haptics.selectionAsync().catch(() => {});
                       onGoToCalendar();
                     }}
                     accessibilityRole="button"
                     accessibilityLabel={`${e.title}, ${e.time} — åbn kalender`}
-                    // hitSlop expands the active area so the row reads as
-                    // a real tappable surface across the full card width.
                     hitSlop={{ top: 4, bottom: 4, left: 8, right: 8 }}
-                    style={({ pressed }) => [
+                    style={[
                       { flexDirection: 'row', alignItems: 'center', gap: spacing.cardPad, paddingVertical: spacing.md },
                       i > 0 && { borderTopWidth: 1, borderTopColor: t.line },
-                      pressed && { opacity: 0.55, backgroundColor: surface.scrim },
                     ]}
                   >
-                    <View style={{ width: 6, alignSelf: 'stretch', borderRadius: radius.pill, backgroundColor: toneColor(e.tone) }} />
-                    <View style={{ flex: 1 }}>
+                    <View
+                      pointerEvents="none"
+                      style={{ width: 6, alignSelf: 'stretch', borderRadius: radius.pill, backgroundColor: toneColor(e.tone) }}
+                    />
+                    <View pointerEvents="none" style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
                         <Text style={{ fontFamily: fonts.display, fontSize: type.title.fontSize - 2, fontWeight: '600', letterSpacing: -0.3, color: t.ink }}>{e.time}</Text>
                         <Text style={{ fontFamily: fonts.uiBold, fontSize: type.bodySm.fontSize, color: t.ink, flexShrink: 1 }} numberOfLines={1}>{e.title}</Text>
                       </View>
                       <Text style={{ ...type.caption, color: t.ink3, marginTop: 1 }} numberOfLines={1}>{e.sub}</Text>
                     </View>
-                    <DesignIcon.chev size={SMALL_GLYPH} color={t.ink4} />
-                  </Pressable>
+                    <View pointerEvents="none">
+                      <DesignIcon.chev size={SMALL_GLYPH} color={t.ink4} />
+                    </View>
+                  </TouchableOpacity>
                 ))}
               </View>
             )}
