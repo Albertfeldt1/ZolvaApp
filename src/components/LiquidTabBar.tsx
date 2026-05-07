@@ -172,7 +172,6 @@ export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: P
             <GlassView
               glassEffectStyle="regular"
               isInteractive
-              tintColor="rgba(26,30,28,0.55)"
               colorScheme="auto"
               style={styles.fab}
             >
@@ -182,7 +181,13 @@ export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: P
                 accessibilityLabel="Spørg Zolva"
                 accessibilityRole="button"
               >
-                <Stone size={26} />
+                {/* Stone wraps itself in a Pressable to drive its hop
+                    animation. Disable hit-testing on the inner view so the
+                    outer Pressable receives the tap and onAskZolva fires
+                    instead of the Stone's hop swallowing it. */}
+                <View pointerEvents="none">
+                  <Stone size={26} />
+                </View>
               </Pressable>
             </GlassView>
           )}
