@@ -557,6 +557,7 @@ export default function App() {
               onOpenMail={openMailDetail}
               onGoToSettings={() => switchTab('settings')}
               onGoToMemory={() => switchTab('memory')}
+              onGoToCalendar={() => switchTab('calendar')}
               onOpenNotifications={openNotifications}
               onOverDarkChange={setChromeOverDark}
               briefOpenTrigger={briefOpenTrigger}

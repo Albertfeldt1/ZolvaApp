@@ -1,9 +1,7 @@
 import { Bookmark, Moon, Sun, Sunrise, X } from 'lucide-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Animated,
   AppState,
-  Easing,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -14,6 +12,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useAuth } from '../lib/auth';
 import { loadCredential } from '../lib/icloud-credentials';
 import { BriefBanner } from '../components/BriefBanner';
@@ -66,6 +65,7 @@ type Props = {
   onOpenMail: (mail: InboxMail, opts?: { autoDraft?: boolean }) => void;
   onGoToSettings: () => void;
   onGoToMemory: () => void;
+  onGoToCalendar: () => void;
   onOpenNotifications: () => void;
   onOverDarkChange?: (over: boolean) => void;
   // Incremented by App whenever a brief push is tapped — triggers the modal.
@@ -87,6 +87,7 @@ export function TodayScreen({
   onOpenMail,
   onGoToSettings,
   onGoToMemory,
+  onGoToCalendar,
   onOpenNotifications,
   onOverDarkChange,
   briefOpenTrigger,
@@ -541,11 +542,15 @@ export function TodayScreen({
             ) : (
               <View style={{ gap: spacing.md - 2 }}>
                 {upcoming.slice(0, 5).map((e, i) => (
-                  <View
+                  <Pressable
                     key={e.id}
-                    style={[
+                    onPress={onGoToCalendar}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${e.title}, ${e.time} — åbn kalender`}
+                    style={({ pressed }) => [
                       { flexDirection: 'row', alignItems: 'center', gap: spacing.cardPad, paddingVertical: spacing.md },
                       i > 0 && { borderTopWidth: 1, borderTopColor: t.line },
+                      pressed && { opacity: 0.7 },
                     ]}
                   >
                     <View style={{ width: 6, alignSelf: 'stretch', borderRadius: radius.pill, backgroundColor: toneColor(e.tone) }} />
@@ -557,7 +562,7 @@ export function TodayScreen({
                       <Text style={{ ...type.caption, color: t.ink3, marginTop: 1 }} numberOfLines={1}>{e.sub}</Text>
                     </View>
                     <DesignIcon.chev size={SMALL_GLYPH} color={t.ink4} />
-                  </View>
+                  </Pressable>
                 ))}
               </View>
             )}
@@ -814,24 +819,17 @@ function NoticedRow({
   // legacy dark styling used on the inline glass-dark card.
   light?: boolean;
 }) {
-  const fade = React.useRef(new Animated.Value(0)).current;
-  const slide = React.useRef(new Animated.Value(8)).current;
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fade, { toValue: 1, duration: 600, delay: index * 120, easing: Easing.bezier(0.22, 1, 0.36, 1), useNativeDriver: true }),
-      Animated.timing(slide, { toValue: 0, duration: 600, delay: index * 120, easing: Easing.bezier(0.22, 1, 0.36, 1), useNativeDriver: true }),
-    ]).start();
-  }, [fade, slide, index]);
-
-  const animateOut = (after: () => void) => {
-    Animated.parallel([
-      Animated.timing(fade, { toValue: 0, duration: 220, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      Animated.timing(slide, { toValue: -8, duration: 220, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-    ]).start(after);
-  };
-
+  // Reanimated handles entrance, exit, and neighbor reflow for free.
+  // When the parent removes this row from its data array, exiting={FadeOut}
+  // animates this view out while layout={LinearTransition} slides the
+  // remaining rows up smoothly into the freed space — no manual animateOut.
   return (
-    <Animated.View style={[styles.noticedRow, { opacity: fade, transform: [{ translateY: slide }] }]}>
+    <Animated.View
+      entering={FadeIn.duration(420).delay(index * 100)}
+      exiting={FadeOut.duration(220)}
+      layout={LinearTransition.duration(260)}
+      style={styles.noticedRow}
+    >
       <Stone mood={item.mood} size={36} />
       <View style={{ flex: 1 }}>
         <Text style={[styles.noticedText, light && styles.noticedTextLight]}>{item.text}</Text>
@@ -844,7 +842,7 @@ function NoticedRow({
             <Text style={[styles.noticedCta, light && styles.noticedCtaLight]}>{item.cta} →</Text>
           </Pressable>
           <Pressable
-            onPress={() => animateOut(onDismiss)}
+            onPress={onDismiss}
             hitSlop={{ top: 10, bottom: 10, left: 0, right: 0 }}
             style={({ pressed }) => [styles.noticedActionHit, pressed && styles.noticedActionPressed]}
           >
@@ -868,7 +866,12 @@ function PendingFactRow({
   light?: boolean;
 }) {
   return (
-    <View style={styles.noticedRow}>
+    <Animated.View
+      entering={FadeIn.duration(420)}
+      exiting={FadeOut.duration(220)}
+      layout={LinearTransition.duration(260)}
+      style={styles.noticedRow}
+    >
       <Stone mood="thinking" size={36} />
       <View style={{ flex: 1 }}>
         <Text style={[styles.noticedText, light && styles.noticedTextLight]}>Skal jeg huske at {fact.text}?</Text>
@@ -889,7 +892,7 @@ function PendingFactRow({
           </Pressable>
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
