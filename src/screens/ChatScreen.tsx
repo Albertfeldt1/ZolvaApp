@@ -14,9 +14,11 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { GlassView } from 'expo-glass-effect';
 import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { Icon as DesignIcon } from '../design/primitives/Icon';
+import { liquidGlassReady } from '../lib/liquid-glass';
 import { Stone } from '../design/primitives/Stone';
 import { useTheme } from '../design/useTheme';
 import { formatClock, formatToday } from '../lib/date';
@@ -221,62 +223,53 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
             </View>
           )}
 
-          {/* Input dock - pill-shaped transparent composer. Just a plus glyph
-              on the left and the text field. Submission happens via the
-              keyboard return key (returnKeyType="send"); no inline button. */}
+          {/* Input dock - pill-shaped composer. iOS 26+ rides UIKit's
+              Liquid Glass material via GlassView so the dock picks up
+              and blurs whatever chat content scrolls behind it; older
+              iOS / Android fall through to a transparent View with no
+              backdrop. Submission via keyboard return (returnKeyType
+              "send") - no inline send button. */}
           <View style={{ padding: spacing.md, paddingBottom: spacing.xl }}>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: spacing.sm,
-              paddingVertical: spacing.sm + 2,
-              paddingHorizontal: spacing.md,
-            }}
-          >
-            {/* Plus is its own touch target — without the Pressable
-                wrapper, taps on the icon fall through to the surrounding
-                pill and focus the TextInput instead of doing the plus's
-                own action (future attachments menu). */}
-            <Pressable
-              hitSlop={8}
-              onPress={() => {
-                /* TODO: wire to attachments menu */
-              }}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.5 : 1,
-              })}
-              accessibilityRole="button"
-              accessibilityLabel="Tilføj"
-            >
-              <DesignIcon.plus size={20} color={t.ink3} />
-            </Pressable>
-            <TextInput
-              value={input}
-              onChangeText={setInput}
-              placeholder="Spørg Zolva"
-              placeholderTextColor={t.ink4}
-              autoFocus
-              multiline
-              scrollEnabled
-              blurOnSubmit
-              style={{
-                flex: 1,
-                fontFamily: fonts.ui,
-                fontSize: type.body.fontSize,
-                color: t.ink,
-                // Strip iOS multiline's implicit padding so the empty
-                // composer hugs a single-line height; cap growth at ~5
-                // lines and scroll internally beyond.
-                paddingTop: 0,
-                paddingBottom: 0,
-                maxHeight: 120,
-              }}
-              onSubmitEditing={() => !typing && input.trim() && submit(input.trim())}
-              returnKeyType="send"
-              editable={true}
-            />
-          </View>
+            {liquidGlassReady ? (
+              <GlassView
+                glassEffectStyle="regular"
+                isInteractive
+                colorScheme="auto"
+                style={{ borderRadius: radius.pill, overflow: 'hidden' }}
+              >
+                <DockRow
+                  fonts={fonts}
+                  type={type}
+                  t={t}
+                  spacing={spacing}
+                  input={input}
+                  setInput={setInput}
+                  typing={typing}
+                  submit={submit}
+                />
+              </GlassView>
+            ) : (
+              <View
+                style={{
+                  borderRadius: radius.pill,
+                  backgroundColor: surface.glass,
+                  borderWidth: 1,
+                  borderColor: surface.glassRim,
+                  overflow: 'hidden',
+                }}
+              >
+                <DockRow
+                  fonts={fonts}
+                  type={type}
+                  t={t}
+                  spacing={spacing}
+                  input={input}
+                  setInput={setInput}
+                  typing={typing}
+                  submit={submit}
+                />
+              </View>
+            )}
           </View>
         </View>
       </View>
@@ -285,6 +278,68 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
 }
 
 // ─── Inline markdown - bold segments ───────────────────────────────────────
+
+// The composer's plus icon + multiline TextInput row. Pulled out so the
+// dock can swap its outer container between an iOS Liquid Glass surface
+// (GlassView) and a plain hairline-bordered View on older OSes without
+// duplicating the row content.
+function DockRow(props: {
+  fonts: ThemeSlice['fonts'];
+  type: ThemeSlice['type'];
+  t: ThemeSlice['t'];
+  spacing: ThemeSlice['spacing'];
+  input: string;
+  setInput: (v: string) => void;
+  typing: boolean;
+  submit: (text: string) => void;
+}) {
+  const { fonts, type, t, spacing, input, setInput, typing, submit } = props;
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        paddingVertical: spacing.sm + 2,
+        paddingHorizontal: spacing.md,
+      }}
+    >
+      <Pressable
+        hitSlop={8}
+        onPress={() => {
+          /* TODO: wire to attachments menu */
+        }}
+        style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
+        accessibilityRole="button"
+        accessibilityLabel="Tilføj"
+      >
+        <DesignIcon.plus size={20} color={t.ink3} />
+      </Pressable>
+      <TextInput
+        value={input}
+        onChangeText={setInput}
+        placeholder="Spørg Zolva"
+        placeholderTextColor={t.ink4}
+        autoFocus
+        multiline
+        scrollEnabled
+        blurOnSubmit
+        style={{
+          flex: 1,
+          fontFamily: fonts.ui,
+          fontSize: type.body.fontSize,
+          color: t.ink,
+          paddingTop: 0,
+          paddingBottom: 0,
+          maxHeight: 120,
+        }}
+        onSubmitEditing={() => !typing && input.trim() && submit(input.trim())}
+        returnKeyType="send"
+        editable={true}
+      />
+    </View>
+  );
+}
 
 function renderInlineMd(text: string, boldFamily: string): React.ReactNode[] {
   const parts = text.split(/\*\*([\s\S]+?)\*\*/g);
@@ -478,9 +533,22 @@ function SuggestionsCarousel({
           disabled={disabled}
           style={({ pressed }) => [pressed && !disabled && { opacity: 0.6 }]}
         >
-          <View style={[{ flexDirection: 'row' }, chipStyle]}>
-            <Text style={textStyle}>{item}</Text>
-          </View>
+          {liquidGlassReady ? (
+            <GlassView
+              glassEffectStyle="regular"
+              isInteractive
+              colorScheme="auto"
+              style={{ borderRadius: 9999, overflow: 'hidden' }}
+            >
+              <View style={[{ flexDirection: 'row' }, chipStyle]}>
+                <Text style={textStyle}>{item}</Text>
+              </View>
+            </GlassView>
+          ) : (
+            <View style={[{ flexDirection: 'row' }, chipStyle]}>
+              <Text style={textStyle}>{item}</Text>
+            </View>
+          )}
         </Pressable>
       )}
       ItemSeparatorComponent={() => <View style={{ width: gap }} />}
