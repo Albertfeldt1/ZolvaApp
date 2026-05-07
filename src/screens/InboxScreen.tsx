@@ -37,26 +37,6 @@ const PROVIDER_LOGOS: Record<MailProvider, ReturnType<typeof require>> = {
   icloud: require('../../assets/logos/apple.png'),
 };
 
-// Per-provider breakdown so the "X mails i alt" hero line matches what
-// the user can see in each provider's own app — a single aggregate number
-// hid where the count came from (Gmail's INBOX label includes Promotions
-// / Social / Updates which most users don't think of as their inbox), so
-// 4013 felt like a fabricated total. Showing each provider explicitly
-// lets the user verify against Gmail / Outlook / iCloud Mail directly.
-function formatInboxBreakdown(p: {
-  google: { total: number; unread: number } | null;
-  microsoft: { total: number; unread: number } | null;
-  icloud: { total: number; unread: number } | null;
-}): string {
-  const parts: string[] = [];
-  if (p.google && p.google.total > 0) parts.push(`Gmail ${p.google.total.toLocaleString('da-DK')}`);
-  if (p.microsoft && p.microsoft.total > 0) parts.push(`Outlook ${p.microsoft.total.toLocaleString('da-DK')}`);
-  if (p.icloud && p.icloud.total > 0) parts.push(`iCloud ${p.icloud.total.toLocaleString('da-DK')}`);
-  if (parts.length === 0) return '';
-  if (parts.length === 1) return `${parts[0]} mails i alt.`;
-  return `${parts.join(' · ')}.`;
-}
-
 function providerFailureCopy(e: MailProviderError): string {
   if (e.provider === 'icloud') {
     if (e.code === 'network' || e.code === 'timeout' || e.code === 'gateway-unavailable') {
@@ -222,9 +202,9 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
             <Text style={{ ...type.displayXL, color: t.ink }}>
               <CountUp to={inboxCounts.unread} style={{ ...type.displayXL, color: t.ink }} /> venter{'\n'}på dig.
             </Text>
-            {inboxCounts.total > 0 && (
+            {inboxCounts.unread > 0 && (
               <Text style={{ ...type.body, color: t.ink2, marginTop: spacing.md - 2 }}>
-                {formatInboxBreakdown(inboxCounts.perProvider)} Sorteret efter hvor det haster.
+                Sorteret efter hvor det haster.
               </Text>
             )}
           </GlassFrostedCard>
