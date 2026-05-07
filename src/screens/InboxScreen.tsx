@@ -18,9 +18,10 @@ import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { SkeletonRow } from '../components/Skeleton';
 import { formatClock, formatToday } from '../lib/date';
-import { refreshMailNow, useHasProvider, useInboxCounts, useInboxWaiting } from '../lib/hooks';
+import { archiveMailInline, deleteMailInline, refreshMailNow, useHasProvider, useInboxCounts, useInboxWaiting } from '../lib/hooks';
 import type { MailProviderError } from '../lib/hooks';
 import type { InboxMail, MailProvider } from '../lib/types';
+import { SwipeableMailRow } from '../components/SwipeableMailRow';
 import { translateProviderError } from '../utils/danish';
 import { useTheme } from '../design/useTheme';
 import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
@@ -261,8 +262,12 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
             opacity) so the eye glides over them. */}
         {(() => {
           const renderRow = (m: InboxMail, muted: boolean) => (
-            <GlassFrostedCard
+            <SwipeableMailRow
               key={m.id}
+              onArchive={() => { void archiveMailInline(m.id, m.provider); }}
+              onDelete={() => { void deleteMailInline(m.id, m.provider); }}
+            >
+            <GlassFrostedCard
               style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad, opacity: muted ? 0.75 : 1 }}
             >
               <Pressable
@@ -308,6 +313,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
                 <DesignIcon.chev size={14} color={t.ink4} />
               </Pressable>
             </GlassFrostedCard>
+            </SwipeableMailRow>
           );
 
           // Collapsible section header. Tap toggles open/closed; chev

@@ -1,5 +1,5 @@
 import { completeJson } from './claude';
-import { findDuplicateFact, insertPendingFact, normalizeFactText } from './profile-store';
+import { findDuplicateFact, insertPendingFact, listFacts, normalizeFactText } from './profile-store';
 import type { FactCategory } from './types';
 import { getPrivacyFlag } from './hooks';
 import { PROFILE_MEMORY_ENABLED, invalidatePreamble } from './profile';
@@ -27,10 +27,21 @@ type Candidate = {
 const EXTRACTOR_SYSTEM =
   'Du læser et kort uddrag af samtale eller mailbeslutning og vurderer om der er én ny ' +
   'oplysning om dig værd at huske (relation, rolle, præference, igangværende projekt, eller løfte/aftale). ' +
-  'Svar altid på dansk. Ignorér helt flygtige ting (humør, frokost). ' +
-  'Hvis fakta refererer til en konkret dato eller dag (fx "fredag", "i morgen", "27. april"), ' +
-  'så udfyld referentDate som en ISO-dato (YYYY-MM-DD). Ellers lad det være null. ' +
-  'Returnér højst ét kandidat-faktum.\n\n' +
+  'Svar altid på dansk. Returnér højst ét kandidat-faktum.\n\n' +
+  'HVAD DU IKKE SKAL EKSTRAHERE (returnér candidate: null):\n' +
+  '- Engangshandlinger: "du vil sende X til Y", "du klikkede på en mail", "du har lige sendt en mail" — ' +
+  'det er forbigående, ikke et fakta om dig.\n' +
+  '- Fortidshandlinger uden fremadrettet betydning: "du har ignoreret en mail", "du har læst X", ' +
+  '"du har afvist Y". Ignorér også "har set", "har klikket", "har scrollet".\n' +
+  '- Flygtige følelser/tilstande: humør, sult, frokost, vejret.\n' +
+  '- Information der allerede står i den medfølgende liste af eksisterende fakta — også hvis den er ' +
+  'omformuleret med andre ord. Eksempel: hvis "du foretrækker at sende via iCloud" allerede findes, ' +
+  'så ekstrahér IKKE "du sender helst via iCloud" eller "du vil bruge iCloud til at sende mail" — ' +
+  'returnér candidate: null. Hvis det nye er DET MODSATTE af et eksisterende fakta, returnér også null ' +
+  '(brugeren skal selv håndtere det modstridende).\n' +
+  '- Gentagelser af samme intention med andre ord. Hellere returnere null end at lave en næsten-dublet.\n\n' +
+  'HVIS det nye fakta refererer til en konkret dato eller dag (fx "fredag", "i morgen", "27. april"), ' +
+  'så udfyld referentDate som en ISO-dato (YYYY-MM-DD). Ellers lad det være null.\n\n' +
   'ADRESSERINGSKRAV (gælder text-feltet):\n' +
   '- Skriv ALTID direkte til personen med "du"/"dig"/"din"/"dit"/"dine".\n' +
   '- Brug ALDRIG ordene "bruger", "brugeren", "brugerens", "brugere".\n' +
@@ -90,10 +101,27 @@ export function runExtractor(payload: ExtractionPayload): void {
 
 async function runNow(payload: ExtractionPayload): Promise<void> {
   try {
+    // Fetch the user's existing pending+confirmed facts so the extractor
+    // can detect paraphrase duplicates ("du foretrækker iCloud" vs "du
+    // sender helst via iCloud") and contradictions. Capped to keep token
+    // costs predictable; most-recent-first under listFacts's order.
+    const [pending, confirmed] = await Promise.all([
+      listFacts(payload.userId, 'pending').catch(() => []),
+      listFacts(payload.userId, 'confirmed').catch(() => []),
+    ]);
+    const existingTexts = [...pending, ...confirmed]
+      .map((f) => f.text.trim())
+      .filter(Boolean)
+      .slice(0, 30);
+    const existingBlock = existingTexts.length > 0
+      ? `Eksisterende fakta om brugeren (returnér candidate: null hvis det nye uddrag er en omformulering af noget herfra):\n${existingTexts.map((t) => `- ${t}`).join('\n')}\n\n`
+      : '';
+    const userMessage = `${existingBlock}Nyt uddrag:\n${payload.text}`;
+
     const result = await completeJson<{ candidate: Candidate | null }>({
       system: EXTRACTOR_SYSTEM,
       schemaHint: EXTRACTOR_SCHEMA,
-      messages: [{ role: 'user', content: payload.text }],
+      messages: [{ role: 'user', content: userMessage }],
       maxTokens: 200,
       temperature: 0.2,
       attachProfile: false,

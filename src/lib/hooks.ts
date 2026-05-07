@@ -629,6 +629,32 @@ function markMailReplied(id: string): void {
   void persistReplied();
 }
 
+// Public archive helper — used by the inbox-row swipe gesture. Microsoft
+// is the only provider where we can archive server-side (graph-modify is
+// part of the scope set we already request). Gmail and iCloud are local-
+// only because we don't request gmail.modify and our IMAP proxy has no
+// archive op. Failures are best-effort; the local dismissal still runs.
+export async function archiveMailInline(id: string, provider: MailProvider): Promise<void> {
+  try {
+    if (provider === 'microsoft') await graphArchiveMessage(id);
+  } catch (err) {
+    if (__DEV__) console.warn('[hooks] archiveMailInline graph error:', err);
+  }
+  markMailDismissed(id);
+}
+
+// Public delete helper. For v1, this routes to the same local-dismiss
+// path as archive — real server-side delete (graph DELETE for Outlook,
+// IMAP STORE \Deleted + EXPUNGE for iCloud, gmail.modify for Gmail) is
+// follow-up work. The visual differentiation (red "Slet" vs neutral
+// "Arkivér") signals intent today; the backend action is the same.
+export async function deleteMailInline(id: string, provider: MailProvider): Promise<void> {
+  // Currently identical to archive. Kept as a separate export so the
+  // call site stays semantically correct; when we wire real server-side
+  // delete, only this body changes.
+  await archiveMailInline(id, provider);
+}
+
 function useDismissedMailIds(): Set<string> {
   const [, setVersion] = useState(0);
   useEffect(() => {
