@@ -261,21 +261,26 @@ export function TodayScreen({
     const endOfDay = new Date(today);
     endOfDay.setHours(23, 59, 59, 999);
     const toHour = (d: Date) => d.getHours() + d.getMinutes() / 60;
+    // Cycle through the active direction's accent palette instead of the
+    // event's native calendar color — Google Blueberry blue / Sage green
+    // clash with the warm-orange Glass & Air look. Same palette the
+    // previous inline ribbon used.
+    const palette = [t.cal, t.today, t.mem, t.inbox];
     return todayEvents
       .filter((e) => !e.allDay && e.start < endOfDay && e.end > startOfDay)
-      .map((e) => ({
+      .map((e, i) => ({
         id: e.id,
         startHour: toHour(e.start),
         endHour: toHour(e.end),
         title: e.title,
         start: e.start,
         end: e.end,
-        color: e.color,
+        color: palette[i % palette.length],
         location: e.location,
         description: e.description,
         attendees: e.attendees,
       }));
-  }, [todayEvents, today]);
+  }, [todayEvents, today, t.cal, t.today, t.mem, t.inbox]);
 
   const scrollYRef = useRef(0);
   const viewportHRef = useRef(0);
