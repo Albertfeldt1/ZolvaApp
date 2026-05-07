@@ -217,12 +217,19 @@ const OBSERVATION_SCHEMA =
   '- cta: kort handlingsforslag på dansk (maks 4 ord), fx "Åbn mail", "Bloker tid" eller "Accepter".\n' +
   '- mood: "thinking" for noget der kræver beslutning, "calm" for rolig observation, "happy" for positivt.\n' +
   '- action: KRÆVET — hvad der skal ske når brugeren trykker på CTA\'en. Præcis to typer er tilladt:\n' +
-  '  • {"kind":"openMail","mailId": string} — KUN når CTA\'en bare er at læse/se mailen ("Åbn mail", "Læs den", "Tjek den"). Brug mail-id\'et vist i [id:…] i mail-listen.\n' +
-  '  • {"kind":"prompt","prompt": string} — når CTA\'en er en HANDLING der skal udføres ("Accepter invitation", "Svar Lars", "Bloker tid", "Gennemgå sikkerhed", "Ring tilbage", "Bekræft møde"). "prompt" skal være en færdig 1. person-besked til Zolva på dansk der instruerer hvad der skal ske. Eksempler: "Accepter mødet med Mette på torsdag." / "Svar Lars at jeg deltager." / "Bloker en time i kalenderen til Q3-budget i morgen." / "Gennemgå sikkerhedsadvarslen fra Google." Når brugeren trykker, sendes beskeden automatisk til chatten og Zolva udfører handlingen via sine værktøjer.\n' +
+  '  • {"kind":"openMail","mailId": string} — KUN når CTA\'en bare er at læse/se mailen passivt ("Læs mailen", "Se den"). Brug mail-id\'et vist i [id:…] i mail-listen.\n' +
+  '  • {"kind":"prompt","prompt": string} — når CTA\'en er en HANDLING. "prompt" skal være en færdig 1. person-besked til Zolva på dansk der instruerer hvad der skal ske. Når brugeren trykker, sendes beskeden automatisk til chatten og Zolva udfører handlingen via sine værktøjer (læs mail, lav udkast, opret event, osv.).\n' +
   'REGLER FOR ACTION:\n' +
-  '1. ACTION ER OBLIGATORISK. Hvis du ikke kan finde et openMail eller prompt der giver mening, så lad være med at returnere observationen overhovedet. Generisk "åbn chat" findes IKKE som handling.\n' +
-  '2. STÆRK PRÆFERENCE FOR PROMPT: Hvis CTA\'en er et handlingsverbum ("Accepter", "Svar", "Bloker", "Gennemgå", "Ring", "Send", "Bekræft", "Slet", "Marker", "Arkiver", "Følg op", "Tilmeld") — SKAL action være {"kind":"prompt","prompt":...}. Skriv prompten som en konkret instruks Zolva kan udføre med sine kalender-/mail-værktøjer. Brug AFGØRENDE INFO (mailens emne, afsenderens navn, kalenderens titel, dato) i prompten så Zolva ved hvad den skal handle på.\n' +
-  '3. ÅBN-MAIL er KUN til ren læsning: "Åbn mail", "Læs", "Se mailen", "Tjek den". Hvis CTA\'en er læs-passiv, brug {"kind":"openMail","mailId":...} med det rigtige [id:…].';
+  '1. ACTION ER OBLIGATORISK. Hvis du ikke kan finde et openMail eller prompt der giver mening, så lad være med at returnere observationen overhovedet. Generisk "åbn chat uden grund" findes IKKE som handling.\n' +
+  '2. EN PROMPT SKAL ALTID FORTÆLLE ZOLVA HVAD DER SKAL SKE. Aldrig en prompt som "Vis mig dagen" eller "Hjælp mig" — den skal være en specifik instruks med konkret kontekst (navn, emne, dato). Hvis brugeren ender i chatten skal de vide hvorfor.\n' +
+  '3. MAIL → DRAFT som default: Hvis observationen handler om en mail der inviterer/spørger/kræver svar (en personlig henvendelse, en invitation, et spørgsmål, en deadline) — SKAL action være {"kind":"prompt","prompt":"Læs mailen [id:…] fra <afsender> om <emne> og lav et udkast til svar."}. CTA\'en bliver så fx "Svar med udkast" eller "Lav udkast". Når Zolva åbner skal udkastet være færdigt og klar til afsendelse.\n' +
+  '4. MAIL → openMail KUN for passiv-læs: receipts, kvitteringer, sikkerhedsadvarsler, nyhedsbreve, automatiserede notifikationer hvor svar ikke giver mening. CTA "Læs den" / "Se mailen".\n' +
+  '5. HANDLINGSVERBER kræver prompt: "Accepter", "Svar", "Bloker", "Gennemgå", "Ring", "Send", "Bekræft", "Slet", "Marker", "Arkiver", "Følg op", "Tilmeld" — alle disse SKAL være {"kind":"prompt",…} med en præcis instruks. Inkludér AFGØRENDE INFO (mailens emne, afsenderens navn, kalenderens titel, dato).\n' +
+  '6. EKSEMPLER:\n' +
+  '   - "Lars venter svar på frokost-invitation" → CTA "Lav udkast", prompt: "Læs mailen [id:abc] fra Lars om frokost og lav et udkast hvor jeg takker ja og foreslår torsdag kl. 12."\n' +
+  '   - "Mødeindkaldelse fra Mette på torsdag" → CTA "Accepter", prompt: "Accepter mødeindkaldelsen fra Mette på torsdag kl. 14."\n' +
+  '   - "Sikkerhedsadvarsel fra Google" → CTA "Læs den", action: {"kind":"openMail","mailId":"..."} (passiv læs).\n' +
+  '   - "Tre møder uden agenda i morgen" → CTA "Bed om agendaer", prompt: "Send en kort mail til arrangørerne af de tre møder i morgen og bed om en agenda til hver."';
 
 function summarizeDay(events: NormalizedEvent[], mails: NormalizedMail[]): string {
   const calendar = events.length
