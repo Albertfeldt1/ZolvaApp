@@ -119,6 +119,7 @@ import type {
   DoneMail,
   EventAttendee,
   Fact,
+  FactCategory,
   FeedEntry,
   InboxMail,
   MailDetail,
@@ -135,7 +136,14 @@ import type {
   WorkPreference,
   WorkPreferenceId,
 } from './types';
-import { confirmFact, listFacts, rejectFact } from './profile-store';
+import {
+  confirmFact,
+  findDuplicateFact,
+  insertPendingFact,
+  listFacts,
+  normalizeFactText,
+  rejectFact,
+} from './profile-store';
 import { invalidatePreamble } from './profile';
 import {
   listFeedEntries,
@@ -3294,6 +3302,14 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       'kald add_reminder uden due_at, og fortæl brugeren at du minder dem løbende indtil de markerer den som klaret.',
     'Brug ALDRIG nuværende lokaltid eller "om lidt" som standard-tidspunkt — det skal komme fra brugeren.',
     'Når brugeren beder dig notere en idé, en tanke eller noget uden tid, brug add_note.',
+    'Når brugeren beder dig huske noget OM SIG SELV (en relation, rolle, præference, ' +
+      'projekt eller forpligtelse — fx "husk at Maria er min leder", "jeg er designer", ' +
+      '"jeg foretrækker korte svar"), brug add_fact MED den rigtige kategori. Det er ' +
+      'IKKE en note — noter er for opgaver og idéer; fakta er for personlig kontekst om ' +
+      'brugeren der skal hjælpe dig huske dem på tværs af samtaler. Spørg ALDRIG brugeren ' +
+      'om kategorien — vælg den selv ud fra indholdet. Efter add_fact lykkedes, sig kort ' +
+      'til brugeren hvad du gemte (fx "Gjort — Maria er nu noteret som din leder.") så de ' +
+      'ved at det landede. Påstå aldrig at du har gemt et faktum uden at kalde add_fact.',
     'Brug list_reminders og list_notes hvis brugeren spørger hvad du har gemt.',
     'Kald værktøjer FØR du bekræfter — bekræft først når værktøjet faktisk er kørt.',
     'Når brugeren spørger om sin kalender, sit overblik for dagen/ugen, fri tid, ' +
@@ -3526,6 +3542,47 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
         text: { type: 'string', description: 'Notens indhold, på dansk.' },
       },
       required: ['text'],
+    },
+  },
+  {
+    name: 'add_fact',
+    description:
+      'Gem et personligt faktum om brugeren under Husk-fanens "Fakta" — fx en relation ' +
+      '("Maria er min leder"), rolle ("jeg er designer hos Zolva"), præference ("jeg ' +
+      'foretrækker korte svar"), projekt ("Cherry-redesignet kører til Q3"), eller en ' +
+      'forpligtelse ("Oscar skal til dyrlæge fredag"). Brug KUN når brugeren udtrykkeligt ' +
+      'vil have noget husket OM SIG SELV (ikke en opgave eller idé — det er add_note). ' +
+      'Faktum gemmes som bekræftet, så det dukker direkte op i Fakta-fanen. ' +
+      'Kræver at brugeren har slået hukommelse til; ellers fejler værktøjet.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        text: {
+          type: 'string',
+          description:
+            'Faktumets tekst, kort og konkret, formuleret om brugeren (fx "jeg er designer", ' +
+            '"Maria er min leder"). På dansk. Maks ~120 tegn.',
+        },
+        category: {
+          type: 'string',
+          enum: ['relationship', 'role', 'preference', 'project', 'commitment', 'other'],
+          description:
+            'relationship = en person og relationen (fx "Maria er min leder"). ' +
+            'role = brugerens egen rolle/titel. ' +
+            'preference = vaner, smag, arbejdsstil. ' +
+            'project = igangværende initiativer. ' +
+            'commitment = en konkret forpligtelse bundet til en dato (sæt expires_at). ' +
+            'other = alt andet personligt.',
+        },
+        expires_at: {
+          type: 'string',
+          description:
+            'ISO 8601 dato/tid med tidszone-offset hvor faktumet skal udløbe — kun for ' +
+            'commitment (og enkelte other) der er bundet til en bestemt dato. Udelad ' +
+            'for varige fakta som rolle, relation og præference.',
+        },
+      },
+      required: ['text', 'category'],
     },
   },
   {
@@ -4163,6 +4220,60 @@ async function runChatTool(
       const n = await storeAddNote(text);
       return { content: `Oprettet note ${n.id}: "${n.text}".`, isError: false };
     }
+    if (name === 'add_fact') {
+      const userId = ctx.userId;
+      if (!userId) return { content: 'Ikke logget ind.', isError: true };
+      // Memory off → facts have nowhere to live (Fakta tab is empty when
+      // memory is disabled). Surface this clearly so the model can tell
+      // the user to flip the toggle instead of silently dropping the fact.
+      if (!getPrivacyFlag('memory-enabled')) {
+        return {
+          content:
+            'Hukommelse er slået fra — fakta kan ikke gemmes. Bed brugeren om at slå ' +
+            'hukommelse til under Husk-fanen før du prøver igen.',
+          isError: true,
+        };
+      }
+      const text = typeof input.text === 'string' ? input.text.trim() : '';
+      if (!text) return { content: 'Manglede tekst.', isError: true };
+      const validCats: FactCategory[] = [
+        'relationship', 'role', 'preference', 'project', 'commitment', 'other',
+      ];
+      const category = typeof input.category === 'string' ? input.category : '';
+      if (!validCats.includes(category as FactCategory)) {
+        return {
+          content: `Ugyldig kategori "${category}". Brug en af: ${validCats.join(', ')}.`,
+          isError: true,
+        };
+      }
+      const expiresRaw = typeof input.expires_at === 'string' ? input.expires_at : undefined;
+      const parsedExpires = expiresRaw ? new Date(expiresRaw) : null;
+      const expiresAt = parsedExpires && !Number.isNaN(parsedExpires.getTime()) ? parsedExpires : null;
+      // Skip if the user already has this exact fact (case/whitespace
+      // normalized) in any active state — avoids duplicates when the model
+      // re-asserts the same fact across conversations.
+      const dup = await findDuplicateFact(userId, normalizeFactText(text));
+      if (dup) {
+        return {
+          content: `Faktum findes allerede (${dup.id}, status: ${dup.status}): "${dup.text}".`,
+          isError: false,
+        };
+      }
+      const fact = await insertPendingFact(userId, {
+        text,
+        category: category as FactCategory,
+        source: 'chat',
+        expiresAt,
+      });
+      // User explicitly told Zolva → auto-confirm so it appears under Fakta
+      // immediately. Backfill-extracted facts go through pending review;
+      // user-asserted facts skip that step because consent is implicit.
+      await confirmFact(fact.id);
+      return {
+        content: `Gemt faktum ${fact.id}: "${fact.text}" (${category}).`,
+        isError: false,
+      };
+    }
     if (name === 'list_reminders') {
       const userId = ctx.userId;
       if (!userId) return { content: 'Ikke logget ind.', isError: true };
@@ -4458,7 +4569,13 @@ export function useChat() {
 
           if (toolUsedThisTurn) {
             // Final summary after a real tool call — grounded by tool_result.
-            return text;
+            // The model occasionally returns an empty text response when it
+            // considers the action self-evident (especially for one-shot
+            // tools like add_fact / add_note). Empty propagates to the
+            // outer wrapper and trips CHAT_ERROR_TEXT, which makes a
+            // successful save look like a failure. Fall back to a brief
+            // acknowledgement so the user sees confirmation either way.
+            return text.length > 0 ? text : 'Klaret.';
           }
 
           const claim = await classifyClaim(text);
