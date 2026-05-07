@@ -25,7 +25,6 @@ import {
   View,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
-import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
@@ -428,11 +427,12 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
         ))}
       </ScrollView>
 
-      {/* Floating button with a soft blur halo. The BlurView is a
-          pill that extends ~HALO_PAD beyond the button, and a radial
-          gradient overlay fades the blur from opaque (button area) to
-          fully transparent paper at the edges. Result: the blur has
-          no visible boundary — it dissolves into the background. */}
+      {/* Floating button with a soft blur halo. The BlurView is
+          pill-shaped and only barely larger than the button. We use
+          the iOS "systemUltraThinMaterial" tint so the blur adds
+          almost no luminance shift — the surrounding pixels read as
+          "still the same color, just blurred," which is what removes
+          the visible boundary between blurred and unblurred. */}
       <View
         pointerEvents="box-none"
         style={{
@@ -440,50 +440,27 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
           left: 0,
           right: 0,
           bottom: 0,
-          paddingTop: HALO_PAD_Y,
-          paddingBottom: spacing.lg + 18 - HALO_PAD_Y,
-          paddingHorizontal: Math.max(0, spacing.screenPad - HALO_PAD_X),
+          paddingBottom: spacing.lg + 18,
+          paddingHorizontal: spacing.screenPad,
         }}
       >
         <View style={{ position: 'relative' }}>
-          {/* Halo: pill BlurView extended past the button, faded at edges */}
           <View
             pointerEvents="none"
             style={{
               position: 'absolute',
-              top: -HALO_PAD_Y,
-              bottom: -HALO_PAD_Y,
-              left: 0,
-              right: 0,
+              top: -HALO_PAD,
+              bottom: -HALO_PAD,
+              left: -HALO_PAD,
+              right: -HALO_PAD,
             }}
           >
             <BlurView
-              intensity={36}
-              tint={t.mode === 'dark' ? 'dark' : 'light'}
+              intensity={70}
+              tint={t.mode === 'dark' ? 'systemUltraThinMaterialDark' : 'systemUltraThinMaterialLight'}
+              experimentalBlurMethod="dimezisBlurView"
               style={{ flex: 1, borderRadius: 9999, overflow: 'hidden' }}
-            >
-              <Svg
-                width="100%"
-                height="100%"
-                style={StyleSheet.absoluteFill}
-                pointerEvents="none"
-              >
-                <Defs>
-                  <RadialGradient
-                    id="haloFade"
-                    cx="50%"
-                    cy="50%"
-                    rx="55%"
-                    ry="55%"
-                  >
-                    <Stop offset="0%" stopColor={t.paper} stopOpacity={0} />
-                    <Stop offset="45%" stopColor={t.paper} stopOpacity={0} />
-                    <Stop offset="100%" stopColor={t.paper} stopOpacity={1} />
-                  </RadialGradient>
-                </Defs>
-                <Rect x={0} y={0} width="100%" height="100%" fill="url(#haloFade)" />
-              </Svg>
-            </BlurView>
+            />
           </View>
 
           {/* Button */}
@@ -494,7 +471,6 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
             style={({ pressed }) => ({
               backgroundColor: t.ink,
               paddingVertical: 14,
-              marginHorizontal: HALO_PAD_X,
               borderRadius: radius.pill,
               alignItems: 'center',
               opacity: saving ? 0.4 : pressed ? 0.8 : 1,
@@ -510,8 +486,4 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
   );
 }
 
-// How far the blur halo extends past the button on each axis. Larger
-// values give the halo more room to fade out; the radial gradient
-// inside is what removes the hard edge.
-const HALO_PAD_X = 26;
-const HALO_PAD_Y = 22;
+const HALO_PAD = 14;
