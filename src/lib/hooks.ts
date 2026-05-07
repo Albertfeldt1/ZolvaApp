@@ -4296,6 +4296,17 @@ export function useChat() {
   const name = profile?.name ?? '';
   const userId = user?.id;
   const icloudConnected = useIcloudConnected(userId ?? '');
+  // Mirror icloudConnected into a ref so `send` always reads the freshest
+  // value. Without this, `send` is a useCallback that closes over the
+  // initial-render value of icloudConnected (false), and even after the
+  // credential async-loads and flips it to true, the captured closure
+  // never sees it — every chat message in that session would build a
+  // toolCtx with icloud:false and the model would tell the user iCloud
+  // is off when it clearly isn't.
+  const icloudConnectedRef = useRef(icloudConnected);
+  useEffect(() => {
+    icloudConnectedRef.current = icloudConnected;
+  }, [icloudConnected]);
   // Don't capture isEnabled from the hook — that snapshot is closed into
   // `send` and goes stale if the user toggles after the callback was built.
   // We read the live module cache via isIntegrationEffectivelyEnabled below.
@@ -4398,7 +4409,7 @@ export function useChat() {
           outlookMail: isIntegrationEffectivelyEnabled('outlook-mail', hasMicrosoft),
           outlookCalendar: isIntegrationEffectivelyEnabled('outlook-calendar', hasMicrosoft),
           onedrive: isIntegrationEffectivelyEnabled('onedrive', hasMicrosoft),
-          icloud: isIntegrationEffectivelyEnabled('icloud', icloudConnected),
+          icloud: isIntegrationEffectivelyEnabled('icloud', icloudConnectedRef.current),
         };
         const working: ClaudeMessage[] = toClaudeMessages(nextHistory, toolCtx);
         let correctionAttempted = false;
