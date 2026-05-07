@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Modal,
   Pressable,
@@ -20,20 +20,29 @@ type Props = {
 export function BriefModal({ brief, visible, onClose }: Props) {
   const { t, type, fonts, radius, spacing, surface } = useTheme();
 
-  const weatherLine = brief?.weather
-    ? `${brief.weather.tempC.toFixed(0)}°C · ${brief.weather.conditionLabel}`
+  // Hold onto the last non-null brief so the slide-down close animation
+  // still has content to render. Without this, the parent nulls `brief`
+  // synchronously when closing, the inner View renders empty, and the
+  // iOS pageSheet visibly flashes white during the ~250 ms slide-out.
+  const [shownBrief, setShownBrief] = useState<Brief | null>(brief);
+  useEffect(() => {
+    if (brief) setShownBrief(brief);
+  }, [brief]);
+
+  const weatherLine = shownBrief?.weather
+    ? `${shownBrief.weather.tempC.toFixed(0)}°C · ${shownBrief.weather.conditionLabel}`
     : null;
 
   const kindLabel =
-    brief?.kind === 'morning'
+    shownBrief?.kind === 'morning'
       ? 'Morgenbrief'
-      : brief?.kind === 'midday'
+      : shownBrief?.kind === 'midday'
       ? 'Middagsbrief'
       : 'Aftenbrief';
 
   return (
     <Modal
-      visible={visible && !!brief}
+      visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={onClose}
@@ -101,7 +110,7 @@ export function BriefModal({ brief, visible, onClose }: Props) {
           }}
           showsVerticalScrollIndicator={false}
         >
-          {brief && (
+          {shownBrief && (
             <GlassFrostedCard
               overlay={surface.bone}
               style={{ padding: spacing.lg }}
@@ -115,7 +124,7 @@ export function BriefModal({ brief, visible, onClose }: Props) {
                   color: t.ink,
                 }}
               >
-                {brief.headline}
+                {shownBrief.headline}
               </Text>
               <View
                 style={{
@@ -125,7 +134,7 @@ export function BriefModal({ brief, visible, onClose }: Props) {
                   backgroundColor: t.line,
                 }}
               />
-              {brief.body.map((line, i) => (
+              {shownBrief.body.map((line, i) => (
                 <Text
                   key={i}
                   style={{
