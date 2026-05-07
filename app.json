@@ -9,7 +9,9 @@
     "newArchEnabled": true,
     "scheme": "zolva",
     "splash": {
-      "backgroundColor": "#EBE3D7"
+      "image": "./assets/splash.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#FF8868"
     },
     "ios": {
       "supportsTablet": true,
@@ -29,7 +31,7 @@
           "$(AppIdentifierPrefix)io.zolva.shared"
         ]
       },
-      "buildNumber": "23"
+      "buildNumber": "25"
     },
     "android": {
       "package": "com.zolva.app",

@@ -38,15 +38,6 @@ export const colors = {
   paperOn20: 'rgba(246,241,232,0.20)',
   paperOn95: 'rgba(246,241,232,0.95)',
   sageDim: '#C3D4B8',
-
-  // Launch-transition color. Must match app.json splash.backgroundColor
-  // and IntroVideo root so the native splash → intro handoff has no
-  // visible border around the video. Nudged 1 point darker than the
-  // video's dominant interior pixels (#ECE4D8) because iOS native
-  // splash and AVFoundation video rendering land 1-2 points apart in
-  // practice — this biases the splash darker so the letterbox seam
-  // visually closes.
-  intro: '#EBE3D7',
 };
 
 // One font family everywhere — SpaceGrotesk. Aliases preserved so legacy
