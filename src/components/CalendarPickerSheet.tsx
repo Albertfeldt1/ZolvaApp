@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import Animated, { SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { useAuth } from '../lib/auth';
+import { colors } from '../theme';
 import { useCalendarVisibility } from '../lib/calendar-visibility';
 import {
   listGoogleCalendars,
@@ -376,7 +377,7 @@ function ProviderSection({
                 <Switch
                   value={!hidden}
                   onValueChange={(next) => { void onToggle(c.id, !next); }}
-                  trackColor={{ false: t.line, true: surface.successTint }}
+                  trackColor={{ false: t.line, true: colors.success }}
                   thumbColor={surface.glassRim}
                 />
               </View>
