@@ -1,4 +1,5 @@
 import { Bookmark, Moon, Sun, Sunrise, X } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AppState,
@@ -544,13 +545,19 @@ export function TodayScreen({
                 {upcoming.slice(0, 5).map((e, i) => (
                   <Pressable
                     key={e.id}
-                    onPress={onGoToCalendar}
+                    onPress={() => {
+                      Haptics.selectionAsync().catch(() => {});
+                      onGoToCalendar();
+                    }}
                     accessibilityRole="button"
                     accessibilityLabel={`${e.title}, ${e.time} — åbn kalender`}
+                    // hitSlop expands the active area so the row reads as
+                    // a real tappable surface across the full card width.
+                    hitSlop={{ top: 4, bottom: 4, left: 8, right: 8 }}
                     style={({ pressed }) => [
                       { flexDirection: 'row', alignItems: 'center', gap: spacing.cardPad, paddingVertical: spacing.md },
                       i > 0 && { borderTopWidth: 1, borderTopColor: t.line },
-                      pressed && { opacity: 0.7 },
+                      pressed && { opacity: 0.55, backgroundColor: surface.scrim },
                     ]}
                   >
                     <View style={{ width: 6, alignSelf: 'stretch', borderRadius: radius.pill, backgroundColor: toneColor(e.tone) }} />
