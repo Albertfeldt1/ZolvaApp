@@ -32,6 +32,11 @@ import type { ChatMessage } from '../lib/types';
 // it. Chips ~44pt + dock padding 12 + dock row ~36 + bottom safe-area
 // reserve 24 ≈ 116pt; bumped to 130 for breathing room.
 const BOTTOM_DOCK_RESERVE = 130;
+// Same idea at the top - header floats absolutely so messages scroll
+// underneath it; this padding pushes the first message clear of the
+// header's bottom edge at rest. statusBarFallback (56) + header card
+// (~52) + bottom padding (14) ≈ 122; padded to 140 for breathing room.
+const TOP_HEADER_RESERVE = 140;
 
 type Props = { onBack: () => void; initialDraft?: string; initialDraftAutoSend?: boolean };
 
@@ -90,16 +95,38 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
         <GlassHaloLayer />
 
         {/* Header - wrapped in a glass card so the back button + Stone +
-            title sit on a backdrop instead of floating on the halo paper. */}
+            title sit on a backdrop instead of floating on the halo paper.
+            Absolute-positioned at the top so messages scroll UNDER it
+            (mirroring the dock pattern at the bottom); a vertical scrim
+            sits behind it, darken-at-top, transparent-at-bottom, so the
+            transition between header and chat is a soft gradient instead
+            of a hard edge. pointerEvents box-none lets scroll gestures
+            in the empty regions still reach the ScrollView. */}
         <View
+          pointerEvents="box-none"
           style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
             paddingTop: spacing.statusBarFallback,
             paddingHorizontal: spacing.screenPad,
             paddingBottom: spacing.cardPad,
-            position: 'relative',
             zIndex: 1,
           }}
         >
+          <LinearGradient
+            pointerEvents="none"
+            colors={['rgba(15,16,20,0.22)', 'rgba(15,16,20,0)']}
+            locations={[0, 1]}
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: 0,
+              bottom: -80,
+            }}
+          />
           <GlassFrostedCard
             radius={radius.card}
             style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}
@@ -146,7 +173,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
           style={{ flex: 1 }}
           contentContainerStyle={{
             padding: spacing.screenPad,
-            paddingTop: spacing.md,
+            paddingTop: TOP_HEADER_RESERVE,
             paddingBottom: BOTTOM_DOCK_RESERVE,
             gap: spacing.md - 2,
           }}
