@@ -263,9 +263,10 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
     <View style={{ flex: 1, backgroundColor: t.paper }}>
       <GlassHaloLayer />
       <ScrollView
+        style={{ flex: 1 }}
         contentContainerStyle={{
           flexGrow: 1,
-          paddingBottom: chromeBottom + 100,
+          paddingBottom: spacing.md,
           paddingHorizontal: spacing.screenPad,
           paddingTop: spacing.statusBarFallback,
           gap: spacing.heroPad,
@@ -420,13 +421,11 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
         ))}
       </ScrollView>
 
-      {/* Sticky footer with save button */}
+      {/* Sticky footer with save button — flex layout (sibling of the
+          ScrollView) so it always anchors to the parent's bottom even
+          if absolute positioning gets disturbed by an ancestor. */}
       <View
         style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: 0,
           paddingHorizontal: spacing.screenPad,
           paddingTop: spacing.md,
           paddingBottom: chromeBottom + spacing.md,
