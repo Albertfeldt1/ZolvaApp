@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import { GlassView } from 'expo-glass-effect';
+import { LinearGradient } from 'expo-linear-gradient';
 import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { Icon as DesignIcon } from '../design/primitives/Icon';
@@ -191,10 +192,12 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
 
         {/* Floating chips + dock. Absolute-positioned at the bottom so
             chat content scrolls UNDER them - matches iMessage where the
-            composer floats over the message stream. The wrapping View
-            is transparent; only the dock's pill (added below) carries
-            any fill, and that's a hairline frosted card so messages
-            remain perceptible behind it. */}
+            composer floats over the message stream. A vertical scrim
+            sits behind everything in this stack: same color family as
+            the underlying halo (transparent at the top, darken-toward-
+            black at the bottom) so messages fade smoothly out of view
+            instead of abruptly meeting the dock - mirrors ChatGPT's
+            chat surface treatment. */}
         <View
           pointerEvents="box-none"
           style={{
@@ -204,6 +207,18 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
             bottom: 0,
           }}
         >
+          <LinearGradient
+            pointerEvents="none"
+            colors={['rgba(15,16,20,0)', 'rgba(15,16,20,0.22)']}
+            locations={[0, 1]}
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: -80,
+              bottom: 0,
+            }}
+          />
           {suggestions.length > 0 && (
             <View style={{ paddingBottom: spacing.xs, opacity: typing ? 0.4 : 1 }}>
               <SuggestionsCarousel
