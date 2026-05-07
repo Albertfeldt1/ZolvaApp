@@ -525,29 +525,48 @@ type RawMessage = {
   preview: string;
 };
 
-// Backoff schedule (ms) for gateway 5xx retries. The edge runtime can take
+// Backoff schedule (ms) for transient retries. The edge runtime can take
 // up to ~12s to cold-start a fresh imap-proxy worker after a deploy or idle
 // period; one retry at 800ms wasn't enough to outlast that. The first retry
 // at 1.5s catches normal blips, the second at 4s catches deploy-fresh cold
 // starts. Total worst-case added latency: ~5.5s + two extra round-trips.
 const GATEWAY_RETRY_BACKOFF_MS = [1_500, 4_000];
 
+// Read-only ops that can safely retry on `timeout` and `network` errors —
+// re-running them is harmless even if the prior attempt actually reached
+// the function. Write ops (send-mail, append-draft) stay restricted to
+// gateway-flake retries: a `timeout` may mean the request DID land and is
+// still processing, and re-sending would risk a duplicate.
+const IDEMPOTENT_OPS = new Set<string>([
+  'validate',
+  'list-inbox',
+  'get-body',
+  'count',
+  'clear-binding',
+]);
+
 async function call<T>(
   op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding' | 'send-mail' | 'append-draft',
   body: Record<string, unknown>,
 ): Promise<IcloudResult<T>> {
-  // Retry on Supabase gateway 5xx - cold-start contention on the edge
-  // runtime occasionally returns 502/503 with an HTML body before our
-  // function ever boots. The retry is gated on `gatewayFlake` (HTML/empty
-  // body from Supabase), which means the function never executed - so
-  // even non-idempotent ops like send-mail can safely retry without
-  // risking a duplicate send.
+  // Retry policy:
+  //   - Gateway flake (502/503 with HTML/empty body) — function never
+  //     executed, safe to retry for any op including send-mail.
+  //   - Timeout / network errors on idempotent ops — likely transient
+  //     phone-network jitter (cellular handoff, brief TLS drop). Sim
+  //     never sees these; phone hits them sporadically.
   let last = await callOnce<T>(op, body);
   if (last.ok) return last;
   for (const delay of GATEWAY_RETRY_BACKOFF_MS) {
-    if (last.ok || last.error !== 'protocol' || !last.gatewayFlake) break;
+    if (last.ok) break;
+    const isGatewayFlake = last.error === 'protocol' && last.gatewayFlake === true;
+    const isTransientForIdempotent =
+      IDEMPOTENT_OPS.has(op) && (last.error === 'timeout' || last.error === 'network');
+    if (!isGatewayFlake && !isTransientForIdempotent) break;
     await new Promise((r) => setTimeout(r, delay));
-    if (__DEV__) console.warn(`[icloud-mail] ${op} retrying after gateway flake (waited ${delay}ms)`);
+    if (__DEV__) {
+      console.warn(`[icloud-mail] ${op} retrying after ${last.error} (waited ${delay}ms)`);
+    }
     last = await callOnce<T>(op, body);
   }
   // Retries exhausted on a gateway flake - promote to a distinct code so the
