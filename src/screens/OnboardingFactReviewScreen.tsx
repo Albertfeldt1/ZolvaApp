@@ -24,7 +24,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
@@ -427,11 +426,7 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
         ))}
       </ScrollView>
 
-      {/* Floating button with a soft drop-shadow halo + a tight,
-          very low-intensity BlurView pill. The blur is small and
-          weak, and its rounded edge sits inside the shadow's
-          feathered glow, so the pill boundary is buried in the
-          fade — no visible hard edge. */}
+      {/* Floating button with a soft drop-shadow halo. */}
       <View
         pointerEvents="box-none"
         style={{
@@ -443,51 +438,28 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
           paddingHorizontal: spacing.screenPad,
         }}
       >
-        <View style={{ position: 'relative' }}>
-          <View
-            pointerEvents="none"
-            style={{
-              position: 'absolute',
-              top: -HALO_PAD,
-              bottom: -HALO_PAD,
-              left: -HALO_PAD,
-              right: -HALO_PAD,
-            }}
-          >
-            <BlurView
-              intensity={18}
-              tint={t.mode === 'dark' ? 'systemUltraThinMaterialDark' : 'systemUltraThinMaterialLight'}
-              style={{ flex: 1, borderRadius: 9999, overflow: 'hidden' }}
-            />
-          </View>
-
-          <Pressable
-            onPress={save}
-            disabled={saving}
-            accessibilityRole="button"
-            style={({ pressed }) => ({
-              backgroundColor: t.ink,
-              paddingVertical: 14,
-              borderRadius: radius.pill,
-              alignItems: 'center',
-              opacity: saving ? 0.4 : pressed ? 0.8 : 1,
-              shadowColor: t.ink,
-              shadowOpacity: t.mode === 'dark' ? 0.55 : 0.32,
-              shadowOffset: { width: 0, height: 0 },
-              shadowRadius: 28,
-              elevation: 12,
-            })}
-          >
-            <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#FFFFFF' }}>
-              {saving ? 'Gemmer…' : `Gem ${checkedCount} fakta`}
-            </Text>
-          </Pressable>
-        </View>
+        <Pressable
+          onPress={save}
+          disabled={saving}
+          accessibilityRole="button"
+          style={({ pressed }) => ({
+            backgroundColor: t.ink,
+            paddingVertical: 14,
+            borderRadius: radius.pill,
+            alignItems: 'center',
+            opacity: saving ? 0.4 : pressed ? 0.8 : 1,
+            shadowColor: t.ink,
+            shadowOpacity: t.mode === 'dark' ? 0.55 : 0.32,
+            shadowOffset: { width: 0, height: 0 },
+            shadowRadius: 28,
+            elevation: 12,
+          })}
+        >
+          <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#FFFFFF' }}>
+            {saving ? 'Gemmer…' : `Gem ${checkedCount} fakta`}
+          </Text>
+        </Pressable>
       </View>
     </View>
   );
 }
-
-// How far the blur pill extends past the button on each side. Small
-// on purpose — keeps the blur edge inside the shadow's feathered fade.
-const HALO_PAD = 8;
