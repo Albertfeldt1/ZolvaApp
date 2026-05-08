@@ -238,44 +238,54 @@ serve(async (req) => {
     }
   }
 
-  // --- Rate limit ---
-  const rateOk = await checkRateLimit(serviceKey, supabaseUrl, userId, body.op);
-  if (!rateOk) return err('rate-limited', 429);
+  // --- Rate limit + audit row ---
+  const rate = await checkRateLimit(serviceKey, supabaseUrl, userId, body.op);
+  if (!rate.allowed) return err('rate-limited', 429);
 
+  let response: Response;
   if (body.op === 'validate') {
-    return await handleValidate(body, userId, pepper, supabaseUrl, serviceKey);
+    response = await handleValidate(body, userId, pepper, supabaseUrl, serviceKey);
+  } else if (body.op === 'list-inbox') {
+    response = await handleListInbox(body, userId, pepper, supabaseUrl, serviceKey);
+  } else if (body.op === 'get-body') {
+    response = await handleGetBody(body, userId, pepper, supabaseUrl, serviceKey);
+  } else if (body.op === 'count') {
+    response = await handleCount(body, userId, pepper, supabaseUrl, serviceKey);
+  } else if (body.op === 'clear-binding') {
+    response = await handleClearBinding(userId, supabaseUrl, serviceKey);
+  } else if (body.op === 'send-mail') {
+    response = await handleSendMail(body, userId, pepper, supabaseUrl, serviceKey);
+  } else if (body.op === 'append-draft') {
+    response = await handleAppendDraft(body, userId, pepper, supabaseUrl, serviceKey);
+  } else {
+    response = err('bad-request', 400);
   }
-  if (body.op === 'list-inbox') {
-    return await handleListInbox(body, userId, pepper, supabaseUrl, serviceKey);
+
+  // Stamp the audit row with the outcome. Awaited because the edge runtime
+  // can kill fire-and-forget promises mid-flight, and a missed update would
+  // leave the row stuck at success=NULL forever.
+  if (rate.callId !== null) {
+    await recordCallOutcome(serviceKey, supabaseUrl, rate.callId, response);
   }
-  if (body.op === 'get-body') {
-    return await handleGetBody(body, userId, pepper, supabaseUrl, serviceKey);
-  }
-  if (body.op === 'count') {
-    return await handleCount(body, userId, pepper, supabaseUrl, serviceKey);
-  }
-  if (body.op === 'clear-binding') {
-    return await handleClearBinding(userId, supabaseUrl, serviceKey);
-  }
-  if (body.op === 'send-mail') {
-    return await handleSendMail(body, userId, pepper, supabaseUrl, serviceKey);
-  }
-  if (body.op === 'append-draft') {
-    return await handleAppendDraft(body, userId, pepper, supabaseUrl, serviceKey);
-  }
-  return err('bad-request', 400);
+  return response;
 });
+
+type RateLimitResult =
+  | { allowed: false }
+  | { allowed: true; callId: number | null };
 
 async function checkRateLimit(
   serviceKey: string,
   supabaseUrl: string,
   userId: string,
   op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding' | 'send-mail' | 'append-draft',
-): Promise<boolean> {
+): Promise<RateLimitResult> {
   // clear-binding doesn't need rate limiting - the JWT already authorizes,
   // and a malicious user can only delete their OWN row. Skipping the check
   // also means disconnect-then-reconnect doesn't false-trigger the limit.
-  if (op === 'clear-binding') return true;
+  // No audit row either - it's a JWT-only DB delete, not an Apple-touching
+  // op, so it doesn't belong in the success-rate metric.
+  if (op === 'clear-binding') return { allowed: true, callId: null };
   // count piggy-backs on the list-inbox bucket - both are read-only INBOX
   // taps, and the count call is meaningfully cheaper (STATUS vs FETCH), so
   // sharing the limit prevents a polling client from exhausting either.
@@ -301,20 +311,64 @@ async function checkRateLimit(
     .gte('called_at', since);
   if (error) {
     console.warn('[imap-proxy] rate-limit check failed:', error.message);
-    return true; // fail open on infrastructure errors; don't block legit users
+    return { allowed: true, callId: null }; // fail open on infrastructure errors
   }
-  if ((count ?? 0) >= limit) return false;
+  if ((count ?? 0) >= limit) return { allowed: false };
   // Await the insert - Supabase edge runtime can terminate the request
   // context before fire-and-forget promises complete, which silently breaks
   // rate-limit accounting (every call sees count=0 because no inserts ever
-  // land). Adds ~10-30ms but makes the limit actually enforce.
-  const { error: insertErr } = await svc
+  // land). Adds ~10-30ms but makes the limit actually enforce. We also need
+  // the inserted id to patch success/error_code once the op finishes.
+  const { data: inserted, error: insertErr } = await svc
     .from('icloud_proxy_calls')
-    .insert({ user_id: userId, op });
+    .insert({ user_id: userId, op })
+    .select('id')
+    .single();
   if (insertErr) {
     console.warn('[imap-proxy] rate-limit insert failed:', insertErr.message);
+    return { allowed: true, callId: null };
   }
-  return true;
+  return { allowed: true, callId: (inserted?.id ?? null) as number | null };
+}
+
+// After a handler returns, peek at the response and stamp the audit row with
+// success / error_code. Status >= 400 is failure; the body's `error` field
+// (set by err()) becomes the error code. Cloning the response keeps the
+// original body stream intact for the client.
+async function recordCallOutcome(
+  serviceKey: string,
+  supabaseUrl: string,
+  callId: number,
+  response: Response,
+): Promise<void> {
+  const success = response.status < 400;
+  let errorCode: string | null = null;
+  if (!success) {
+    try {
+      const parsed = await response.clone().json();
+      const code = (parsed as { error?: unknown })?.error;
+      if (typeof code === 'string') errorCode = code;
+    } catch {
+      // body wasn't JSON or already consumed - leave error_code null
+    }
+  }
+  try {
+    const svc = createClient(supabaseUrl, serviceKey, {
+      auth: { persistSession: false },
+    });
+    const { error } = await svc
+      .from('icloud_proxy_calls')
+      .update({ success, error_code: errorCode })
+      .eq('id', callId);
+    if (error) {
+      console.warn('[imap-proxy] outcome update failed:', error.message);
+    }
+  } catch (err) {
+    console.warn(
+      '[imap-proxy] outcome update threw:',
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 }
 
 async function handleValidate(
