@@ -59,14 +59,12 @@ import {
   useMemoryEnabled,
   shouldShowMsReconnectPrompt,
   markMsReconnectPromptShown,
-  shouldShowWhatsNew,
-  markWhatsNewShown,
 } from './src/lib/hooks';
 import { MemoryConsentModal } from './src/components/MemoryConsentModal';
-import { WhatsNewModal, WHATS_NEW_VERSION } from './src/components/WhatsNewModal';
 import { OnboardingBackfillScreen } from './src/screens/OnboardingBackfillScreen';
 import { OnboardingBackfillProgressScreen } from './src/screens/OnboardingBackfillProgressScreen';
 import { OnboardingFactReviewScreen } from './src/screens/OnboardingFactReviewScreen';
+import { OnboardingFlowScreen } from './src/screens/OnboardingFlowScreen';
 import { subscribeBackfillRerun, type BackfillJob } from './src/lib/onboarding-backfill';
 import { isDemoUser } from './src/lib/demo';
 import { syncUserProfile } from './src/lib/user-profile';
@@ -81,7 +79,7 @@ let introShownThisSession = false;
 // Bumped on every fix iteration so we can verify in Metro which bundle
 // the device is actually running. Logged once at module eval (cold-start
 // or JS reload), so the most recent line tells us the live commit.
-const APP_BOOT_TAG = 'modal-fix-overlay-v1';
+const APP_BOOT_TAG = 'onboarding-pal-strip-v1';
 console.log(`[BOOT] ${APP_BOOT_TAG}`);
 
 export default function App() {
@@ -160,11 +158,12 @@ export default function App() {
   const [chromeHeight, setChromeHeight] = useState(0);
   const [migrationsDone, setMigrationsDone] = useState(false);
   const [memoryConsentOpen, setMemoryConsentOpen] = useState(false);
-  const [onboardingOpen, setOnboardingOpen] = useState(false);
-  const [onboardingStage, setOnboardingStage] = useState<'intro' | 'progress' | 'review'>('intro');
+  // DEV: force V2 onboarding open on mount for visual iteration. Revert
+  // both initial values to `false` / `'v2-intro'` (default) before commit.
+  const [onboardingOpen, setOnboardingOpen] = useState(true);
+  const [onboardingStage, setOnboardingStage] = useState<'v2-intro' | 'intro' | 'progress' | 'review'>('v2-intro');
   const [onboardingForceRerun, setOnboardingForceRerun] = useState(false);
   const [onboardingFailedJobs, setOnboardingFailedJobs] = useState<BackfillJob[]>([]);
-  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   // Bumped whenever a 'brief' push or in-app notification row is tapped.
   // TodayScreen opens the brief modal on each change.
   const [briefOpenTrigger, setBriefOpenTrigger] = useState(0);
@@ -175,8 +174,14 @@ export default function App() {
   // simultaneous Modal presentations and leaves a phantom modal that eats
   // every touch on the screen behind it (manifests as a 'stale' screen).
   const [consentResolved, setConsentResolved] = useState(false);
+  // Suppress the consent modal while V2 onboarding is on-screen — otherwise
+  // OAuth completing during step 6 (Trust) pops the modal over the flow and
+  // the user gets bombarded before they reach step 7. After V2 finishes
+  // (stage flips off 'v2-intro') the gate releases and consent re-evaluates.
+  const inV2Onboarding = onboardingOpen && onboardingStage === 'v2-intro';
   useEffect(() => {
     if (!user?.id) return;
+    if (inV2Onboarding) return;
     let cancelled = false;
     void shouldShowMemoryConsent(user.id).then((show) => {
       if (cancelled) return;
@@ -184,7 +189,7 @@ export default function App() {
       setConsentResolved(true);
     });
     return () => { cancelled = true; };
-  }, [user?.id]);
+  }, [user?.id, inV2Onboarding]);
 
   // Listen for explicit re-run triggers from MemoryScreen's "Genscan" button
   // and reopen the chain in force-rerun mode (Start passes force:true so the
@@ -213,6 +218,9 @@ export default function App() {
     if (!uid || !transitionedOn) return;
     const hasProvider = !!googleAccessToken || !!microsoftAccessToken;
     if (!hasProvider) return;
+    // Don't override the V2 stage — V2's onComplete handler advances to
+    // 'intro' on its own when the user finishes the flow.
+    if (inV2Onboarding) return;
     let cancelled = false;
     void shouldShowOnboardingBackfill(uid).then((show) => {
       if (cancelled || !show) return;
@@ -220,23 +228,11 @@ export default function App() {
       setOnboardingOpen(true);
     });
     return () => { cancelled = true; };
-  }, [memoryEnabled, user?.id, googleAccessToken, microsoftAccessToken]);
+  }, [memoryEnabled, user?.id, googleAccessToken, microsoftAccessToken, inV2Onboarding]);
 
-  // What's-new modal: one-shot per user per WHATS_NEW_VERSION. Defer until
-  // (a) the consent check has resolved, (b) the consent modal isn't open,
-  // and (c) the onboarding-backfill chain isn't open. iOS only allows one
-  // Modal transition at a time - racing presents leave a phantom Modal
-  // that intercepts touches on the screen behind it.
-  useEffect(() => {
-    const uid = user?.id;
-    if (!uid || isDemoUser(user) || !consentResolved || memoryConsentOpen || onboardingOpen) return;
-    let cancelled = false;
-    void shouldShowWhatsNew(uid, WHATS_NEW_VERSION).then((show) => {
-      if (cancelled || !show) return;
-      setWhatsNewOpen(true);
-    });
-    return () => { cancelled = true; };
-  }, [user?.id, user, consentResolved, memoryConsentOpen, onboardingOpen]);
+  // What's-new modal disabled — was firing on every login during onboarding
+  // iteration and adding noise. Re-enable later if there's a release we
+  // actually want to announce in-app.
 
   // One-shot Microsoft reconnect nudge - old tokens carry Calendars.Read,
   // new code requires Calendars.ReadWrite for chatbot/voice calendar writes.
@@ -677,14 +673,30 @@ export default function App() {
             />
           </Animated.View>
         )}
-        {onboardingOpen && user?.id && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && (
+        {/* V2 onboarding stage doesn't require auth — it's pure UI iteration.
+            Later stages (intro/progress/review) reference user.id, so they
+            stay gated on `user` being present. */}
+        {onboardingOpen && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && (
           <Animated.View
             key="onboarding-backfill"
             style={StyleSheet.absoluteFill}
             entering={SlideInDown.duration(320)}
             exiting={SlideOutDown.duration(260)}
           >
-            {onboardingStage === 'intro' && (
+            {onboardingStage === 'v2-intro' && (
+              <OnboardingFlowScreen
+                onComplete={(collected) => {
+                  if (__DEV__) {
+                    console.log('[onboarding-flow] collected state:', JSON.stringify(collected, null, 2));
+                  }
+                  // V2 flow finished — fall through to the existing
+                  // backfill chain (provider-connect + extract + review).
+                  // TODO: persist persona/vision/diagnose once storage is wired.
+                  setOnboardingStage('intro');
+                }}
+              />
+            )}
+            {user?.id && onboardingStage === 'intro' && (
               <OnboardingBackfillScreen
                 forceRerun={onboardingForceRerun}
                 onStart={() => {
@@ -709,7 +721,7 @@ export default function App() {
                 }}
               />
             )}
-            {onboardingStage === 'progress' && (
+            {user?.id && onboardingStage === 'progress' && (
               <OnboardingBackfillProgressScreen
                 onComplete={(failed) => {
                   setOnboardingFailedJobs(failed);
@@ -717,7 +729,7 @@ export default function App() {
                 }}
               />
             )}
-            {onboardingStage === 'review' && (
+            {user?.id && onboardingStage === 'review' && (
               <OnboardingFactReviewScreen
                 failedJobs={onboardingFailedJobs}
                 onDone={() => {
@@ -743,16 +755,6 @@ export default function App() {
             // The chain trigger now lives in the memory-enabled transition
             // watcher above - it fires regardless of which UI surface flipped
             // memory ON, so we don't need to fire it again here.
-          }}
-        />
-      )}
-      {user?.id && (
-        <WhatsNewModal
-          visible={whatsNewOpen}
-          onClose={() => {
-            const uid = user.id;
-            setWhatsNewOpen(false);
-            void markWhatsNewShown(uid, WHATS_NEW_VERSION);
           }}
         />
       )}
