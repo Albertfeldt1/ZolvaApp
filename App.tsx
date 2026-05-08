@@ -172,9 +172,14 @@ export default function App() {
   const [onboardingForceRerun, setOnboardingForceRerun] = useState(false);
   const [onboardingFailedJobs, setOnboardingFailedJobs] = useState<BackfillJob[]>([]);
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
-  // Bumped whenever a 'brief' push or in-app notification row is tapped.
-  // TodayScreen opens the brief modal on each change.
-  const [briefOpenTrigger, setBriefOpenTrigger] = useState(0);
+  // Set whenever a 'brief' push or in-app notification row is tapped, or a
+  // zolva://today#brief deep link arrives. TodayScreen opens the matching
+  // brief modal on each nonce change. briefId may be missing for deep links
+  // that don't reference a specific brief - the screen falls back to today's
+  // cached brief in that case.
+  const [briefOpenRequest, setBriefOpenRequest] = useState<{ nonce: number; briefId?: string }>({ nonce: 0 });
+  const requestBriefOpen = (briefId?: string) =>
+    setBriefOpenRequest((prev) => ({ nonce: prev.nonce + 1, briefId }));
 
   // Tracks "we've decided whether the consent modal needs to show". The
   // WhatsNew gate below blocks until this is true so we never present
@@ -352,7 +357,7 @@ export default function App() {
           break;
         case 'brief':
           setTab('today');
-          setBriefOpenTrigger((v) => v + 1);
+          requestBriefOpen(payload.briefId);
           break;
         case 'calendarPreAlert':
           setTab('calendar');
@@ -385,7 +390,7 @@ export default function App() {
       if (url.startsWith('zolva://today')) {
         setTab('today');
         // open the brief modal if the URL includes #brief
-        if (url.includes('#brief')) setBriefOpenTrigger((v) => v + 1);
+        if (url.includes('#brief')) requestBriefOpen();
         return;
       }
       if (url.startsWith('zolva://calendar/event/')) {
@@ -512,7 +517,7 @@ export default function App() {
         break;
       case 'brief':
         setTab('today');
-        setBriefOpenTrigger((v) => v + 1);
+        requestBriefOpen(payload.briefId);
         break;
       case 'calendarPreAlert':
         setTab('calendar');
@@ -567,7 +572,7 @@ export default function App() {
               onGoToCalendar={() => switchTab('calendar')}
               onOpenNotifications={openNotifications}
               onOverDarkChange={setChromeOverDark}
-              briefOpenTrigger={briefOpenTrigger}
+              briefOpenRequest={briefOpenRequest}
               onOpenIcloudSetup={openIcloudSetup}
               isActive={tab === 'today'}
             />

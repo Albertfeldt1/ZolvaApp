@@ -2006,11 +2006,6 @@ export function SettingsScreen({
                   onChange={(v) => toggleNotificationSetting('reminders', v)}
                 />
                 <NotificationToggleRow
-                  label="Morgenoverblik"
-                  value={notificationSettings.digest}
-                  onChange={(v) => toggleNotificationSetting('digest', v)}
-                />
-                <NotificationToggleRow
                   label="Kalender-påmindelse 15 min før"
                   value={notificationSettings.preAlerts}
                   onChange={(v) => toggleNotificationSetting('preAlerts', v)}

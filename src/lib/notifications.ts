@@ -148,72 +148,26 @@ function nudgeIdentifier(id: string, hour: number): string {
   return `reminder:${id}:nudge:${hour}`;
 }
 
-function digestIdentifier(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `digest:${y}-${m}-${d}`;
-}
-
-// Next 8am in local time. If it's already past 8am today, returns tomorrow.
-function nextDigestDate(now: Date): Date {
-  const target = new Date(now);
-  target.setHours(8, 0, 0, 0);
-  if (target.getTime() <= now.getTime()) {
-    target.setDate(target.getDate() + 1);
-  }
-  return target;
-}
-
+// The local "God morgen / Dit overblik for i dag er klar" digest used to fire
+// at 8am as a heads-up. It's been superseded by the server-side daily-brief
+// edge function, which pushes the actual brief headline + first line at the
+// user's configured morning-brief time. Running both produced two
+// notifications back-to-back. We now only cancel any stale digest:* entries
+// still queued from earlier installs - new ones are never scheduled.
 export async function syncDailyDigest(): Promise<void> {
-  const settings = getNotificationSettings();
-  if (!settings.digest) return;
-
-  const permission = await getPermissionStatus();
-  if (permission !== 'granted') return;
-
-  const when = nextDigestDate(new Date());
-  const identifier = digestIdentifier(when);
-
-  // Idempotent: if this exact digest is already scheduled, skip.
-  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-  if (scheduled.some((s) => s.identifier === identifier)) return;
-
-  // Clean up any stale digest:* from prior days so we don't accumulate.
-  for (const s of scheduled) {
-    if (s.identifier.startsWith('digest:')) {
-      try {
-        await Notifications.cancelScheduledNotificationAsync(s.identifier);
-      } catch {
-        // ignore
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    for (const s of scheduled) {
+      if (s.identifier.startsWith('digest:')) {
+        try {
+          await Notifications.cancelScheduledNotificationAsync(s.identifier);
+        } catch {
+          // ignore
+        }
       }
     }
-  }
-
-  try {
-    await Notifications.scheduleNotificationAsync({
-      identifier,
-      content: {
-        title: 'God morgen',
-        body: 'Dit overblik for i dag er klar.',
-        data: { type: 'digest', date: identifier.slice('digest:'.length) } satisfies NotificationPayload,
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: when,
-      },
-    });
-    const dateStr = identifier.slice('digest:'.length);
-    void recordFeedEntry({
-      id: `digest:${dateStr}`,
-      type: 'digest',
-      title: 'God morgen',
-      body: 'Dit overblik for i dag er klar.',
-      firesAt: when,
-      payload: { type: 'digest', date: dateStr },
-    });
   } catch (err) {
-    if (__DEV__) console.warn('[notifications] schedule digest failed:', err);
+    if (__DEV__) console.warn('[notifications] cancel stale digests failed:', err);
   }
 }
 

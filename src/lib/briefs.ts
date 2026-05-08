@@ -28,6 +28,21 @@ function rowToBrief(r: Record<string, unknown>): Brief {
   };
 }
 
+export async function fetchBriefById(briefId: string): Promise<Brief | null> {
+  try {
+    const { data, error } = await supabase
+      .from('briefs')
+      .select('*')
+      .eq('id', briefId)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? rowToBrief(data as Record<string, unknown>) : null;
+  } catch (err) {
+    if (__DEV__) console.warn('[briefs] fetchBriefById failed:', err);
+    return null;
+  }
+}
+
 export function useTodayBrief(): {
   brief: Brief | null;
   loading: boolean;

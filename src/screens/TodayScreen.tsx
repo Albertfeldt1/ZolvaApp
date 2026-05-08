@@ -27,7 +27,7 @@ import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { SkeletonRow } from '../components/Skeleton';
 import type { Brief } from '../lib/briefs';
-import { useTodayBrief } from '../lib/briefs';
+import { fetchBriefById, useTodayBrief } from '../lib/briefs';
 import { formatToday, greeting } from '../lib/date';
 import {
   useHasProvider,
@@ -70,8 +70,11 @@ type Props = {
   onGoToCalendar: () => void;
   onOpenNotifications: () => void;
   onOverDarkChange?: (over: boolean) => void;
-  // Incremented by App whenever a brief push is tapped - triggers the modal.
-  briefOpenTrigger?: number;
+  // Set by App whenever a brief push or in-app notification is tapped.
+  // The nonce changes per tap so re-tapping the same brief re-opens it.
+  // briefId is omitted for generic deep links (e.g. zolva://today#brief),
+  // in which case we fall back to today's cached brief.
+  briefOpenRequest?: { nonce: number; briefId?: string };
   onOpenIcloudSetup?: (prefilledEmail?: string) => void;
   // True when this tab is the visible one. Tabs stay mounted across switches,
   // so the screen needs an explicit signal to re-sync host chrome state when
@@ -92,7 +95,7 @@ export function TodayScreen({
   onGoToCalendar,
   onOpenNotifications,
   onOverDarkChange,
-  briefOpenTrigger,
+  briefOpenRequest,
   onOpenIcloudSetup,
   isActive = true,
 }: Props) {
@@ -146,13 +149,29 @@ export function TodayScreen({
   const [historyKind, setHistoryKind] = useState<'morning' | 'midday' | 'evening' | null>(null);
   const [observationHistoryOpen, setObservationHistoryOpen] = useState(false);
 
-  // Notification taps: App.tsx bumps briefOpenTrigger - we open the modal
-  // if we have a brief to show.
+  // Notification taps: App.tsx sets briefOpenRequest with a per-tap nonce.
+  // Open the matching brief - by id when we have one, falling back to today's
+  // cached brief for generic deep links. Fetching by id avoids the race where
+  // the requested brief isn't the cached "today" one (or hasn't loaded yet).
+  const lastBriefNonceRef = useRef(0);
   useEffect(() => {
-    if (briefOpenTrigger && briefOpenTrigger > 0 && brief) {
-      setViewingBrief(brief);
+    const req = briefOpenRequest;
+    if (!req || req.nonce === 0 || req.nonce === lastBriefNonceRef.current) return;
+    lastBriefNonceRef.current = req.nonce;
+    if (!req.briefId) {
+      if (brief) setViewingBrief(brief);
+      return;
     }
-  }, [briefOpenTrigger, brief]);
+    if (brief && brief.id === req.briefId) {
+      setViewingBrief(brief);
+      return;
+    }
+    let cancelled = false;
+    void fetchBriefById(req.briefId).then((b) => {
+      if (!cancelled && b) setViewingBrief(b);
+    });
+    return () => { cancelled = true; };
+  }, [briefOpenRequest, brief]);
 
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set());
   const visibleObservations = useMemo(
