@@ -60,4 +60,10 @@ export const Icon = {
       <Path d="M21 21l-4.3-4.3" />
     </>,
   ),
+  archive: make(
+    <>
+      <Rect x={3} y={4} width={18} height={4} rx={1} />
+      <Path d="M5 8v11a2 2 0 002 2h10a2 2 0 002-2V8M10 12h4" />
+    </>,
+  ),
 } as const;

@@ -607,7 +607,15 @@ type NormalizedMail = {
   preview: string;
 };
 
+// Mails the user has archived ("dismissed" historically). Persisted per-user
+// because Gmail and iCloud don't get a server-side archive write (no
+// gmail.modify scope, no IMAP archive op) - if this set were in-memory only,
+// every cold start would re-show every previously-archived mail since the
+// server still has them in INBOX. Microsoft archives server-side AND adds to
+// this set, which is fine: the local filter just becomes redundant for that
+// provider, never wrong.
 const dismissedMailIds = new Set<string>();
+const DISMISSED_STORAGE_KEY = (uid: string) => `zolva.dismissed-mails.v1.${uid}`;
 // Mails the user has replied to. Distinct from dismissed: dismissed mails
 // disappear into Archived, replied mails should drop out of "Venter på
 // dig" but resurface under "Læst" - the user often wants to glance back
@@ -660,14 +668,50 @@ async function persistReplied(): Promise<void> {
   }
 }
 
-// Clear dismissed (in-memory only) and re-hydrate replied (from storage)
-// whenever the active user changes - including the initial subscribe so
-// replied state is loaded on app open.
-subscribeUserId((uid) => {
-  if (dismissedMailIds.size > 0) {
+let dismissedHydratedFor: string | null = null;
+let dismissedActiveUid: string | null = null;
+async function hydrateDismissedFor(uid: string | null): Promise<void> {
+  dismissedActiveUid = uid;
+  if (!uid) {
     dismissedMailIds.clear();
+    dismissedHydratedFor = null;
     dismissListeners.forEach((l) => l());
+    return;
   }
+  if (dismissedHydratedFor === uid) return;
+  dismissedMailIds.clear();
+  try {
+    const raw = await AsyncStorage.getItem(DISMISSED_STORAGE_KEY(uid));
+    if (raw) {
+      const ids = JSON.parse(raw) as string[];
+      if (Array.isArray(ids)) for (const id of ids) dismissedMailIds.add(id);
+    }
+  } catch (err) {
+    if (__DEV__) console.warn('[hooks] dismissed hydrate failed:', err);
+  }
+  dismissedHydratedFor = uid;
+  dismissListeners.forEach((l) => l());
+}
+
+async function persistDismissed(): Promise<void> {
+  if (!dismissedActiveUid) return;
+  try {
+    await AsyncStorage.setItem(
+      DISMISSED_STORAGE_KEY(dismissedActiveUid),
+      JSON.stringify(Array.from(dismissedMailIds)),
+    );
+  } catch (err) {
+    if (__DEV__) console.warn('[hooks] dismissed persist failed:', err);
+  }
+}
+
+// Hydrate dismissed + replied from storage whenever the active user
+// changes - including the initial subscribe so both sets are loaded on
+// app open. Without this, archived mails reappear in the inbox after a
+// cold start because Gmail/iCloud have no server-side archive bit and
+// the local filter starts empty.
+subscribeUserId((uid) => {
+  void hydrateDismissedFor(uid ?? null);
   void hydrateRepliedFor(uid ?? null);
 });
 
@@ -675,6 +719,7 @@ function markMailDismissed(id: string): void {
   if (dismissedMailIds.has(id)) return;
   dismissedMailIds.add(id);
   dismissListeners.forEach((l) => l());
+  void persistDismissed();
 }
 
 function markMailReplied(id: string): void {

@@ -8,13 +8,14 @@ type Props = {
   onBell?: () => void;
   onGear?: () => void;
   onSend?: () => void;
+  onArchive?: () => void;
 };
 
 const ICON_BUTTON_SIZE = 34;
 const ICON_GLYPH_SIZE = 16;
 const HORIZONTAL_PAD = 20;
 
-export function TopBar({ eyebrow, onBell, onGear, onSend }: Props) {
+export function TopBar({ eyebrow, onBell, onGear, onSend, onArchive }: Props) {
   const { t, type, surface, spacing, radius } = useTheme();
 
   return (
@@ -56,6 +57,23 @@ export function TopBar({ eyebrow, onBell, onGear, onSend }: Props) {
             }}
           >
             <Icon.send size={ICON_GLYPH_SIZE} color={t.ink2} />
+          </Pressable>
+        ) : null}
+        {onArchive ? (
+          <Pressable
+            onPress={onArchive}
+            accessibilityRole="button"
+            accessibilityLabel="Arkiverede mails"
+            style={{
+              width: ICON_BUTTON_SIZE,
+              height: ICON_BUTTON_SIZE,
+              borderRadius: radius.pill,
+              backgroundColor: surface.iconButton,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Icon.archive size={ICON_GLYPH_SIZE} color={t.ink2} />
           </Pressable>
         ) : null}
         <Pressable

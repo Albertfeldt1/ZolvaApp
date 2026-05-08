@@ -189,6 +189,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
         <TopBar
           eyebrow="INDBAKKE"
           onSend={onOpenSentMails}
+          onArchive={() => setArchiveOpen(true)}
           onBell={onOpenNotifications}
           onGear={onGoToSettings}
         />
