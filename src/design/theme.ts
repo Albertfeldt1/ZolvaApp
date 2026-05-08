@@ -185,8 +185,8 @@ const SURFACES_LIGHT: SurfaceTokens = {
   tabActive:            'rgba(255,255,255,0.9)',
   warningTint:          'rgba(255,193,127,0.55)',
   ribbonTrack:          'rgba(15,16,20,0.05)',
-  successText:          '#3D5A40',
-  successTint:          'rgba(74,124,78,0.14)',
+  successText:          '#15803D',
+  successTint:          'rgba(34,197,94,0.16)',
 };
 
 const SURFACES_DARK: SurfaceTokens = {
@@ -207,8 +207,8 @@ const SURFACES_DARK: SurfaceTokens = {
   tabActive:            'rgba(255,255,255,0.12)',
   warningTint:          'rgba(255,193,127,0.45)',
   ribbonTrack:          'rgba(255,255,255,0.08)',
-  successText:          '#A8E063',
-  successTint:          'rgba(168,224,99,0.20)',
+  successText:          '#86EFAC',
+  successTint:          'rgba(74,222,128,0.22)',
 };
 
 export function getSurfaces(t: DirectionTokens): SurfaceTokens {

@@ -19,7 +19,7 @@ export const colors = {
   claySoft: '#F2E2D8',
   clayInk: '#8A4A2E',
 
-  success: '#4A7C4E',
+  success: '#22C55E',
   warning: '#C9A23D',
   warningSoft: '#F6EBC9',
   warningInk: '#8A6F1A',
