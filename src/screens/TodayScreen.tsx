@@ -380,11 +380,28 @@ export function TodayScreen({
             <Text style={{ ...type.displayXL, color: t.ink }}>
               {user ? `${hello},\n${user.name}.` : `${hello}.`}
             </Text>
-            <Text style={{ ...type.body, color: t.ink2, marginTop: spacing.md - 2, maxWidth: 300 }}>
-              <CountUp to={todayMeetingCount} /> {todayMeetingCount === 1 ? 'møde' : 'møder'},{' '}
-              <CountUp to={inboxCounts.unread} /> {inboxCounts.unread === 1 ? 'mail venter' : 'mails venter'},
-              og <CountUp to={pendingReminders.length} /> {pendingReminders.length === 1 ? 'påmindelse' : 'påmindelser'}.
-            </Text>
+            {authUser ? (
+              <Text style={{ ...type.body, color: t.ink2, marginTop: spacing.md - 2, maxWidth: 300 }}>
+                <CountUp to={todayMeetingCount} /> {todayMeetingCount === 1 ? 'møde' : 'møder'},{' '}
+                <CountUp to={inboxCounts.unread} /> {inboxCounts.unread === 1 ? 'mail venter' : 'mails venter'},
+                og <CountUp to={pendingReminders.length} /> {pendingReminders.length === 1 ? 'påmindelse' : 'påmindelser'}.
+              </Text>
+            ) : (
+              // Logged-out subtitle: subtle CTA replacing the empty stats so
+              // the hero block carries an actionable next step instead of
+              // "0 møder, 0 mails" - which would just look like a bug.
+              <TouchableOpacity
+                onPress={onGoToSettings}
+                accessibilityRole="button"
+                accessibilityLabel="Log ind for at se din dag"
+                style={{ marginTop: spacing.md - 2, alignSelf: 'flex-start' }}
+              >
+                <Text style={{ ...type.body, color: t.ink2 }}>
+                  Log ind for at se din dag.{' '}
+                  <Text style={{ color: t.ink, fontWeight: '600' }}>Log ind →</Text>
+                </Text>
+              </TouchableOpacity>
+            )}
           </GlassFrostedCard>
         </View>
 

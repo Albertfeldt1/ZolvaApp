@@ -58,6 +58,8 @@ import {
   markOnboardingBackfillShown,
   shouldShowV2Onboarding,
   markV2OnboardingShown,
+  shouldShowV2OnboardingDevice,
+  markV2OnboardingShownDevice,
   useMemoryEnabled,
   shouldShowMsReconnectPrompt,
   markMsReconnectPromptShown,
@@ -134,15 +136,11 @@ export default function App() {
     });
   }, [tab]);
 
-  // On logout, force the active tab to Settings - that's the only screen
-  // that renders the LoginCard. With chrome hidden in the logged-out
-  // state, the user wouldn't have any other way to reach a login surface.
-  useEffect(() => {
-    if (!authInitializing && !user) {
-      setTab('settings');
-      setPreviousTab('today');
-    }
-  }, [authInitializing, user]);
+  // No force-to-Settings on logout. Apple 5.1.1 rejects apps that open
+  // straight to a login wall on cold launch, so the entry surface has to
+  // stay browseable when the user isn't signed in. The bottom nav stays
+  // visible (chrome no longer hides on !user), so Settings is reachable
+  // for re-login without forcing the user there.
   const [chatOpen, setChatOpen] = useState(false);
   const [chatDraft, setChatDraft] = useState<string | undefined>(undefined);
   // When true, ChatScreen fires send() once on mount with the prefilled
@@ -207,20 +205,33 @@ export default function App() {
     return () => { cancelled = true; };
   }, [user?.id, inV2Onboarding]);
 
-  // Open V2 onboarding for first-time signed-in users. Gates on its own
-  // shown-flag (separate from the backfill chain because V2 runs BEFORE
-  // memory consent, so it can't depend on memory-enabled). Doesn't gate
-  // on provider tokens — V2's Trust step is what gets them connected.
+  // Open V2 onboarding for first-time launches. Gated on a device-level
+  // flag (NOT user.id) so it fires before any auth happens - that's what
+  // keeps the cold-launch surface from being a login wall. Existing users
+  // who finished V2 under the old per-uid system get their flag ported
+  // forward on next launch instead of replaying the 7 steps.
   useEffect(() => {
-    const uid = user?.id;
-    if (!uid || isDemoUser(user) || authInitializing) return;
+    if (authInitializing) return;
     if (onboardingOpen) return;
+    if (isDemoUser(user)) return;
     let cancelled = false;
-    void shouldShowV2Onboarding(uid).then((show) => {
-      if (cancelled || !show) return;
+    void (async () => {
+      const showDevice = await shouldShowV2OnboardingDevice();
+      if (cancelled || !showDevice) return;
+      // Port-forward: if a signed-in user already has the per-uid V2 flag
+      // set (saw onboarding before this device-level flag existed), mark
+      // device shown and skip - don't replay onboarding for returning users.
+      if (user?.id) {
+        const showUid = await shouldShowV2Onboarding(user.id);
+        if (!showUid) {
+          await markV2OnboardingShownDevice();
+          return;
+        }
+      }
+      if (cancelled) return;
       setOnboardingStage('v2-intro');
       setOnboardingOpen(true);
-    });
+    })();
     return () => { cancelled = true; };
   }, [user?.id, user, authInitializing, onboardingOpen]);
 
@@ -453,10 +464,10 @@ export default function App() {
     return <View style={[styles.root, { backgroundColor: '#FF8868' }]} />;
   }
 
-  // When logged out, hide the bottom nav so the LoginCard inside Settings
-  // isn't framed by an interactive tab bar leading to surfaces that won't
-  // load anything. The Settings tab handles its own logged-out state by
-  // rendering the LoginCard in place of the regular section list.
+  // Logged-out tracking is only used for downstream UX hints now (e.g. the
+  // Today screen's "log ind for at se dine ting" banner). The bottom nav
+  // stays visible so Settings is reachable for re-login, and the cold-launch
+  // surface isn't a login wall - Apple 5.1.1 rejects that.
   const loggedOut = !authInitializing && !user;
 
   const openChat = () => {
@@ -736,12 +747,19 @@ export default function App() {
                   // Mark V2 shown the moment the user finishes the flow so
                   // a mid-backfill app close doesn't replay the 7 steps on
                   // next launch — they'll resume the legacy chain via the
-                  // Memory tab → Genscan path instead.
+                  // Memory tab → Genscan path instead. Device flag persists
+                  // across logout so cold launches stay non-login-wall.
                   if (user?.id) void markV2OnboardingShown(user.id);
+                  void markV2OnboardingShownDevice();
                   // V2 flow finished — fall through to the existing
-                  // backfill chain (provider-connect + extract + review).
-                  // TODO: persist persona/vision/diagnose once storage is wired.
-                  setOnboardingStage('intro');
+                  // backfill chain (provider-connect + extract + review)
+                  // when the user is signed in, otherwise close the flow
+                  // and let the user land on the main app surface.
+                  if (user?.id) {
+                    setOnboardingStage('intro');
+                  } else {
+                    setOnboardingOpen(false);
+                  }
                 }}
               />
             )}
@@ -807,7 +825,7 @@ export default function App() {
           }}
         />
       )}
-      {!chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && !loggedOut && (
+      {!chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && (
         <View
           style={styles.chrome}
           pointerEvents="box-none"

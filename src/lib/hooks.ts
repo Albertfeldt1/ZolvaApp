@@ -4993,6 +4993,13 @@ export async function markOnboardingBackfillShown(uid: string): Promise<void> {
 // because — unlike the backfill chain — V2 runs BEFORE memory consent, so
 // it can't gate on `memory-enabled`.
 const v2OnboardingKey = (uid: string) => `zolva.${uid}.v2-onboarding.shown`;
+// Device-level completion flag. Per-uid keys can't gate cold launch when
+// the user isn't signed in yet (no uid to look up), and they reset across
+// logout - which would replay onboarding on every sign-out/sign-in cycle.
+// The device flag persists across logout AND lets us show V2 to a fresh
+// install BEFORE auth, so the cold-launch surface isn't a login wall
+// (Apple 5.1.1 - reviewers reject apps that open straight to sign-in).
+const V2_ONBOARDING_DEVICE_KEY = 'zolva.v2-onboarding.device-shown';
 
 export async function shouldShowV2Onboarding(uid: string): Promise<boolean> {
   try {
@@ -5006,6 +5013,21 @@ export async function shouldShowV2Onboarding(uid: string): Promise<boolean> {
 export async function markV2OnboardingShown(uid: string): Promise<void> {
   try {
     await AsyncStorage.setItem(v2OnboardingKey(uid), '1');
+  } catch {}
+}
+
+export async function shouldShowV2OnboardingDevice(): Promise<boolean> {
+  try {
+    const raw = await AsyncStorage.getItem(V2_ONBOARDING_DEVICE_KEY);
+    return raw !== '1';
+  } catch {
+    return false;
+  }
+}
+
+export async function markV2OnboardingShownDevice(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(V2_ONBOARDING_DEVICE_KEY, '1');
   } catch {}
 }
 
