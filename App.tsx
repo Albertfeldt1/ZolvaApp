@@ -48,7 +48,11 @@ import { registerResponseHandler, syncOnAppForeground } from './src/lib/notifica
 import { initNotificationSettings } from './src/lib/notification-settings';
 import { initNotificationFeed, markFeedByPayload } from './src/lib/notification-feed';
 import type { InboxMail, NotificationPayload } from './src/lib/types';
-import { persistOnboardingState } from './src/lib/onboarding-persist';
+import {
+  persistOnboardingConnections,
+  persistOnboardingPersona,
+  flushPendingPersona,
+} from './src/lib/onboarding-persist';
 import { colors } from './src/theme';
 import { ThemeProvider } from './src/design/ThemeProvider';
 import { useAuth } from './src/lib/auth';
@@ -235,6 +239,17 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   }, [user?.id, user, authInitializing, onboardingOpen]);
+
+  // Flush any onboarding persona stashed before user.id was set. The race:
+  // user does Google/Microsoft OAuth in step 6, taps through to finish, and
+  // onComplete fires faster than useAuth broadcasts the new user. Without
+  // this the persona answers (autonomy/tone/morning-brief) would silently
+  // not land in work_preferences and Settings would show defaults.
+  useEffect(() => {
+    const uid = user?.id;
+    if (!uid) return;
+    void flushPendingPersona(uid);
+  }, [user?.id]);
 
   // Listen for explicit re-run triggers from MemoryScreen's "Genscan" button
   // and reopen the chain in force-rerun mode (Start passes force:true so the
@@ -753,16 +768,18 @@ export default function App() {
                   // across logout so cold launches stay non-login-wall.
                   if (user?.id) void markV2OnboardingShown(user.id);
                   void markV2OnboardingShownDevice();
-                  // Persist the user's onboarding selections to integration
-                  // flags + work_preferences so Settings reflects them.
-                  // Without this they only lived in onboarding-local state
-                  // and the user had to re-toggle everything in Settings.
-                  if (user?.id) {
-                    void persistOnboardingState(user.id, {
-                      persona: collected.persona,
-                      connections: collected.connections,
-                    });
-                  }
+                  // Persist onboarding selections. Connections fire eagerly
+                  // (device-level, no uid needed) - that's what was getting
+                  // lost when user.id hadn't propagated from a fresh
+                  // mid-onboarding OAuth sign-in. Persona needs a uid so we
+                  // hand it null-tolerantly: if user.id is set, write
+                  // through; if not, stash and flushPendingPersona below
+                  // picks it up once auth state catches up.
+                  void persistOnboardingConnections({
+                    persona: collected.persona,
+                    connections: collected.connections,
+                  });
+                  void persistOnboardingPersona(user?.id ?? null, collected.persona);
                   // V2 flow finished — fall through to the existing
                   // backfill chain (provider-connect + extract + review)
                   // when the user is signed in, otherwise close the flow
