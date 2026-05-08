@@ -45,6 +45,14 @@ export const Icon = {
   chev: make(<Path d="M9 6l6 6-6 6" />),
   plus: make(<Path d="M12 5v14M5 12h14" />),
   send: make(<Path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />),
+  mic: make(
+    <>
+      <Rect x={9} y={2} width={6} height={12} rx={3} />
+      <Path d="M5 11a7 7 0 0014 0M12 18v3M8 21h8" />
+    </>,
+  ),
+  audio: make(<Path d="M5 9v6M9 6v12M12 4v16M15 6v12M19 9v6" />),
+  arrowUp: make(<Path d="M12 19V5M5 12l7-7 7 7" />),
   sparkle: make(<Path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3zM19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8L19 14z" />),
   search: make(
     <>
