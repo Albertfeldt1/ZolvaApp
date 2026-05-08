@@ -14,15 +14,52 @@ export type PermissionStatus = 'granted' | 'denied' | 'undetermined';
 
 export type { NotificationPayload };
 
+// Module-level set of chat job ids we've already rendered in the live UI.
+// The chat-run server always pushes a notification on completion; if the
+// app was foregrounded when the answer arrived, useChat displays the
+// message in-band and registers the job id here so the foreground handler
+// silently consumes the duplicate banner. Capped to keep memory bounded -
+// 200 jobs is plenty of headroom for the suppression window.
+const acknowledgedChatJobIds: string[] = [];
+const ACK_RING_CAP = 200;
+export function rememberChatJobAcknowledged(jobId: string): void {
+  if (acknowledgedChatJobIds.includes(jobId)) return;
+  acknowledgedChatJobIds.push(jobId);
+  if (acknowledgedChatJobIds.length > ACK_RING_CAP) acknowledgedChatJobIds.shift();
+}
+function isChatJobAcknowledged(jobId: string): boolean {
+  return acknowledgedChatJobIds.includes(jobId);
+}
+
 // Foreground presentation: show a banner, no sound, no badge. This runs
 // for every notification that fires while the app is active.
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-  }),
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data as { type?: unknown; jobId?: unknown } | null;
+    // Suppress the chatReply banner when useChat already rendered the
+    // answer in-band - otherwise a foregrounded user sees the message in
+    // the chat AND a redundant tray banner moments later.
+    if (
+      data &&
+      typeof data === 'object' &&
+      data.type === 'chatReply' &&
+      typeof data.jobId === 'string' &&
+      isChatJobAcknowledged(data.jobId)
+    ) {
+      return {
+        shouldShowBanner: false,
+        shouldShowList: false,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+      };
+    }
+    return {
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: false,
+      shouldSetBadge: false,
+    };
+  },
 });
 
 // Android requires a channel for notifications to appear. Register it once
@@ -110,6 +147,11 @@ export function registerResponseHandler(
         type: 'microsoftConsentGranted',
         tenantDomain: (payload as { tenantDomain: string }).tenantDomain,
       });
+    } else if (
+      payload.type === 'chatReply' &&
+      typeof (payload as { jobId?: unknown }).jobId === 'string'
+    ) {
+      onTap({ type: 'chatReply', jobId: (payload as { jobId: string }).jobId });
     }
   });
   return () => sub.remove();

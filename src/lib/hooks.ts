@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { subscribeUserId, useAuth } from './auth';
 import {
@@ -22,9 +23,18 @@ import {
   completeJson,
   completeRaw,
   hasClaudeKey,
+  type ClaudeContentBlock,
+  type ClaudeCompletion,
   type ClaudeMessage,
+  type ClaudeSystemBlock,
   type ClaudeToolSchema,
 } from './claude';
+import {
+  acknowledgeChatJob,
+  fetchUnacknowledgedDoneJobs,
+  submitChatJob,
+} from './chat-jobs';
+import { buildProfilePreamble } from './profile';
 import {
   addNote as storeAddNote,
   listNotes,
@@ -4607,6 +4617,43 @@ export function useChat() {
     AsyncStorage.setItem(key, JSON.stringify(capped)).catch(() => {});
   }, [messages, hydrated, userId]);
 
+  // Foreground reconciliation: pick up answers that landed while the app
+  // was backgrounded. chat-run writes status='done' + output_text to the
+  // chat_jobs row before sending the push, so any unacked done job for
+  // this user is an answer the live UI never got to display. Idempotent
+  // via appendedJobIdsRef so a quick background-foreground bounce doesn't
+  // double-render.
+  const appendedJobIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!hydrated || !userId || demo) return;
+    let cancelled = false;
+    const reconcile = async () => {
+      const pending = await fetchUnacknowledgedDoneJobs(userId);
+      if (cancelled || pending.length === 0) return;
+      const fresh = pending.filter((j) => !appendedJobIdsRef.current.has(j.jobId));
+      if (fresh.length === 0) return;
+      const newMessages: ChatMessage[] = fresh.map((j) => ({
+        id: `bg-${j.jobId}`,
+        from: 'zolva',
+        text: j.text,
+        createdAt: j.finishedAt.toISOString(),
+      }));
+      for (const j of fresh) appendedJobIdsRef.current.add(j.jobId);
+      setMessages((cur) => [...cur, ...newMessages]);
+      await Promise.all(fresh.map((j) => acknowledgeChatJob(j.jobId)));
+      // Sync to chat_messages table so the durable history matches.
+      for (const m of newMessages) syncChatMessage(userId, m);
+    };
+    void reconcile();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void reconcile();
+    });
+    return () => {
+      cancelled = true;
+      sub.remove();
+    };
+  }, [hydrated, userId, demo]);
+
   const send = useCallback(
     (text: string) => {
       const trimmed = text.trim();
@@ -4664,13 +4711,79 @@ export function useChat() {
         const working: ClaudeMessage[] = toClaudeMessages(nextHistory, toolCtx);
         let correctionAttempted = false;
 
+        // Build system blocks once - memory preamble + chat system prompt.
+        // Round 0 (chat-run, server) and rounds 1..N (claude-proxy, server)
+        // both see identical context. completeRaw normally stitches the
+        // preamble itself; we pass attachProfile:false on subsequent rounds
+        // to avoid doubling it.
+        const systemBlocks: ClaudeSystemBlock[] = [];
+        const sessionUser = user ?? null;
+        if (userId && sessionUser && getPrivacyFlag('memory-enabled')) {
+          const preamble = await buildProfilePreamble(userId, { user: sessionUser });
+          if (preamble) {
+            systemBlocks.push({
+              type: 'text',
+              text: preamble,
+              cache_control: { type: 'ephemeral' },
+            });
+          }
+        }
+        systemBlocks.push({ type: 'text', text: buildChatSystemPrompt(name, toolCtx) });
+        const filteredTools = filterToolsByCtx(CHAT_TOOLS, toolCtx);
+
         for (let round = 0; round < CHAT_TOOL_ROUND_CAP; round += 1) {
-          const result = await completeRaw({
-            system: buildChatSystemPrompt(name, toolCtx),
-            messages: working,
-            tools: filterToolsByCtx(CHAT_TOOLS, toolCtx),
-            metadata,
-          });
+          let result: ClaudeCompletion;
+          if (round === 0) {
+            // Round 0 goes through chat-run so the turn keeps running on
+            // the server even if the user backgrounds the app. If the
+            // model answers without tools, chat-run sends an Expo push
+            // and we ack on receipt below. If the model wants tools, the
+            // server returns the tool_use blocks and we continue today's
+            // local loop for rounds 1..N (Pass 1 limitation - tool exec
+            // is still client-side, so backgrounded tool turns still die).
+            const job = await submitChatJob({
+              messages: working,
+              system: systemBlocks,
+              tools: filteredTools,
+              metadata,
+              userPreview: trimmed,
+            });
+            if (job.status === 'error') {
+              if (__DEV__ && getPrivacyFlag('anon-reports')) {
+                console.warn('[useChat] chat-run error:', job.errorCode);
+              }
+              return CHAT_ERROR_TEXT;
+            }
+            // Ack immediately on receipt: the client owns the answer from
+            // here on, and the server-side push (if backgrounded) needs
+            // suppression in the foreground handler. Acking now also
+            // prevents the foreground reconciler from re-emitting if the
+            // user happens to background+foreground mid-turn.
+            void acknowledgeChatJob(job.jobId);
+            if (job.status === 'done') {
+              result = {
+                text: job.text,
+                toolUses: [],
+                stopReason: 'end_turn',
+                rawContent: job.text ? [{ type: 'text', text: job.text } as ClaudeContentBlock] : [],
+              };
+            } else {
+              result = {
+                text: job.text,
+                toolUses: job.toolUses,
+                stopReason: 'tool_use',
+                rawContent: job.rawContent,
+              };
+            }
+          } else {
+            result = await completeRaw({
+              system: systemBlocks,
+              attachProfile: false,
+              messages: working,
+              tools: filteredTools,
+              metadata,
+            });
+          }
 
           if (result.toolUses.length > 0) {
             working.push({ role: 'assistant', content: result.rawContent });

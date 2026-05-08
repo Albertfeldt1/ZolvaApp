@@ -220,7 +220,10 @@ export type NotificationPayload =
   | { type: 'factDecay'; factId: string }
   // Sent when a tenant admin grants Zolva consent. Tap routes the user back
   // to Settings so they can finally connect their work account.
-  | { type: 'microsoftConsentGranted'; tenantDomain: string };
+  | { type: 'microsoftConsentGranted'; tenantDomain: string }
+  // Sent when a backgrounded chat turn finishes. Tap reopens chat at the
+  // resolved job; the answer text lives on the chat_jobs row keyed by jobId.
+  | { type: 'chatReply'; jobId: string };
 
 export type FeedEntryType = NotificationPayload['type'];
 

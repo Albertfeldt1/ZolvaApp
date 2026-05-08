@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   Hourglass,
   Mail,
+  MessageCircle,
   Sun,
   Sunrise,
 } from 'lucide-react-native';
@@ -282,6 +283,8 @@ function iconFor(type: FeedEntry['type']) {
       return Hourglass;
     case 'microsoftConsentGranted':
       return CheckCircle2;
+    case 'chatReply':
+      return MessageCircle;
   }
 }
 

@@ -392,6 +392,14 @@ export default function App() {
           // they can finally tap "Connect Outlook" and proceed.
           setTab('settings');
           break;
+        case 'chatReply':
+          // Backgrounded chat turn finished. The default setChatOpen(false)
+          // above batches with this true into a single render, so the chat
+          // surface opens cleanly. useChat reconciles the resolved job on
+          // mount/foreground and renders the assistant message - no need
+          // to forward the jobId here.
+          setChatOpen(true);
+          break;
       }
     });
     return unsub;
@@ -547,6 +555,9 @@ export default function App() {
         break;
       case 'microsoftConsentGranted':
         setTab('settings');
+        break;
+      case 'chatReply':
+        setChatOpen(true);
         break;
     }
   };
