@@ -48,6 +48,7 @@ import { registerResponseHandler, syncOnAppForeground } from './src/lib/notifica
 import { initNotificationSettings } from './src/lib/notification-settings';
 import { initNotificationFeed, markFeedByPayload } from './src/lib/notification-feed';
 import type { InboxMail, NotificationPayload } from './src/lib/types';
+import { persistOnboardingState } from './src/lib/onboarding-persist';
 import { colors } from './src/theme';
 import { ThemeProvider } from './src/design/ThemeProvider';
 import { useAuth } from './src/lib/auth';
@@ -740,6 +741,7 @@ export default function App() {
           >
             {onboardingStage === 'v2-intro' && (
               <OnboardingFlowScreen
+                onOpenIcloudSetup={() => openIcloudSetup()}
                 onComplete={(collected) => {
                   if (__DEV__) {
                     console.log('[onboarding-flow] collected state:', JSON.stringify(collected, null, 2));
@@ -751,6 +753,16 @@ export default function App() {
                   // across logout so cold launches stay non-login-wall.
                   if (user?.id) void markV2OnboardingShown(user.id);
                   void markV2OnboardingShownDevice();
+                  // Persist the user's onboarding selections to integration
+                  // flags + work_preferences so Settings reflects them.
+                  // Without this they only lived in onboarding-local state
+                  // and the user had to re-toggle everything in Settings.
+                  if (user?.id) {
+                    void persistOnboardingState(user.id, {
+                      persona: collected.persona,
+                      connections: collected.connections,
+                    });
+                  }
                   // V2 flow finished — fall through to the existing
                   // backfill chain (provider-connect + extract + review)
                   // when the user is signed in, otherwise close the flow

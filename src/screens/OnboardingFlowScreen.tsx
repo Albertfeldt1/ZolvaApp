@@ -25,6 +25,7 @@ import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { useTheme } from '../design/useTheme';
 import { useAuth } from '../lib/auth';
+import { useIcloudConnected } from '../lib/hooks';
 import * as gmail from '../lib/gmail';
 import * as graph from '../lib/microsoft-graph';
 
@@ -83,6 +84,7 @@ function usePal() {
 const LOGOS = {
   gmail: require('../../assets/logos/gmail.png'),
   outlook: require('../../assets/logos/outlook-mail.png'),
+  icloud: require('../../assets/logos/apple.png'),
   gcal: require('../../assets/logos/google-calendar.png'),
   ocal: require('../../assets/logos/outlook-calendar.png'),
   gdrive: require('../../assets/logos/google-drive.png'),
@@ -952,6 +954,7 @@ function ScreenExpectation({ next }: { next: () => void }) {
 const ACTIVE_SOURCES: Array<{ id: LogoKey; name: string; detail: string }> = [
   { id: 'gmail',    name: 'Gmail',            detail: 'Læser tråde, foreslår svar, skriver udkast.' },
   { id: 'outlook',  name: 'Outlook',          detail: 'Læser tråde, foreslår svar, skriver udkast.' },
+  { id: 'icloud',   name: 'Apple Mail',       detail: 'Læser iCloud-mails via app-specific password.' },
   { id: 'gcal',     name: 'Google Calendar',  detail: 'Ser dine møder, foreslår tidspunkter, rydder op.' },
   { id: 'ocal',     name: 'Outlook Calendar', detail: 'Ser dine møder, foreslår tidspunkter, rydder op.' },
   { id: 'gdrive',   name: 'Google Drive',     detail: 'Åbner kun de filer du selv nævner i chat.' },
@@ -1082,15 +1085,29 @@ function ScreenTrust({
   state,
   setState,
   next,
+  onOpenIcloudSetup,
 }: {
   state: OnboardingState;
   setState: (u: (s: OnboardingState) => OnboardingState) => void;
   next: () => void;
+  onOpenIcloudSetup?: () => void;
 }) {
   const PAL = usePal();
   const { radius } = useTheme();
-  const { googleAccessToken, microsoftAccessToken, signInWithGoogle, signInWithMicrosoft } = useAuth();
+  const { user, googleAccessToken, microsoftAccessToken, signInWithGoogle, signInWithMicrosoft } = useAuth();
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Watch iCloud credential state. Setup happens in a sibling modal
+  // (IcloudSetupScreen) opened via onOpenIcloudSetup; once the credential
+  // lands the hook flips and we mirror the change into onboarding state
+  // so the toggle visibly turns ON without the user retapping.
+  const icloudConnected = useIcloudConnected(user?.id ?? '');
+  useEffect(() => {
+    if (!icloudConnected) return;
+    setState((s) => {
+      if (s.connections?.icloud === true) return s;
+      return { ...s, connections: { ...(s.connections ?? {}), icloud: true } };
+    });
+  }, [icloudConnected, setState]);
 
   const conn = state.connections;
 
@@ -1098,8 +1115,17 @@ function ScreenTrust({
     const isOn = !!conn[id];
     if (isOn) {
       // Turning off only clears local intent — we don't revoke the OAuth
-      // grant mid-onboarding. The user can fully disconnect from Settings.
+      // grant or iCloud credential mid-onboarding. The user can fully
+      // disconnect from Settings.
       setState((s) => ({ ...s, connections: { ...(s.connections ?? {}), [id]: false } }));
+      return;
+    }
+
+    // iCloud uses an app-specific password, not OAuth. Hand off to the
+    // sibling IcloudSetupScreen modal; the useIcloudConnected effect
+    // above flips the toggle on once the credential is saved.
+    if (id === 'icloud') {
+      onOpenIcloudSetup?.();
       return;
     }
 
@@ -1673,9 +1699,14 @@ function ProgressBar({ index, total }: { index: number; total: number }) {
 
 type Props = {
   onComplete: (state: OnboardingState) => void;
+  // Opens the iCloud app-specific-password setup modal. Plumbed from App.tsx
+  // because that's where IcloudSetupScreen lives - we render it as a sibling
+  // modal on top of the onboarding flow, and the post-setup "credential
+  // exists" signal comes back via useIcloudConnected.
+  onOpenIcloudSetup?: () => void;
 };
 
-export function OnboardingFlowScreen({ onComplete }: Props) {
+export function OnboardingFlowScreen({ onComplete, onOpenIcloudSetup }: Props) {
   const PAL = usePal();
   const { radius } = useTheme();
   const [index, setIndex] = useState(0);
@@ -1695,7 +1726,7 @@ export function OnboardingFlowScreen({ onComplete }: Props) {
     <ScreenVision          key="2" state={state} setState={setState} next={next} />,
     <ScreenPersonalisation key="3" state={state} setState={setState} next={next} />,
     <ScreenExpectation     key="4" next={next} />,
-    <ScreenTrust           key="5" state={state} setState={setState} next={next} />,
+    <ScreenTrust           key="5" state={state} setState={setState} next={next} onOpenIcloudSetup={onOpenIcloudSetup} />,
     <ScreenActivation      key="6" next={next} />,
   ];
 
