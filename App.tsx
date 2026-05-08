@@ -56,6 +56,8 @@ import {
   markMemoryConsentShown,
   shouldShowOnboardingBackfill,
   markOnboardingBackfillShown,
+  shouldShowV2Onboarding,
+  markV2OnboardingShown,
   useMemoryEnabled,
   shouldShowMsReconnectPrompt,
   markMsReconnectPromptShown,
@@ -165,9 +167,11 @@ export default function App() {
   const [chromeHeight, setChromeHeight] = useState(0);
   const [migrationsDone, setMigrationsDone] = useState(false);
   const [memoryConsentOpen, setMemoryConsentOpen] = useState(false);
-  // DEV: force V2 onboarding open on mount for visual iteration. Revert
-  // both initial values to `false` / `'v2-intro'` (default) before commit.
-  const [onboardingOpen, setOnboardingOpen] = useState(true);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  // 'v2-intro' is the default first-time stage; the trigger effect below
+  // opens V2 for new users, and the legacy chain ('intro' / 'progress' /
+  // 'review') is reached either via V2's onComplete or the Memory-tab
+  // "Genscan" rerun path.
   const [onboardingStage, setOnboardingStage] = useState<'v2-intro' | 'intro' | 'progress' | 'review'>('v2-intro');
   const [onboardingForceRerun, setOnboardingForceRerun] = useState(false);
   const [onboardingFailedJobs, setOnboardingFailedJobs] = useState<BackfillJob[]>([]);
@@ -180,28 +184,45 @@ export default function App() {
   const requestBriefOpen = (briefId?: string) =>
     setBriefOpenRequest((prev) => ({ nonce: prev.nonce + 1, briefId }));
 
-  // Tracks "we've decided whether the consent modal needs to show". The
-  // WhatsNew gate below blocks until this is true so we never present
-  // WhatsNew before the consent path is committed - iOS rejects two
-  // simultaneous Modal presentations and leaves a phantom modal that eats
-  // every touch on the screen behind it (manifests as a 'stale' screen).
-  const [consentResolved, setConsentResolved] = useState(false);
   // Suppress the consent modal while V2 onboarding is on-screen — otherwise
   // OAuth completing during step 6 (Trust) pops the modal over the flow and
   // the user gets bombarded before they reach step 7. After V2 finishes
   // (stage flips off 'v2-intro') the gate releases and consent re-evaluates.
+  // The inner `shouldShowV2Onboarding` check covers the race window after
+  // sign-in where the V2 trigger hasn't yet flipped onboardingOpen — without
+  // it, consent can pop before V2 has a chance to open.
   const inV2Onboarding = onboardingOpen && onboardingStage === 'v2-intro';
   useEffect(() => {
-    if (!user?.id) return;
+    const uid = user?.id;
+    if (!uid) return;
     if (inV2Onboarding) return;
     let cancelled = false;
-    void shouldShowMemoryConsent(user.id).then((show) => {
-      if (cancelled) return;
-      if (show) setMemoryConsentOpen(true);
-      setConsentResolved(true);
+    void shouldShowV2Onboarding(uid).then((v2Pending) => {
+      if (cancelled || v2Pending) return;
+      void shouldShowMemoryConsent(uid).then((show) => {
+        if (cancelled || !show) return;
+        setMemoryConsentOpen(true);
+      });
     });
     return () => { cancelled = true; };
   }, [user?.id, inV2Onboarding]);
+
+  // Open V2 onboarding for first-time signed-in users. Gates on its own
+  // shown-flag (separate from the backfill chain because V2 runs BEFORE
+  // memory consent, so it can't depend on memory-enabled). Doesn't gate
+  // on provider tokens — V2's Trust step is what gets them connected.
+  useEffect(() => {
+    const uid = user?.id;
+    if (!uid || isDemoUser(user) || authInitializing) return;
+    if (onboardingOpen) return;
+    let cancelled = false;
+    void shouldShowV2Onboarding(uid).then((show) => {
+      if (cancelled || !show) return;
+      setOnboardingStage('v2-intro');
+      setOnboardingOpen(true);
+    });
+    return () => { cancelled = true; };
+  }, [user?.id, user, authInitializing, onboardingOpen]);
 
   // Listen for explicit re-run triggers from MemoryScreen's "Genscan" button
   // and reopen the chain in force-rerun mode (Start passes force:true so the
@@ -701,6 +722,11 @@ export default function App() {
                   if (__DEV__) {
                     console.log('[onboarding-flow] collected state:', JSON.stringify(collected, null, 2));
                   }
+                  // Mark V2 shown the moment the user finishes the flow so
+                  // a mid-backfill app close doesn't replay the 7 steps on
+                  // next launch — they'll resume the legacy chain via the
+                  // Memory tab → Genscan path instead.
+                  if (user?.id) void markV2OnboardingShown(user.id);
                   // V2 flow finished — fall through to the existing
                   // backfill chain (provider-connect + extract + review).
                   // TODO: persist persona/vision/diagnose once storage is wired.

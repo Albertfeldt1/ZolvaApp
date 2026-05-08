@@ -4830,6 +4830,27 @@ export async function markOnboardingBackfillShown(uid: string): Promise<void> {
   } catch {}
 }
 
+// V2 onboarding (welcome / diagnose / vision / persona / expectation /
+// trust / activation) is one-shot per user. Stored under its own key
+// because — unlike the backfill chain — V2 runs BEFORE memory consent, so
+// it can't gate on `memory-enabled`.
+const v2OnboardingKey = (uid: string) => `zolva.${uid}.v2-onboarding.shown`;
+
+export async function shouldShowV2Onboarding(uid: string): Promise<boolean> {
+  try {
+    const raw = await AsyncStorage.getItem(v2OnboardingKey(uid));
+    return raw !== '1';
+  } catch {
+    return false;
+  }
+}
+
+export async function markV2OnboardingShown(uid: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(v2OnboardingKey(uid), '1');
+  } catch {}
+}
+
 // ─── What's-new modal helpers ──────────────────────────────────────────────
 //
 // One-shot per-user modal shown after an OTA with notable user-visible
