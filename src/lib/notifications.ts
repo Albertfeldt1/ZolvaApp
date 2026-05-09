@@ -96,64 +96,104 @@ export async function ensurePermission(): Promise<PermissionStatus> {
   return normalizeStatus(next.status);
 }
 
+// Track notification-request identifiers we've already dispatched so the
+// cold-start path (getLastNotificationResponseAsync) and the live listener
+// don't fire onTap twice for the same tap. Module-level so it survives
+// re-mounts within a single JS VM session - which is what we want, the
+// risk we're guarding against is delivering ONE notification's payload
+// twice to the same router.
+const dispatchedNotificationIds = new Set<string>();
+
+function dispatchPayload(
+  response: Notifications.NotificationResponse,
+  onTap: (payload: NotificationPayload) => void,
+): void {
+  const id = response.notification.request.identifier;
+  if (dispatchedNotificationIds.has(id)) return;
+  dispatchedNotificationIds.add(id);
+  // Cap the set so it can't grow unbounded across long sessions. 200 is
+  // way more than any user will ever bank in a single session.
+  if (dispatchedNotificationIds.size > 200) {
+    const first = dispatchedNotificationIds.values().next().value;
+    if (first !== undefined) dispatchedNotificationIds.delete(first);
+  }
+
+  const data = response.notification.request.content.data as unknown;
+  if (!data || typeof data !== 'object') return;
+  const payload = data as Partial<NotificationPayload> & { type?: string };
+  if (payload.type === 'reminder' && typeof (payload as { reminderId?: unknown }).reminderId === 'string') {
+    onTap({ type: 'reminder', reminderId: (payload as { reminderId: string }).reminderId });
+  } else if (payload.type === 'digest' && typeof (payload as { date?: unknown }).date === 'string') {
+    onTap({ type: 'digest', date: (payload as { date: string }).date });
+  } else if (
+    payload.type === 'calendarPreAlert' &&
+    typeof (payload as { eventId?: unknown }).eventId === 'string'
+  ) {
+    onTap({ type: 'calendarPreAlert', eventId: (payload as { eventId: string }).eventId });
+  } else if (payload.type === 'newMail') {
+    const p = payload as {
+      provider?: unknown;
+      messageId?: unknown;
+      threadId?: unknown;
+    };
+    if (
+      (p.provider === 'google' || p.provider === 'microsoft') &&
+      typeof p.messageId === 'string'
+    ) {
+      onTap({
+        type: 'newMail',
+        provider: p.provider,
+        messageId: p.messageId,
+        threadId: typeof p.threadId === 'string' ? p.threadId : undefined,
+      });
+    }
+  } else if (
+    payload.type === 'brief' &&
+    typeof (payload as { briefId?: unknown }).briefId === 'string'
+  ) {
+    onTap({ type: 'brief', briefId: (payload as { briefId: string }).briefId });
+  } else if (
+    payload.type === 'factDecay' &&
+    typeof (payload as { factId?: unknown }).factId === 'string'
+  ) {
+    onTap({ type: 'factDecay', factId: (payload as { factId: string }).factId });
+  } else if (
+    payload.type === 'microsoftConsentGranted' &&
+    typeof (payload as { tenantDomain?: unknown }).tenantDomain === 'string'
+  ) {
+    onTap({
+      type: 'microsoftConsentGranted',
+      tenantDomain: (payload as { tenantDomain: string }).tenantDomain,
+    });
+  } else if (
+    payload.type === 'chatReply' &&
+    typeof (payload as { jobId?: unknown }).jobId === 'string'
+  ) {
+    onTap({ type: 'chatReply', jobId: (payload as { jobId: string }).jobId });
+  }
+}
+
 export function registerResponseHandler(
   onTap: (payload: NotificationPayload) => void,
 ): () => void {
   const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-    const data = response.notification.request.content.data as unknown;
-    if (!data || typeof data !== 'object') return;
-    const payload = data as Partial<NotificationPayload> & { type?: string };
-    if (payload.type === 'reminder' && typeof (payload as { reminderId?: unknown }).reminderId === 'string') {
-      onTap({ type: 'reminder', reminderId: (payload as { reminderId: string }).reminderId });
-    } else if (payload.type === 'digest' && typeof (payload as { date?: unknown }).date === 'string') {
-      onTap({ type: 'digest', date: (payload as { date: string }).date });
-    } else if (
-      payload.type === 'calendarPreAlert' &&
-      typeof (payload as { eventId?: unknown }).eventId === 'string'
-    ) {
-      onTap({ type: 'calendarPreAlert', eventId: (payload as { eventId: string }).eventId });
-    } else if (payload.type === 'newMail') {
-      const p = payload as {
-        provider?: unknown;
-        messageId?: unknown;
-        threadId?: unknown;
-      };
-      if (
-        (p.provider === 'google' || p.provider === 'microsoft') &&
-        typeof p.messageId === 'string'
-      ) {
-        onTap({
-          type: 'newMail',
-          provider: p.provider,
-          messageId: p.messageId,
-          threadId: typeof p.threadId === 'string' ? p.threadId : undefined,
-        });
-      }
-    } else if (
-      payload.type === 'brief' &&
-      typeof (payload as { briefId?: unknown }).briefId === 'string'
-    ) {
-      onTap({ type: 'brief', briefId: (payload as { briefId: string }).briefId });
-    } else if (
-      payload.type === 'factDecay' &&
-      typeof (payload as { factId?: unknown }).factId === 'string'
-    ) {
-      onTap({ type: 'factDecay', factId: (payload as { factId: string }).factId });
-    } else if (
-      payload.type === 'microsoftConsentGranted' &&
-      typeof (payload as { tenantDomain?: unknown }).tenantDomain === 'string'
-    ) {
-      onTap({
-        type: 'microsoftConsentGranted',
-        tenantDomain: (payload as { tenantDomain: string }).tenantDomain,
-      });
-    } else if (
-      payload.type === 'chatReply' &&
-      typeof (payload as { jobId?: unknown }).jobId === 'string'
-    ) {
-      onTap({ type: 'chatReply', jobId: (payload as { jobId: string }).jobId });
-    }
+    dispatchPayload(response, onTap);
   });
+  // Cold-start safety net: when the user taps a notification while the app
+  // is fully killed, iOS launches the JS VM and the response is queued.
+  // The live listener above MAY fire for that initial response, but in
+  // practice (production builds, slow boot, multiple state transitions)
+  // it sometimes doesn't - the response gets consumed by the system
+  // before the listener attaches. getLastNotificationResponseAsync returns
+  // that initial response explicitly. The dispatchedNotificationIds set
+  // dedupes against the listener so we don't fire onTap twice.
+  void Notifications.getLastNotificationResponseAsync()
+    .then((response) => {
+      if (response) dispatchPayload(response, onTap);
+    })
+    .catch((err) => {
+      if (__DEV__) console.warn('[notifications] getLast failed:', err);
+    });
   return () => sub.remove();
 }
 

@@ -32,6 +32,7 @@ import {
 import {
   acknowledgeChatJob,
   fetchUnacknowledgedDoneJobs,
+  finalizeChatJob,
   submitChatJob,
 } from './chat-jobs';
 import { buildProfilePreamble } from './profile';
@@ -4693,7 +4694,14 @@ export function useChat() {
       const metadata =
         getPrivacyFlag('training-opt-in') && userId ? { user_id: userId } : undefined;
 
-      const runTurn = async (): Promise<string> => {
+      // runTurn signals whether a round-0 needs_tools job needs to be
+      // finalised after the local tool loop. Pass 1 left the chat_jobs
+      // row stuck at status=needs_tools when tools were used; Pass 1.5
+      // (this) closes that row out via chat-finalize so the push fires
+      // and the foreground reconciler treats it as resolved.
+      type TurnResult = { text: string; finalizeJobId: string | null };
+      const runTurn = async (): Promise<TurnResult> => {
+        let pendingFinalizeJobId: string | null = null;
         const hasGoogle = !!googleAccessToken;
         const hasMicrosoft = !!microsoftAccessToken;
         // Read the live flag cache, not a closure snapshot, so toggles made
@@ -4768,6 +4776,12 @@ export function useChat() {
                 rawContent: job.text ? [{ type: 'text', text: job.text } as ClaudeContentBlock] : [],
               };
             } else {
+              // needs_tools - server only ran round 0; the local loop will
+              // finish this turn. Capture the job id so the outer .then()
+              // can finalize the row + push when the local loop completes
+              // (within iOS background grace, the user gets a tray banner
+              // for "what's in my mail?" type questions).
+              pendingFinalizeJobId = job.jobId;
               result = {
                 text: job.text,
                 toolUses: job.toolUses,
@@ -4818,19 +4832,25 @@ export function useChat() {
             // outer wrapper and trips CHAT_ERROR_TEXT, which makes a
             // successful save look like a failure. Fall back to a brief
             // acknowledgement so the user sees confirmation either way.
-            return text.length > 0 ? text : 'Klaret.';
+            const finalText = text.length > 0 ? text : 'Klaret.';
+            return { text: finalText, finalizeJobId: pendingFinalizeJobId };
           }
 
           const claim = await classifyClaim(text);
           if (!claim.claimed) {
-            return text;
+            return { text, finalizeJobId: pendingFinalizeJobId };
           }
 
           if (correctionAttempted) {
             if (__DEV__ && getPrivacyFlag('anon-reports')) {
               console.warn(`${CHAT_GUARD_DEBUG_TAG} correction failed, falling back`);
             }
-            return GENERIC_CONFUSED_FALLBACK;
+            // Fallback path - don't finalize the chat_jobs row; leaving
+            // it at needs_tools means the foreground reconciler ignores
+            // it (status=done is the only entry point), and no push goes
+            // out with confused-fallback copy. Local UI shows the
+            // fallback as today; that's the best we can do.
+            return { text: GENERIC_CONFUSED_FALLBACK, finalizeJobId: null };
           }
 
           if (__DEV__ && getPrivacyFlag('anon-reports')) {
@@ -4844,11 +4864,11 @@ export function useChat() {
           working.push({ role: 'user', content: buildCorrectionMessage(claim.tool) });
         }
 
-        return GENERIC_CONFUSED_FALLBACK;
+        return { text: GENERIC_CONFUSED_FALLBACK, finalizeJobId: null };
       };
 
       runTurn()
-        .then((answer) => {
+        .then(({ text: answer, finalizeJobId }) => {
           const assistantMsg: ChatMessage = {
             id: `a-${Date.now()}`,
             from: 'zolva',
@@ -4864,6 +4884,12 @@ export function useChat() {
               text: `Bruger: ${trimmed}\nZolva: ${assistantMsg.text}`,
               source: `chat:${assistantMsg.id}`,
             });
+          }
+          // Pass 1.5 finalize: if round 0 returned needs_tools and the
+          // local tool loop produced a real answer, mark the chat_jobs
+          // row done + push so backgrounded users get a tray banner.
+          if (finalizeJobId && answer.length > 0) {
+            void finalizeChatJob(finalizeJobId, assistantMsg.text, trimmed);
           }
         })
         .catch((err: Error) => {

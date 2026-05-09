@@ -42,11 +42,23 @@ export function SwipeableMailRow({ onArchive, onDelete, children }: Props) {
   const panResponder = useMemo(
     () =>
       PanResponder.create({
-        // Claim the gesture only when horizontal motion clearly dominates.
-        // Otherwise the parent ScrollView keeps vertical scroll.
+        // Claim the gesture as soon as horizontal motion exceeds a small
+        // threshold and is at all dominant. Earlier copy used a 1.5x
+        // ratio + 10px gate which felt unstable - especially the left-
+        // swipe-to-delete - because beta testers rarely produce a clean
+        // straight horizontal drag. 1.1x + 6px lets a slightly diagonal
+        // pull commit while still letting a vertical-dominant flick pass
+        // through to the parent ScrollView.
         onMoveShouldSetPanResponder: (_, g) => {
-          return Math.abs(g.dx) > 10 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5;
+          return Math.abs(g.dx) > 6 && Math.abs(g.dx) > Math.abs(g.dy) * 1.1;
         },
+        // Don't surrender the gesture mid-swipe. The parent ScrollView
+        // sometimes asks for termination once the user's finger moves
+        // even slightly vertical during a horizontal drag, which made
+        // releases feel like they "stuck" or got eaten. Holding the
+        // claim until our own release handler runs makes the swipe feel
+        // continuous.
+        onPanResponderTerminationRequest: () => false,
         onPanResponderGrant: () => {
           translateX.stopAnimation();
         },
