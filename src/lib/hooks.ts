@@ -2206,12 +2206,18 @@ export function useInboxWaiting(): InboxWaitingResult {
     aiDraft: drafts[m.id] ?? null,
     tier: urgencyTier(m),
   }));
-  // Læst includes server-marked read mails AND mails the user has just
-  // replied to in this session (locally tracked) - without the second
-  // clause, replied-to Gmail/iCloud mails would vanish entirely (we have
-  // no scope to set the read flag server-side for those providers).
+  // Læst is the "done with this" pile: server-marked read mails, mails
+  // the user just replied to in this session (locally tracked - without
+  // this, replied-to Gmail/iCloud mails would vanish since we have no
+  // scope to set their read flag server-side), AND mails the user has
+  // archived in Zolva (locally dismissed). The previous filter excluded
+  // dismissed entirely, so swipe-archived mails disappeared from the
+  // inbox screen and only existed inside the standalone Arkiv modal -
+  // confusing because users expect "I archived it" to show up
+  // immediately in a visible "done" section, not require digging into
+  // a separate surface.
   const read: InboxMail[] = items
-    .filter((m) => !dismissed.has(m.id) && (m.isRead || replied.has(m.id)))
+    .filter((m) => m.isRead || replied.has(m.id) || dismissed.has(m.id))
     .map((m, i) => ({
       id: m.id,
       provider: m.provider,

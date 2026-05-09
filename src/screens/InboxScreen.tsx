@@ -443,7 +443,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
                   })}
                   {newslettersOpen && (
                     <View style={{ gap: spacing.sm }}>
-                      {sections.tier2.map((m) => renderRow(m, true))}
+                      {sections.tier2.map((m) => renderRow(m, false))}
                     </View>
                   )}
                 </View>
@@ -457,7 +457,7 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
                   })}
                   {autoMailsOpen && (
                     <View style={{ gap: spacing.sm }}>
-                      {sections.tier3.map((m) => renderRow(m, true))}
+                      {sections.tier3.map((m) => renderRow(m, false))}
                     </View>
                   )}
                 </View>
