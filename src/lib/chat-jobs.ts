@@ -30,6 +30,7 @@ import { rememberChatJobAcknowledged } from './notifications';
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const SUPABASE_ANON = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 const CHAT_RUN_URL = `${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/chat-run`;
+const CHAT_FINALIZE_URL = `${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/chat-finalize`;
 
 export type ChatJobStatus = 'running' | 'done' | 'needs_tools' | 'error';
 
@@ -218,5 +219,38 @@ export async function fetchUnacknowledgedDoneJobs(userId: string): Promise<Pendi
   } catch (err) {
     if (__DEV__) console.warn('[chat-jobs] reconcile threw:', err);
     return [];
+  }
+}
+
+// After the client-side tool loop produces the final answer for a turn
+// that started as needs_tools, call this to mark the chat_jobs row done
+// and fire the push (so users who backgrounded mid-loop within iOS's
+// ~30s grace get a tray banner when the answer lands). Best-effort; the
+// caller has already updated local UI before this runs.
+export async function finalizeChatJob(
+  jobId: string,
+  finalText: string,
+  userPreview?: string,
+): Promise<void> {
+  if (!SUPABASE_URL || !SUPABASE_ANON) return;
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) return;
+    const res = await fetch(CHAT_FINALIZE_URL, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${accessToken}`,
+        apikey: SUPABASE_ANON,
+      },
+      body: JSON.stringify({ jobId, finalText, userPreview }),
+    });
+    if (!res.ok && __DEV__) {
+      const detail = await res.text().catch(() => '<unreadable>');
+      console.warn('[chat-jobs] finalize non-2xx:', res.status, detail);
+    }
+  } catch (err) {
+    if (__DEV__) console.warn('[chat-jobs] finalize threw:', err);
   }
 }

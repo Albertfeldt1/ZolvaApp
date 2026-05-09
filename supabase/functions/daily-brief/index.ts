@@ -223,7 +223,15 @@ async function generateOneBrief(
     })
     .select('id')
     .single();
-  if (insertErr || !inserted) return 'insert-failed';
+  if (insertErr) {
+    // 23505 = unique_violation on briefs_user_kind_local_date_unique. A
+    // concurrent invocation already wrote the brief and pushed; we
+    // silently bail so the user only sees one push. This is the race
+    // 20260509100000_briefs_dedupe_constraint.sql exists to neutralise.
+    if ((insertErr as { code?: string }).code === '23505') return 'race-loss';
+    return 'insert-failed';
+  }
+  if (!inserted) return 'insert-failed';
 
   await sendPush(
     client,

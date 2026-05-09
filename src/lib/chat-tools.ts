@@ -217,11 +217,37 @@ export async function listCalendarsAcrossProviders(
   return { text: [header, '', blocks.join('\n\n'), '', footer].join('\n'), isError: false };
 }
 
+// Format a Date in the device's local timezone as "YYYY-MM-DDTHH:mm". The
+// model used to receive UTC ISO strings (toISOString = ...Z) and read the
+// raw hours, telling users their 20:00 vagt ended at 18:00 because the
+// digits "18" are what got sent. sv-SE locale gives ISO-shaped output;
+// no timezone option means the runtime's local zone is used (which on the
+// device is the user's actual zone). The trailing seconds are trimmed.
+function formatLocalDateTime(d: Date): string {
+  const parts = new Intl.DateTimeFormat('sv-SE', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(d);
+  return parts.replace(' ', 'T');
+}
+
 function formatGoogleEvent(e: GoogleEventWithCalendar): string {
-  const start = e.start.dateTime ?? e.start.date ?? '';
-  const end = e.end.dateTime ?? e.end.date ?? '';
   const allDay = !e.start.dateTime && !!e.start.date;
-  const range = allDay ? `${start} (hele dagen)` : `${start} → ${end}`;
+  let range: string;
+  if (allDay) {
+    range = `${e.start.date ?? ''} (hele dagen)`;
+  } else {
+    // Google's dateTime carries an offset (e.g. "+02:00") so new Date()
+    // gives the correct instant; formatting in local zone matches what the
+    // user sees in the calendar tab.
+    const startD = e.start.dateTime ? new Date(e.start.dateTime) : null;
+    const endD = e.end.dateTime ? new Date(e.end.dateTime) : null;
+    range = `${startD ? formatLocalDateTime(startD) : ''} → ${endD ? formatLocalDateTime(endD) : ''}`;
+  }
   const attendees = e.attendees ?? [];
   const meta: string[] = [];
   if (e.calendarName) meta.push(`kalender: ${e.calendarName}`);
@@ -232,8 +258,8 @@ function formatGoogleEvent(e: GoogleEventWithCalendar): string {
 
 function formatGraphEvent(e: GraphCalendarEvent): string {
   const range = e.isAllDay
-    ? `${e.start.toISOString()} (hele dagen)`
-    : `${e.start.toISOString()} → ${e.end.toISOString()}`;
+    ? `${formatLocalDateTime(e.start)} (hele dagen)`
+    : `${formatLocalDateTime(e.start)} → ${formatLocalDateTime(e.end)}`;
   const meta: string[] = [];
   if (e.location) meta.push(`sted: ${e.location}`);
   if (e.attendeeList.length > 0) meta.push(`deltagere: ${e.attendeeList.length}`);
@@ -242,8 +268,8 @@ function formatGraphEvent(e: GraphCalendarEvent): string {
 
 function formatIcloudEvent(e: IcloudCalEvent): string {
   const range = e.allDay
-    ? `${e.start.toISOString()} (hele dagen)`
-    : `${e.start.toISOString()} → ${e.end.toISOString()}`;
+    ? `${formatLocalDateTime(e.start)} (hele dagen)`
+    : `${formatLocalDateTime(e.start)} → ${formatLocalDateTime(e.end)}`;
   const meta: string[] = [];
   if (e.location) meta.push(`sted: ${e.location}`);
   if (e.calendarName) meta.push(`kalender: ${e.calendarName}`);
