@@ -210,7 +210,9 @@ function buildGoogleEventBody(input: GoogleEventInput): Record<string, unknown> 
   return body;
 }
 
-export async function createEvent(input: GoogleEventInput): Promise<{ id: string }> {
+export async function createEvent(
+  input: GoogleEventInput,
+): Promise<{ id: string; calendarId: string }> {
   return tryWithRefresh('google', async (accessToken) => {
     // sendUpdates=all so attendees actually receive the invitation. With no
     // attendees this is a no-op - Google ignores the param.
@@ -231,13 +233,18 @@ export async function createEvent(input: GoogleEventInput): Promise<{ id: string
       throw new Error(`Google Calendar create failed: ${res.status} ${await res.text()}`);
     }
     const data = (await res.json()) as { id: string };
-    return { id: data.id };
+    // Return the calendarId we wrote into so callers can persist it on the
+    // unified ID; without it, update/delete have no way to address events
+    // in non-primary calendars (Google's REST API requires the containing
+    // calendar in the path - the event id alone is not addressable).
+    return { id: data.id, calendarId };
   });
 }
 
 export async function updateEvent(
   id: string,
   input: Partial<GoogleEventInput>,
+  calendarId: string = 'primary',
 ): Promise<void> {
   return tryWithRefresh('google', async (accessToken) => {
     // PATCH accepts a partial body. Forward only the fields the caller sent;
@@ -256,7 +263,9 @@ export async function updateEvent(
         displayName: a.name,
       }));
     }
-    const url = `${BASE}/calendars/primary/events/${encodeURIComponent(id)}?sendUpdates=all`;
+    const url =
+      `${BASE}/calendars/${encodeURIComponent(calendarId)}/events/` +
+      `${encodeURIComponent(id)}?sendUpdates=all`;
     const res = await fetchWithTimeout('google', url, {
       method: 'PATCH',
       headers: {
@@ -274,9 +283,14 @@ export async function updateEvent(
   });
 }
 
-export async function deleteEvent(id: string): Promise<void> {
+export async function deleteEvent(
+  id: string,
+  calendarId: string = 'primary',
+): Promise<void> {
   return tryWithRefresh('google', async (accessToken) => {
-    const url = `${BASE}/calendars/primary/events/${encodeURIComponent(id)}?sendUpdates=all`;
+    const url =
+      `${BASE}/calendars/${encodeURIComponent(calendarId)}/events/` +
+      `${encodeURIComponent(id)}?sendUpdates=all`;
     const res = await fetchWithTimeout('google', url, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${accessToken}` },

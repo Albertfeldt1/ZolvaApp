@@ -253,7 +253,24 @@ function formatGoogleEvent(e: GoogleEventWithCalendar): string {
   if (e.calendarName) meta.push(`kalender: ${e.calendarName}`);
   if (e.location) meta.push(`sted: ${e.location}`);
   if (attendees.length > 0) meta.push(`deltagere: ${attendees.length}`);
-  return `[google:${e.id}] ${range} - ${e.summary ?? 'Uden titel'}${meta.length ? ` (${meta.join(', ')})` : ''}`;
+  // Encode calendarId in the unified ID so update/delete can address the
+  // event in its containing calendar. Google's REST API requires the
+  // calendar in the URL path - the event id alone is not addressable, so
+  // a sub-calendar event would 404 on delete if we only passed the id.
+  // Format: google:<calendarId>::<eventId>. Falls back to "primary" only
+  // if calendarId is missing on the event (shouldn't happen with the
+  // fan-out path, but keeps the formatter safe).
+  const calId = e.calendarId ?? 'primary';
+  return `[google:${calId}::${e.id}] ${range} - ${e.summary ?? 'Uden titel'}${meta.length ? ` (${meta.join(', ')})` : ''}`;
+}
+
+// Parse the rest of a "google:..." unified ID into calendarId + eventId.
+// New format: "<calendarId>::<eventId>". Legacy format: "<eventId>" only,
+// which we treat as "primary" so old chat-history IDs still resolve.
+function parseGoogleUnifiedRest(rest: string): { calendarId: string; eventId: string } {
+  const sep = rest.indexOf('::');
+  if (sep < 0) return { calendarId: 'primary', eventId: rest };
+  return { calendarId: rest.slice(0, sep), eventId: rest.slice(sep + 2) };
 }
 
 function formatGraphEvent(e: GraphCalendarEvent): string {
@@ -740,7 +757,10 @@ export async function createCalendarEvent(
     if (!ctx.googleCalendar) return { text: 'Google Kalender ikke forbundet.', isError: true };
     try {
       const r = await createGoogleEvent(toGoogleInput(resolvedInput));
-      return { text: `Oprettet [google:${r.id}] "${resolvedInput.title}" ${rangeText(resolvedInput)}.`, isError: false };
+      return {
+        text: `Oprettet [google:${r.calendarId}::${r.id}] "${resolvedInput.title}" ${rangeText(resolvedInput)}.`,
+        isError: false,
+      };
     } catch (err) {
       const calId = resolvedInput.calendarId ?? 'primary';
       // Use a longer truncation than short() so the model sees Google's
@@ -788,9 +808,10 @@ export async function updateCalendarEvent(
 
   if (source === 'google') {
     if (!ctx.googleCalendar) return { text: 'Google Kalender ikke forbundet.', isError: true };
+    const { calendarId, eventId } = parseGoogleUnifiedRest(id);
     try {
-      await updateGoogleEvent(id, toGooglePartial(patch));
-      return { text: `Opdateret [google:${id}].`, isError: false };
+      await updateGoogleEvent(eventId, toGooglePartial(patch), calendarId);
+      return { text: `Opdateret [google:${calendarId}::${eventId}].`, isError: false };
     } catch (err) {
       return { text: `Google Kalender afviste opdateringen: ${short(err)}`, isError: true };
     }
@@ -838,9 +859,10 @@ export async function deleteCalendarEvent(
 
   if (source === 'google') {
     if (!ctx.googleCalendar) return { text: 'Google Kalender ikke forbundet.', isError: true };
+    const { calendarId, eventId } = parseGoogleUnifiedRest(id);
     try {
-      await deleteGoogleEvent(id);
-      return { text: `Slettet [google:${id}].`, isError: false };
+      await deleteGoogleEvent(eventId, calendarId);
+      return { text: `Slettet [google:${calendarId}::${eventId}].`, isError: false };
     } catch (err) {
       return { text: `Google Kalender afviste sletningen: ${short(err)}`, isError: true };
     }

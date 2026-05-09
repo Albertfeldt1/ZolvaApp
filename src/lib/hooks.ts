@@ -3466,6 +3466,20 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       'Begivenheder er taggede med kalendernavn i parentes når de kommer fra en sub-kalender. ' +
       'Hvis en kilde mislykkedes, står det i fodlinjen - nævn det kun for brugeren hvis ' +
       'det er relevant for svaret.',
+    'TOM LISTE = UDVID VINDUET, IKKE OPGIV: Hvis du leder efter en specifik begivenhed ' +
+      '(fx for at slette/opdatere) og list_calendar_events returnerer "Ingen begivenheder ' +
+      'i tidsrummet", så er den FØRSTE handling at kalde igen med et bredere `from`/`to` ' +
+      '(fx ±2 dage rundt om dit gæt) FØR du fortæller brugeren at begivenheden ikke ' +
+      'findes. "I morgen" kan have skiftet betydning siden begivenheden blev oprettet, ' +
+      'eller brugeren kan have ment en anden dag. Sig ALDRIG "jeg kan ikke finde det - ' +
+      'det er nok allerede slettet" efter et enkelt smalt opslag.',
+    'VÆRKTØJSFEJL ≠ INDSTILLINGSRÅD: Hvis et kalender- eller mail-værktøj returnerer en ' +
+      'fejl ("Mislykkedes: google=...", "afvist", auth-fejl osv.), så fortæl brugeren ' +
+      'PRÆCIST hvad fejlen var ("Google Kalender svarede ikke - prøv igen om lidt") og ' +
+      'INTET andet. Find ALDRIG på selvopfundne reparationsråd som "prøv at slå ' +
+      'integrationen til under Indstillinger", "tjek din forbindelse" eller "log ind ' +
+      'igen", medmindre fejlteksten konkret nævner det. Forbindelsesproblemer har deres ' +
+      'eget banner i appen - du behøver ikke at duplikere eller gætte den slags vejledning.',
     'Når brugeren spørger "hvilke kalendere har jeg?" eller henviser til en specifik ' +
       'kalender ved navn ("læg det i Family", "i min Arbejde-kalender"), brug list_calendars ' +
       'for at hente listen. Sig ALDRIG "jeg kan ikke se dine kalendere" uden først at have ' +
