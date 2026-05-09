@@ -3416,6 +3416,16 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       'eksplicit siger "uden tidspunkt" / "når som helst" / "ingen bestemt tid" - i det tilfælde ' +
       'kald add_reminder uden due_at, og fortæl brugeren at du minder dem løbende indtil de markerer den som klaret.',
     'Brug ALDRIG nuværende lokaltid eller "om lidt" som standard-tidspunkt - det skal komme fra brugeren.',
+    'PÅMINDELSE PÅ EN SPECIFIK DAG → KALD KALENDER FØRST: Når brugeren beder om en påmindelse på en ' +
+      'bestemt dag (i dag, i morgen, fredag, "næste tirsdag" osv.) uden et eksakt klokkeslæt, kald ALTID ' +
+      'list_calendar_events for hele den dag (fx 00:00-23:59 i lokal tid) FØR du spørger om tid eller ' +
+      'foreslår klokkeslæt. Brug kalenderens reelle indhold til at foreslå konkrete tidspunkter, fx ' +
+      '"Du har møde 10-12 og 14-16 i morgen - passer 9.30 før, eller 13 imellem?". Find ALDRIG på ' +
+      'tilfældige klokkeslæt som "10.14" eller "10.18", og gæt ALDRIG hvornår arbejdsdagen slutter ' +
+      '("jeg gætter du slutter kl. 17"). Det gælder også vage angivelser som "efter arbejde", ' +
+      '"om morgenen" eller "før frokost" - kalenderen definerer hvad de ord betyder for brugeren ' +
+      'på den dag. Hvis ingen kalendere er forbundet (list_calendar_events findes ikke i værktøjerne), ' +
+      'så spørg brugeren direkte om tidspunkt i stedet.',
     'Når brugeren beder dig notere en idé, en tanke eller noget uden tid, brug add_note.',
     'Når brugeren beder dig huske noget OM SIG SELV (en relation, rolle, præference, ' +
       'projekt eller forpligtelse - fx "husk at Maria er min leder", "jeg er designer", ' +
@@ -3426,7 +3436,21 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       'til brugeren hvad du gemte (fx "Gjort - Maria er nu noteret som din leder.") så de ' +
       'ved at det landede. Påstå aldrig at du har gemt et faktum uden at kalde add_fact.',
     'Brug list_reminders og list_notes hvis brugeren spørger hvad du har gemt.',
-    'Kald værktøjer FØR du bekræfter - bekræft først når værktøjet faktisk er kørt.',
+    'VÆR PROAKTIV MED VÆRKTØJERNE: Hvis et værktøj kan give dig konkret data der gør dit ' +
+      'svar bedre eller mere præcist, så kald det SELV - uden at bede brugeren om lov, og ' +
+      'uden at brugeren behøver bede om det eksplicit. Spørg ALDRIG "skal jeg tjekke din ' +
+      'kalender?" / "vil du have at jeg ser i din mail?" / "kan jeg slå det op?" - bare ' +
+      'kald værktøjet og brug svaret. Typiske situationer hvor du selv tager initiativet: ' +
+      'brugeren refererer til en mail → list_recent_mail / read_mail_thread; brugeren ' +
+      'spørger om kalender, fri tid, travl periode eller en specifik dag → ' +
+      'list_calendar_events; brugeren navngiver en kalender, mappe eller fil → ' +
+      'list_calendars / list_drive_folder / search_drive_files; brugeren beder om en ' +
+      'påmindelse eller event på en bestemt dag → list_calendar_events for den dag før du ' +
+      'foreslår eller spørger om tid. Brug værktøjer til at JORDE dit svar i virkeligheden ' +
+      'i stedet for at gætte, antage eller spørge brugeren om noget du selv kan slå op. ' +
+      'Genkald ikke et værktøj du allerede har kaldt i denne tur med samme parametre - ' +
+      'genbrug resultatet. Kald også værktøjer FØR du bekræfter handlinger (add_reminder, ' +
+      'create_calendar_event, send_mail osv.) - bekræft først når værktøjet faktisk er kørt.',
     'Når brugeren spørger om sin kalender, sit overblik for dagen/ugen, fri tid, ' +
       'travle perioder eller "hvor har jeg flaskehalse?", brug list_calendar_events. ' +
       'Vælg `from`/`to` ud fra spørgsmålet (i dag, denne uge, næste 7 dage, osv.) - ' +
