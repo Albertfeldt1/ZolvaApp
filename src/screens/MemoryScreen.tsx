@@ -106,10 +106,27 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
 
   const toggleMemory = async () => {
     const next = !memoryEnabled;
+    // Optimistic local flip first so the toggle feels instant.
     await setPrivacyFlag('memory-enabled', next);
-    if (userId) syncMemoryEnabled(userId, next);
-    if (next && userId) void migrateLocalChatIfNeeded(userId);
     setPrivacyVersion((v) => v + 1);
+    if (next && userId) void migrateLocalChatIfNeeded(userId);
+    if (!userId) return;
+    // Mirror to the server; on failure we MUST revert local state, else
+    // AsyncStorage diverges from user_profiles.memory_enabled and the user
+    // ends up either silently opted in (cron uses facts despite local
+    // OFF) or silently opted out (cron skips despite local ON). Both are
+    // privacy bugs, just in opposite directions.
+    try {
+      await syncMemoryEnabled(userId, next);
+    } catch (err) {
+      if (__DEV__) console.warn('[MemoryScreen] memory_enabled sync failed:', err);
+      await setPrivacyFlag('memory-enabled', !next);
+      setPrivacyVersion((v) => v + 1);
+      Alert.alert(
+        'Kunne ikke gemme indstillingen',
+        'Tjek din forbindelse og prøv igen.',
+      );
+    }
   };
 
   const deleteFactAndRefresh = async (id: string) => {

@@ -66,6 +66,7 @@ import {
   shouldShowV2OnboardingDevice,
   markV2OnboardingShownDevice,
   useMemoryEnabled,
+  refreshMemoryEnabledFromServer,
   shouldShowMsReconnectPrompt,
   markMsReconnectPromptShown,
   useStyleSummaryRefresh,
@@ -332,6 +333,10 @@ export default function App() {
   useEffect(() => {
     if (!user?.id || isDemoUser(user)) return;
     syncUserProfile(user.id);
+    // Pull the server-side memory_enabled gate so this device converges
+    // to whatever was last set on any device. Rate-limited internally,
+    // safe to call eagerly on every auth resolve.
+    void refreshMemoryEnabledFromServer();
   }, [user?.id]);
 
   // Gate render on migrations. Screens read legacy AsyncStorage keys during
@@ -362,6 +367,9 @@ export default function App() {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         runSync();
+        // Re-pull the server-side memory_enabled gate; internal 5-min
+        // throttle bounds chattiness from frequent foreground bounces.
+        void refreshMemoryEnabledFromServer();
         // Refresh widget on foreground (debounced inside writeSnapshot)
         void writeSnapshotFromSources({});
       }
