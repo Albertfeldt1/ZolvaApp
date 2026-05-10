@@ -62,6 +62,7 @@ import { useAuth } from '../lib/auth';
 import {
   useCalendarLabels,
   useConnections,
+  useMicrosoftLinked,
   usePrivacyToggles,
   useSubscription,
   useUser,
@@ -1405,7 +1406,7 @@ export function SettingsScreen({
   // → unlinkIdentity trap (auth.ts:647-651). Use linkage everywhere
   // we need to know "does the user have this provider connected".
   const googleLinked = !!authUser?.identities?.some((i) => i.provider === 'google');
-  const microsoftLinked = !!authUser?.identities?.some((i) => i.provider === 'azure');
+  const microsoftLinked = useMicrosoftLinked(authUser?.id ?? null);
   const hasGoogle = googleLinked || !!googleAccessToken;
   const hasMicrosoft = microsoftLinked || !!microsoftAccessToken;
   const hasGoogleOrMicrosoft = hasGoogle || hasMicrosoft;

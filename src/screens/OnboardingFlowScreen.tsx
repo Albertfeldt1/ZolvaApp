@@ -25,7 +25,7 @@ import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { useTheme } from '../design/useTheme';
 import { useAuth } from '../lib/auth';
-import { useIcloudConnected } from '../lib/hooks';
+import { useIcloudConnected, useMicrosoftLinked } from '../lib/hooks';
 import * as gmail from '../lib/gmail';
 import * as graph from '../lib/microsoft-graph';
 
@@ -1101,7 +1101,7 @@ function ScreenTrust({
   // identity, which calls unlinkIdentity and revokes EVERY refresh token
   // for the user (see auth.ts:647-651).
   const googleLinked = !!user?.identities?.some((i) => i.provider === 'google');
-  const microsoftLinked = !!user?.identities?.some((i) => i.provider === 'azure');
+  const microsoftLinked = useMicrosoftLinked(user?.id ?? null);
   const [busyId, setBusyId] = useState<string | null>(null);
   // Watch iCloud credential state. Setup happens in a sibling modal
   // (IcloudSetupScreen) opened via onOpenIcloudSetup; once the credential

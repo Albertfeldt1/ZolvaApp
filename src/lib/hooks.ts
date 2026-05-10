@@ -2800,7 +2800,7 @@ export function useConnections() {
   // tempt the toggle handler into re-entering runOAuth (auth.ts:647-651).
   // Demo bypasses the flag store - DEMO_CONNECTIONS hard-codes statuses.
   const googleLinked = !!user?.identities?.some((i) => i.provider === 'google');
-  const microsoftLinked = !!user?.identities?.some((i) => i.provider === 'azure');
+  const microsoftLinked = useMicrosoftLinked(user?.id ?? null);
   const data: Connection[] = demo
     ? DEMO_CONNECTIONS
     : DEFAULT_CONNECTIONS.map((c) => {
