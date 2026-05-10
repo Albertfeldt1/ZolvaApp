@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Platform,
   Pressable,
@@ -1125,6 +1126,20 @@ function ScreenTrust({
       // grant or iCloud credential mid-onboarding. The user can fully
       // disconnect from Settings.
       setState((s) => ({ ...s, connections: { ...(s.connections ?? {}), [id]: false } }));
+      return;
+    }
+
+    // Microsoft's custom PKCE flow calls an edge function that requires a
+    // Bearer JWT — it 401s when there's no Supabase session. Gate the toggle
+    // so a fresh user (no session yet) gets a clear direction rather than a
+    // silent 401. Google and Apple still work pre-auth via gotrue.
+    const providerForCheck = PROVIDER_BY_SOURCE[id];
+    if (providerForCheck === 'microsoft' && !user?.id) {
+      Alert.alert(
+        'Log ind først',
+        'Du skal være logget ind med Google eller Apple, før du kan koble Outlook til. Tilføj først en af de andre kilder.',
+        [{ text: 'OK' }],
+      );
       return;
     }
 
