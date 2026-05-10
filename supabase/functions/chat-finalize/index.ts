@@ -84,9 +84,26 @@ serve(async (req) => {
     return json({ error: 'forbidden' }, 403);
   }
   const status = (job as { status: string }).status;
+  const acknowledgedAt = (job as { acknowledged_at: string | null }).acknowledged_at;
   if (status === 'done') {
     // Already finalised by a prior call (e.g. retry). Don't re-push.
     return json({ jobId: body.jobId, status: 'already-done' });
+  }
+  // The foreground reconciler in src/lib/hooks.ts surfaces stuck
+  // needs_tools rows (older than 3 min, unacked) as a Danish
+  // "interrupted, try again" assistant message and acks the row. If
+  // iOS later wakes the suspended JS VM and the local tool loop
+  // finishes after that, the client will call this endpoint with the
+  // real reply — but the user has ALREADY been told the turn was
+  // interrupted. Promoting the row to done at this point would let
+  // the client append the real reply directly under the apology, and
+  // (if the user happened to be backgrounded again) push a tray
+  // banner contradicting the prior interrupted state.
+  //
+  // Treat reconciled-and-acked rows as terminal. Return success so
+  // the client's fire-and-forget finalize call doesn't log noise.
+  if (acknowledgedAt) {
+    return json({ jobId: body.jobId, status: 'already-acknowledged' });
   }
   if (status !== 'needs_tools' && status !== 'running') {
     // error rows shouldn't be promoted to done from this path.
@@ -108,14 +125,9 @@ serve(async (req) => {
     return json({ error: 'update_failed' }, 500);
   }
 
-  // Skip push if the client already acked - means the live UI displayed
-  // the answer in-band and a tray banner now would be a duplicate. The
-  // foreground notification handler also dedupes via the in-memory ack
-  // set, but checking here saves the push round-trip for the foregrounded
-  // case.
-  if ((job as { acknowledged_at: string | null }).acknowledged_at == null) {
-    await sendChatPush(service, userId, body.jobId, body.userPreview ?? null, body.finalText);
-  }
+  // We've already returned above when acknowledged_at is set, so any
+  // row that reaches this point is unacked — push unconditionally.
+  await sendChatPush(service, userId, body.jobId, body.userPreview ?? null, body.finalText);
 
   return json({ jobId: body.jobId, status: 'done' });
 });

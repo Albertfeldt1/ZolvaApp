@@ -222,6 +222,63 @@ export async function fetchUnacknowledgedDoneJobs(userId: string): Promise<Pendi
   }
 }
 
+// A turn that round 0 returned `needs_tools` for, but where the local tool
+// loop never finished (typically iOS killed the JS VM mid-loop). Caller is
+// expected to surface a Danish "interrupted, try again" assistant message
+// AND ack the row so the same orphan doesn't surface twice.
+//
+// Bounds:
+//   lower = 3 minutes since `finished_at` — gives the local loop ample time
+//     to finish on a slow tool chain or a brief background bounce. Must be
+//     longer than any plausible foreground-completion window so we never
+//     race a still-running loop.
+//   upper = 24 hours since `finished_at` — caps blast radius if the user
+//     opens the app after a long absence with many old orphans piled up.
+//     Older rows wait for the 14-day cron sweep.
+//   limit = 10 per pass — same blast-radius reasoning. The user can reopen
+//     to drain more.
+export type StuckNeedsToolsJob = {
+  jobId: string;
+  finishedAt: Date;
+};
+
+const STUCK_LOWER_MS = 3 * 60 * 1000;
+const STUCK_UPPER_MS = 24 * 60 * 60 * 1000;
+
+export async function fetchStuckNeedsToolsJobs(userId: string): Promise<StuckNeedsToolsJob[]> {
+  try {
+    const now = Date.now();
+    const upperBound = new Date(now - STUCK_LOWER_MS).toISOString();
+    const lowerBound = new Date(now - STUCK_UPPER_MS).toISOString();
+    const { data, error } = await supabase
+      .from('chat_jobs')
+      .select('id, finished_at')
+      .eq('user_id', userId)
+      .eq('status', 'needs_tools')
+      .is('acknowledged_at', null)
+      .lt('finished_at', upperBound)
+      .gt('finished_at', lowerBound)
+      .order('finished_at', { ascending: true })
+      .limit(10);
+    if (error) {
+      if (__DEV__) console.warn('[chat-jobs] stuck fetch failed:', error.message);
+      return [];
+    }
+    return (data ?? [])
+      .filter(
+        (r): r is { id: string; finished_at: string } =>
+          typeof r.id === 'string' && typeof r.finished_at === 'string',
+      )
+      .map((r) => ({
+        jobId: r.id,
+        finishedAt: new Date(r.finished_at),
+      }));
+  } catch (err) {
+    if (__DEV__) console.warn('[chat-jobs] stuck threw:', err);
+    return [];
+  }
+}
+
 // After the client-side tool loop produces the final answer for a turn
 // that started as needs_tools, call this to mark the chat_jobs row done
 // and fire the push (so users who backgrounded mid-loop within iOS's
