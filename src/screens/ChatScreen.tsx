@@ -114,13 +114,24 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
   };
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={0}
-    >
-      <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
-        <GlassHaloLayer />
+    // Outer paper-bg wrapper sits BETWEEN the App.tsx Animated.View
+    // and the KeyboardAvoidingView. The Animated.View already paints
+    // colors.paper (see App.tsx fix c72793f), but Reanimated's entering/
+    // exiting animation occasionally drops the static backgroundColor
+    // from the merged style array, leaving a transparent gap when KAV's
+    // behavior=padding shrinks the inner content above the keyboard.
+    // This non-animated wrapper has no entering animation so its bg
+    // paint is guaranteed for the full chat-overlay bounds — Today
+    // can't leak through the KAV's padding region even if the outer
+    // Animated.View's bg is momentarily inactive.
+    <View style={{ flex: 1, backgroundColor: t.paper }}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
+        <View style={{ flex: 1, position: 'relative' }}>
+          <GlassHaloLayer />
 
         {/* Header - wrapped in a glass card so the back button + Stone +
             title sit on a backdrop instead of floating on the halo paper.
@@ -359,8 +370,9 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
             )}
           </View>
         </View>
-      </View>
-    </KeyboardAvoidingView>
+        </View>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
