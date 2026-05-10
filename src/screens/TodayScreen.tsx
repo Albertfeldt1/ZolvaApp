@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Bookmark, Moon, Sun, Sunrise, X } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -83,6 +84,12 @@ type Props = {
 };
 
 const PILL_CLEARANCE = 76;
+
+// Storage key for dismissed-observation ids. Versioned so a future schema
+// change (e.g. moving to (id, dismissedAt) tuples) doesn't collide with
+// the current array-of-string blob.
+const observationDismissKey = (uid: string) =>
+  `zolva.observations.dismissed.v1.${uid}`;
 // Small chevron / icon glyph size used inside cards.
 const SMALL_GLYPH = 14;
 
@@ -173,7 +180,43 @@ export function TodayScreen({
     return () => { cancelled = true; };
   }, [briefOpenRequest, brief]);
 
+  // Persist dismissed observations per-user across app launches; without
+  // this, every cold start re-shows everything the user already swiped
+  // away in "Hvad jeg har bemærket".
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set());
+  const [dismissedHydrated, setDismissedHydrated] = useState(false);
+  useEffect(() => {
+    setDismissedIds(new Set());
+    setDismissedHydrated(false);
+    if (!userId) {
+      setDismissedHydrated(true);
+      return;
+    }
+    let cancelled = false;
+    AsyncStorage.getItem(observationDismissKey(userId))
+      .then((raw) => {
+        if (cancelled) return;
+        if (raw) {
+          try {
+            const ids = JSON.parse(raw);
+            if (Array.isArray(ids)) setDismissedIds(new Set(ids));
+          } catch {}
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setDismissedHydrated(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+  useEffect(() => {
+    if (!dismissedHydrated || !userId) return;
+    AsyncStorage.setItem(
+      observationDismissKey(userId),
+      JSON.stringify(Array.from(dismissedIds)),
+    ).catch(() => {});
+  }, [dismissedIds, dismissedHydrated, userId]);
   const visibleObservations = useMemo(
     () => observations.filter((o) => !dismissedIds.has(o.id)),
     [observations, dismissedIds],

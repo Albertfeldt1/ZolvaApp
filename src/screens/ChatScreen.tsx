@@ -1,6 +1,7 @@
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft, Trash2 } from 'lucide-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   Easing,
   FlatList,
@@ -47,7 +48,24 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
 
   const { t, type, fonts, radius, spacing, surface } = useTheme();
 
-  const { data: messages, typing, send } = useChat();
+  const { data: messages, typing, send, clear } = useChat();
+
+  // iOS-native confirmation dialog before wiping the chat history. The
+  // destructive button is styled by the system so it picks up the red
+  // affordance without any extra theming on our side. Cancel is the
+  // default-emphasized action so an accidental double-tap doesn't nuke
+  // the conversation.
+  const confirmClear = () => {
+    Alert.alert(
+      'Slet samtale?',
+      'Alle beskeder forsvinder. Det kan ikke fortrydes.',
+      [
+        { text: 'Annullér', style: 'cancel' },
+        { text: 'Slet', style: 'destructive', onPress: () => clear() },
+      ],
+      { cancelable: true },
+    );
+  };
   const { data: suggestions } = useChatSuggestions();
   const [input, setInput] = useState(initialDraft ?? '');
   const scrollRef = useRef<ScrollView>(null);
@@ -124,6 +142,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
             >
               <HeaderRow
                 onBack={onBack}
+                onClear={confirmClear}
                 t={t}
                 fonts={fonts}
                 type={type}
@@ -139,6 +158,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
             >
               <HeaderRow
                 onBack={onBack}
+                onClear={confirmClear}
                 t={t}
                 fonts={fonts}
                 type={type}
@@ -339,6 +359,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
 // GlassFrostedCard fallback without duplicating the row markup.
 function HeaderRow(props: {
   onBack: () => void;
+  onClear: () => void;
   t: ThemeSlice['t'];
   fonts: ThemeSlice['fonts'];
   type: ThemeSlice['type'];
@@ -346,7 +367,7 @@ function HeaderRow(props: {
   spacing: ThemeSlice['spacing'];
   surface: ThemeSlice['surface'];
 }) {
-  const { onBack, t, fonts, type, radius, spacing, surface } = props;
+  const { onBack, onClear, t, fonts, type, radius, spacing, surface } = props;
   return (
     <View
       style={{
@@ -381,6 +402,23 @@ function HeaderRow(props: {
           Læser kalender og mail
         </Text>
       </View>
+      <Pressable
+        onPress={onClear}
+        hitSlop={8}
+        style={({ pressed }) => ({
+          width: 34,
+          height: 34,
+          borderRadius: radius.pill,
+          backgroundColor: surface.iconButton,
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: pressed ? 0.6 : 1,
+        })}
+        accessibilityRole="button"
+        accessibilityLabel="Slet samtale"
+      >
+        <Trash2 size={16} color={t.ink2} strokeWidth={1.75} />
+      </Pressable>
     </View>
   );
 }

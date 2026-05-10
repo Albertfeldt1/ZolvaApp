@@ -4953,7 +4953,14 @@ export function useChat() {
     [messages, name, userId, demo, googleAccessToken, microsoftAccessToken],
   );
 
-  return { data: messages, typing, loading: false, error: null as Error | null, send };
+  const clear = useCallback(() => {
+    setMessages([]);
+    if (userId && !demo) {
+      AsyncStorage.removeItem(chatHistoryKey(userId)).catch(() => {});
+    }
+  }, [userId, demo]);
+
+  return { data: messages, typing, loading: false, error: null as Error | null, send, clear };
 }
 
 export function usePendingFacts(): Result<Fact[]> & {
