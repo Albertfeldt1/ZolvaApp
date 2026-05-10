@@ -2757,18 +2757,29 @@ export function useConnections() {
   const demo = isDemoUser(user);
   const { isEnabled, setEnabled } = useIntegrationFlags();
 
-  // status === 'connected' means the user has BOTH a parent OAuth grant AND
-  // hasn't toggled this specific integration off. Demo bypasses the flag
-  // store - DEMO_CONNECTIONS hard-codes statuses.
+  // status === 'connected'  -> linked at Supabase + access token cached + flag enabled
+  // status === 'stale'      -> linked at Supabase + access token cache null + flag enabled
+  //                            (silent refresh failed transiently; see types.ts)
+  // status === 'disconnected' -> not linked, or flag disabled
+  // Identities is the source of truth for "is this provider linked at
+  // Supabase". Reading the in-memory access-token cache alone would let a
+  // transient silentRefresh failure flicker the badge to 'disconnected' and
+  // tempt the toggle handler into re-entering runOAuth (auth.ts:647-651).
+  // Demo bypasses the flag store - DEMO_CONNECTIONS hard-codes statuses.
+  const googleLinked = !!user?.identities?.some((i) => i.provider === 'google');
+  const microsoftLinked = !!user?.identities?.some((i) => i.provider === 'azure');
   const data: Connection[] = demo
     ? DEMO_CONNECTIONS
     : DEFAULT_CONNECTIONS.map((c) => {
-        const tokenPresent =
-          (GOOGLE_INTEGRATIONS.has(c.id) && !!googleAccessToken) ||
-          (MICROSOFT_INTEGRATIONS.has(c.id) && !!microsoftAccessToken);
-        if (tokenPresent && isEnabled(c.id, true)) {
-          return { ...c, status: 'connected' as const };
-        }
+        const isGoogleId = GOOGLE_INTEGRATIONS.has(c.id);
+        const isMicrosoftId = MICROSOFT_INTEGRATIONS.has(c.id);
+        const linked = (isGoogleId && googleLinked) || (isMicrosoftId && microsoftLinked);
+        const tokenCached =
+          (isGoogleId && !!googleAccessToken) ||
+          (isMicrosoftId && !!microsoftAccessToken);
+        if (!isEnabled(c.id, true)) return c;
+        if (tokenCached) return { ...c, status: 'connected' as const };
+        if (linked) return { ...c, status: 'stale' as const };
         return c;
       });
 

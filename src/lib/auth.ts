@@ -62,7 +62,6 @@ const GOOGLE_SCOPES = [
   'email',
   'profile',
   'https://www.googleapis.com/auth/calendar.events',
-  'https://www.googleapis.com/auth/calendar.freebusy',
   // calendar.calendarlist.readonly is the minimum scope that lets us hit
   // /users/me/calendarList - needed by the multi-calendar picker.
   // calendar.events grants per-event read/write across ALL calendars the

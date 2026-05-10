@@ -1,6 +1,6 @@
 // Minimal Google Calendar client. Reads events from the user's primary
 // calendar using the OAuth provider_token returned by Supabase after
-// signing in with Google (scope: calendar.events + calendar.freebusy).
+// signing in with Google (scope: calendar.events).
 
 import { ProviderAuthError, tryWithRefresh } from './auth';
 import { fetchWithTimeout } from './network-errors';
