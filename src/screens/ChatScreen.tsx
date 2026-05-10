@@ -50,6 +50,16 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
 
   const { data: messages, typing, send, clear } = useChat();
 
+  // Composer focus is deferred so the keyboard doesn't race the chat
+  // overlay's slide-in animation. SlideInDown runs ~320ms; we focus
+  // ~340ms in so the keyboard's own slide is the second beat, not a
+  // simultaneous shove that makes the entrance read as "spawned in".
+  const inputRef = useRef<TextInput>(null);
+  useEffect(() => {
+    const t = setTimeout(() => inputRef.current?.focus(), 340);
+    return () => clearTimeout(t);
+  }, []);
+
   // iOS-native confirmation dialog before wiping the chat history. The
   // destructive button is styled by the system so it picks up the red
   // affordance without any extra theming on our side. Cancel is the
@@ -321,6 +331,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
                   setInput={setInput}
                   typing={typing}
                   submit={submit}
+                  inputRef={inputRef}
                 />
               </GlassView>
             ) : (
@@ -342,6 +353,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
                   setInput={setInput}
                   typing={typing}
                   submit={submit}
+                  inputRef={inputRef}
                 />
               </View>
             )}
@@ -436,8 +448,9 @@ function DockRow(props: {
   setInput: (v: string) => void;
   typing: boolean;
   submit: (text: string) => void;
+  inputRef: React.RefObject<TextInput | null>;
 }) {
-  const { fonts, type, t, spacing, input, setInput, typing, submit } = props;
+  const { fonts, type, t, spacing, input, setInput, typing, submit, inputRef } = props;
   return (
     <View
       style={{
@@ -460,11 +473,18 @@ function DockRow(props: {
         <DesignIcon.plus size={20} color={t.ink3} />
       </Pressable>
       <TextInput
+        ref={inputRef}
         value={input}
         onChangeText={setInput}
         placeholder="Spørg Zolva"
         placeholderTextColor={t.ink4}
-        autoFocus
+        // autoFocus removed: when the chat overlay slides up via
+        // SlideInDown (320ms) and the TextInput auto-focuses, the iOS
+        // keyboard's own slide animation races the chat's. Both
+        // running simultaneously while KeyboardAvoidingView re-pads
+        // the layout reads as "the chat just spawns in." Focus is
+        // requested explicitly from a useEffect AFTER the entrance
+        // animation completes, so each animation gets its own beat.
         multiline
         scrollEnabled
         blurOnSubmit

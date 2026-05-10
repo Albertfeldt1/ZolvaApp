@@ -677,7 +677,14 @@ export default function App() {
         {chatOpen && (
           <Animated.View
             key="chat"
-            style={StyleSheet.absoluteFill}
+            // Paint the paper colour onto the overlay itself so when
+            // KeyboardAvoidingView (inside ChatScreen) adds bottom
+            // padding equal to the keyboard height, the resulting gap
+            // doesn't reveal the screen tree underneath. Without this,
+            // the chat looks like it sits ON TOP of the previous tab
+            // and gets pushed up by the keyboard with the old screen
+            // peeking through underneath.
+            style={[StyleSheet.absoluteFill, { backgroundColor: colors.paper }]}
             entering={SlideInDown.duration(320)}
             exiting={SlideOutDown.duration(260)}
           >
