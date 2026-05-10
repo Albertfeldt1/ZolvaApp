@@ -79,7 +79,7 @@ describe('verifier Map lifecycle', () => {
 
 describe('runMicrosoftOAuthWithDeps', () => {
   const baseDeps = () => ({
-    getClientId: () => 'client-x',
+    getClientId: (): string | null => 'client-x',
     openAuthSession: jest.fn(),
     invokeExchange: jest.fn(),
     getMailWatcherEnabled: () => true,
