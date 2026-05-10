@@ -24,7 +24,15 @@ type WidgetActionRequest = {
   prompt?: string;
   timezone?: string;
   locale?: string;
+  idempotency_key?: string;
 };
+
+// Read window for the idempotency table. Siri retries don't span hours;
+// 15 min covers any plausible network-layer or iOS-client retry inside a
+// single user invocation while keeping stale rows from masking a genuine
+// re-attempt. See supabase/migrations/20260510130000_widget_action_idempotency.sql.
+const IDEMPOTENCY_READ_WINDOW_MS = 15 * 60 * 1000;
+const IDEMPOTENCY_KEY_MAX_LEN = 64;
 
 type CalendarProvider = 'google' | 'microsoft' | 'icloud';
 type CalendarLabelTarget = { provider: CalendarProvider; id: string };
@@ -94,6 +102,56 @@ export async function workerHandler(req: Request): Promise<Response> {
   const body = (await req.json().catch(() => ({}))) as WidgetActionRequest;
   const prompt = (body.prompt ?? '').trim();
   const timezone = body.timezone ?? 'UTC';
+  const idempotencyKey =
+    typeof body.idempotency_key === 'string' &&
+    body.idempotency_key.length > 0 &&
+    body.idempotency_key.length <= IDEMPOTENCY_KEY_MAX_LEN
+      ? body.idempotency_key
+      : null;
+
+  // Idempotency short-circuit. The iOS client generates a UUID per Siri
+  // invocation; if the same (user, key) appears within the read window,
+  // return the recorded response instead of re-running the side-effecting
+  // calendar/reminder write. See migration 20260510130000.
+  if (idempotencyKey) {
+    const cutoffIso = new Date(Date.now() - IDEMPOTENCY_READ_WINDOW_MS).toISOString();
+    const cached = await admin()
+      .from('widget_action_idempotency')
+      .select('response_json')
+      .eq('user_id', userId)
+      .eq('idempotency_key', idempotencyKey)
+      .gt('created_at', cutoffIso)
+      .maybeSingle();
+    if (cached.data) {
+      return json(200, (cached.data as { response_json: WidgetActionResponse }).response_json);
+    }
+  }
+
+  // Wrap every successful (200) response so the recorded body matches what
+  // the client received byte-for-byte. 401 / 405 paths above don't go
+  // through this — they're pre-idempotency-check by design (no userId yet
+  // for 401, no body for 405).
+  const respond = async (resp: WidgetActionResponse): Promise<Response> => {
+    if (idempotencyKey) {
+      const { error } = await admin()
+        .from('widget_action_idempotency')
+        .upsert(
+          {
+            user_id: userId,
+            idempotency_key: idempotencyKey,
+            response_json: resp,
+          },
+          { onConflict: 'user_id,idempotency_key' },
+        );
+      if (error) {
+        // Don't fail the request - we already produced a real response.
+        // Log so we notice if persist failures spike (would indicate the
+        // dedupe story is silently broken).
+        console.warn('[widget-action] idempotency persist failed:', error.message);
+      }
+    }
+    return json(200, resp);
+  };
 
   if (prompt === '') {
     // empty_prompt - log + return.
@@ -104,7 +162,7 @@ export async function workerHandler(req: Request): Promise<Response> {
       error_class: 'empty_prompt',
       calendar_resolution: 'no_calendar',
     }));
-    return json(200, emptyPrompt());
+    return await respond(emptyPrompt());
   }
 
   let extraction: ClaudeExtraction;
@@ -114,7 +172,7 @@ export async function workerHandler(req: Request): Promise<Response> {
     // usage + model captured for logging in Task 18.
   } catch (err) {
     console.warn('[widget-action] claude error:', err instanceof Error ? err.message : err);
-    return json(200, unparseable());
+    return await respond(unparseable());
   }
 
   // Reminder branch - split before the calendar-event flow.
@@ -125,11 +183,11 @@ export async function workerHandler(req: Request): Promise<Response> {
         action: 'create_reminder', user_id: userId, success: false,
         error_class: 'unparseable', prompt_language: extraction.prompt_language,
       }));
-      return json(200, unparseable());
+      return await respond(unparseable());
     }
     const dueAt = extraction.due_at ? new Date(extraction.due_at) : null;
     if (dueAt && Number.isNaN(dueAt.getTime())) {
-      return json(200, unparseable());
+      return await respond(unparseable());
     }
     const supabaseClient = admin();
     const { data: inserted, error } = await supabaseClient
@@ -148,14 +206,14 @@ export async function workerHandler(req: Request): Promise<Response> {
         action: 'create_reminder', user_id: userId, success: false,
         error_class: 'db_error', prompt_language: extraction.prompt_language,
       }));
-      return json(200, unparseable());
+      return await respond(unparseable());
     }
     console.log(JSON.stringify({
       action: 'create_reminder', user_id: userId, success: true,
       reminder_id: inserted.id, due_iso: inserted.due_at,
       prompt_language: extraction.prompt_language,
     }));
-    return json(200, reminderCreated(extraction, timezone));
+    return await respond(reminderCreated(extraction, timezone));
   }
 
   // extraction.kind narrows to 'event' here via the discriminated union.
@@ -170,7 +228,7 @@ export async function workerHandler(req: Request): Promise<Response> {
       error_class: 'no_calendar_labels',
       calendar_resolution: 'no_calendar',
     }));
-    return json(200, noCalendarLabels());
+    return await respond(noCalendarLabels());
   }
 
   const selection = selectCalendar({
@@ -179,7 +237,7 @@ export async function workerHandler(req: Request): Promise<Response> {
   });
   if (!selection.target) {
     // Defensive: labels were checked above. Treat like no_calendar_labels.
-    return json(200, noCalendarLabels());
+    return await respond(noCalendarLabels());
   }
 
   const startIso = eventExtraction.start;
@@ -212,7 +270,7 @@ export async function workerHandler(req: Request): Promise<Response> {
       calendar_provider: selection.target.provider,
       prompt_language: eventExtraction.prompt_language,
     }));
-    return json(200, resp);
+    return await respond(resp);
   }
 
   const locale: 'da' | 'en' = eventExtraction.prompt_language === 'en' ? 'en' : 'da';
@@ -261,7 +319,7 @@ export async function workerHandler(req: Request): Promise<Response> {
     prompt_language: eventExtraction.prompt_language,
   }));
 
-  return json(200, truncated);
+  return await respond(truncated);
 }
 
 serve(workerHandler);

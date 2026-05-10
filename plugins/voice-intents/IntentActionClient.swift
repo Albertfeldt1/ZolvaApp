@@ -29,24 +29,32 @@ enum IntentActionClient {
       return try await override(prompt, timezone)
     }
     let accessToken = try SupabaseSession.readAccessToken()
+    // One UUID per logical user invocation. Both the initial POST and
+    // the auth-retry POST below MUST use the same key — they're the
+    // same Siri intent firing once. The 6s URLSession timeout can
+    // cause a network-layer retry inside this function; the server
+    // dedupes on (user, idempotency_key) so the second attempt
+    // returns the recorded response instead of creating a duplicate
+    // calendar event. See widget-action/index.ts for the read window.
+    let idempotencyKey = UUID().uuidString
     do {
-      return try await postOnce(prompt: prompt, timezone: timezone, jwt: accessToken)
+      return try await postOnce(prompt: prompt, timezone: timezone, jwt: accessToken, idempotencyKey: idempotencyKey)
     } catch IntentActionError.unauthorized {
       // Refresh re-reads the refresh token from keychain itself; we don't
       // cache it across the await. See SupabaseAuthClient.refresh() for
       // the concurrent-refresh race handling.
       let newAccessToken = try await SupabaseAuthClient.refresh()
-      return try await postOnce(prompt: prompt, timezone: timezone, jwt: newAccessToken)
+      return try await postOnce(prompt: prompt, timezone: timezone, jwt: newAccessToken, idempotencyKey: idempotencyKey)
     }
   }
 
-  private static func postOnce(prompt: String, timezone: String, jwt: String) async throws -> WidgetActionResponse {
+  private static func postOnce(prompt: String, timezone: String, jwt: String, idempotencyKey: String) async throws -> WidgetActionResponse {
     var req = URLRequest(url: URL(string: "https://\(projectRef).supabase.co\(path)")!)
     req.httpMethod = "POST"
     req.timeoutInterval = 6
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
-    req.httpBody = try JSONEncoder().encode(SendRequest(prompt: prompt, timezone: timezone))
+    req.httpBody = try JSONEncoder().encode(SendRequest(prompt: prompt, timezone: timezone, idempotency_key: idempotencyKey))
 
     let (data, response): (Data, URLResponse)
     do {
@@ -71,5 +79,6 @@ enum IntentActionClient {
   private struct SendRequest: Encodable {
     let prompt: String
     let timezone: String
+    let idempotency_key: String
   }
 }

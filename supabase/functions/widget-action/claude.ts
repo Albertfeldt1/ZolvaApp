@@ -113,7 +113,19 @@ export async function extractAction(
 
   let extraction: ClaudeExtraction;
   if (toolUse.name === 'create_calendar_event') {
-    extraction = { kind: 'event', ...(toolUse.input as Omit<ClaudeExtractionEvent, 'kind'>) };
+    const input = toolUse.input as Partial<ClaudeExtractionEvent>;
+    // Haiku occasionally returns prose ("future", "tomorrow morning",
+    // "soon") in start/end despite the schema asking for ISO 8601.
+    // Validate parseability up front so the caller in index.ts can
+    // return the Siri-readable unparseable() response instead of a 500
+    // from `new Date(NaN).toISOString()` later in the event flow.
+    if (typeof input.start !== 'string' || Number.isNaN(Date.parse(input.start))) {
+      throw new Error('claude returned non-ISO start');
+    }
+    if (input.end !== undefined && (typeof input.end !== 'string' || Number.isNaN(Date.parse(input.end)))) {
+      throw new Error('claude returned non-ISO end');
+    }
+    extraction = { kind: 'event', ...(input as Omit<ClaudeExtractionEvent, 'kind'>) };
   } else if (toolUse.name === 'create_reminder') {
     extraction = { kind: 'reminder', ...(toolUse.input as Omit<ClaudeExtractionReminder, 'kind'>) };
   } else {
