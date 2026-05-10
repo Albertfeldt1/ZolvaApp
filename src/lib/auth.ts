@@ -49,6 +49,7 @@ import { registerPushToken, unregisterPushToken, setMailWatchersEnabled } from '
 import { recordUserEmailDomain } from './admin-consent';
 import { readCalendarLabels, setCalendarLabel } from './calendar-labels';
 import { migrateLocalRemindersToServer } from './reminders';
+import { runMicrosoftOAuth } from './microsoft-oauth';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -70,17 +71,6 @@ const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/drive.readonly',
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.compose',
-].join(' ');
-
-const MICROSOFT_SCOPES = [
-  'openid',
-  'email',
-  'profile',
-  'offline_access',
-  'Mail.ReadWrite',
-  'Mail.Send',
-  'Calendars.ReadWrite',
-  'Files.Read',
 ].join(' ');
 
 const SECURE_STORE_MIGRATION_FLAG = 'zolva.migration.secure-store.v1';
@@ -552,7 +542,27 @@ async function signInWithGoogle() {
 }
 
 async function signInWithMicrosoft() {
-  return runOAuth('azure', MICROSOFT_SCOPES);
+  const clientId = process.env.EXPO_PUBLIC_MICROSOFT_OAUTH_CLIENT_ID ?? null;
+  const result = await runMicrosoftOAuth({
+    clientId,
+    mailWatcherEnabled: getNotificationSettings().newMail,
+  });
+  if (result.ok) {
+    const uid = currentUserId();
+    if (uid) {
+      try {
+        await secureStorage.setItem(tokenKey('microsoft', uid), result.accessToken);
+      } catch (err) {
+        if (__DEV__) console.warn('[auth] microsoft token persist failed:', err);
+      }
+    }
+    broadcastMicrosoft(result.accessToken);
+    return { data: { session: cachedSession }, error: null };
+  }
+  if ('cancelled' in result) {
+    return { data: null, error: null, cancelled: true } as { data: null; error: null; cancelled: true };
+  }
+  return { data: null, error: result.error };
 }
 
 export class ProviderAuthError extends Error {
