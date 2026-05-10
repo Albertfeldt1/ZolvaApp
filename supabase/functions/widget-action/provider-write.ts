@@ -50,9 +50,23 @@ export async function writeEvent(args: {
   if (first.kind === 'error') return first.outcome;
 
   // 401 → refresh once and retry.
+  //
+  // Re-read the refresh token from DB before the second refresh. The
+  // initial `refreshToken` variable is a snapshot from the start of this
+  // request; another concurrent caller (poll-mail cron, daily-brief,
+  // chat tool) may have refreshed and rotated the token in DB between
+  // our load (line 34) and the 401 we just got. Microsoft v2 rotates on
+  // every refresh and invalidates the prior refresh_token shortly after
+  // — re-using the in-memory snapshot here yields invalid_grant and the
+  // user sees oauth_invalid despite a valid refresh having happened
+  // elsewhere. Loading fresh from DB picks up whatever the latest
+  // concurrent refresh persisted.
+  const latestRefreshToken = await loadRefreshToken(args.client, args.userId, args.provider);
+  if (!latestRefreshToken) return { ok: false, errorClass: 'oauth_invalid' };
+
   let refreshedToken: string;
   try {
-    const r = await refreshAccessToken(args.client, args.userId, args.provider, refreshToken, {
+    const r = await refreshAccessToken(args.client, args.userId, args.provider, latestRefreshToken, {
       microsoftScope: MICROSOFT_SCOPE,
     });
     refreshedToken = r.accessToken;

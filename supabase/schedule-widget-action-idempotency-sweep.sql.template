@@ -1,0 +1,21 @@
+-- Paste this whole file into the Supabase Dashboard SQL editor AFTER the
+-- 20260510130000_widget_action_idempotency migration has been applied.
+-- Runs in-DB via pg_cron, no HTTP hop, no bearer to redact. Safe to commit.
+--
+-- Schedule: hourly at :05. The widget_action_idempotency read path filters
+-- to the last 15 minutes, so anything older than 1 hour is dead weight.
+-- Hourly is well above the read TTL with margin for cron drift.
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'widget-action-idempotency-sweep') THEN
+    PERFORM cron.unschedule('widget-action-idempotency-sweep');
+  END IF;
+END
+$$;
+
+select cron.schedule(
+  'widget-action-idempotency-sweep',
+  '5 * * * *',
+  $cmd$delete from public.widget_action_idempotency where created_at < now() - interval '1 hour';$cmd$
+);
