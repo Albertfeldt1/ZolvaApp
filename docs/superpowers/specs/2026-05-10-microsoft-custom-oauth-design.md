@@ -135,9 +135,11 @@ PKCE-with-secret on a confidential client is supported by Azure AD since 2022.
 
 ## Edge function env vars
 
-Reuses existing secrets:
-- `MICROSOFT_CLIENT_ID` (already set, used by `refresh-provider-token`)
-- `MICROSOFT_CLIENT_SECRET` (already set)
+Reuses existing secrets (verified in `supabase/functions/_shared/oauth.ts`):
+- `MICROSOFT_OAUTH_CLIENT_ID`
+- `MICROSOFT_OAUTH_CLIENT_SECRET`
+- `MICROSOFT_OAUTH_TENANT` (optional, defaults to `'common'`)
+- Standard `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_ANON_KEY`
 
 No new secrets to provision.
 
