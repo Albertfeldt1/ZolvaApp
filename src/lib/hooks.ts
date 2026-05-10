@@ -31,6 +31,7 @@ import {
 } from './claude';
 import {
   acknowledgeChatJob,
+  fetchStuckNeedsToolsJobs,
   fetchUnacknowledgedDoneJobs,
   finalizeChatJob,
   submitChatJob,
@@ -3318,6 +3319,13 @@ const CHAT_HISTORY_LIMIT = 50;
 // Claude to keep input tokens flat as the local transcript grows.
 const CHAT_API_CONTEXT_LIMIT = 15;
 const CHAT_ERROR_TEXT = 'Jeg kunne ikke nå frem - prøv igen.';
+// Surfaced by the foreground reconciler when it finds a chat_jobs row
+// stuck at status='needs_tools' for longer than the staleness threshold —
+// almost always a chat turn whose local tool loop got iOS-killed mid-run.
+// We tell the user it didn't complete instead of silently swallowing the
+// turn; they can re-send if the question still matters.
+const CHAT_INTERRUPTED_TEXT =
+  'Det her spørgsmål nåede jeg ikke at svare på færdigt — prøv at sende det igen.';
 
 // Build a Danish summary of which integrations are currently OFF, so the
 // model refuses to act on cached data from earlier turns. Without this, a
@@ -4668,24 +4676,55 @@ export function useChat() {
   // this user is an answer the live UI never got to display. Idempotent
   // via appendedJobIdsRef so a quick background-foreground bounce doesn't
   // double-render.
+  //
+  // Also surfaces orphaned needs_tools rows (chat turns where the local
+  // tool loop never finished — typically iOS killed the JS VM mid-loop
+  // while the app was backgrounded). Without this, the row sits at
+  // needs_tools forever and the user sees their question with no reply.
+  // We surface a Danish "interrupted, try again" assistant message rather
+  // than resuming the tool loop, because resuming would re-fire any
+  // side-effecting tools (send_mail / create_calendar_event) that
+  // already ran before the kill — see audit F1 for the duplication risk.
   const appendedJobIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!hydrated || !userId || demo) return;
     let cancelled = false;
     const reconcile = async () => {
-      const pending = await fetchUnacknowledgedDoneJobs(userId);
-      if (cancelled || pending.length === 0) return;
-      const fresh = pending.filter((j) => !appendedJobIdsRef.current.has(j.jobId));
-      if (fresh.length === 0) return;
-      const newMessages: ChatMessage[] = fresh.map((j) => ({
-        id: `bg-${j.jobId}`,
-        from: 'zolva',
-        text: j.text,
-        createdAt: j.finishedAt.toISOString(),
-      }));
-      for (const j of fresh) appendedJobIdsRef.current.add(j.jobId);
+      const [pending, stuck] = await Promise.all([
+        fetchUnacknowledgedDoneJobs(userId),
+        fetchStuckNeedsToolsJobs(userId),
+      ]);
+      if (cancelled) return;
+      const newMessages: ChatMessage[] = [];
+      const ackJobIds: string[] = [];
+
+      const freshDone = pending.filter((j) => !appendedJobIdsRef.current.has(j.jobId));
+      for (const j of freshDone) {
+        newMessages.push({
+          id: `bg-${j.jobId}`,
+          from: 'zolva',
+          text: j.text,
+          createdAt: j.finishedAt.toISOString(),
+        });
+        appendedJobIdsRef.current.add(j.jobId);
+        ackJobIds.push(j.jobId);
+      }
+
+      const freshStuck = stuck.filter((j) => !appendedJobIdsRef.current.has(j.jobId));
+      for (const j of freshStuck) {
+        newMessages.push({
+          id: `int-${j.jobId}`,
+          from: 'zolva',
+          text: CHAT_INTERRUPTED_TEXT,
+          createdAt: j.finishedAt.toISOString(),
+        });
+        appendedJobIdsRef.current.add(j.jobId);
+        ackJobIds.push(j.jobId);
+      }
+
+      if (newMessages.length === 0) return;
       setMessages((cur) => [...cur, ...newMessages]);
-      await Promise.all(fresh.map((j) => acknowledgeChatJob(j.jobId)));
+      await Promise.all(ackJobIds.map((id) => acknowledgeChatJob(id)));
       // Sync to chat_messages table so the durable history matches.
       for (const m of newMessages) syncChatMessage(userId, m);
     };
@@ -4806,13 +4845,14 @@ export function useChat() {
               }
               return CHAT_ERROR_TEXT;
             }
-            // Ack immediately on receipt: the client owns the answer from
-            // here on, and the server-side push (if backgrounded) needs
-            // suppression in the foreground handler. Acking now also
-            // prevents the foreground reconciler from re-emitting if the
-            // user happens to background+foreground mid-turn.
-            void acknowledgeChatJob(job.jobId);
             if (job.status === 'done') {
+              // Ack immediately on receipt for the no-tool path: chat-run
+              // pushes to the device BEFORE returning the HTTP response, so
+              // a tray banner can race the in-band UI update. The
+              // in-memory ack via rememberChatJobAcknowledged is what
+              // suppresses that duplicate banner; the DB ack stops the
+              // foreground reconciler from re-emitting on the next active.
+              void acknowledgeChatJob(job.jobId);
               result = {
                 text: job.text,
                 toolUses: [],
@@ -4825,6 +4865,15 @@ export function useChat() {
               // can finalize the row + push when the local loop completes
               // (within iOS background grace, the user gets a tray banner
               // for "what's in my mail?" type questions).
+              //
+              // We deliberately do NOT ack here. chat-run hasn't pushed
+              // (only the done branch pushes server-side), so there's no
+              // tray banner to suppress. Leaving acknowledged_at NULL is
+              // load-bearing: it lets fetchStuckNeedsToolsJobs identify
+              // this row as orphaned if the local loop dies mid-flight
+              // (iOS-kill mid-tool-loop). The terminal-state ack happens
+              // in the runTurn .then() handler below, after the in-band
+              // assistant message renders successfully.
               pendingFinalizeJobId = job.jobId;
               result = {
                 text: job.text,
@@ -4913,6 +4962,44 @@ export function useChat() {
 
       runTurn()
         .then(({ text: answer, finalizeJobId }) => {
+          // Same-device race guard: if the foreground reconciler already
+          // surfaced this turn's chat_jobs row as "interrupted" (jobId in
+          // appendedJobIdsRef means surfaced + acked), then the suspended
+          // JS VM has just woken up and finished what we already told the
+          // user wouldn't finish. Appending the real reply now would
+          // stack it directly under the apology — two contradictory
+          // messages for one turn. Skip the append; chat-finalize
+          // server-side also refuses the status flip when acked, so the
+          // row stays terminal. The user can resend if they still want
+          // an answer.
+          //
+          // BUT: the AI memory preamble (buildProfilePreamble →
+          // listRecentChatMessages) reads from chat_messages, where the
+          // reconciler wrote the int-<jobId> row with apology text. If
+          // we leave that as the durable record, on turn N+1 the model
+          // will see "we said we couldn't answer" — and may parrot that
+          // back to the user even though, on this device, we actually
+          // produced a real reply seconds later. Overwrite the int row
+          // with the real reply so the AI memory carries the answer the
+          // turn would have delivered. Same client_id (`int-<jobId>`),
+          // upsert handles it as an UPDATE in place. Local React state
+          // is intentionally NOT touched — the user already saw the
+          // interrupted message and may have moved on.
+          if (finalizeJobId && appendedJobIdsRef.current.has(finalizeJobId)) {
+            if (__DEV__ && getPrivacyFlag('anon-reports')) {
+              console.warn('[useChat] skipping resumed reply — reconciler already surfaced interrupted');
+            }
+            if (userId && answer.length > 0) {
+              const correctiveMsg: ChatMessage = {
+                id: `int-${finalizeJobId}`,
+                from: 'zolva',
+                text: answer,
+                createdAt: new Date().toISOString(),
+              };
+              syncChatMessage(userId, correctiveMsg);
+            }
+            return;
+          }
           const assistantMsg: ChatMessage = {
             id: `a-${Date.now()}`,
             from: 'zolva',
@@ -4932,7 +5019,16 @@ export function useChat() {
           // Pass 1.5 finalize: if round 0 returned needs_tools and the
           // local tool loop produced a real answer, mark the chat_jobs
           // row done + push so backgrounded users get a tray banner.
+          //
+          // Ack BEFORE finalize so the row is acked even if finalize
+          // fails over the network. The ack guarantees the orphan
+          // reconciler skips this row going forward — without it, a
+          // failed finalize would leave the row at needs_tools+
+          // unacked, and the next foreground would surface a spurious
+          // "interrupted" message above the answer the user already
+          // saw in-band.
           if (finalizeJobId && answer.length > 0) {
+            void acknowledgeChatJob(finalizeJobId);
             void finalizeChatJob(finalizeJobId, assistantMsg.text, trimmed);
           }
         })
