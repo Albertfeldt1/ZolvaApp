@@ -1095,6 +1095,13 @@ function ScreenTrust({
   const PAL = usePal();
   const { radius } = useTheme();
   const { user, googleAccessToken, microsoftAccessToken, signInWithGoogle, signInWithMicrosoft } = useAuth();
+  // Identities is the source of truth for "is this provider linked at
+  // Supabase". Reading the in-memory access-token cache instead would let
+  // a transient silentRefresh failure fire runOAuth on an already-linked
+  // identity, which calls unlinkIdentity and revokes EVERY refresh token
+  // for the user (see auth.ts:647-651).
+  const googleLinked = !!user?.identities?.some((i) => i.provider === 'google');
+  const microsoftLinked = !!user?.identities?.some((i) => i.provider === 'azure');
   const [busyId, setBusyId] = useState<string | null>(null);
   // Watch iCloud credential state. Setup happens in a sibling modal
   // (IcloudSetupScreen) opened via onOpenIcloudSetup; once the credential
@@ -1130,9 +1137,12 @@ function ScreenTrust({
     }
 
     const provider = PROVIDER_BY_SOURCE[id];
-    const tokenAvailable = provider === 'google' ? !!googleAccessToken : !!microsoftAccessToken;
+    const grantPresent =
+      provider === 'google'
+        ? googleLinked || !!googleAccessToken
+        : microsoftLinked || !!microsoftAccessToken;
 
-    if (tokenAvailable) {
+    if (grantPresent) {
       setState((s) => ({ ...s, connections: { ...(s.connections ?? {}), [id]: true } }));
       return;
     }

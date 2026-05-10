@@ -267,6 +267,7 @@ const STATUS_LABEL: Record<IntegrationStatus, string> = {
   connected: 'Forbundet',
   pending: 'Venter',
   expired: 'Genindtast adgangskode',
+  stale: 'Forbindelsen er udløbet',
   disconnected: 'Ikke forbundet',
 };
 
@@ -1397,12 +1398,22 @@ export function SettingsScreen({
   };
   const allConnections: Connection[] = [icloudConnection, ...connections];
 
-  const hasGoogleOrMicrosoft = !!(googleAccessToken || microsoftAccessToken);
+  // Identities is the source of truth for "is this provider linked at
+  // Supabase". Reading the in-memory access-token cache instead would
+  // silently mis-classify a transient silentRefresh failure as
+  // "disconnected" and tempt every code path below into the runOAuth
+  // → unlinkIdentity trap (auth.ts:647-651). Use linkage everywhere
+  // we need to know "does the user have this provider connected".
+  const googleLinked = !!authUser?.identities?.some((i) => i.provider === 'google');
+  const microsoftLinked = !!authUser?.identities?.some((i) => i.provider === 'azure');
+  const hasGoogle = googleLinked || !!googleAccessToken;
+  const hasMicrosoft = microsoftLinked || !!microsoftAccessToken;
+  const hasGoogleOrMicrosoft = hasGoogle || hasMicrosoft;
   const hasIcloud = icloudCredState === 'valid';
   const briefVariant: 'normal' | 'icloud-only' =
     !hasGoogleOrMicrosoft && hasIcloud ? 'icloud-only' : 'normal';
   const briefProviderSub = hasGoogleOrMicrosoft
-    ? `Bruger din ${googleAccessToken ? 'Gmail' : 'Outlook'} konto`
+    ? `Bruger din ${hasGoogle ? 'Gmail' : 'Outlook'} konto`
     : undefined;
 
   const [connectingId, setConnectingId] = useState<string | null>(null);
@@ -1471,6 +1482,21 @@ export function SettingsScreen({
 
   const handleConnect = async (id: typeof connections[number]['id']) => {
     if (connectingId) return;
+    // Same anti-runOAuth-on-linked-identity gate as handleToggleIntegration
+    // (see auth.ts:647-651 for why). If the user already has the OAuth grant
+    // at the Supabase level, just flip the integration flag on - no need to
+    // re-enter the unlink-then-link dance.
+    {
+      const idIsGoogle = id === 'gmail' || id === 'google-calendar' || id === 'google-drive';
+      const idIsMicrosoft = id === 'outlook-mail' || id === 'outlook-calendar' || id === 'onedrive';
+      const alreadyEstablished =
+        (idIsGoogle && (googleLinked || !!googleAccessToken)) ||
+        (idIsMicrosoft && (microsoftLinked || !!microsoftAccessToken));
+      if (alreadyEstablished) {
+        await setIntegrationEnabled(id, true);
+        return;
+      }
+    }
     setConnectingId(id);
     const result = await connect(id);
     setConnectingId(null);
@@ -1603,50 +1629,59 @@ export function SettingsScreen({
 
     const isGoogle = id === 'gmail' || id === 'google-calendar' || id === 'google-drive';
     const isMicrosoft = id === 'outlook-mail' || id === 'outlook-calendar' || id === 'onedrive';
+    // Gate OAuth on identity-linkage, NOT on the in-memory access-token
+    // cache. A null cache just means silentRefresh hasn't completed yet (or
+    // failed transiently); the next tryWithRefresh will recover. Routing
+    // back through runOAuth in that state would hit the unlink-then-link
+    // path and revoke EVERY provider's refresh token (auth.ts:647-651).
+    const providerLinked = (isGoogle && googleLinked) || (isMicrosoft && microsoftLinked);
     const parentTokenPresent =
       (isGoogle && !!googleAccessToken) || (isMicrosoft && !!microsoftAccessToken);
+    const oauthAlreadyEstablished = providerLinked || parentTokenPresent;
 
-    if (next) {
-      if (!parentTokenPresent) {
-        // First time enabling something on this provider - kick off the
-        // shared OAuth flow. After it succeeds the auth context updates and
-        // we flip the flag for the integration the user explicitly clicked.
-        // Sibling integrations (e.g. Calendar/Drive after Gmail) stay off
-        // until the user toggles them too.
-        if (connectingId) return;
-        setConnectingId(id);
-        const result = await connect(id);
-        setConnectingId(null);
-        if (result.adminConsent && onOpenMicrosoftAdminConsent) {
-          const hint = result.adminConsent.tenantHint ?? authUser?.email ?? undefined;
-          onOpenMicrosoftAdminConsent(hint);
-          return;
-        }
-        if (result.error) {
-          if (__DEV__) console.warn('[auth] sign-in failed during toggle:', id, result.error);
-          Alert.alert('Kunne ikke forbinde', translateProviderError(result.error).message);
-          return;
-        }
-        if (result.cancelled && isMicrosoft && onOpenMicrosoftAdminConsent) {
-          Alert.alert(
-            'Krævede din administrator godkendelse?',
-            'Hvis Microsoft viste en besked om at en administrator skal godkende Zolva, kan vi hjælpe dig med at sende en anmodning.',
-            [
-              { text: 'Nej, prøv igen', style: 'cancel' },
-              {
-                text: 'Ja, send anmodning',
-                onPress: () => onOpenMicrosoftAdminConsent(authUser?.email ?? undefined),
-              },
-            ],
-          );
-          return;
-        }
-        if (result.cancelled) return;
-      }
-      await setIntegrationEnabled(id, true);
-    } else {
+    if (!next) {
       await setIntegrationEnabled(id, false);
+      return;
     }
+    if (oauthAlreadyEstablished) {
+      // Already connected at the OAuth level (or about to be, once silent
+      // refresh completes). Just flip the flag - sibling integrations stay
+      // off until the user toggles them too.
+      await setIntegrationEnabled(id, true);
+      return;
+    }
+    // Truly unlinked - fresh OAuth. runOAuth's linkedIdentity branch is
+    // skipped here, so unlinkIdentity does NOT fire.
+    if (connectingId) return;
+    setConnectingId(id);
+    const result = await connect(id);
+    setConnectingId(null);
+    if (result.adminConsent && onOpenMicrosoftAdminConsent) {
+      const hint = result.adminConsent.tenantHint ?? authUser?.email ?? undefined;
+      onOpenMicrosoftAdminConsent(hint);
+      return;
+    }
+    if (result.error) {
+      if (__DEV__) console.warn('[auth] sign-in failed during toggle:', id, result.error);
+      Alert.alert('Kunne ikke forbinde', translateProviderError(result.error).message);
+      return;
+    }
+    if (result.cancelled && isMicrosoft && onOpenMicrosoftAdminConsent) {
+      Alert.alert(
+        'Krævede din administrator godkendelse?',
+        'Hvis Microsoft viste en besked om at en administrator skal godkende Zolva, kan vi hjælpe dig med at sende en anmodning.',
+        [
+          { text: 'Nej, prøv igen', style: 'cancel' },
+          {
+            text: 'Ja, send anmodning',
+            onPress: () => onOpenMicrosoftAdminConsent(authUser?.email ?? undefined),
+          },
+        ],
+      );
+      return;
+    }
+    if (result.cancelled) return;
+    await setIntegrationEnabled(id, true);
   };
 
   const isLoggedIn = !!user;
@@ -1757,13 +1792,22 @@ export function SettingsScreen({
                   const isConnected = c.status === 'connected';
                   const isBusy = connectingId === c.id;
                   const isExpired = c.status === 'expired';
-                  // The switch is ON when this integration is fully usable.
-                  // 'expired' (iCloud creds rejected) needs a distinct visual:
-                  // a flipped-off switch alone is indistinguishable from
-                  // "user toggled it off" or "never connected". We add a
+                  const isStale = c.status === 'stale';
+                  // 'expired' (iCloud creds rejected by Apple) and 'stale'
+                  // (OAuth provider linked but token cache null - typically a
+                  // transient silentRefresh failure) both need a distinct
+                  // visual: a flipped-off switch alone is indistinguishable
+                  // from "user toggled it off" or "never connected". We add a
                   // warning pill + tinted backdrop + bolder sub copy so the
                   // user can tell at a glance that this row needs attention.
-                  const switchValue = isConnected;
+                  // Stale renders the switch as ON (the user *did* enable
+                  // this integration; auth is the only thing missing).
+                  const isWarn = isExpired || isStale;
+                  const switchValue = isConnected || isStale;
+                  const pillText = isStale ? 'UDLØBET' : 'AFVIST';
+                  const warnSub = isStale
+                    ? 'Forbindelsen er udløbet. Genstart appen, eller frakobl og forbind igen.'
+                    : 'Adgangskoden er afvist af Apple. Slå til igen for at indtaste en ny.';
 
                   return (
                     <View
@@ -1774,12 +1818,12 @@ export function SettingsScreen({
                           alignItems: 'center',
                           gap: spacing.md,
                           paddingVertical: spacing.sm,
-                          paddingHorizontal: isExpired ? spacing.sm : 0,
-                          marginHorizontal: isExpired ? -spacing.sm : 0,
-                          borderRadius: isExpired ? radius.soft : 0,
-                          backgroundColor: isExpired ? surface.warningTint : 'transparent',
+                          paddingHorizontal: isWarn ? spacing.sm : 0,
+                          marginHorizontal: isWarn ? -spacing.sm : 0,
+                          borderRadius: isWarn ? radius.soft : 0,
+                          backgroundColor: isWarn ? surface.warningTint : 'transparent',
                         },
-                        i > 0 && !isExpired && { borderTopWidth: 1, borderTopColor: t.line },
+                        i > 0 && !isWarn && { borderTopWidth: 1, borderTopColor: t.line },
                       ]}
                     >
                       <View style={styles.logoBox}>
@@ -1792,7 +1836,7 @@ export function SettingsScreen({
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
                           <Text style={{ fontFamily: fonts.uiBold, fontSize: type.body.fontSize, color: t.ink }}>{c.title}</Text>
-                          {isExpired && (
+                          {isWarn && (
                             <View style={{
                               paddingHorizontal: spacing.sm,
                               paddingVertical: 2,
@@ -1806,18 +1850,18 @@ export function SettingsScreen({
                                 fontSize: 11,
                                 letterSpacing: 0.3,
                               }}>
-                                AFVIST
+                                {pillText}
                               </Text>
                             </View>
                           )}
                         </View>
                         <Text style={{
                           ...type.caption,
-                          color: isExpired ? t.today : t.ink3,
-                          fontFamily: isExpired ? fonts.uiBold : fonts.ui,
+                          color: isWarn ? t.today : t.ink3,
+                          fontFamily: isWarn ? fonts.uiBold : fonts.ui,
                           marginTop: 1,
                         }}>
-                          {isExpired ? 'Adgangskoden er afvist af Apple. Slå til igen for at indtaste en ny.' : c.sub}
+                          {isWarn ? warnSub : c.sub}
                         </Text>
                       </View>
                       {isBusy ? (
@@ -1842,9 +1886,9 @@ export function SettingsScreen({
                     flag flip, not another sign-in). These links revoke the
                     grant entirely - useful if the user wants Zolva fully
                     cut off from a provider. */}
-                {(googleAccessToken || microsoftAccessToken || icloudCredState !== 'absent') && (
+                {(hasGoogle || hasMicrosoft || icloudCredState !== 'absent') && (
                   <View style={{ paddingTop: spacing.md, gap: spacing.xs, borderTopWidth: 1, borderTopColor: t.line, marginTop: spacing.xs }}>
-                    {googleAccessToken && (
+                    {hasGoogle && (
                       <Pressable
                         onPress={() => handleDisconnect('gmail')}
                         disabled={!!connectingId}
@@ -1855,7 +1899,7 @@ export function SettingsScreen({
                         </Text>
                       </Pressable>
                     )}
-                    {microsoftAccessToken && (
+                    {hasMicrosoft && (
                       <Pressable
                         onPress={() => handleDisconnect('outlook-mail')}
                         disabled={!!connectingId}

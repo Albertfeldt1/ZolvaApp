@@ -145,9 +145,14 @@ export type IntegrationKey =
   | 'onedrive'
   | 'icloud';
 
-export type IntegrationStatus = 'connected' | 'pending' | 'expired' | 'disconnected';
+export type IntegrationStatus = 'connected' | 'pending' | 'expired' | 'stale' | 'disconnected';
 // 'pending' = transient user-initiated (OAuth in flight) - currently unused, reserved.
-// 'expired' = persistent, credential rejected by provider, user must re-enter.
+// 'expired' = persistent, credential rejected by provider, user must re-enter
+//   (today only set by iCloud when Apple rejects the app-specific password).
+// 'stale'   = transient, OAuth identity still linked at Supabase but the
+//   in-memory access-token cache is null - silent refresh failed or hasn't
+//   completed yet. Auto-recovers on the next successful refresh; the user
+//   can also Frakobl + reconnect to force a fresh grant.
 
 export type Connection = {
   id: IntegrationKey;
