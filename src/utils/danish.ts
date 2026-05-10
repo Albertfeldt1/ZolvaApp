@@ -82,6 +82,24 @@ export function translateProviderError(error: unknown): TranslatedError {
     return { message: 'Kunne ikke sende mailen. Prøv igen om lidt.', kind: 'unknown' };
   }
 
+  // Supabase gotrue gateway error: the OAuth code was exchanged successfully
+  // but the call to graph.microsoft.com /me (or Google equivalent) returned
+  // no readable email/UPN claim - typically because the provider account has
+  // no mail attribute exposed or the tenant suppresses the claim. The string
+  // contains "500" so it must be matched BEFORE the generic 5xx catch-all,
+  // otherwise users get the misleading "Tjenesten er utilgængelig - prøv igen
+  // om lidt" copy and keep retrying the same broken account in a loop.
+  if (raw.includes('external provider')) {
+    return {
+      message:
+        'Vi kunne ikke hente din e-mail-adresse fra Microsoft eller Google. ' +
+        'Det sker oftest når din arbejdskonto ikke har en e-mail tilknyttet, ' +
+        'eller hvis administratoren begrænser hvad apps må læse. ' +
+        'Prøv en anden konto, eller kontakt din IT-administrator.',
+      kind: 'permission',
+    };
+  }
+
   if (raw.includes('500') || raw.includes('502') || raw.includes('503') || raw.includes('504')) {
     return { message: 'Tjenesten er utilgængelig lige nu. Prøv igen om lidt.', kind: 'unknown' };
   }
