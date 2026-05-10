@@ -10,7 +10,8 @@ export type TranslatedError = {
 };
 
 export function translateProviderError(error: unknown): TranslatedError {
-  const raw = extractMessage(error).toLowerCase();
+  const rawOriginal = extractMessage(error);
+  const raw = rawOriginal.toLowerCase();
 
   if (!raw) {
     return { message: 'Noget gik galt. Prøv igen.', kind: 'unknown' };
@@ -83,6 +84,43 @@ export function translateProviderError(error: unknown): TranslatedError {
 
   if (raw.includes('500') || raw.includes('502') || raw.includes('503') || raw.includes('504')) {
     return { message: 'Tjenesten er utilgængelig lige nu. Prøv igen om lidt.', kind: 'unknown' };
+  }
+
+  // Fallthrough — surface a sanitized snippet of the raw error so a
+  // user's support screenshot tells us what actually failed instead
+  // of the same opaque "Noget gik galt." for every wrapped wrapper.
+  // Priority order:
+  //   1. AADSTS code (Azure AD) — most actionable, shown verbatim.
+  //   2. Any visible OAuth / provider error indicator → snippet up to
+  //      ~120 chars of the raw message, single-line.
+  //   3. Otherwise, generic copy (no diagnostic value to surface).
+  const aadStsMatch = rawOriginal.match(/AADSTS\d+/i);
+  if (aadStsMatch) {
+    return {
+      message:
+        `Microsoft afviste forbindelsen (${aadStsMatch[0].toUpperCase()}). ` +
+        'Vis denne besked til support, hvis det bliver ved.',
+      kind: 'auth',
+    };
+  }
+
+  const looksDiagnostic =
+    raw.includes('oauth') ||
+    raw.includes('error_description') ||
+    raw.includes('error=') ||
+    raw.includes('identity') ||
+    raw.includes('exchange') ||
+    raw.includes('provider_token');
+  if (looksDiagnostic) {
+    const snippet = rawOriginal
+      .replace(/[\r\n\t]+/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+      .slice(0, 120);
+    return {
+      message: `Noget gik galt. Prøv igen.\n\n(detalje: ${snippet})`,
+      kind: 'unknown',
+    };
   }
 
   return { message: 'Noget gik galt. Prøv igen.', kind: 'unknown' };
