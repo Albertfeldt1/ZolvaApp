@@ -37,6 +37,7 @@ import {
   submitChatJob,
 } from './chat-jobs';
 import { buildProfilePreamble } from './profile';
+import { fetchServerMemoryEnabled } from './user-profile';
 import {
   addNote as storeAddNote,
   listNotes,
@@ -3092,6 +3093,53 @@ function ensurePrivacyUserSubscription() {
 export function getPrivacyFlag(id: PrivacyFlagId): boolean {
   const cached = privacyCache[id];
   return cached === undefined ? PRIVACY_DEFAULTS[id] : cached;
+}
+
+// Memory-enabled is the only privacy flag mirrored to the server
+// (`user_profiles.memory_enabled` — read by daily-brief, chat-run, and
+// fact-decay-warning, and now by this client too). All other flags are
+// device-local. This function pulls the server value, reconciles it
+// into the AsyncStorage cache, and notifies privacy listeners — so a
+// toggle made on phone A propagates to phone B on cold start /
+// foreground.
+//
+// Rate-limited: at most one fetch per 5 minutes per user. The throttle
+// resets when the active user changes so a fresh sign-in always pulls.
+//
+// Failure semantics (see brief): server result authoritative when
+// non-null; fall back to existing cache on null/error (last-known-good);
+// never downgrade a cached `true` to `false` because of a network blip.
+let lastMemoryFetchAt = 0;
+let lastMemoryFetchUserId: string | null = null;
+const MEMORY_REFRESH_THROTTLE_MS = 5 * 60 * 1000;
+
+export async function refreshMemoryEnabledFromServer(): Promise<void> {
+  ensurePrivacyUserSubscription();
+  const userId = privacyUid;
+  if (!userId) return;
+  const now = Date.now();
+  if (lastMemoryFetchUserId !== userId) {
+    lastMemoryFetchAt = 0;
+    lastMemoryFetchUserId = userId;
+  }
+  if (now - lastMemoryFetchAt < MEMORY_REFRESH_THROTTLE_MS) return;
+  lastMemoryFetchAt = now;
+  await hydratePrivacyCache();
+  if (privacyUid !== userId) return;
+  const serverValue = await fetchServerMemoryEnabled(userId);
+  // null = read failed OR row missing. Keep the cache as-is — caller's
+  // existing AsyncStorage value is the last-known-good, and forcing a
+  // privacy-conservative `false` here would punish offline users who
+  // legitimately opted in via another device.
+  if (serverValue === null) return;
+  if (privacyUid !== userId) return;
+  if (privacyCache['memory-enabled'] === serverValue) return;
+  privacyCache = { ...privacyCache, 'memory-enabled': serverValue };
+  privacyHydrated = true;
+  try {
+    await AsyncStorage.setItem(privacyTogglesKey(userId), JSON.stringify(privacyCache));
+  } catch {}
+  notifyPrivacyChange();
 }
 
 export async function hydratePrivacyCache(): Promise<void> {

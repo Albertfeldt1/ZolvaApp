@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, SafeAreaView, ScrollView, Text, View } from 'react-native';
+import { Alert, Pressable, SafeAreaView, ScrollView, Text, View } from 'react-native';
 import Animated, { SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
@@ -7,6 +7,7 @@ import { Stone } from '../design/primitives/Stone';
 import { useTheme } from '../design/useTheme';
 import { migrateLocalChatIfNeeded } from '../lib/chat-sync';
 import { setPrivacyFlag } from '../lib/hooks';
+import { syncMemoryEnabled } from '../lib/user-profile';
 
 type Props = {
   visible: boolean;
@@ -24,8 +25,25 @@ export function MemoryConsentModal({ visible, userId, onClose }: Props) {
   const { t, type, fonts, radius, spacing, surface } = useTheme();
 
   const enable = async () => {
+    // Optimistic local flip mirrors the Memory-screen toggle. The
+    // consent flow's failure mode is the inverse privacy bug: user
+    // explicitly consented but the server gate stayed `false`, so cron
+    // and chat-run keep skipping memory features the user just opted in
+    // to. Same shape as the toggle revert path — flip locally, mirror
+    // to server, revert on failure with a network-attributed alert.
     await setPrivacyFlag('memory-enabled', true);
     void migrateLocalChatIfNeeded(userId);
+    try {
+      await syncMemoryEnabled(userId, true);
+    } catch (err) {
+      if (__DEV__) console.warn('[MemoryConsentModal] memory_enabled sync failed:', err);
+      await setPrivacyFlag('memory-enabled', false);
+      Alert.alert(
+        'Kunne ikke gemme indstillingen',
+        'Tjek din forbindelse og prøv igen.',
+      );
+      return;
+    }
     onClose();
   };
 
