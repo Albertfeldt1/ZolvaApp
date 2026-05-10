@@ -3390,6 +3390,56 @@ function buildDisabledIntegrationsBlock(ctx: ChatCtx): string {
   ].join('\n');
 }
 
+// Default chat model. Sonnet is the everyday driver - capable enough
+// for the 80% of conversational + single-tool turns where we want
+// users to feel "this just works", without paying Opus on every
+// trivial "remind me about ..." or "what's on my calendar today?".
+type ChatModel = 'claude-sonnet-4-6' | 'claude-opus-4-7';
+const CHAT_MODEL_DEFAULT: ChatModel = 'claude-sonnet-4-6';
+const CHAT_MODEL_HARD: ChatModel = 'claude-opus-4-7';
+
+// Heuristic signals that promote a turn to Opus. Bias is intentionally
+// loose - the founder wants Opus to engage on "even slightly harder"
+// requests, so the keyword list errs toward false-positives. All
+// strings are matched against a lowercased copy of the user message,
+// so tokens here must already be lowercase.
+const HARD_TASK_KEYWORDS: readonly string[] = [
+  // Multi-step / analysis verbs (DA + EN)
+  'analysér', 'analyser', 'analyze', 'analyse',
+  'sammenlign', 'compare',
+  'planlæg', 'planlaeg',
+  'undersøg', 'undersoeg', 'research',
+  'opsummér', 'opsummer', 'summarize', 'summarise',
+  'udregn', 'beregn', 'calculate',
+  'find ud af', 'figure out',
+  'forklar hvorfor', 'explain why',
+  // Cross-cutting / multi-source
+  'på tværs', 'paa tvaers', 'across',
+  'kalender og mail', 'mail og kalender',
+  'både ', 'baade ',
+  // Difficulty signals
+  'kompliceret', 'kompleks', 'complex',
+  'svær', 'svaer', 'hard',
+  'detaljeret', 'detailed',
+  // Drafting / writing tasks (longer reasoning)
+  'skriv et oplæg', 'skriv en opsummering', 'skriv en plan',
+  'draft a plan',
+];
+
+// 200 chars is roughly two full sentences. Past that the user is
+// almost always describing something multi-step or asking us to
+// reason over a chunk of context, both of which benefit from Opus.
+const HARD_TASK_LENGTH = 200;
+
+function pickChatModel(userMessage: string): ChatModel {
+  const msg = userMessage.toLowerCase();
+  if (msg.length > HARD_TASK_LENGTH) return CHAT_MODEL_HARD;
+  for (const kw of HARD_TASK_KEYWORDS) {
+    if (msg.includes(kw)) return CHAT_MODEL_HARD;
+  }
+  return CHAT_MODEL_DEFAULT;
+}
+
 function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
   const intro = name ? `Brugerens navn er ${name}.` : '';
   const now = new Date();
@@ -4832,6 +4882,11 @@ export function useChat() {
         }
         systemBlocks.push({ type: 'text', text: buildChatSystemPrompt(name, toolCtx) });
         const filteredTools = filterToolsByCtx(CHAT_TOOLS, toolCtx);
+        // Pick the model once per turn from the user's prompt and reuse
+        // it for every round in this turn's tool loop. Switching mid-
+        // loop would burn the prompt cache and could change the
+        // reasoning signature partway through a multi-step plan.
+        const chatModel = pickChatModel(trimmed);
 
         for (let round = 0; round < CHAT_TOOL_ROUND_CAP; round += 1) {
           let result: ClaudeCompletion;
@@ -4849,6 +4904,7 @@ export function useChat() {
               tools: filteredTools,
               metadata,
               userPreview: trimmed,
+              model: chatModel,
             });
             if (job.status === 'error') {
               if (__DEV__ && getPrivacyFlag('anon-reports')) {
@@ -4900,6 +4956,7 @@ export function useChat() {
               messages: working,
               tools: filteredTools,
               metadata,
+              model: chatModel,
             });
           }
 
