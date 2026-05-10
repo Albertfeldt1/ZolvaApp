@@ -14,12 +14,21 @@ export type AdminConsentDetection =
   | { detected: false }
   | { detected: true; tenantHint?: string };
 
-// AADSTS90094 = admin consent required for the requested permissions
-// AADSTS65001 = user has not consented (often the first signal of admin-only consent)
-// AADSTS900971 = no reply address / admin-consent variant
-// consent_required / interaction_required = OAuth-spec error names AAD also emits
+// Any AADSTS-* error from Azure AD routes to the admin-consent screen.
+// The previous narrow list (90094 / 65001 / 900971) only caught three
+// specific codes and dropped every other tenant-policy failure into the
+// generic "Noget gik galt" dialog with no recovery path - users on
+// tenants returning AADSTS50105 (user-not-assigned-to-app), AADSTS50020
+// (external-account-not-permitted), AADSTS530xx (Conditional Access),
+// AADSTS50158 (External MFA required) etc. all hit the dead-end. The
+// admin-consent screen is recoverable for all of these (it asks for the
+// work email and offers to mint a tenant-wide consent link), so
+// over-routing here is much cheaper than under-routing.
+//
+// consent_required / interaction_required = OAuth-spec error names AAD
+// also emits when no AADSTS code is present in the bubbled message.
 const ADMIN_CONSENT_PATTERNS: ReadonlyArray<RegExp> = [
-  /aadsts(?:90094|65001|900971)/i,
+  /aadsts\d+/i,
   /\bconsent[_-]?required\b/i,
   /\binteraction[_-]?required\b/i,
   /admin\s*consent/i,
