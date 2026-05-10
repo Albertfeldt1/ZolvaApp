@@ -195,7 +195,7 @@ async function persistRefreshToken(
   return { ok: true };
 }
 
-type MintedToken = {
+export type MintedToken = {
   accessToken: string;
   expiresIn: number;
   rotatedRefreshToken?: string;
@@ -275,4 +275,43 @@ async function parseTokenResponse(
     expiresIn: j.expires_in ?? 3600,
     rotatedRefreshToken: j.refresh_token,
   };
+}
+
+// Authorization-code flow exchange. Mirrors mintAccessToken's structure but
+// uses grant_type=authorization_code with code_verifier (PKCE) instead of
+// grant_type=refresh_token. Returns the same MintedToken shape so callers can
+// pull access_token + the freshly issued refresh_token uniformly.
+//
+// Microsoft requires both client_secret AND code_verifier on confidential
+// clients - PKCE is layered on top of the secret, not a replacement.
+export async function exchangeAuthorizationCode(
+  provider: Provider,
+  code: string,
+  codeVerifier: string,
+  redirectUri: string,
+): Promise<MintedToken> {
+  if (provider !== 'microsoft') {
+    throw new Error(`exchangeAuthorizationCode: provider ${provider} not implemented`);
+  }
+  const clientId = Deno.env.get('MICROSOFT_OAUTH_CLIENT_ID');
+  const clientSecret = Deno.env.get('MICROSOFT_OAUTH_CLIENT_SECRET');
+  const tenant = Deno.env.get('MICROSOFT_OAUTH_TENANT') ?? 'common';
+  if (!clientId || !clientSecret) throw new Error('microsoft oauth env missing');
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    code,
+    code_verifier: codeVerifier,
+    redirect_uri: redirectUri,
+    grant_type: 'authorization_code',
+  });
+  const res = await fetch(
+    `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body,
+    },
+  );
+  return parseTokenResponse('microsoft', res);
 }
