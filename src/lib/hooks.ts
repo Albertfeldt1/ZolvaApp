@@ -4981,6 +4981,36 @@ export function useChat() {
         // reasoning signature partway through a multi-step plan.
         const chatModel = pickChatModel(trimmed);
 
+        // Wraps the per-round Anthropic call with a single transient-error
+        // retry. Most claude-proxy / Anthropic blips that throw a generic
+        // Error on one call succeed on the immediate retry; rate-limit and
+        // config errors are user-actionable and must not be silently
+        // retried. Used for rounds 1..N only — round 0 goes through
+        // submitChatJob and has its own server-side path.
+        const callRound = async (maxTokens: number): Promise<ClaudeCompletion> => {
+          const send = () =>
+            completeRaw({
+              system: systemBlocks,
+              attachProfile: false,
+              messages: working,
+              tools: filteredTools,
+              metadata,
+              model: chatModel,
+              maxTokens,
+            });
+          try {
+            return await send();
+          } catch (err) {
+            if (err instanceof ClaudeRateLimitError) throw err;
+            if (__DEV__ && getPrivacyFlag('anon-reports')) {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.warn(`[useChat] completeRaw failed (${msg}); retrying once`);
+            }
+            await new Promise((r) => setTimeout(r, 500));
+            return send();
+          }
+        };
+
         for (let round = 0; round < CHAT_TOOL_ROUND_CAP; round += 1) {
           let result: ClaudeCompletion;
           if (round === 0) {
@@ -5044,34 +5074,44 @@ export function useChat() {
               };
             }
           } else {
-            result = await completeRaw({
-              system: systemBlocks,
-              attachProfile: false,
-              messages: working,
-              tools: filteredTools,
-              metadata,
-              model: chatModel,
-              maxTokens: CHAT_MAX_TOKENS,
-            });
-            // If the model ran out of room mid-response, the trailing
-            // tool_use will be truncated and crash runChatTool. Re-issue
-            // once with a larger cap so we get a complete, coherent set
-            // of tool_uses (or final text) back.
-            if (result.stopReason === 'max_tokens') {
-              if (__DEV__ && getPrivacyFlag('anon-reports')) {
-                console.warn(
-                  `[useChat] max_tokens hit on round ${round}; retrying with cap=${CHAT_MAX_TOKENS_RETRY}`,
-                );
+            try {
+              result = await callRound(CHAT_MAX_TOKENS);
+              // If the model ran out of room mid-response, the trailing
+              // tool_use will be truncated and crash runChatTool. Re-issue
+              // once with a larger cap so we get a complete, coherent set
+              // of tool_uses (or final text) back.
+              if (result.stopReason === 'max_tokens') {
+                if (__DEV__ && getPrivacyFlag('anon-reports')) {
+                  console.warn(
+                    `[useChat] max_tokens hit on round ${round}; retrying with cap=${CHAT_MAX_TOKENS_RETRY}`,
+                  );
+                }
+                result = await callRound(CHAT_MAX_TOKENS_RETRY);
               }
-              result = await completeRaw({
-                system: systemBlocks,
-                attachProfile: false,
-                messages: working,
-                tools: filteredTools,
-                metadata,
-                model: chatModel,
-                maxTokens: CHAT_MAX_TOKENS_RETRY,
-              });
+            } catch (err) {
+              if (err instanceof ClaudeRateLimitError) throw err;
+              // If tools already ran in an earlier round, the user's intent
+              // succeeded; events/mails/etc. are committed. Surface a brief
+              // ack instead of letting the outer .catch hide the work behind
+              // "kunne ikke nå frem" — which leads users to retry and create
+              // duplicates. Without this, a transient claude-proxy hiccup
+              // mid-summary is indistinguishable from total failure.
+              const toolsRan = working.some(
+                (m) =>
+                  m.role === 'assistant' &&
+                  Array.isArray(m.content) &&
+                  m.content.some((b) => b.type === 'tool_use'),
+              );
+              if (toolsRan) {
+                if (__DEV__ && getPrivacyFlag('anon-reports')) {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  console.warn(
+                    `[useChat] summary call failed after tools ran (${msg}); falling back to Klaret`,
+                  );
+                }
+                return { text: 'Klaret.', finalizeJobId: pendingFinalizeJobId };
+              }
+              throw err;
             }
           }
 
