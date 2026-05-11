@@ -18,7 +18,7 @@ import { EmptyState } from '../components/EmptyState';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { SkeletonRow } from '../components/Skeleton';
 import { formatClock, formatToday } from '../lib/date';
-import { archiveMailInline, deleteMailInline, refreshMailNow, useHasProvider, useInboxWaiting } from '../lib/hooks';
+import { archiveMailInline, deleteMailInline, refreshMailNow, useHasProvider, useInboxWaiting, useMicrosoftLinked } from '../lib/hooks';
 import type { MailProviderError } from '../lib/hooks';
 import type { InboxMail, MailProvider } from '../lib/types';
 import { SwipeableMailRow } from '../components/SwipeableMailRow';
@@ -99,8 +99,11 @@ export function InboxScreen({ onGoToSettings, onOpenMail, onOverDarkChange, onOp
   // banners the missing provider was silently absent from the inbox and the
   // user had no path to recover short of full sign-out.
   const providers = (user?.app_metadata?.providers as string[] | undefined) ?? [];
+  // Use useMicrosoftLinked instead of providers.includes('azure'): new-flow
+  // Microsoft users bypass gotrue and won't have 'azure' in app_metadata.providers.
+  const microsoftLinked = useMicrosoftLinked(user?.id ?? null);
   const needsMicrosoftReauth =
-    !initializing && !microsoftRefreshingAtBoot && providers.includes('azure') && !microsoftAccessToken;
+    !initializing && !microsoftRefreshingAtBoot && microsoftLinked && !microsoftAccessToken;
   const needsGoogleReauth =
     !initializing && !googleRefreshingAtBoot && providers.includes('google') && !googleAccessToken;
 

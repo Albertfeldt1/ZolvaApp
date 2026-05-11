@@ -610,6 +610,38 @@ export function useIcloudConnected(userId: string): boolean {
   return connected;
 }
 
+// Reads user_oauth_tokens row presence to decide whether Microsoft is
+// connected. Replaces user.identities-based checks - works for both old-flow
+// (gotrue identity exists, token row exists) and new-flow (no identity, only
+// token row) users since both paths populate user_oauth_tokens. Re-checks
+// whenever the broadcast access token flips (connect or disconnect events
+// both flip it: connect sets non-null, disconnect sets null).
+export function useMicrosoftLinked(userId: string | null | undefined): boolean {
+  const { microsoftAccessToken } = useAuth();
+  const [linked, setLinked] = useState<boolean>(false);
+  useEffect(() => {
+    if (!userId) { setLinked(false); return; }
+    let cancelled = false;
+    const check = async () => {
+      const { count, error } = await supabase
+        .from('user_oauth_tokens')
+        .select('user_id', { head: true, count: 'exact' })
+        .eq('user_id', userId)
+        .eq('provider', 'microsoft');
+      if (cancelled) return;
+      if (error) {
+        // Network/RLS error - keep last-known state, don't flip to false noisily.
+        return;
+      }
+      setLinked((count ?? 0) > 0);
+    };
+    void check();
+    return () => { cancelled = true; };
+  // microsoftAccessToken in deps so the row-check re-runs on connect/disconnect.
+  }, [userId, microsoftAccessToken]);
+  return linked;
+}
+
 type NormalizedMail = {
   id: string;
   provider: MailProvider;
@@ -2768,7 +2800,7 @@ export function useConnections() {
   // tempt the toggle handler into re-entering runOAuth (auth.ts:647-651).
   // Demo bypasses the flag store - DEMO_CONNECTIONS hard-codes statuses.
   const googleLinked = !!user?.identities?.some((i) => i.provider === 'google');
-  const microsoftLinked = !!user?.identities?.some((i) => i.provider === 'azure');
+  const microsoftLinked = useMicrosoftLinked(user?.id ?? null);
   const data: Connection[] = demo
     ? DEMO_CONNECTIONS
     : DEFAULT_CONNECTIONS.map((c) => {

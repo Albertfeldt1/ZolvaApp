@@ -49,6 +49,7 @@ import { registerPushToken, unregisterPushToken, setMailWatchersEnabled } from '
 import { recordUserEmailDomain } from './admin-consent';
 import { readCalendarLabels, setCalendarLabel } from './calendar-labels';
 import { migrateLocalRemindersToServer } from './reminders';
+import { runMicrosoftOAuth } from './microsoft-oauth';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -70,17 +71,6 @@ const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/drive.readonly',
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.compose',
-].join(' ');
-
-const MICROSOFT_SCOPES = [
-  'openid',
-  'email',
-  'profile',
-  'offline_access',
-  'Mail.ReadWrite',
-  'Mail.Send',
-  'Calendars.ReadWrite',
-  'Files.Read',
 ].join(' ');
 
 const SECURE_STORE_MIGRATION_FLAG = 'zolva.migration.secure-store.v1';
@@ -233,7 +223,11 @@ const init = () => {
       // this, those users sat with `microsoftAccessToken === null` forever
       // and Outlook mails were silently absent from the inbox.
       const providers = (data.session?.user?.app_metadata?.providers as string[] | undefined) ?? [];
-      if (providers.includes('azure') && !cachedMicrosoftToken) {
+      // Microsoft bypasses gotrue (custom PKCE flow) so providers won't include
+      // 'azure' for new-flow users. Always try silent refresh - the edge fn
+      // returns 404 fast when no refresh_token row exists, and silentRefresh
+      // swallows that to null.
+      if (!cachedMicrosoftToken) {
         void trySilentRefreshAndBroadcast('microsoft');
       }
       if (providers.includes('google') && !cachedGoogleToken) {
@@ -274,8 +268,10 @@ const init = () => {
           // Same proactive-refresh as init() - covers the user-switch /
           // sign-back-in flow where loadProviderTokens finds nothing in the
           // new user's secure-store but the server still has a refresh_token.
+          // Microsoft: same reasoning as init() — no 'azure' in providers for
+          // new-flow users, so always try when no cached token.
           const providers = (session?.user?.app_metadata?.providers as string[] | undefined) ?? [];
-          if (providers.includes('azure') && !cachedMicrosoftToken) {
+          if (!cachedMicrosoftToken) {
             void trySilentRefreshAndBroadcast('microsoft');
           }
           if (providers.includes('google') && !cachedGoogleToken) {
@@ -552,7 +548,27 @@ async function signInWithGoogle() {
 }
 
 async function signInWithMicrosoft() {
-  return runOAuth('azure', MICROSOFT_SCOPES);
+  const clientId = process.env.EXPO_PUBLIC_MICROSOFT_OAUTH_CLIENT_ID ?? null;
+  const result = await runMicrosoftOAuth({
+    clientId,
+    mailWatcherEnabled: getNotificationSettings().newMail,
+  });
+  if (result.ok) {
+    const uid = currentUserId();
+    if (uid) {
+      try {
+        await secureStorage.setItem(tokenKey('microsoft', uid), result.accessToken);
+      } catch (err) {
+        if (__DEV__) console.warn('[auth] microsoft token persist failed:', err);
+      }
+    }
+    broadcastMicrosoft(result.accessToken);
+    return { data: { session: cachedSession }, error: null };
+  }
+  if ('cancelled' in result) {
+    return { data: null, error: null, cancelled: true } as { data: null; error: null; cancelled: true };
+  }
+  return { data: null, error: result.error };
 }
 
 export class ProviderAuthError extends Error {
@@ -755,6 +771,15 @@ export async function disconnectProvider(
       .eq('user_id', uid)
       .eq('provider', provider),
   ]);
+
+  // Re-broadcast after the delete resolves so useMicrosoftLinked (which
+  // re-queries user_oauth_tokens on any broadcast change) sees the post-delete
+  // state. The earlier broadcast above flipped in-memory caches immediately
+  // (preventing stale token use during the await window); this second
+  // broadcast closes the gap where the hook may have re-queried during that
+  // window and found the row still present.
+  if (provider === 'google') broadcastGoogle(null);
+  else broadcastMicrosoft(null);
 
   await clearProviderToken(provider);
 }
