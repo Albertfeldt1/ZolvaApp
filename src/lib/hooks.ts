@@ -23,6 +23,7 @@ import {
   completeJson,
   completeRaw,
   hasClaudeKey,
+  ClaudeRateLimitError,
   type ClaudeContentBlock,
   type ClaudeCompletion,
   type ClaudeMessage,
@@ -3410,6 +3411,13 @@ const CHAT_HISTORY_LIMIT = 50;
 // Claude to keep input tokens flat as the local transcript grows.
 const CHAT_API_CONTEXT_LIMIT = 15;
 const CHAT_ERROR_TEXT = 'Jeg kunne ikke nå frem - prøv igen.';
+// Chat turns can emit many tool_use blocks per round (e.g. user asks Zolva to
+// create 10 calendar events). Each create_calendar_event tool_use is ~150-200
+// output tokens, so 1024 truncates mid-block on ~6+ events and crashes the
+// loop. 4096 leaves headroom for a normal multi-step turn. The retry cap
+// applies only after we observe a real max_tokens stop.
+const CHAT_MAX_TOKENS = 4096;
+const CHAT_MAX_TOKENS_RETRY = 8192;
 // Surfaced by the foreground reconciler when it finds a chat_jobs row
 // stuck at status='needs_tools' for longer than the staleness threshold —
 // almost always a chat turn whose local tool loop got iOS-killed mid-run.
@@ -3669,6 +3677,11 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       'bekræfter at oprette alligevel, kald create_calendar_event igen med præcis samme ' +
       'felter PLUS `force_overlap: true`. Hvis brugeren vælger et nyt tidspunkt, kald med ' +
       'de nye tider og UDEN force_overlap.',
+    'MANGE BEGIVENHEDER PÅ ÉN GANG: Hvis brugeren beder dig oprette flere end ~6 ' +
+      'kalenderbegivenheder i samme tur, opret dem i batches af 5 ad gangen i stedet for ' +
+      'at emitte alle tool_use-kald på én gang. Kør første batch, læs tool_result, og kør ' +
+      'næste batch i samme tur. Det forhindrer at outputtet bliver afkortet mid-tool_use ' +
+      'og at hele turen fejler. Sig kort til brugeren bagefter hvor mange der blev oprettet.',
     'iCloud understøtter ikke deltagere/invitationer endnu - hvis brugeren beder om ' +
       'at invitere folk til en iCloud-begivenhed, foreslå Outlook eller Google i stedet, ' +
       'eller opret begivenheden uden deltagere.',
@@ -4985,6 +4998,7 @@ export function useChat() {
               metadata,
               userPreview: trimmed,
               model: chatModel,
+              maxTokens: CHAT_MAX_TOKENS,
             });
             if (job.status === 'error') {
               if (__DEV__ && getPrivacyFlag('anon-reports')) {
@@ -5037,7 +5051,28 @@ export function useChat() {
               tools: filteredTools,
               metadata,
               model: chatModel,
+              maxTokens: CHAT_MAX_TOKENS,
             });
+            // If the model ran out of room mid-response, the trailing
+            // tool_use will be truncated and crash runChatTool. Re-issue
+            // once with a larger cap so we get a complete, coherent set
+            // of tool_uses (or final text) back.
+            if (result.stopReason === 'max_tokens') {
+              if (__DEV__ && getPrivacyFlag('anon-reports')) {
+                console.warn(
+                  `[useChat] max_tokens hit on round ${round}; retrying with cap=${CHAT_MAX_TOKENS_RETRY}`,
+                );
+              }
+              result = await completeRaw({
+                system: systemBlocks,
+                attachProfile: false,
+                messages: working,
+                tools: filteredTools,
+                metadata,
+                model: chatModel,
+                maxTokens: CHAT_MAX_TOKENS_RETRY,
+              });
+            }
           }
 
           if (result.toolUses.length > 0) {
@@ -5184,9 +5219,10 @@ export function useChat() {
           if (__DEV__ && getPrivacyFlag('anon-reports')) {
             console.warn('[useChat] Claude request failed:', err.message);
           }
+          const text = err instanceof ClaudeRateLimitError ? err.message : CHAT_ERROR_TEXT;
           setMessages((cur) => [
             ...cur,
-            { id: `e-${Date.now()}`, from: 'zolva', text: CHAT_ERROR_TEXT, createdAt: new Date().toISOString() },
+            { id: `e-${Date.now()}`, from: 'zolva', text, createdAt: new Date().toISOString() },
           ]);
         })
         .finally(() => {
