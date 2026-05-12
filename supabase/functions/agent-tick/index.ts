@@ -4,6 +4,7 @@
 // pending events, or by an authenticated user for their own row.
 // Phase 1 is a no-op: runAgent() drains the queue without doing any
 // Claude work. Phase 2 wires real tool execution into runner.ts.
+// Smoke test: see docs/superpowers/plans/2026-05-11-autonomous-agent-phase-1-plumbing.md task 7.
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
