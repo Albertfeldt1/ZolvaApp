@@ -228,7 +228,10 @@ export type NotificationPayload =
   | { type: 'microsoftConsentGranted'; tenantDomain: string }
   // Sent when a backgrounded chat turn finishes. Tap reopens chat at the
   // resolved job; the answer text lives on the chat_jobs row keyed by jobId.
-  | { type: 'chatReply'; jobId: string };
+  | { type: 'chatReply'; jobId: string }
+  // Sent when the autonomous agent proposes an action for user review.
+  // Tap routes to Today where the proposal card is displayed.
+  | { type: 'agent_proposal'; action_id: string };
 
 export type FeedEntryType = NotificationPayload['type'];
 

@@ -443,6 +443,11 @@ export default function App() {
           // to forward the jobId here.
           setChatOpen(true);
           break;
+        case 'agent_proposal':
+          // Autonomous agent proposed an action. Route to Today so the
+          // proposal card is visible for the user to approve or dismiss.
+          setTab('today');
+          break;
       }
     });
     return unsub;
@@ -601,6 +606,11 @@ export default function App() {
         break;
       case 'chatReply':
         setChatOpen(true);
+        break;
+      case 'agent_proposal':
+        // Autonomous agent proposed an action. Route to Today so the
+        // proposal card is visible for the user to approve or dismiss.
+        setTab('today');
         break;
     }
   };
