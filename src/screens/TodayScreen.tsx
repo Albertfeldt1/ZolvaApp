@@ -18,7 +18,7 @@ import {
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useAuth } from '../lib/auth';
 import { loadCredential } from '../lib/icloud-credentials';
-import { AgentEmptyState } from '../components/AgentEmptyState';
+import { TodayAgentFeed } from '../components/TodayAgentFeed';
 import { BriefBanner } from '../components/BriefBanner';
 import { CountUp } from '../components/CountUp';
 import { DayRibbon } from '../components/DayRibbon';
@@ -671,7 +671,7 @@ export function TodayScreen({
           />
         )}
 
-        <AgentEmptyState />
+        <TodayAgentFeed />
 
         {/* Brief history pills - wrapped in a single glass card so the
             three time-of-day shortcuts read as one element, not as
