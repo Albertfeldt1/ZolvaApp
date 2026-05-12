@@ -58,13 +58,16 @@ function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
   };
 }
 
-async function userIdsWithPendingEvents(client: SupabaseClient): Promise<string[]> {
+export async function selectEligibleUserIds(
+  client: SupabaseClient,
+): Promise<string[]> {
   const { data, error } = await client
-    .from('agent_events')
-    .select('user_id')
-    .is('processed_at', null);
+    .from('v_users_with_pending_agent_events')
+    .select('user_id');
   if (error) throw error;
-  return Array.from(new Set((data ?? []).map((r: { user_id: string }) => r.user_id)));
+  return Array.from(
+    new Set((data ?? []).map((r: { user_id: string }) => r.user_id)),
+  );
 }
 
 async function authenticatedUserId(req: Request): Promise<string | null> {
@@ -90,7 +93,7 @@ serve(async (req) => {
   let trigger: AgentRunTrigger = 'tick';
 
   if (isCron) {
-    userIds = await userIdsWithPendingEvents(serviceClient);
+    userIds = await selectEligibleUserIds(serviceClient);
   } else {
     const uid = await authenticatedUserId(req);
     if (!uid) return new Response('unauthorized', { status: 401 });
