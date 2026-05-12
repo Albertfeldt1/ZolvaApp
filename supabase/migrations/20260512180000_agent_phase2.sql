@@ -12,7 +12,10 @@
 -- agent_events from migration 20260511180000 are the only writes.
 
 -- Atomic undo: claim the row by stamping reversed_at and return whether
--- this caller was the one to claim it. Subsequent taps see reversed=false.
+-- this caller was the one to claim it. Returns one row with claimed=true
+-- when the update succeeds. Returns ZERO ROWS (not claimed=false) when
+-- the action is already reversed, non-reversible, or owned by another user.
+-- Callers must check `(data ?? [])[0]?.claimed`, not `row.claimed === false`.
 create or replace function public.agent_revert_action(
   p_action_id uuid,
   p_user_id   uuid
