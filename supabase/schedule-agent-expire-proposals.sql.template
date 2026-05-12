@@ -1,0 +1,24 @@
+-- supabase/schedule-agent-expire-proposals.sql.template
+--
+-- Paste this whole file into the Supabase Dashboard SQL editor.
+-- Replace PASTE_SB_SECRET_KEY with your sb_secret_… key from
+-- Project Settings -> API. Do NOT keep the angle brackets.
+--
+-- Sweeps proposed_actions whose pending TTL has elapsed. Runs every 5
+-- minutes. Lightweight — touches only pending rows that are past
+-- expires_at, sets them to 'expired'.
+--
+-- Note: the SQL body below does not directly reference a secret key;
+-- the UPDATE runs under the cron job owner's role. The PASTE_SB_SECRET_KEY
+-- placeholder is kept here for consistency with other templates in this repo.
+
+select cron.schedule(
+  'agent-expire-proposals',
+  '*/5 * * * *',
+  $cmd$update public.proposed_actions
+     set status = 'expired',
+         decided_at = now()
+   where status = 'pending'
+     and expires_at is not null
+     and expires_at < now();$cmd$
+);
