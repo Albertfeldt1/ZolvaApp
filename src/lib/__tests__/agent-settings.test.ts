@@ -1,12 +1,5 @@
-// Mock react and supabase before importing agent-settings.ts to avoid
-// hook and native-module errors in Jest. reduceAgentEnabled is a pure function
-// so neither mock is exercised by the tests below.
-jest.mock('react', () => ({
-  ...jest.requireActual('react'),
-  useCallback: (fn: unknown) => fn,
-  useEffect: jest.fn(),
-  useState: (init: unknown) => [init, jest.fn()],
-}));
+// Mock supabase before importing agent-settings.ts to avoid native-module
+// errors in Jest. reduceAgentEnabled is a pure function and does not use it.
 jest.mock('../supabase', () => ({ supabase: { from: jest.fn() } }));
 
 import { reduceAgentEnabled } from '../agent-settings';
