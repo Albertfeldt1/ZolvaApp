@@ -3,7 +3,7 @@
 // Invoked either by cron (with x-cron-secret) for every user with
 // pending events, or by an authenticated user for their own row.
 // Phase 2 wires real deps: Gmail, Claude, budget, idempotent actions.
-// Smoke test: see docs/superpowers/plans/2026-05-11-autonomous-agent-phase-1-plumbing.md task 7.
+// Smoke test: see docs/superpowers/plans/2026-05-12-autonomous-agent-phase-2-mail-triage.md task 13.
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
