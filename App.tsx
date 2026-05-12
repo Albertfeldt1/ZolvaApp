@@ -79,6 +79,7 @@ import { OnboardingFlowScreen } from './src/screens/OnboardingFlowScreen';
 import { subscribeBackfillRerun, type BackfillJob } from './src/lib/onboarding-backfill';
 import { isDemoUser } from './src/lib/demo';
 import { syncUserProfile } from './src/lib/user-profile';
+import { registerPresenceListener } from './src/lib/presence';
 import { writeSnapshotFromSources } from './src/lib/widget-bridge';
 
 // Module-level flag - persists across component re-renders and across
@@ -114,6 +115,13 @@ export default function App() {
   const designFonts = useDesignFonts();
 
   const { user, initializing: authInitializing, googleAccessToken, microsoftAccessToken, signInWithMicrosoft, disconnectProvider } = useAuth();
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const unsubscribe = registerPresenceListener(() => user?.id ?? null);
+    return unsubscribe;
+  }, [user?.id]);
+
   // Fire-and-forget: re-analyze the user's writing style whenever a
   // mail provider connects or the cached summary ages past its TTL.
   // Hook is internally TTL-gated so this is essentially free on warm
