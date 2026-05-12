@@ -2332,12 +2332,12 @@ function groupByAccount(calendars: ProviderCalendar[]) {
 }
 
 export function LoginCard() {
-  const { signIn, signUp, signInWithGoogle, signInWithApple, appleAvailable } = useAuth();
+  const { signIn, signUp, signInWithGoogle, signInWithMicrosoft, signInWithApple, appleAvailable } = useAuth();
   const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
-  const [oauthBusy, setOauthBusy] = useState<null | 'google' | 'apple'>(null);
+  const [oauthBusy, setOauthBusy] = useState<null | 'google' | 'microsoft' | 'apple'>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
@@ -2373,14 +2373,18 @@ export function LoginCard() {
     }
   };
 
-  const oauth = async (provider: 'google' | 'apple') => {
+  const oauth = async (provider: 'google' | 'microsoft' | 'apple') => {
     if (busy || oauthBusy) return;
     setError(null);
     setInfo(null);
     setOauthBusy(provider);
     try {
       const { error: err } =
-        provider === 'google' ? await signInWithGoogle() : await signInWithApple();
+        provider === 'google'
+          ? await signInWithGoogle()
+          : provider === 'microsoft'
+            ? await signInWithMicrosoft()
+            : await signInWithApple();
       if (err) {
         if (__DEV__) console.warn(`[auth] ${provider} sign-in returned error:`, err);
         setError(translateProviderError(err).message);
@@ -2425,8 +2429,25 @@ export function LoginCard() {
         </Pressable>
       </Animated.View>
 
+      <Animated.View entering={FadeInUp.duration(420).delay(220)}>
+        <Pressable
+          style={[styles.socialBtn, anyBusy && styles.loginPrimaryBusy]}
+          onPress={() => oauth('microsoft')}
+          disabled={anyBusy}
+        >
+          {oauthBusy === 'microsoft' ? (
+            <ActivityIndicator color={colors.ink} />
+          ) : (
+            <>
+              <MicrosoftGlyph />
+              <Text style={styles.socialText}>Fortsæt med Microsoft</Text>
+            </>
+          )}
+        </Pressable>
+      </Animated.View>
+
       {appleAvailable && (
-        <Animated.View entering={FadeInUp.duration(420).delay(240)}>
+        <Animated.View entering={FadeInUp.duration(420).delay(280)}>
           <Pressable
             style={[styles.socialBtnDark, anyBusy && styles.loginPrimaryBusy]}
             onPress={() => oauth('apple')}
@@ -2543,6 +2564,17 @@ function AppleGlyph() {
       style={styles.appleGlyph}
       resizeMode="contain"
     />
+  );
+}
+
+function MicrosoftGlyph() {
+  return (
+    <View style={styles.microsoftGlyph}>
+      <View style={[styles.microsoftSquare, { backgroundColor: '#F25022' }]} />
+      <View style={[styles.microsoftSquare, { backgroundColor: '#7FBA00' }]} />
+      <View style={[styles.microsoftSquare, { backgroundColor: '#00A4EF' }]} />
+      <View style={[styles.microsoftSquare, { backgroundColor: '#FFB900' }]} />
+    </View>
   );
 }
 
@@ -3347,6 +3379,17 @@ const styles = StyleSheet.create({
     height: 18,
     marginTop: -2,
     tintColor: colors.paper,
+  },
+  microsoftGlyph: {
+    width: 16,
+    height: 16,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 2,
+  },
+  microsoftSquare: {
+    width: 7,
+    height: 7,
   },
 
   divider: {

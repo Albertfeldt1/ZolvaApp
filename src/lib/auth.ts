@@ -547,7 +547,30 @@ async function signInWithGoogle() {
   return runOAuth('google', GOOGLE_SCOPES);
 }
 
+// Scopes for fresh Microsoft sign-in via gotrue. Mirrors the custom-flow
+// scopes in src/lib/microsoft-oauth.ts so a user who signs up with
+// Microsoft gets the same connector permissions in one consent screen as a
+// user who signs up another way and links Microsoft afterwards.
+const MICROSOFT_SIGNIN_SCOPES = [
+  'openid',
+  'email',
+  'profile',
+  'offline_access',
+  'Mail.ReadWrite',
+  'Mail.Send',
+  'Calendars.ReadWrite',
+  'Files.Read',
+].join(' ');
+
 async function signInWithMicrosoft() {
+  // No Supabase session yet → take the gotrue OAuth path so we actually
+  // create or restore a Supabase user from Microsoft credentials. The
+  // custom PKCE flow below only writes a provider-token row; it doesn't
+  // produce a Supabase session, so it's link-only. Without this branch,
+  // anyone who signed up with Microsoft is locked out once logged out.
+  if (!cachedSession) {
+    return runOAuth('azure', MICROSOFT_SIGNIN_SCOPES);
+  }
   const clientId = process.env.EXPO_PUBLIC_MICROSOFT_OAUTH_CLIENT_ID ?? null;
   const result = await runMicrosoftOAuth({
     clientId,
