@@ -24,23 +24,38 @@ Deno.test('buildMailNewEventRows: one row per gmail message with idem_key', () =
   });
 });
 
-Deno.test('buildMailNewEventRows: returns empty for microsoft (phase 2 scope)', () => {
-  const rows = buildMailNewEventRows({
-    userId: 'u-1',
-    provider: 'microsoft',
-    messages: [
-      { messageId: 'm1', threadId: 't1', subject: 'Hi', from: 'a@x' },
-    ],
-  });
-  assertEquals(rows, []);
-});
-
 Deno.test('buildMailNewEventRows: handles missing threadId', () => {
   const rows = buildMailNewEventRows({
     userId: 'u-1',
     provider: 'google',
     messages: [
       { messageId: 'm1', threadId: undefined, subject: 'Hi', from: 'a@x' },
+    ],
+  });
+  assertEquals(rows[0].payload.thread_id, null);
+});
+
+Deno.test('buildMailNewEventRows: emits for microsoft with provider=microsoft', () => {
+  const rows = buildMailNewEventRows({
+    userId: 'u-1',
+    provider: 'microsoft',
+    messages: [
+      { messageId: 'AAMkADk=', threadId: 'AAQkAD=', subject: 'Hej', from: 'kollega@firma.dk' },
+    ],
+  });
+  assertEquals(rows.length, 1);
+  assertEquals(rows[0].kind, 'mail.new');
+  assertEquals(rows[0].payload.provider, 'microsoft');
+  assertEquals(rows[0].payload.message_id, 'AAMkADk=');
+  assertEquals(rows[0].payload.idem_key, 'microsoft:AAMkADk=');
+});
+
+Deno.test('buildMailNewEventRows: microsoft handles missing threadId', () => {
+  const rows = buildMailNewEventRows({
+    userId: 'u-1',
+    provider: 'microsoft',
+    messages: [
+      { messageId: 'AAMkAD=', threadId: undefined, subject: 'Hej', from: 'x@y.com' },
     ],
   });
   assertEquals(rows[0].payload.thread_id, null);
