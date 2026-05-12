@@ -34,12 +34,18 @@ function makeDeps(): { deps: RunnerDeps; log: string[] } {
         stop_reason: 'end_turn',
       }),
       executeTool: async () => ({
+        mode: 'executed' as const,
         reversible: false,
         reverseToken: null,
         recordPayload: {},
       }),
       recordAction: async () => {},
       incrementBudget: async () => {},
+      // Phase 3 additions
+      loadUserPolicy: async () => [],
+      loadUserPresence: async () => null,
+      writeProposedAction: async () => 'p-stub',
+      dispatchProposalPush: async () => {},
     },
   };
 }
@@ -112,6 +118,7 @@ Deno.test('runAgent: phase-2 path executes one tool call', async () => {
   };
   deps.executeTool = async (action, payload) => {
     return {
+      mode: 'executed' as const,
       reversible: true,
       reverseToken: { kind: 'gmail.modify', thread_id: 't1', add_label_ids: ['INBOX'], remove_label_ids: [] },
       recordPayload: { ...payload },
@@ -154,7 +161,7 @@ Deno.test('runAgent: phase-2 path rejects hallucinated thread_id without abortin
   });
   deps.executeTool = async () => {
     recordedAction = true;
-    return { reversible: false, reverseToken: null, recordPayload: {} };
+    return { mode: 'executed' as const, reversible: false, reverseToken: null, recordPayload: {} };
   };
 
   const result = await runAgent({ userId: 'u-1', trigger: 'tick', deps });
@@ -175,4 +182,135 @@ Deno.test('runAgent: phase-2 path short-circuits on budget exceeded', async () =
   const result = await runAgent({ userId: 'u-1', trigger: 'tick', deps });
   assertEquals(result.status, 'budget_exceeded');
   assertEquals(result.processed, 0);
+});
+
+Deno.test('runAgent: propose path writes proposed_action and dispatches push when idle', async () => {
+  // deno-lint-ignore no-explicit-any
+  let proposedRow: Record<string, unknown> | null = null as any;
+  let pushDispatched = false;
+  const { deps } = makeDeps();
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't1', message_id: 'm1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't1', from: 'a@x', subject: 'Hi', snippet: '' },
+  ];
+  deps.loadUserPolicy = async () => [
+    { user_id: 'u-1', action_type: 'mail.send_reply', mode: 'propose' },
+  ];
+  deps.loadUserPresence = async () => null;
+  deps.callClaudeTurn = async () => ({
+    content: [
+      {
+        type: 'tool_use',
+        id: 'toolu_1',
+        name: 'mail.send_reply',
+        input: {
+          provider: 'google',
+          thread_id: 't1',
+          draft_id: 'draft-1',
+          draft_hash: 'sha1-abc',
+          preview_text: 'Tak.',
+        },
+      },
+    ],
+    usage: { input_tokens: 1, output_tokens: 1 },
+    stop_reason: 'end_turn',
+  });
+  deps.executeTool = async (_action, payload) => ({
+    mode: 'propose' as const,
+    reversible: false,
+    reverseToken: null,
+    recordPayload: { ...payload },
+  });
+  deps.writeProposedAction = async (row) => {
+    proposedRow = row;
+    return 'p-1';
+  };
+  deps.dispatchProposalPush = async () => {
+    pushDispatched = true;
+  };
+
+  const result = await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  assertEquals(result.status, 'ok');
+  assertEquals(proposedRow?.action_type, 'mail.send_reply');
+  assertEquals(pushDispatched, true);
+});
+
+Deno.test('runAgent: propose path skips push when user is foreground (<60s idle)', async () => {
+  let pushDispatched = false;
+  const { deps } = makeDeps();
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't1', message_id: 'm1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't1', from: 'a@x', subject: 'Hi', snippet: '' },
+  ];
+  deps.loadUserPolicy = async () => [];
+  deps.loadUserPresence = async () => new Date();
+  deps.callClaudeTurn = async () => ({
+    content: [
+      {
+        type: 'tool_use',
+        id: 'toolu_1',
+        name: 'mail.send_reply',
+        input: {
+          provider: 'google',
+          thread_id: 't1',
+          draft_id: 'draft-1',
+          draft_hash: 'sha1-abc',
+          preview_text: 'Tak.',
+        },
+      },
+    ],
+    usage: { input_tokens: 1, output_tokens: 1 },
+    stop_reason: 'end_turn',
+  });
+  deps.executeTool = async (_action, payload) => ({
+    mode: 'propose' as const,
+    reversible: false,
+    reverseToken: null,
+    recordPayload: { ...payload },
+  });
+  deps.writeProposedAction = async () => 'p-1';
+  deps.dispatchProposalPush = async () => { pushDispatched = true; };
+
+  await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  assertEquals(pushDispatched, false);
+});
+
+Deno.test('runAgent: policy off causes the tool to be rejected without execution', async () => {
+  let executed = false;
+  let proposed = false;
+  const { deps } = makeDeps();
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't1', message_id: 'm1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't1', from: 'a@x', subject: 'Hi', snippet: '' },
+  ];
+  deps.loadUserPolicy = async () => [
+    { user_id: 'u-1', action_type: 'mail.archive', mode: 'off' },
+  ];
+  deps.callClaudeTurn = async () => ({
+    content: [
+      {
+        type: 'tool_use',
+        id: 'toolu_1',
+        name: 'mail.archive',
+        input: { provider: 'google', thread_id: 't1' },
+      },
+    ],
+    usage: { input_tokens: 1, output_tokens: 1 },
+    stop_reason: 'end_turn',
+  });
+  deps.executeTool = async () => {
+    executed = true;
+    return { mode: 'executed' as const, reversible: false, reverseToken: null, recordPayload: {} };
+  };
+  deps.writeProposedAction = async () => { proposed = true; return 'p'; };
+
+  await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  assertEquals(executed, false);
+  assertEquals(proposed, false);
 });

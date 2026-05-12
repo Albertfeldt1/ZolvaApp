@@ -18,6 +18,8 @@ import type { ThreadBrief } from './prompt.ts';
 import { buildMailTriagePrompt, MAIL_TRIAGE_TOOLS } from './prompt.ts';
 import { buildThreadAllowlist, verifyThreadId } from './verify.ts';
 import { deriveIdemKey } from './idem.ts';
+import { resolvePolicy } from './policy.ts';
+import { shouldPushForProposal } from './push.ts';
 
 export interface ClaimedEvent {
   id: number;
@@ -56,6 +58,7 @@ export interface RunnerDeps {
     action: ActionType,
     payload: Record<string, unknown>,
   ) => Promise<{
+    mode: 'executed' | 'propose';
     reversible: boolean;
     reverseToken: ExecuteReverseToken;
     recordPayload: Record<string, unknown>;
@@ -64,6 +67,21 @@ export interface RunnerDeps {
   incrementBudget: (
     userId: string,
     usage: { input_tokens: number; output_tokens: number },
+  ) => Promise<void>;
+  // Phase 3 deps
+  loadUserPolicy: (userId: string) => Promise<Array<{ user_id: string; action_type: ActionType; mode: 'auto' | 'propose' | 'off' }>>;
+  loadUserPresence: (userId: string) => Promise<Date | null>;
+  writeProposedAction: (row: {
+    user_id: string;
+    run_id: string;
+    action_type: ActionType;
+    payload: Record<string, unknown>;
+    preview: Record<string, unknown>;
+    expires_at: string;
+  }) => Promise<string>;
+  dispatchProposalPush: (
+    userId: string,
+    preview: { title: string; body: string; actionId: string },
   ) => Promise<void>;
 }
 
@@ -81,11 +99,13 @@ export interface RunResult {
 
 const CLAIM_BATCH = 50;
 const MAX_TOOL_ROUNDS = 3;
-const PHASE_2_ACTIONS = new Set<ActionType>([
+const SUPPORTED_ACTIONS = new Set<ActionType>([
   'mail.label',
   'mail.archive',
   'mail.flag_important',
   'mail.summarize',
+  'mail.draft_reply',
+  'mail.send_reply',
 ]);
 
 export async function runAgent(input: RunInput): Promise<RunResult> {
@@ -112,6 +132,7 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
   try {
     const threads = await deps.loadThreadBriefs(userId, events);
     const allow = buildThreadAllowlist(events);
+    const userPolicy = await deps.loadUserPolicy(userId);
     const { system, messages } = buildMailTriagePrompt({ threads });
     const conversation: ClaudeUserMessage[] = [...messages];
 
@@ -138,7 +159,7 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
       const toolResults: Array<Record<string, unknown>> = [];
       for (const tu of toolUses) {
         const action = tu.name as ActionType;
-        if (!PHASE_2_ACTIONS.has(action)) {
+        if (!SUPPORTED_ACTIONS.has(action)) {
           toolResults.push({
             type: 'tool_result',
             tool_use_id: tu.id,
@@ -160,8 +181,54 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
           });
           continue;
         }
+        // Phase 3: resolve policy. mode='off' rejects.
+        // mode='propose' on a currently-auto action (e.g. mail.archive) is
+        //   NOT honored as deferred-execute in Phase 3 — the runner still
+        //   executes and we treat it as auto. Phase 3.1 will wire deferred
+        //   execution via agent-approve dispatching any action. Until then,
+        //   the policy slot exists in the UI but only `off` actually blocks
+        //   currently-auto actions. For mail.send_reply, dispatcher returns
+        //   mode='propose' intrinsically (no provider call), which IS honored.
+        const policy = resolvePolicy(action, userPolicy);
+        if (policy === 'off') {
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: tu.id,
+            is_error: true,
+            content: `policy_off: user disabled ${action}`,
+          });
+          continue;
+        }
         try {
           const exec = await deps.executeTool(action, input);
+          if (exec.mode === 'propose') {
+            const idemKey = deriveIdemKey(action, exec.recordPayload);
+            const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+            const preview = buildProposalPreview(action, exec.recordPayload);
+            const proposalId = await deps.writeProposedAction({
+              user_id: userId,
+              run_id: runId,
+              action_type: action,
+              payload: { ...exec.recordPayload, idem_key: idemKey },
+              preview,
+              expires_at: expiresAt,
+            });
+            const presence = await deps.loadUserPresence(userId);
+            if (shouldPushForProposal(presence, new Date())) {
+              await deps.dispatchProposalPush(userId, {
+                title: typeof preview.title === 'string' ? preview.title : 'Zolva',
+                body: typeof preview.body === 'string' ? preview.body : 'Et udkast venter',
+                actionId: proposalId,
+              });
+            }
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: tu.id,
+              content: `proposed:${proposalId}`,
+            });
+            continue;
+          }
+          // Execute path (unchanged from Phase 2)
           const idemKey = deriveIdemKey(action, exec.recordPayload);
           const payloadWithKey = { ...exec.recordPayload, idem_key: idemKey };
           await deps.recordAction({
@@ -223,4 +290,22 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
     processed: events.length,
     status: runError ? 'error' : 'ok',
   };
+}
+
+function buildProposalPreview(
+  action: ActionType,
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const previewText = typeof payload.preview_text === 'string' ? payload.preview_text : '';
+  switch (action) {
+    case 'mail.send_reply':
+      return {
+        title: 'Send svar?',
+        body: previewText || 'Zolva har udkastet et svar — godkend for at sende.',
+        thread_id: payload.thread_id,
+        draft_id: payload.draft_id,
+      };
+    default:
+      return { title: 'Zolva foreslår', body: previewText || `${action}` };
+  }
 }
