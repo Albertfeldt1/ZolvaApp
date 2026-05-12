@@ -19,6 +19,7 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { loadRefreshToken, refreshAccessToken } from '../_shared/oauth.ts';
+import { buildMailNewEventRows } from './emit.ts';
 
 type Watcher = {
   user_id: string;
@@ -139,6 +140,22 @@ async function processWatcher(client: SupabaseClient, watcher: Watcher): Promise
     })
     .eq('user_id', watcher.user_id)
     .eq('provider', watcher.provider);
+
+  const eventRows = buildMailNewEventRows({
+    userId: watcher.user_id,
+    provider: watcher.provider,
+    messages,
+  });
+  if (eventRows.length > 0) {
+    // Dedupe on (user_id, kind, idem_key) is enforced by the partial unique
+    // index on agent_actions, NOT agent_events — agent_events itself is an
+    // append log and intentionally has no dedup; we rely on the runner to
+    // skip duplicate idem_keys during executeTool. So a bulk insert is fine.
+    const { error: insertErr } = await client.from('agent_events').insert(eventRows);
+    if (insertErr) {
+      console.warn('[poll-mail] agent_events insert failed:', insertErr.message);
+    }
+  }
 
   if (messages.length === 0) return;
   const tokens = await loadPushTokens(client, watcher.user_id);
