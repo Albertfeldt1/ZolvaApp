@@ -160,3 +160,25 @@ create or replace view public.v_agent_pending_proposals_age
   from public.proposed_actions
   where status = 'pending'
   group by user_id;
+
+-- Additive upsert used by edge fns to record token spend without races.
+create or replace function public.agent_budget_increment(
+  p_user_id uuid,
+  p_day date,
+  p_input int,
+  p_output int
+) returns void
+language sql
+security definer
+set search_path = public, pg_temp
+as $$
+  insert into public.user_agent_budget (user_id, day, input_tokens, output_tokens)
+  values (p_user_id, p_day, p_input, p_output)
+  on conflict (user_id, day)
+  do update set
+    input_tokens  = public.user_agent_budget.input_tokens  + excluded.input_tokens,
+    output_tokens = public.user_agent_budget.output_tokens + excluded.output_tokens;
+$$;
+
+revoke all on function public.agent_budget_increment(uuid, date, int, int) from public;
+grant execute on function public.agent_budget_increment(uuid, date, int, int) to service_role;
