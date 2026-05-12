@@ -16,6 +16,8 @@ import { executeTool as dispatchTool } from '../_shared/agent/tools/dispatch.ts'
 import { resolveLabelId } from '../_shared/agent/tools/gmail.ts';
 import type { ThreadBrief } from '../_shared/agent/prompt.ts';
 import { loadRefreshToken, refreshAccessToken } from '../_shared/oauth.ts';
+import { dispatchExpoPush } from '../_shared/agent/expo-push.ts';
+import type { ExecuteContext } from '../_shared/agent/tools/dispatch.ts';
 
 const CRON_SECRET = Deno.env.get('CRON_SHARED_SECRET');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -60,12 +62,44 @@ async function loadThreadBriefs(
   return briefs;
 }
 
+async function loadOutlookAccessToken(
+  client: SupabaseClient,
+  userId: string,
+): Promise<string | null> {
+  const refresh = await loadRefreshToken(client, userId, 'microsoft');
+  if (!refresh) return null;
+  const { accessToken } = await refreshAccessToken(client, userId, 'microsoft', refresh);
+  return accessToken;
+}
+
+async function loadPushTokens(
+  client: SupabaseClient,
+  userId: string,
+): Promise<string[]> {
+  const { data, error } = await client
+    .from('push_tokens')
+    .select('token')
+    .eq('user_id', userId);
+  if (error) {
+    console.warn('[agent-tick] push_tokens read failed:', error.message);
+    return [];
+  }
+  return (data ?? []).map((r: { token: string }) => r.token);
+}
+
 function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
   // accessToken is loaded lazily once per run when first needed.
   let cachedAccessToken: string | null = null;
+  let cachedOutlookToken: string | null | undefined = undefined;
   const accessToken = async (): Promise<string> => {
     if (!cachedAccessToken) cachedAccessToken = await loadGmailAccessToken(client, userId);
     return cachedAccessToken;
+  };
+  const outlookToken = async (): Promise<string | null> => {
+    if (cachedOutlookToken === undefined) {
+      cachedOutlookToken = await loadOutlookAccessToken(client, userId);
+    }
+    return cachedOutlookToken;
   };
 
   return {
@@ -128,12 +162,18 @@ function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
       });
     },
     async executeTool(action: ActionType, payload) {
-      const tok = await accessToken();
-      return dispatchTool(action, payload, {
-        accessToken: tok,
+      const gmailTok = await accessToken();
+      const outlookTok = await outlookToken();
+      const ctx: ExecuteContext = {
         fetch: fetch as never,
-        resolveLabelId: (name) => resolveLabelId({ fetch: fetch as never, accessToken: tok, name }),
-      });
+        gmail: {
+          accessToken: gmailTok,
+          resolveLabelId: (name) =>
+            resolveLabelId({ fetch: fetch as never, accessToken: gmailTok, name }),
+        },
+        outlook: outlookTok ? { accessToken: outlookTok } : undefined,
+      };
+      return dispatchTool(action, payload, ctx);
     },
     async recordAction(row) {
       const { error } = await client.from('agent_actions').insert({
@@ -155,6 +195,53 @@ function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
       await incrementBudget(client, uid, {
         inputTokens: usage.input_tokens,
         outputTokens: usage.output_tokens,
+      });
+    },
+    async loadUserPolicy(uid) {
+      const { data, error } = await client
+        .from('user_agent_policy')
+        .select('user_id, action_type, mode')
+        .eq('user_id', uid);
+      if (error) throw error;
+      return (data ?? []) as Array<{ user_id: string; action_type: ActionType; mode: 'auto' | 'propose' | 'off' }>;
+    },
+    async loadUserPresence(uid) {
+      const { data, error } = await client
+        .from('user_presence')
+        .select('last_active_at')
+        .eq('user_id', uid)
+        .maybeSingle();
+      if (error) {
+        console.warn('[agent-tick] presence read failed:', error.message);
+        return null;
+      }
+      if (!data?.last_active_at) return null;
+      return new Date(data.last_active_at as string);
+    },
+    async writeProposedAction(row) {
+      const { data, error } = await client
+        .from('proposed_actions')
+        .insert({
+          user_id: row.user_id,
+          run_id: row.run_id,
+          action_type: row.action_type,
+          payload: row.payload,
+          preview: row.preview,
+          status: 'pending',
+          expires_at: row.expires_at,
+        })
+        .select('id').single();
+      if (error) throw error;
+      return data!.id as string;
+    },
+    async dispatchProposalPush(uid, preview) {
+      const tokens = await loadPushTokens(client, uid);
+      await dispatchExpoPush({
+        fetch: fetch as never,
+        tokens,
+        title: preview.title,
+        body: preview.body,
+        data: { type: 'agent_proposal', action_id: preview.actionId },
       });
     },
   };
