@@ -182,3 +182,42 @@ $$;
 
 revoke all on function public.agent_budget_increment(uuid, date, int, int) from public;
 grant execute on function public.agent_budget_increment(uuid, date, int, int) to service_role;
+
+-- Atomically claim a batch of unprocessed events for a user. Returns at most
+-- p_limit rows. Uses pg_advisory_xact_lock keyed by user_id hash so two
+-- concurrent runners can't both claim the same events.
+create or replace function public.agent_claim_events(
+  p_user_id uuid,
+  p_limit int
+) returns table (id bigint, kind text, payload jsonb)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_batch uuid := gen_random_uuid();
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_user_id::text, 0));
+
+  return query
+  with claimed as (
+    update public.agent_events e
+    set batch_id = v_batch
+    where e.id in (
+      select id
+      from public.agent_events
+      where user_id = p_user_id
+        and processed_at is null
+        and batch_id is null
+      order by id
+      limit p_limit
+      for update skip locked
+    )
+    returning e.id, e.kind, e.payload
+  )
+  select id, kind, payload from claimed;
+end;
+$$;
+
+revoke all on function public.agent_claim_events(uuid, int) from public;
+grant execute on function public.agent_claim_events(uuid, int) to service_role;
