@@ -21,6 +21,10 @@ export function deriveIdemKey(action: ActionType, payload: IdemPayload): string 
       return `mail.summarize:${req(payload, 'thread_id')}`;
     case 'mail.flag_important':
       return `mail.flag_important:${req(payload, 'thread_id')}`;
+    case 'mail.draft_reply':
+      return `mail.draft_reply:${req(payload, 'thread_id')}:${req(payload, 'draft_hash')}`;
+    case 'mail.send_reply':
+      return `mail.send_reply:${req(payload, 'thread_id')}:${req(payload, 'draft_hash')}`;
     default:
       // Phase 3+ action types reach this branch — caller is responsible
       // for not invoking it on unsupported types in Phase 2.
