@@ -2,12 +2,14 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { buildMailTriagePrompt, MAIL_TRIAGE_TOOLS } from './prompt.ts';
 
-Deno.test('MAIL_TRIAGE_TOOLS exposes exactly four mail actions', () => {
+Deno.test('MAIL_TRIAGE_TOOLS exposes six tools after phase 3', () => {
   const names = MAIL_TRIAGE_TOOLS.map((t) => t.name).sort();
   assertEquals(names, [
     'mail.archive',
+    'mail.draft_reply',
     'mail.flag_important',
     'mail.label',
+    'mail.send_reply',
     'mail.summarize',
   ]);
 });
@@ -30,4 +32,12 @@ Deno.test('buildMailTriagePrompt: includes each thread with subject and from', (
 Deno.test('buildMailTriagePrompt: empty threads still produces a prompt', () => {
   const { messages } = buildMailTriagePrompt({ threads: [] });
   assertEquals(typeof messages[0].content, 'string');
+});
+
+Deno.test('buildMailTriagePrompt: system prompt mentions outlook scope and conservative drafting', () => {
+  const { system } = buildMailTriagePrompt({ threads: [] });
+  const txt = system[0].text.toLowerCase();
+  // We just check anchors; full prose lives in prompt.ts.
+  assertEquals(txt.includes('outlook'), true);
+  assertEquals(txt.includes('draft'), true);
 });

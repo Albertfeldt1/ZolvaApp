@@ -122,6 +122,7 @@ import {
 import { DeleteAccountScreen } from './DeleteAccountScreen';
 import { IcloudBriefSheet } from '../components/IcloudBriefSheet';
 import { ZolvaHandlingerSection } from '../components/ZolvaHandlingerSection';
+import { AgentActionPolicySection } from '../components/AgentActionPolicySection';
 import { colors, fonts } from '../theme';
 
 // Reads the hosted privacy-policy URL from app.json extra.privacyPolicyUrl
@@ -1994,6 +1995,7 @@ export function SettingsScreen({
 
               {/* Zolva-handlinger kill-switch */}
               <ZolvaHandlingerSection />
+              <AgentActionPolicySection />
 
               {/* Privatliv - dark glass card */}
               <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>

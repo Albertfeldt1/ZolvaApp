@@ -21,7 +21,7 @@ export interface MailNewEventRow {
   user_id: string;
   kind: 'mail.new';
   payload: {
-    provider: 'google';
+    provider: 'google' | 'microsoft';
     message_id: string;
     thread_id: string | null;
     from: string;
@@ -30,22 +30,22 @@ export interface MailNewEventRow {
   };
 }
 
-// Phase 2 only emits events for google watchers. Microsoft + iCloud
-// follow in 2.1 when the matching tool implementations land.
+// Phase 3 emits for both google and microsoft. iCloud follows when its
+// tool implementations land (Phase 3.2+).
 export function buildMailNewEventRows(
   input: BuildMailNewEventsInput,
 ): MailNewEventRow[] {
-  if (input.provider !== 'google') return [];
+  if (input.provider !== 'google' && input.provider !== 'microsoft') return [];
   return input.messages.map((m) => ({
     user_id: input.userId,
     kind: 'mail.new',
     payload: {
-      provider: 'google',
+      provider: input.provider,
       message_id: m.messageId,
       thread_id: m.threadId ?? null,
       from: m.from,
       subject: m.subject,
-      idem_key: `google:${m.messageId}`,
+      idem_key: `${input.provider}:${m.messageId}`,
     },
   }));
 }

@@ -96,3 +96,110 @@ export async function resolveLabelId(input: ResolveLabelInput): Promise<string> 
   const created = (await createRes.json()) as { id: string };
   return created.id;
 }
+
+export interface GmailDraftReverseToken {
+  kind: 'gmail.draft';
+  draft_id: string;
+}
+
+export interface CreateDraftInput {
+  fetch: GmailFetch;
+  accessToken: string;
+  threadId: string;
+  to: string;
+  subject: string;
+  bodyText: string;
+  inReplyToMessageId: string;
+}
+
+export interface CreateDraftResult {
+  draftId: string;
+  messageId: string;
+  reverseToken: GmailDraftReverseToken;
+}
+
+// Build a minimal RFC822 message and base64url-encode it for the Gmail API.
+function buildRfc822(input: CreateDraftInput): string {
+  const lines = [
+    `To: ${input.to}`,
+    `Subject: ${input.subject}`,
+    `In-Reply-To: ${input.inReplyToMessageId}`,
+    `References: ${input.inReplyToMessageId}`,
+    'Content-Type: text/plain; charset=UTF-8',
+    '',
+    input.bodyText,
+  ];
+  const raw = lines.join('\r\n');
+  // base64url-encode (Gmail requires url-safe alphabet, no padding)
+  const b64 = btoa(unescape(encodeURIComponent(raw)));
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export async function gmailCreateDraft(input: CreateDraftInput): Promise<CreateDraftResult> {
+  const raw = buildRfc822(input);
+  const res = await input.fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${input.accessToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ message: { threadId: input.threadId, raw } }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`gmail drafts.create ${res.status}: ${detail.slice(0, 200)}`);
+  }
+  const j = (await res.json()) as { id: string; message: { id: string } };
+  return {
+    draftId: j.id,
+    messageId: j.message.id,
+    reverseToken: { kind: 'gmail.draft', draft_id: j.id },
+  };
+}
+
+export interface SendDraftInput {
+  fetch: GmailFetch;
+  accessToken: string;
+  draftId: string;
+}
+
+export interface SendDraftResult {
+  messageId: string;
+}
+
+export async function gmailSendDraft(input: SendDraftInput): Promise<SendDraftResult> {
+  const res = await input.fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts/send', {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${input.accessToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ id: input.draftId }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`gmail drafts.send ${res.status}: ${detail.slice(0, 200)}`);
+  }
+  const j = (await res.json()) as { id: string };
+  return { messageId: j.id };
+}
+
+export interface DeleteDraftInput {
+  fetch: GmailFetch;
+  accessToken: string;
+  draftId: string;
+}
+
+export async function gmailDeleteDraft(input: DeleteDraftInput): Promise<void> {
+  const res = await input.fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${input.draftId}`,
+    {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${input.accessToken}` },
+    },
+  );
+  if (!res.ok && res.status !== 204) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`gmail drafts.delete ${res.status}: ${detail.slice(0, 200)}`);
+  }
+}

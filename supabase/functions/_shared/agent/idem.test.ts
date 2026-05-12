@@ -33,3 +33,25 @@ Deno.test('mail.flag_important idem key uses thread_id', () => {
 Deno.test('deriveIdemKey throws on missing required field', () => {
   assertThrows(() => deriveIdemKey('mail.archive', {} as never), Error, 'thread_id');
 });
+
+Deno.test('mail.draft_reply idem key uses thread_id and draft_hash', () => {
+  assertEquals(
+    deriveIdemKey('mail.draft_reply', { thread_id: 't1', draft_hash: 'sha1-abc' }),
+    'mail.draft_reply:t1:sha1-abc',
+  );
+});
+
+Deno.test('mail.send_reply idem key uses thread_id and draft_hash', () => {
+  assertEquals(
+    deriveIdemKey('mail.send_reply', { thread_id: 't1', draft_hash: 'sha1-abc' }),
+    'mail.send_reply:t1:sha1-abc',
+  );
+});
+
+Deno.test('mail.draft_reply throws on missing draft_hash', () => {
+  assertThrows(
+    () => deriveIdemKey('mail.draft_reply', { thread_id: 't1' } as never),
+    Error,
+    'draft_hash',
+  );
+});

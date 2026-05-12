@@ -6,6 +6,7 @@ import {
   ZOLVA_FLAGGED_LABEL,
   type GmailFetch,
 } from './gmail.ts';
+import { gmailCreateDraft, gmailSendDraft, gmailDeleteDraft } from './gmail.ts';
 
 function makeFetch(
   responses: Array<{ url: string; status: number; body: unknown }>,
@@ -24,7 +25,9 @@ function makeFetch(
       if (r.url !== url) {
         throw new Error(`unexpected url at step ${i}: got ${url}, want ${r.url}`);
       }
-      return new Response(JSON.stringify(r.body), { status: r.status });
+      // HTTP 204/304 are null-body statuses; passing a body throws in Deno.
+      const nullBodyStatus = r.status === 204 || r.status === 304;
+      return new Response(nullBodyStatus ? null : JSON.stringify(r.body), { status: r.status });
     },
   };
 }
@@ -137,4 +140,87 @@ Deno.test('resolveLabelId: creates the Zolva-flagged label when missing', async 
   assertEquals(id, 'L_NEW');
   assertEquals(calls.length, 2);
   assertEquals(calls[1].method, 'POST');
+});
+
+Deno.test('gmailCreateDraft: posts to drafts endpoint with RFC822 body', async () => {
+  const { fetch, calls } = makeFetch([
+    {
+      url: 'https://gmail.googleapis.com/gmail/v1/users/me/drafts',
+      status: 200,
+      body: { id: 'draft-1', message: { id: 'm-1', threadId: 't1' } },
+    },
+  ]);
+  const result = await gmailCreateDraft({
+    fetch,
+    accessToken: 'tok',
+    threadId: 't1',
+    to: 'recipient@x.com',
+    subject: 'Re: Faktura',
+    bodyText: 'Tak for fakturaen.',
+    inReplyToMessageId: 'm-orig',
+  });
+  assertEquals(result.draftId, 'draft-1');
+  assertEquals(result.messageId, 'm-1');
+  assertEquals(result.reverseToken, {
+    kind: 'gmail.draft',
+    draft_id: 'draft-1',
+  });
+  assertEquals(calls.length, 1);
+  const sent = JSON.parse(calls[0].body!);
+  assertEquals(sent.message.threadId, 't1');
+  assertEquals(typeof sent.message.raw, 'string');
+});
+
+Deno.test('gmailSendDraft: POSTs to drafts/send and returns sent message id', async () => {
+  const { fetch, calls } = makeFetch([
+    {
+      url: 'https://gmail.googleapis.com/gmail/v1/users/me/drafts/send',
+      status: 200,
+      body: { id: 'm-sent', threadId: 't1' },
+    },
+  ]);
+  const result = await gmailSendDraft({
+    fetch,
+    accessToken: 'tok',
+    draftId: 'draft-1',
+  });
+  assertEquals(result.messageId, 'm-sent');
+  assertEquals(calls.length, 1);
+  assertEquals(JSON.parse(calls[0].body!), { id: 'draft-1' });
+});
+
+Deno.test('gmailDeleteDraft: DELETEs the draft', async () => {
+  const { fetch, calls } = makeFetch([
+    {
+      url: 'https://gmail.googleapis.com/gmail/v1/users/me/drafts/draft-1',
+      status: 204,
+      body: {},
+    },
+  ]);
+  await gmailDeleteDraft({ fetch, accessToken: 'tok', draftId: 'draft-1' });
+  assertEquals(calls[0].method, 'DELETE');
+});
+
+Deno.test('gmailCreateDraft: 4xx surfaces error', async () => {
+  const { fetch } = makeFetch([
+    {
+      url: 'https://gmail.googleapis.com/gmail/v1/users/me/drafts',
+      status: 403,
+      body: { error: { message: 'insufficient scope' } },
+    },
+  ]);
+  await assertRejects(
+    () =>
+      gmailCreateDraft({
+        fetch,
+        accessToken: 'tok',
+        threadId: 't1',
+        to: 'r@x.com',
+        subject: 'S',
+        bodyText: 'B',
+        inReplyToMessageId: 'm',
+      }),
+    Error,
+    'gmail drafts.create 403',
+  );
 });

@@ -78,6 +78,7 @@ import { OnboardingFactReviewScreen } from './src/screens/OnboardingFactReviewSc
 import { OnboardingFlowScreen } from './src/screens/OnboardingFlowScreen';
 import { subscribeBackfillRerun, type BackfillJob } from './src/lib/onboarding-backfill';
 import { isDemoUser } from './src/lib/demo';
+import { usePendingProposalCount } from './src/lib/agent-proposals';
 import { syncUserProfile } from './src/lib/user-profile';
 import { registerPresenceListener } from './src/lib/presence';
 import { writeSnapshotFromSources } from './src/lib/widget-bridge';
@@ -133,6 +134,8 @@ export default function App() {
     introShownThisSession = true;
     setIntroPlaying(false);
   };
+  const pendingProposalCount = usePendingProposalCount(user?.id);
+
   const [tab, setTab] = useState<TabId>('today');
   // Tracks the last non-Settings tab so the Settings back button can return
   // the user to whichever tab they came from (Today, Inbox, Calendar, Husk).
@@ -443,6 +446,11 @@ export default function App() {
           // to forward the jobId here.
           setChatOpen(true);
           break;
+        case 'agent_proposal':
+          // Autonomous agent proposed an action. Route to Today so the
+          // proposal card is visible for the user to approve or dismiss.
+          setTab('today');
+          break;
       }
     });
     return unsub;
@@ -601,6 +609,11 @@ export default function App() {
         break;
       case 'chatReply':
         setChatOpen(true);
+        break;
+      case 'agent_proposal':
+        // Autonomous agent proposed an action. Route to Today so the
+        // proposal card is visible for the user to approve or dismiss.
+        setTab('today');
         break;
     }
   };
@@ -888,6 +901,7 @@ export default function App() {
             onChange={switchTab}
             onAskZolva={openChat}
             darkBg={chromeOverDark}
+            badges={{ today: pendingProposalCount }}
           />
         </View>
       )}
