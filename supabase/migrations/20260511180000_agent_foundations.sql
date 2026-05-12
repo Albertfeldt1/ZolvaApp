@@ -103,8 +103,10 @@ create table if not exists public.user_presence (
   updated_at       timestamptz not null default now()
 );
 
--- RLS: every table is service-role-only for writes; users read their own rows
--- via authenticated select policies.
+-- RLS: writes are service-role-only EXCEPT for user_agent_policy and
+-- user_presence (users manage these directly from the Settings UI). All
+-- other tables grant authenticated users select-only access to their
+-- own rows; service role bypasses RLS for the runner / cron paths.
 
 alter table public.agent_events       enable row level security;
 alter table public.agent_runs         enable row level security;
@@ -115,21 +117,29 @@ alter table public.user_agent_budget  enable row level security;
 alter table public.user_presence      enable row level security;
 
 create policy "owner-select-agent-events" on public.agent_events
-  for select using (auth.uid() = user_id);
+  for select to authenticated
+  using (auth.uid() = user_id);
 create policy "owner-select-agent-runs" on public.agent_runs
-  for select using (auth.uid() = user_id);
+  for select to authenticated
+  using (auth.uid() = user_id);
 create policy "owner-rw-user-agent-policy" on public.user_agent_policy
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+  for all to authenticated
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "owner-select-proposed-actions" on public.proposed_actions
-  for select using (auth.uid() = user_id);
+  for select to authenticated
+  using (auth.uid() = user_id);
 create policy "owner-update-proposed-actions" on public.proposed_actions
-  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+  for update to authenticated
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "owner-select-agent-actions" on public.agent_actions
-  for select using (auth.uid() = user_id);
+  for select to authenticated
+  using (auth.uid() = user_id);
 create policy "owner-select-user-agent-budget" on public.user_agent_budget
-  for select using (auth.uid() = user_id);
+  for select to authenticated
+  using (auth.uid() = user_id);
 create policy "owner-rw-user-presence" on public.user_presence
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+  for all to authenticated
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- Observability views (security_invoker so they inherit caller RLS).
 create or replace view public.v_agent_recent_runs
