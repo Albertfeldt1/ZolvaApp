@@ -23,12 +23,15 @@ export const TABS: { id: Exclude<TabId, 'settings'>; label: string; Icon: typeof
   { id: 'memory', label: 'Husk', Icon: Bookmark },
 ];
 
+export type TabBadges = Partial<Record<Exclude<TabId, 'settings'>, number>>;
+
 export type PhoneChromeProps = {
   active: TabId;
   onChange: (id: TabId) => void;
   onAskZolva: () => void;
   showAsk?: boolean;
   darkBg?: boolean;
+  badges?: TabBadges;
 };
 
 export function PhoneChrome(props: PhoneChromeProps) {

@@ -11,7 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { colors, fonts } from '../theme';
 import { Stone } from './Stone';
-import { TABS, TabId } from './PhoneChrome';
+import { TABS, TabBadges, TabId } from './PhoneChrome';
 
 type Props = {
   active: TabId;
@@ -19,6 +19,7 @@ type Props = {
   onAskZolva: () => void;
   showAsk?: boolean;
   darkBg?: boolean;
+  badges?: TabBadges;
 };
 
 const AnimatedGlassView = Animated.createAnimatedComponent(GlassView);
@@ -39,7 +40,7 @@ const PILL_OVERHANG_PEAK = 9;
 
 // darkBg is accepted for API-shape parity with ClassicTabBar but intentionally
 // unused - UIKit's colorScheme="auto" handles dark/light adaptation natively.
-export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: Props) {
+export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true, badges }: Props) {
   const [rowWidth, setRowWidth] = useState(0);
   const tabWidth = rowWidth / TABS.length;
   const activeIndex = TABS.findIndex((t) => t.id === active);
@@ -152,9 +153,17 @@ export function LiquidTabBar({ active, onChange, onAskZolva, showAsk = true }: P
                 {TABS.map(({ id, label, Icon }) => {
                   const isActive = active === id;
                   const color = isActive ? colors.ink : colors.stone;
+                  const badgeCount = badges?.[id] ?? 0;
                   return (
                     <Pressable key={id} style={styles.tab} onPress={() => onChange(id)}>
-                      <Icon size={20} color={color} strokeWidth={isActive ? 1.7 : 1.4} />
+                      <View style={styles.iconWrap}>
+                        <Icon size={20} color={color} strokeWidth={isActive ? 1.7 : 1.4} />
+                        {badgeCount > 0 && (
+                          <View style={styles.badge}>
+                            <Text style={styles.badgeText}>{badgeCount > 99 ? '99+' : badgeCount}</Text>
+                          </View>
+                        )}
+                      </View>
                       <Text style={[styles.tabLabel, { color }]}>{label}</Text>
                     </Pressable>
                   );
@@ -255,6 +264,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 2,
     paddingHorizontal: 4,
+  },
+  iconWrap: {
+    position: 'relative',
+  },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -6,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  badgeText: {
+    fontFamily: fonts.uiSemi,
+    fontSize: 9,
+    color: '#fff',
+    lineHeight: 16,
   },
   // Pill is a sibling of the bar, absolute-positioned within barAnchor.
   // top/bottom are driven by the overhang shared value (0 at rest, peaks

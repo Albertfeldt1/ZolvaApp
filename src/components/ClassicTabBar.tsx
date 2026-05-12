@@ -4,7 +4,7 @@ import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, fonts, shadows } from '../theme';
 import { Stone } from './Stone';
-import { TABS, TabId } from './PhoneChrome';
+import { TABS, TabBadges, TabId } from './PhoneChrome';
 
 type Props = {
   active: TabId;
@@ -12,6 +12,7 @@ type Props = {
   onAskZolva: () => void;
   showAsk?: boolean;
   darkBg?: boolean;
+  badges?: TabBadges;
 };
 
 // iOS gets the real UIBlurEffect material (matches native tab-bar glass);
@@ -30,7 +31,7 @@ const DARK_GRADIENT = [
   'rgba(0,0,0,0.45)',
 ] as const;
 
-export function ClassicTabBar({ active, onChange, onAskZolva, showAsk = true, darkBg = false }: Props) {
+export function ClassicTabBar({ active, onChange, onAskZolva, showAsk = true, darkBg = false, badges }: Props) {
   const activeColor = darkBg ? colors.paper : colors.ink;
   const inactiveColor = darkBg ? colors.paperOn75 : colors.stone;
   return (
@@ -60,9 +61,17 @@ export function ClassicTabBar({ active, onChange, onAskZolva, showAsk = true, da
           {TABS.map(({ id, label, Icon }) => {
             const isActive = active === id;
             const color = isActive ? activeColor : inactiveColor;
+            const badgeCount = badges?.[id] ?? 0;
             return (
               <Pressable key={id} style={styles.tab} onPress={() => onChange(id)}>
-                <Icon size={20} color={color} strokeWidth={isActive ? 2.2 : 1.75} />
+                <View style={styles.iconWrap}>
+                  <Icon size={20} color={color} strokeWidth={isActive ? 2.2 : 1.75} />
+                  {badgeCount > 0 && (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{badgeCount > 99 ? '99+' : badgeCount}</Text>
+                    </View>
+                  )}
+                </View>
                 <Text style={[styles.tabLabel, { color }]}>{label}</Text>
               </Pressable>
             );
@@ -141,6 +150,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 2,
     paddingHorizontal: 4,
+  },
+  iconWrap: {
+    position: 'relative',
+  },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -6,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  badgeText: {
+    fontFamily: fonts.uiSemi,
+    fontSize: 9,
+    color: '#fff',
+    lineHeight: 16,
   },
   tabLabel: { fontFamily: fonts.uiSemi, fontSize: 10 },
 });
