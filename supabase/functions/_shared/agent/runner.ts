@@ -147,7 +147,8 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
           });
           continue;
         }
-        const threadId = typeof tu.input.thread_id === 'string' ? tu.input.thread_id : '';
+        const input = (tu.input && typeof tu.input === 'object') ? tu.input : {};
+        const threadId = typeof input.thread_id === 'string' ? input.thread_id : '';
         try {
           verifyThreadId(threadId, allow);
         } catch (e) {
@@ -160,7 +161,7 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
           continue;
         }
         try {
-          const exec = await deps.executeTool(action, tu.input);
+          const exec = await deps.executeTool(action, input);
           const idemKey = deriveIdemKey(action, exec.recordPayload);
           const payloadWithKey = { ...exec.recordPayload, idem_key: idemKey };
           await deps.recordAction({
@@ -178,6 +179,9 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
           });
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
+          console.error(
+            `[runner] tool ${action} failed user=${userId} run=${runId} thread=${threadId}: ${msg}`,
+          );
           // Duplicate idem_key (uniq index 409) and provider 4xx land here.
           // Surface to Claude so it doesn't retry the same call this round.
           toolResults.push({
@@ -197,14 +201,22 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
     runError = e instanceof Error ? e.message : String(e);
   }
 
-  await deps.markProcessed(eventIds);
-  await deps.incrementBudget(userId, usage);
-  await deps.finishRun(
-    runId,
-    runError ? 'error' : 'ok',
-    usage,
-    runError,
-  );
+  try {
+    await deps.markProcessed(eventIds);
+    await deps.incrementBudget(userId, usage);
+  } catch (e) {
+    // Don't lose finishRun if a teardown call fails. Surface in the run row.
+    const msg = e instanceof Error ? e.message : String(e);
+    runError = runError ? `${runError}; teardown: ${msg}` : `teardown: ${msg}`;
+    console.error(`[runner] teardown failure for run ${runId}:`, msg);
+  } finally {
+    await deps.finishRun(
+      runId,
+      runError ? 'error' : 'ok',
+      usage,
+      runError,
+    );
+  }
 
   return {
     runId,
