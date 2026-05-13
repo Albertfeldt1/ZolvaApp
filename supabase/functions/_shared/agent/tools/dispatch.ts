@@ -23,6 +23,7 @@ import {
   type OutlookCategoryReverseToken,
 } from './outlook.ts';
 import { gmailGetBody, outlookGetBody } from './mail-body.ts';
+import { googleListEvents, outlookListEvents } from './calendar.ts';
 
 export interface ExecuteContext {
   fetch: GmailFetch & OutlookFetch;
@@ -236,6 +237,37 @@ export async function executeTool(
           sent_at: r.sent_at,
           body_text: r.body_text,
         },
+      };
+    }
+    case 'cal.list_events': {
+      const startIso = mustString(payload, 'start_iso');
+      const endIso = mustString(payload, 'end_iso');
+      if (provider === 'google') {
+        const events = await googleListEvents({
+          fetch: ctx.fetch,
+          accessToken: ctx.gmail.accessToken,
+          startIso,
+          endIso,
+        });
+        return {
+          mode: 'executed',
+          reversible: false,
+          reverseToken: null,
+          recordPayload: { provider, start_iso: startIso, end_iso: endIso, events },
+        };
+      }
+      if (!ctx.outlook) throw new Error('outlook cal_list_events requested but outlook context missing');
+      const events = await outlookListEvents({
+        fetch: ctx.fetch,
+        accessToken: ctx.outlook.accessToken,
+        startIso,
+        endIso,
+      });
+      return {
+        mode: 'executed',
+        reversible: false,
+        reverseToken: null,
+        recordPayload: { provider, start_iso: startIso, end_iso: endIso, events },
       };
     }
     case 'mail.draft_reply': {
