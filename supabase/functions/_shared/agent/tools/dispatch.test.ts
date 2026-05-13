@@ -167,6 +167,7 @@ Deno.test('executeTool: mail.send_reply returns mode=propose without calling pro
       draft_id: 'draft-1',
       draft_hash: 'sha1-abc',
       preview_text: 'Tak for invitationen.',
+      to: 'r@x.com',
     },
     ctx,
   );
@@ -176,13 +177,342 @@ Deno.test('executeTool: mail.send_reply returns mode=propose without calling pro
   assertEquals(result.recordPayload.draft_id, 'draft-1');
   assertEquals(result.recordPayload.draft_hash, 'sha1-abc');
   assertEquals(result.recordPayload.preview_text, 'Tak for invitationen.');
+  assertEquals(result.recordPayload.to, 'r@x.com');
 });
 
-Deno.test('executeTool: mail.archive with provider=microsoft is rejected (phase 3 scope)', async () => {
+Deno.test('mail.archive (outlook): pre-fetches parent folder then moves message', async () => {
+  const urls: string[] = [];
+  const methods: string[] = [];
+  const bodies: string[] = [];
+  let step = 0;
+  const ctx = makeCtx({
+    fetch: async (u, init) => {
+      urls.push(u);
+      methods.push(init?.method ?? 'GET');
+      bodies.push(typeof init?.body === 'string' ? init.body : '');
+      step += 1;
+      if (step === 1) {
+        // GET parentFolderId
+        return new Response(JSON.stringify({ id: 'm-x', parentFolderId: 'inbox' }), {
+          status: 200,
+        });
+      }
+      // POST /move
+      return new Response(JSON.stringify({ id: 'moved-1', parentFolderId: 'archive' }), {
+        status: 201,
+      });
+    },
+  });
+  const result = await executeTool(
+    'mail.archive',
+    { provider: 'microsoft', thread_id: 'm-x', archive_folder_id: 'archive' },
+    ctx,
+  );
+  assertEquals(result.mode, 'executed');
+  assertEquals(result.reversible, true);
+  assertEquals(urls[0], 'https://graph.microsoft.com/v1.0/me/messages/m-x?$select=parentFolderId');
+  assertEquals(methods[0], 'GET');
+  assertEquals(urls[1], 'https://graph.microsoft.com/v1.0/me/messages/m-x/move');
+  assertEquals(methods[1], 'POST');
+  assertEquals(JSON.parse(bodies[1]), { destinationId: 'archive' });
+  assertEquals(result.reverseToken?.kind, 'graph.move');
+  if (result.reverseToken?.kind === 'graph.move') {
+    assertEquals(result.reverseToken.original_folder_id, 'inbox');
+  }
+  assertEquals(result.recordPayload.archive_folder_id, 'archive');
+});
+
+Deno.test('mail.label (outlook): adds category via two-step GET-then-PATCH', async () => {
+  const urls: string[] = [];
+  const methods: string[] = [];
+  const bodies: string[] = [];
+  let step = 0;
+  const ctx = makeCtx({
+    fetch: async (u, init) => {
+      urls.push(u);
+      methods.push(init?.method ?? 'GET');
+      bodies.push(typeof init?.body === 'string' ? init.body : '');
+      step += 1;
+      if (step === 1) {
+        // GET existing categories
+        return new Response(JSON.stringify({ id: 'm-x', categories: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ id: 'm-x', categories: ['Receipts'] }), {
+        status: 200,
+      });
+    },
+  });
+  const result = await executeTool(
+    'mail.label',
+    { provider: 'microsoft', thread_id: 'm-x', label: 'Receipts', op: 'add' },
+    ctx,
+  );
+  assertEquals(result.mode, 'executed');
+  assertEquals(result.reverseToken?.kind, 'graph.category');
+  assertEquals(urls[0], 'https://graph.microsoft.com/v1.0/me/messages/m-x?$select=categories');
+  assertEquals(urls[1], 'https://graph.microsoft.com/v1.0/me/messages/m-x');
+  assertEquals(methods[1], 'PATCH');
+  assertEquals(JSON.parse(bodies[1]), { categories: ['Receipts'] });
+});
+
+Deno.test('mail.label (outlook): op=remove is not yet supported', async () => {
   const ctx = makeCtx();
   await assertRejects(
-    () => executeTool('mail.archive', { provider: 'microsoft', thread_id: 't1' }, ctx),
+    () =>
+      executeTool(
+        'mail.label',
+        { provider: 'microsoft', thread_id: 'm-x', label: 'Receipts', op: 'remove' },
+        ctx,
+      ),
     Error,
-    'outlook triage',
+    'outlook category remove not yet supported',
   );
+});
+
+Deno.test('mail.send_reply (policy=auto, all rails pass): executes via Gmail', async () => {
+  let sentUrl = '';
+  let sentBody = '';
+  const ctx = makeCtx({
+    fetch: async (u, init) => {
+      sentUrl = u;
+      sentBody = typeof init?.body === 'string' ? init.body : '';
+      return new Response('{"id":"sent-1"}', { status: 200 });
+    },
+  });
+  const result = await executeTool(
+    'mail.send_reply',
+    {
+      provider: 'google',
+      thread_id: 't-1',
+      draft_id: 'd-1',
+      draft_hash: 'h-1',
+      preview_text: 'Hej',
+      to: 'mor@example.dk',
+    },
+    ctx,
+    {
+      policy: 'auto',
+      safety: {
+        userIsIdle: true,
+        hasRecipientHistory: async () => true,
+        hasPriorFailedIdem: async () => false,
+      },
+    },
+  );
+  assertEquals(result.mode, 'executed');
+  assertEquals(sentUrl, 'https://gmail.googleapis.com/gmail/v1/users/me/drafts/send');
+  assertEquals(JSON.parse(sentBody), { id: 'd-1' });
+});
+
+Deno.test('mail.send_reply (policy=auto, all rails pass): executes via Outlook', async () => {
+  let sentUrl = '';
+  const ctx = makeCtx({
+    fetch: async (u) => {
+      sentUrl = u;
+      return new Response('', { status: 202 });
+    },
+  });
+  const result = await executeTool(
+    'mail.send_reply',
+    {
+      provider: 'microsoft',
+      thread_id: 't-1',
+      draft_id: 'd-1',
+      draft_hash: 'h-1',
+      preview_text: 'Hej',
+      to: 'mor@example.dk',
+    },
+    ctx,
+    {
+      policy: 'auto',
+      safety: {
+        userIsIdle: true,
+        hasRecipientHistory: async () => true,
+        hasPriorFailedIdem: async () => false,
+      },
+    },
+  );
+  assertEquals(result.mode, 'executed');
+  assertEquals(sentUrl, 'https://graph.microsoft.com/v1.0/me/messages/d-1/send');
+});
+
+Deno.test('mail.send_reply (policy=auto, recipient not in allowlist): falls back to propose', async () => {
+  let called = false;
+  const ctx = makeCtx({
+    fetch: async () => {
+      called = true;
+      return new Response('{}', { status: 200 });
+    },
+  });
+  const result = await executeTool(
+    'mail.send_reply',
+    {
+      provider: 'google',
+      thread_id: 't-1',
+      draft_id: 'd-1',
+      draft_hash: 'h-1',
+      preview_text: 'Hej',
+      to: 'stranger@example.com',
+    },
+    ctx,
+    {
+      policy: 'auto',
+      safety: {
+        userIsIdle: true,
+        hasRecipientHistory: async () => false,
+        hasPriorFailedIdem: async () => false,
+      },
+    },
+  );
+  assertEquals(result.mode, 'propose');
+  assertEquals(called, false);
+});
+
+Deno.test('mail.send_reply (policy=auto, user not idle): falls back to propose', async () => {
+  let called = false;
+  const ctx = makeCtx({
+    fetch: async () => {
+      called = true;
+      return new Response('{}', { status: 200 });
+    },
+  });
+  const result = await executeTool(
+    'mail.send_reply',
+    {
+      provider: 'google',
+      thread_id: 't',
+      draft_id: 'd',
+      draft_hash: 'h',
+      preview_text: 'p',
+      to: 'a@b.dk',
+    },
+    ctx,
+    {
+      policy: 'auto',
+      safety: {
+        userIsIdle: false,
+        hasRecipientHistory: async () => true,
+        hasPriorFailedIdem: async () => false,
+      },
+    },
+  );
+  assertEquals(result.mode, 'propose');
+  assertEquals(called, false);
+});
+
+Deno.test('mail.send_reply (policy=auto, prior failed idem): falls back to propose', async () => {
+  let called = false;
+  const ctx = makeCtx({
+    fetch: async () => {
+      called = true;
+      return new Response('{}', { status: 200 });
+    },
+  });
+  const result = await executeTool(
+    'mail.send_reply',
+    {
+      provider: 'google',
+      thread_id: 't',
+      draft_id: 'd',
+      draft_hash: 'h',
+      preview_text: 'p',
+      to: 'a@b.dk',
+    },
+    ctx,
+    {
+      policy: 'auto',
+      safety: {
+        userIsIdle: true,
+        hasRecipientHistory: async () => true,
+        hasPriorFailedIdem: async () => true,
+      },
+    },
+  );
+  assertEquals(result.mode, 'propose');
+  assertEquals(called, false);
+});
+
+Deno.test('mail.send_reply (policy=auto, allowlist throws): falls back to propose', async () => {
+  const result = await executeTool(
+    'mail.send_reply',
+    { provider: 'google', thread_id: 't', draft_id: 'd', draft_hash: 'h', preview_text: 'p', to: 'a@b.dk' },
+    { fetch: (async () => new Response('{}', { status: 200 })) as never, gmail: { accessToken: '', resolveLabelId: async () => '' } },
+    {
+      policy: 'auto',
+      safety: {
+        userIsIdle: true,
+        hasRecipientHistory: async () => { throw new Error('db down'); },
+        hasPriorFailedIdem: async () => false,
+      },
+    },
+  );
+  assertEquals(result.mode, 'propose');
+});
+
+Deno.test('mail.send_reply (policy=auto, prior-fail throws): falls back to propose', async () => {
+  const result = await executeTool(
+    'mail.send_reply',
+    { provider: 'google', thread_id: 't', draft_id: 'd', draft_hash: 'h', preview_text: 'p', to: 'a@b.dk' },
+    { fetch: (async () => new Response('{}', { status: 200 })) as never, gmail: { accessToken: '', resolveLabelId: async () => '' } },
+    {
+      policy: 'auto',
+      safety: {
+        userIsIdle: true,
+        hasRecipientHistory: async () => true,
+        hasPriorFailedIdem: async () => { throw new Error('db down'); },
+      },
+    },
+  );
+  assertEquals(result.mode, 'propose');
+});
+
+Deno.test('mail.send_reply (policy=auto, missing safety): falls back to propose (back-compat)', async () => {
+  let called = false;
+  const ctx = makeCtx({
+    fetch: async () => {
+      called = true;
+      return new Response('{}', { status: 200 });
+    },
+  });
+  const result = await executeTool(
+    'mail.send_reply',
+    {
+      provider: 'google',
+      thread_id: 't',
+      draft_id: 'd',
+      draft_hash: 'h',
+      preview_text: 'p',
+      to: 'a@b.dk',
+    },
+    ctx,
+    { policy: 'auto' },
+  );
+  assertEquals(result.mode, 'propose');
+  assertEquals(called, false);
+});
+
+Deno.test('mail.flag_important (outlook): PATCHes flag.flagStatus=flagged', async () => {
+  let url = '';
+  let method = '';
+  let body = '';
+  const ctx = makeCtx({
+    fetch: async (u, init) => {
+      url = u;
+      method = init?.method ?? 'GET';
+      body = typeof init?.body === 'string' ? init.body : '';
+      return new Response(JSON.stringify({ id: 'm-x', flag: { flagStatus: 'flagged' } }), {
+        status: 200,
+      });
+    },
+  });
+  const result = await executeTool(
+    'mail.flag_important',
+    { provider: 'microsoft', thread_id: 'm-x' },
+    ctx,
+  );
+  assertEquals(result.mode, 'executed');
+  assertEquals(result.reverseToken?.kind, 'graph.flag');
+  assertEquals(url, 'https://graph.microsoft.com/v1.0/me/messages/m-x');
+  assertEquals(method, 'PATCH');
+  assertEquals(JSON.parse(body), { flag: { flagStatus: 'flagged' } });
 });

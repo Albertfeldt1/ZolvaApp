@@ -287,6 +287,7 @@ export type MailEvent = {
   eventType: MailEventType;
   providerThreadId: string;
   providerFrom: string | null;
+  providerTo: string | null;
   providerSubject: string | null;
   occurredAt: Date;
 };

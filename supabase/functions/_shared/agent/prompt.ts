@@ -79,7 +79,7 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
   {
     name: 'mail.send_reply',
     description:
-      'Propose to send the draft you just created. Always requires user approval — this writes a pending proposal, not an actual send. Use right after mail.draft_reply for the same thread when the reply is unambiguous.',
+      'Finalise the draft you just created. Default behaviour is to propose (user approves on Today). When the user\'s policy is auto AND safety rails clear (idle, recipient known, no prior failure), this sends without user confirmation. Use right after mail.draft_reply for the same thread when the reply is unambiguous.',
     input_schema: {
       type: 'object',
       properties: {
@@ -87,8 +87,9 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
         draft_id: { type: 'string', description: 'returned by mail.draft_reply (or known existing draft)' },
         draft_hash: { type: 'string', description: 'sha1 of the body — used for idempotency' },
         preview_text: { type: 'string', description: 'one-line preview for the proposal card, ≤ 120 chars' },
+        to: { type: 'string', description: 'recipient email address — must equal the to used in the prior mail.draft_reply step' },
       },
-      required: ['thread_id', 'draft_id', 'draft_hash', 'preview_text'],
+      required: ['thread_id', 'draft_id', 'draft_hash', 'preview_text', 'to'],
     },
   },
 ];

@@ -10,9 +10,10 @@
 // modules (policy, idem, verify, prompt, tools/dispatch). All side-effects
 // live behind RunnerDeps so unit tests can stub them.
 
+import { ACTION_DEFAULT_MODE } from './types.ts';
 import type { AgentEventKind, AgentRunTrigger, ActionType } from './types.ts';
 import type { CallClaudeResult, ClaudeSystemBlock, ClaudeUserMessage } from './claude.ts';
-import type { ExecuteReverseToken } from './tools/dispatch.ts';
+import type { ExecuteOptions, ExecuteReverseToken } from './tools/dispatch.ts';
 import type { ThreadBrief } from './prompt.ts';
 
 import { buildMailTriagePrompt, MAIL_TRIAGE_TOOLS } from './prompt.ts';
@@ -57,6 +58,7 @@ export interface RunnerDeps {
   executeTool: (
     action: ActionType,
     payload: Record<string, unknown>,
+    opts?: ExecuteOptions,
   ) => Promise<{
     mode: 'executed' | 'propose';
     reversible: boolean;
@@ -71,6 +73,10 @@ export interface RunnerDeps {
   // Phase 3 deps
   loadUserPolicy: (userId: string) => Promise<Array<{ user_id: string; action_type: ActionType; mode: 'auto' | 'propose' | 'off' }>>;
   loadUserPresence: (userId: string) => Promise<Date | null>;
+  // Phase 3.1 safety deps — only consulted on mail.send_reply with policy=auto.
+  isUserIdle: (userId: string, now: Date) => Promise<boolean>;
+  recipientAllowlistCheck: (userId: string, address: string) => Promise<boolean>;
+  priorFailedSendIdem: (userId: string, idemKey: string) => Promise<boolean>;
   writeProposedAction: (row: {
     user_id: string;
     run_id: string;
@@ -181,14 +187,12 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
           });
           continue;
         }
-        // Phase 3: resolve policy. mode='off' rejects.
-        // mode='propose' on a currently-auto action (e.g. mail.archive) is
-        //   NOT honored as deferred-execute in Phase 3 — the runner still
-        //   executes and we treat it as auto. Phase 3.1 will wire deferred
-        //   execution via agent-approve dispatching any action. Until then,
-        //   the policy slot exists in the UI but only `off` actually blocks
-        //   currently-auto actions. For mail.send_reply, dispatcher returns
-        //   mode='propose' intrinsically (no provider call), which IS honored.
+        // Phase 3 + 3.1: resolve policy. mode='off' rejects. mode='propose'
+        // on a currently-auto action (mail.archive etc.) is honored via the
+        // deferred-execute branch below — runner writes a proposal, agent-
+        // approve dispatches when the user taps Send. For mail.send_reply,
+        // the dispatcher already returns mode='propose' intrinsically unless
+        // policy=auto + every safety rail holds.
         const policy = resolvePolicy(action, userPolicy);
         if (policy === 'off') {
           toolResults.push({
@@ -199,32 +203,65 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
           });
           continue;
         }
-        try {
-          const exec = await deps.executeTool(action, input);
-          if (exec.mode === 'propose') {
-            const idemKey = deriveIdemKey(action, exec.recordPayload);
-            const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
-            const preview = buildProposalPreview(action, exec.recordPayload);
-            const proposalId = await deps.writeProposedAction({
-              user_id: userId,
-              run_id: runId,
-              action_type: action,
-              payload: { ...exec.recordPayload, idem_key: idemKey },
-              preview,
-              expires_at: expiresAt,
+        // Phase 3.1 deferred-execute: user override flipped a currently-auto
+        // action (e.g. mail.archive) to propose. Write a proposed_actions row
+        // with the raw Claude input instead of executing — agent-approve will
+        // dispatch via executeTool when the user taps Send.
+        const defaultMode = ACTION_DEFAULT_MODE[action];
+        if (policy === 'propose' && defaultMode === 'auto') {
+          try {
+            const idemKey = deriveIdemKey(action, input);
+            await writeProposalAndMaybePush(deps, {
+              userId,
+              runId,
+              action,
+              payload: { ...input, idem_key: idemKey, deferred_execute: true },
+              toolUseId: tu.id,
+              toolResults,
+              fallbackPushBody: 'En handling venter',
             });
-            const presence = await deps.loadUserPresence(userId);
-            if (shouldPushForProposal(presence, new Date())) {
-              await deps.dispatchProposalPush(userId, {
-                title: typeof preview.title === 'string' ? preview.title : 'Zolva',
-                body: typeof preview.body === 'string' ? preview.body : 'Et udkast venter',
-                actionId: proposalId,
-              });
-            }
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.error(
+              `[runner] deferred-execute proposal failed user=${userId} run=${runId} action=${action}: ${msg}`,
+            );
             toolResults.push({
               type: 'tool_result',
               tool_use_id: tu.id,
-              content: `proposed:${proposalId}`,
+              is_error: true,
+              content: msg,
+            });
+          }
+          continue;
+        }
+        try {
+          // Only build the safety context when it's actually consulted —
+          // mail.send_reply is the only auto-eligible action that uses it
+          // today, and isUserIdle / recipient check both hit Supabase.
+          const needsSafety = action === 'mail.send_reply' && policy === 'auto';
+          const safety = needsSafety
+            ? {
+                userIsIdle: await deps.isUserIdle(userId, new Date()),
+                hasRecipientHistory: (addr: string) =>
+                  deps.recipientAllowlistCheck(userId, addr),
+                hasPriorFailedIdem: (idem: string) =>
+                  deps.priorFailedSendIdem(userId, idem),
+              }
+            : undefined;
+          const exec = await deps.executeTool(action, input, {
+            policy,
+            safety,
+          });
+          if (exec.mode === 'propose') {
+            const idemKey = deriveIdemKey(action, exec.recordPayload);
+            await writeProposalAndMaybePush(deps, {
+              userId,
+              runId,
+              action,
+              payload: { ...exec.recordPayload, idem_key: idemKey },
+              toolUseId: tu.id,
+              toolResults,
+              fallbackPushBody: 'Et udkast venter',
             });
             continue;
           }
@@ -308,4 +345,45 @@ function buildProposalPreview(
     default:
       return { title: 'Zolva foreslår', body: previewText || `${action}` };
   }
+}
+
+// Shared proposal-write path used by both deferred-execute (currently-auto
+// action flipped to propose) and the mail.send_reply propose branch from the
+// dispatcher. Caller is responsible for embedding `idem_key` (and any flags
+// like `deferred_execute: true`) into `payload` before calling.
+async function writeProposalAndMaybePush(
+  deps: RunnerDeps,
+  args: {
+    userId: string;
+    runId: string;
+    action: ActionType;
+    payload: Record<string, unknown>;
+    toolUseId: string;
+    toolResults: Array<Record<string, unknown>>;
+    fallbackPushBody: string;
+  },
+): Promise<void> {
+  const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+  const preview = buildProposalPreview(args.action, args.payload);
+  const proposalId = await deps.writeProposedAction({
+    user_id: args.userId,
+    run_id: args.runId,
+    action_type: args.action,
+    payload: args.payload,
+    preview,
+    expires_at: expiresAt,
+  });
+  const presence = await deps.loadUserPresence(args.userId);
+  if (shouldPushForProposal(presence, new Date())) {
+    await deps.dispatchProposalPush(args.userId, {
+      title: typeof preview.title === 'string' ? preview.title : 'Zolva',
+      body: typeof preview.body === 'string' ? preview.body : args.fallbackPushBody,
+      actionId: proposalId,
+    });
+  }
+  args.toolResults.push({
+    type: 'tool_result',
+    tool_use_id: args.toolUseId,
+    content: `proposed:${proposalId}`,
+  });
 }

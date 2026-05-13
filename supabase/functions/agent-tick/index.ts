@@ -17,7 +17,8 @@ import { resolveLabelId } from '../_shared/agent/tools/gmail.ts';
 import type { ThreadBrief } from '../_shared/agent/prompt.ts';
 import { loadRefreshToken, refreshAccessToken } from '../_shared/oauth.ts';
 import { dispatchExpoPush } from '../_shared/agent/expo-push.ts';
-import type { ExecuteContext } from '../_shared/agent/tools/dispatch.ts';
+import type { ExecuteContext, ExecuteOptions } from '../_shared/agent/tools/dispatch.ts';
+import { hasRecipientHistory } from '../_shared/agent/allowlist.ts';
 
 const CRON_SECRET = Deno.env.get('CRON_SHARED_SECRET');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -161,7 +162,7 @@ function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
         tools: tools as unknown[],
       });
     },
-    async executeTool(action: ActionType, payload) {
+    async executeTool(action: ActionType, payload, opts?: ExecuteOptions) {
       const gmailTok = await accessToken();
       const outlookTok = await outlookToken();
       const ctx: ExecuteContext = {
@@ -173,7 +174,7 @@ function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
         },
         outlook: outlookTok ? { accessToken: outlookTok } : undefined,
       };
-      return dispatchTool(action, payload, ctx);
+      return dispatchTool(action, payload, ctx, opts);
     },
     async recordAction(row) {
       const { error } = await client.from('agent_actions').insert({
@@ -243,6 +244,50 @@ function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
         body: preview.body,
         data: { type: 'agent_proposal', action_id: preview.actionId },
       });
+    },
+    async isUserIdle(uid, now) {
+      const { data, error } = await client
+        .from('user_presence')
+        .select('last_active_at')
+        .eq('user_id', uid)
+        .maybeSingle();
+      if (error) {
+        console.warn('[agent-tick] presence read failed:', error.message);
+        // Treat unknown presence as idle — fail-open is fine because the
+        // recipient allowlist + idem check are the harder rails to clear.
+        return true;
+      }
+      if (!data?.last_active_at) return true;
+      const ageMs = now.getTime() - new Date(data.last_active_at as string).getTime();
+      return ageMs >= 60_000;
+    },
+    async recipientAllowlistCheck(uid, addr) {
+      return hasRecipientHistory(client, {
+        userId: uid,
+        address: addr,
+        threshold: 3,
+        withinDays: 60,
+      });
+    },
+    async priorFailedSendIdem(uid, idemKey) {
+      // agent_actions has no status column — failures don't land there.
+      // The actual failure signal lives on proposed_actions.status='failed'
+      // (set by agent-approve when a send hits a provider 4xx/5xx).
+      const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      const { data, error } = await client
+        .from('proposed_actions')
+        .select('id')
+        .eq('user_id', uid)
+        .eq('status', 'failed')
+        .eq('payload->>idem_key', idemKey)
+        .gte('created_at', cutoff)
+        .limit(1);
+      if (error) {
+        console.warn('[agent-tick] prior-failed-idem check failed:', error.message);
+        // Fail-safe: assume there WAS a prior failure so we don't auto-send.
+        return true;
+      }
+      return (data?.length ?? 0) > 0;
     },
   };
 }
