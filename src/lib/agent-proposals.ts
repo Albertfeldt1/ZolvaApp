@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { supabase } from './supabase';
 
 export interface ProposedActionRow {
@@ -27,6 +27,7 @@ export function useProposedActions(userId: string | null | undefined): {
 } {
   const [rows, setRows] = useState<ProposedActionRow[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const instanceId = useId();
 
   useEffect(() => {
     let cancelled = false;
@@ -45,7 +46,7 @@ export function useProposedActions(userId: string | null | undefined): {
     })();
 
     const channel = supabase
-      .channel(`proposed_actions:${userId}`)
+      .channel(`proposed_actions:${userId}:${instanceId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'proposed_actions', filter: `user_id=eq.${userId}` },
@@ -58,7 +59,7 @@ export function useProposedActions(userId: string | null | undefined): {
       .subscribe();
 
     return () => { cancelled = true; void supabase.removeChannel(channel); };
-  }, [userId]);
+  }, [userId, instanceId]);
 
   return { rows, loading };
 }
