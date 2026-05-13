@@ -5,12 +5,12 @@ import { buildMailTriagePrompt, MAIL_TRIAGE_TOOLS } from './prompt.ts';
 Deno.test('MAIL_TRIAGE_TOOLS exposes six tools after phase 3', () => {
   const names = MAIL_TRIAGE_TOOLS.map((t) => t.name).sort();
   assertEquals(names, [
-    'mail.archive',
-    'mail.draft_reply',
-    'mail.flag_important',
-    'mail.label',
-    'mail.send_reply',
-    'mail.summarize',
+    'mail_archive',
+    'mail_draft_reply',
+    'mail_flag_important',
+    'mail_label',
+    'mail_send_reply',
+    'mail_summarize',
   ]);
 });
 

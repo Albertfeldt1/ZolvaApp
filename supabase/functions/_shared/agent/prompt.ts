@@ -1,5 +1,24 @@
 // supabase/functions/_shared/agent/prompt.ts
 import type { ClaudeSystemBlock, ClaudeUserMessage } from './claude.ts';
+import type { ActionType } from './types.ts';
+
+// Anthropic's tools API requires names to match ^[a-zA-Z0-9_-]{1,128}$ —
+// no dots. Internally we use dotted action types (e.g. 'mail.archive')
+// because those flow through the DB (action_type column, policy keys).
+// This map translates the Claude-facing underscore form back to the
+// canonical dotted form at the runner boundary.
+const TOOL_NAME_TO_ACTION: Record<string, ActionType> = {
+  mail_archive: 'mail.archive',
+  mail_label: 'mail.label',
+  mail_flag_important: 'mail.flag_important',
+  mail_summarize: 'mail.summarize',
+  mail_draft_reply: 'mail.draft_reply',
+  mail_send_reply: 'mail.send_reply',
+};
+
+export function actionTypeFromToolName(name: string): ActionType | null {
+  return TOOL_NAME_TO_ACTION[name] ?? null;
+}
 
 export interface ThreadBrief {
   thread_id: string;
@@ -14,7 +33,7 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
   input_schema: Record<string, unknown>;
 }> = [
   {
-    name: 'mail.archive',
+    name: 'mail_archive',
     description:
       'Archive a thread the user has clearly already handled (newsletters, receipts, automated notifications). Removes INBOX label only — recoverable.',
     input_schema: {
@@ -24,7 +43,7 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
     },
   },
   {
-    name: 'mail.label',
+    name: 'mail_label',
     description:
       'Apply or remove a Gmail label on a thread. Use existing labels when present; create only short, clear category names like "Kvitteringer", "Nyhedsbreve", "Rejser".',
     input_schema: {
@@ -38,7 +57,7 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
     },
   },
   {
-    name: 'mail.flag_important',
+    name: 'mail_flag_important',
     description:
       'Mark a thread as important (applies the "Zolva flaggede" label). Use sparingly: only when the message likely needs the user\'s attention today.',
     input_schema: {
@@ -48,7 +67,7 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
     },
   },
   {
-    name: 'mail.summarize',
+    name: 'mail_summarize',
     description:
       'Write a one- to two-sentence Danish summary of the thread. Use when the subject alone does not convey what action (if any) the user needs to take. Summary must be ≤ 200 chars.',
     input_schema: {
@@ -61,7 +80,7 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
     },
   },
   {
-    name: 'mail.draft_reply',
+    name: 'mail_draft_reply',
     description:
       'Create a draft reply (visible in the user\'s Drafts folder, NOT sent). Use only for direct messages from a human where a reply is clearly expected — never for newsletters, automated mail, or threads where you cannot tell what to say. Keep replies short and conservative; the user will edit before sending. Both providers supported.',
     input_schema: {
@@ -77,17 +96,17 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
     },
   },
   {
-    name: 'mail.send_reply',
+    name: 'mail_send_reply',
     description:
-      'Finalise the draft you just created. Default behaviour is to propose (user approves on Today). When the user\'s policy is auto AND safety rails clear (idle, recipient known, no prior failure), this sends without user confirmation. Use right after mail.draft_reply for the same thread when the reply is unambiguous.',
+      'Finalise the draft you just created. Default behaviour is to propose (user approves on Today). When the user\'s policy is auto AND safety rails clear (idle, recipient known, no prior failure), this sends without user confirmation. Use right after mail_draft_reply for the same thread when the reply is unambiguous.',
     input_schema: {
       type: 'object',
       properties: {
         thread_id: { type: 'string' },
-        draft_id: { type: 'string', description: 'returned by mail.draft_reply (or known existing draft)' },
+        draft_id: { type: 'string', description: 'returned by mail_draft_reply (or known existing draft)' },
         draft_hash: { type: 'string', description: 'sha1 of the body — used for idempotency' },
         preview_text: { type: 'string', description: 'one-line preview for the proposal card, ≤ 120 chars' },
-        to: { type: 'string', description: 'recipient email address — must equal the to used in the prior mail.draft_reply step' },
+        to: { type: 'string', description: 'recipient email address — must equal the to used in the prior mail_draft_reply step' },
       },
       required: ['thread_id', 'draft_id', 'draft_hash', 'preview_text', 'to'],
     },
@@ -101,13 +120,13 @@ Tilladte handlinger:
 2. tilføje en kort kategori-label — KUN Gmail. Spring over for Outlook-tråde.
 3. markere en tråd som vigtig — KUN Gmail. Spring over for Outlook-tråde.
 4. skrive en kort dansk opsummering (max 200 tegn) hvis emnet alene ikke siger hvad brugeren skal gøre.
-5. udkast et reply (mail.draft_reply) — KUN når afsenderen er et menneske (ikke noreply@/notifications@/etc.), brevet stiller et tydeligt spørgsmål eller forventer et svar, og du kan skrive et kort dansk svar uden at gætte. Hold dig forsigtig; brugeren retter inden afsendelse.
-6. foreslå at sende udkastet (mail.send_reply) umiddelbart efter mail.draft_reply, hvis svaret er entydigt. Send kræver altid brugerens godkendelse.
+5. udkast et reply (mail_draft_reply) — KUN når afsenderen er et menneske (ikke noreply@/notifications@/etc.), brevet stiller et tydeligt spørgsmål eller forventer et svar, og du kan skrive et kort dansk svar uden at gætte. Hold dig forsigtig; brugeren retter inden afsendelse.
+6. foreslå at sende udkastet (mail_send_reply) umiddelbart efter mail_draft_reply, hvis svaret er entydigt. Send kræver altid brugerens godkendelse.
 
 Regler:
 - Brug kun thread_id'er fra listen i brugerens besked. Opfind ALDRIG ID'er.
 - Hver tråd har en provider ('google' eller 'microsoft'). Du SKAL inkludere provider i payload til alle handlinger.
-- For Outlook-tråde: kun mail.summarize, mail.draft_reply og mail.send_reply er tilgængelige. Forsøg ikke at arkivere/labelle/flagge Outlook-tråde — disse handlinger vil fejle.
+- For Outlook-tråde: kun mail_summarize, mail_draft_reply og mail_send_reply er tilgængelige. Forsøg ikke at arkivere/labelle/flagge Outlook-tråde — disse handlinger vil fejle.
 - Vær konservativ: hvis du er i tvivl, gør ingenting.
 - Du kan kalde flere værktøjer i samme tur. Stop når listen er triageret.
 - Svar på dansk i den korte tekstkommentar efter værktøjskald.`;

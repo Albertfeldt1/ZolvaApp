@@ -341,8 +341,13 @@ serve(async (req) => {
       const r = await runAgent({ userId: uid, trigger, deps });
       results.push({ userId: uid, ...r });
     } catch (err) {
-      console.error('[agent-tick] error for', uid, err);
-      results.push({ userId: uid, error: String(err) });
+      const msg = err instanceof Error
+        ? `${err.name}: ${err.message}`
+        : (() => {
+            try { return JSON.stringify(err); } catch { return String(err); }
+          })();
+      console.error('[agent-tick] error for', uid, msg, err);
+      results.push({ userId: uid, error: msg });
     }
   }
 

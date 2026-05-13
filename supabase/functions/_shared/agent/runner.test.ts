@@ -97,7 +97,7 @@ Deno.test('runAgent: phase-2 path executes one tool call', async () => {
         {
           type: 'tool_use',
           id: 'toolu_1',
-          name: 'mail.archive',
+          name: 'mail_archive',
           input: { thread_id: 't1' },
         },
       ],
@@ -158,7 +158,7 @@ Deno.test('runAgent: phase-2 path rejects hallucinated thread_id without abortin
       {
         type: 'tool_use',
         id: 'toolu_1',
-        name: 'mail.archive',
+        name: 'mail_archive',
         input: { thread_id: 't-hallucinated' },
       },
     ],
@@ -210,7 +210,7 @@ Deno.test('runAgent: propose path writes proposed_action and dispatches push whe
       {
         type: 'tool_use',
         id: 'toolu_1',
-        name: 'mail.send_reply',
+        name: 'mail_send_reply',
         input: {
           provider: 'google',
           thread_id: 't1',
@@ -259,7 +259,7 @@ Deno.test('runAgent: propose path skips push when user is foreground (<60s idle)
       {
         type: 'tool_use',
         id: 'toolu_1',
-        name: 'mail.send_reply',
+        name: 'mail_send_reply',
         input: {
           provider: 'google',
           thread_id: 't1',
@@ -309,7 +309,7 @@ Deno.test('runAgent: mail.send_reply executes when policy=auto and all rails pas
       {
         type: 'tool_use',
         id: 'toolu_1',
-        name: 'mail.send_reply',
+        name: 'mail_send_reply',
         input: {
           provider: 'google',
           thread_id: 't1',
@@ -378,7 +378,7 @@ Deno.test('runAgent: mail.send_reply proposes when recipient not in allowlist', 
       {
         type: 'tool_use',
         id: 'toolu_1',
-        name: 'mail.send_reply',
+        name: 'mail_send_reply',
         input: {
           provider: 'google',
           thread_id: 't1',
@@ -433,7 +433,7 @@ Deno.test('runAgent: mail.send_reply proposes when user not idle', async () => {
       {
         type: 'tool_use',
         id: 'toolu_1',
-        name: 'mail.send_reply',
+        name: 'mail_send_reply',
         input: {
           provider: 'google',
           thread_id: 't1',
@@ -489,7 +489,7 @@ Deno.test('runAgent: mail.send_reply skips safety lookups when policy=propose', 
       {
         type: 'tool_use',
         id: 'toolu_1',
-        name: 'mail.send_reply',
+        name: 'mail_send_reply',
         input: {
           provider: 'google',
           thread_id: 't1',
@@ -538,7 +538,7 @@ Deno.test('runAgent: deferred-execute — policy=propose on default-auto action 
       {
         type: 'tool_use',
         id: 'toolu_1',
-        name: 'mail.archive',
+        name: 'mail_archive',
         input: { provider: 'google', thread_id: 't1' },
       },
     ],
@@ -586,7 +586,7 @@ Deno.test('runAgent: policy off causes the tool to be rejected without execution
       {
         type: 'tool_use',
         id: 'toolu_1',
-        name: 'mail.archive',
+        name: 'mail_archive',
         input: { provider: 'google', thread_id: 't1' },
       },
     ],

@@ -16,7 +16,7 @@ import type { CallClaudeResult, ClaudeSystemBlock, ClaudeUserMessage } from './c
 import type { ExecuteOptions, ExecuteReverseToken } from './tools/dispatch.ts';
 import type { ThreadBrief } from './prompt.ts';
 
-import { buildMailTriagePrompt, MAIL_TRIAGE_TOOLS } from './prompt.ts';
+import { actionTypeFromToolName, buildMailTriagePrompt, MAIL_TRIAGE_TOOLS } from './prompt.ts';
 import { buildThreadAllowlist, verifyThreadId } from './verify.ts';
 import { deriveIdemKey } from './idem.ts';
 import { resolvePolicy } from './policy.ts';
@@ -164,13 +164,13 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
 
       const toolResults: Array<Record<string, unknown>> = [];
       for (const tu of toolUses) {
-        const action = tu.name as ActionType;
-        if (!SUPPORTED_ACTIONS.has(action)) {
+        const action = actionTypeFromToolName(tu.name);
+        if (!action || !SUPPORTED_ACTIONS.has(action)) {
           toolResults.push({
             type: 'tool_result',
             tool_use_id: tu.id,
             is_error: true,
-            content: `unsupported action ${action}`,
+            content: `unsupported action ${tu.name}`,
           });
           continue;
         }
