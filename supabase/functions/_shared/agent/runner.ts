@@ -75,7 +75,7 @@ export interface RunnerDeps {
   // Phase 3.1 safety deps — only consulted on mail.send_reply with policy=auto.
   isUserIdle: (userId: string, now: Date) => Promise<boolean>;
   recipientAllowlistCheck: (userId: string, address: string) => Promise<boolean>;
-  agentActionsPriorFailedIdem: (userId: string, idemKey: string) => Promise<boolean>;
+  priorFailedSendIdem: (userId: string, idemKey: string) => Promise<boolean>;
   writeProposedAction: (row: {
     user_id: string;
     run_id: string;
@@ -215,7 +215,7 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
                 hasRecipientHistory: (addr: string) =>
                   deps.recipientAllowlistCheck(userId, addr),
                 hasPriorFailedIdem: (idem: string) =>
-                  deps.agentActionsPriorFailedIdem(userId, idem),
+                  deps.priorFailedSendIdem(userId, idem),
               }
             : undefined;
           const exec = await deps.executeTool(action, input, {

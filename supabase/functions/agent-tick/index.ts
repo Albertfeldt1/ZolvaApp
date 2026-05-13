@@ -269,7 +269,7 @@ function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
         withinDays: 60,
       });
     },
-    async agentActionsPriorFailedIdem(uid, idemKey) {
+    async priorFailedSendIdem(uid, idemKey) {
       // agent_actions has no status column — failures don't land there.
       // The actual failure signal lives on proposed_actions.status='failed'
       // (set by agent-approve when a send hits a provider 4xx/5xx).

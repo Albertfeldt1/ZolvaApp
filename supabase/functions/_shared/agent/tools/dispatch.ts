@@ -275,10 +275,13 @@ export async function executeTool(
 
       // Auto-send path — every rail must hold.
       const idemKey = `${threadId}::${draftHash}`;
-      const [recipientOk, priorFail] = await Promise.all([
+      const [recipientResult, priorFailResult] = await Promise.allSettled([
         opts.safety.hasRecipientHistory(toAddr),
         opts.safety.hasPriorFailedIdem(idemKey),
       ]);
+      // Fail-safe: rejection treats recipient as not in allowlist, prior-fail as true.
+      const recipientOk = recipientResult.status === 'fulfilled' && recipientResult.value;
+      const priorFail = priorFailResult.status !== 'fulfilled' || priorFailResult.value;
       if (!opts.safety.userIsIdle || !recipientOk || priorFail) {
         return {
           mode: 'propose',

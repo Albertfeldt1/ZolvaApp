@@ -87,6 +87,9 @@ export const DEFAULT_POLICY: Record<ActionType, PolicyMode> = {
 // dispatcher receives after the runner filters out 'off'. Exported so
 // callers that want to reason about default execution intent (without
 // the 'off' case) can use it directly.
+// KEEP IN SYNC WITH DEFAULT_POLICY above. ACTION_DEFAULT_MODE narrows to the
+// two-state union for runner gates; DEFAULT_POLICY includes 'off' which is a
+// user override, never a default. When changing a default, update both maps.
 export const ACTION_DEFAULT_MODE: Record<ActionType, ActionMode> = {
   'mail.label': 'auto',
   'mail.archive': 'auto',

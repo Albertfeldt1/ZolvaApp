@@ -51,7 +51,7 @@ function makeDeps(): { deps: RunnerDeps; log: string[] } {
       // send_reply auto path override these explicitly.
       isUserIdle: async () => false,
       recipientAllowlistCheck: async () => false,
-      agentActionsPriorFailedIdem: async () => false,
+      priorFailedSendIdem: async () => false,
     },
   };
 }
@@ -303,7 +303,7 @@ Deno.test('runAgent: mail.send_reply executes when policy=auto and all rails pas
   // All rails clear:
   deps.isUserIdle = async () => true;
   deps.recipientAllowlistCheck = async () => true;
-  deps.agentActionsPriorFailedIdem = async () => false;
+  deps.priorFailedSendIdem = async () => false;
   deps.callClaudeTurn = async () => ({
     content: [
       {
@@ -372,7 +372,7 @@ Deno.test('runAgent: mail.send_reply proposes when recipient not in allowlist', 
   ];
   deps.isUserIdle = async () => true;
   deps.recipientAllowlistCheck = async () => false; // stranger
-  deps.agentActionsPriorFailedIdem = async () => false;
+  deps.priorFailedSendIdem = async () => false;
   deps.callClaudeTurn = async () => ({
     content: [
       {
@@ -427,7 +427,7 @@ Deno.test('runAgent: mail.send_reply proposes when user not idle', async () => {
   ];
   deps.isUserIdle = async () => false; // user is foreground
   deps.recipientAllowlistCheck = async () => true;
-  deps.agentActionsPriorFailedIdem = async () => false;
+  deps.priorFailedSendIdem = async () => false;
   deps.callClaudeTurn = async () => ({
     content: [
       {

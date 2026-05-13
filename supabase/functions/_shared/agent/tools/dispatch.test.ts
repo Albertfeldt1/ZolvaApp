@@ -432,6 +432,40 @@ Deno.test('mail.send_reply (policy=auto, prior failed idem): falls back to propo
   assertEquals(called, false);
 });
 
+Deno.test('mail.send_reply (policy=auto, allowlist throws): falls back to propose', async () => {
+  const result = await executeTool(
+    'mail.send_reply',
+    { provider: 'google', thread_id: 't', draft_id: 'd', draft_hash: 'h', preview_text: 'p', to: 'a@b.dk' },
+    { fetch: (async () => new Response('{}', { status: 200 })) as never, gmail: { accessToken: '', resolveLabelId: async () => '' } },
+    {
+      policy: 'auto',
+      safety: {
+        userIsIdle: true,
+        hasRecipientHistory: async () => { throw new Error('db down'); },
+        hasPriorFailedIdem: async () => false,
+      },
+    },
+  );
+  assertEquals(result.mode, 'propose');
+});
+
+Deno.test('mail.send_reply (policy=auto, prior-fail throws): falls back to propose', async () => {
+  const result = await executeTool(
+    'mail.send_reply',
+    { provider: 'google', thread_id: 't', draft_id: 'd', draft_hash: 'h', preview_text: 'p', to: 'a@b.dk' },
+    { fetch: (async () => new Response('{}', { status: 200 })) as never, gmail: { accessToken: '', resolveLabelId: async () => '' } },
+    {
+      policy: 'auto',
+      safety: {
+        userIsIdle: true,
+        hasRecipientHistory: async () => true,
+        hasPriorFailedIdem: async () => { throw new Error('db down'); },
+      },
+    },
+  );
+  assertEquals(result.mode, 'propose');
+});
+
 Deno.test('mail.send_reply (policy=auto, missing safety): falls back to propose (back-compat)', async () => {
   let called = false;
   const ctx = makeCtx({
