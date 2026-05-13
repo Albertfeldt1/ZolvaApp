@@ -243,6 +243,10 @@ export async function executeTool(
       const startIso = mustString(payload, 'start_iso');
       const endIso = mustString(payload, 'end_iso');
       if (provider === 'google') {
+        // ctx.gmail.accessToken is the user's Google access token, which
+        // covers every scope granted at consent — including
+        // calendar.events (src/lib/auth.ts:65). The 'gmail' name is
+        // historical; the token works for Drive + Calendar too.
         const events = await googleListEvents({
           fetch: ctx.fetch,
           accessToken: ctx.gmail.accessToken,

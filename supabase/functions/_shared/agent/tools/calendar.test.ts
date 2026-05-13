@@ -98,3 +98,13 @@ Deno.test('outlookListEvents: queries calendarView with start/end + UTC prefer h
   assertEquals(calledUrl.includes('startDateTime=2026-05-14T00%3A00%3A00Z'), true);
   assertEquals(preferHeader.includes('UTC'), true);
 });
+
+Deno.test('outlookListEvents: throws with status + detail on non-2xx', async () => {
+  const fetch: CalFetch = async () =>
+    new Response('{"error":{"message":"forbidden"}}', { status: 403 });
+  await assertRejects(
+    () => outlookListEvents({ fetch, accessToken: 'tok', startIso: 'a', endIso: 'b' }),
+    Error,
+    'graph calendarView 403',
+  );
+});
