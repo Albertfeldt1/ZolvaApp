@@ -112,6 +112,9 @@ const SUPPORTED_ACTIONS = new Set<ActionType>([
   'mail.summarize',
   'mail.draft_reply',
   'mail.send_reply',
+  'mail.get_body',
+  'cal.list_events',
+  'drive.search',
 ]);
 
 export async function runAgent(input: RunInput): Promise<RunResult> {

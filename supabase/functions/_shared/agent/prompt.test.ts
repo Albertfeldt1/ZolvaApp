@@ -1,17 +1,30 @@
 // supabase/functions/_shared/agent/prompt.test.ts
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { buildMailTriagePrompt, MAIL_TRIAGE_TOOLS } from './prompt.ts';
+import { actionTypeFromToolName, buildMailTriagePrompt, MAIL_TRIAGE_TOOLS } from './prompt.ts';
 
-Deno.test('MAIL_TRIAGE_TOOLS exposes six tools after phase 3', () => {
+Deno.test('MAIL_TRIAGE_TOOLS exposes nine tools after phase 4a', () => {
   const names = MAIL_TRIAGE_TOOLS.map((t) => t.name).sort();
   assertEquals(names, [
+    'cal_list_events',
+    'drive_search',
     'mail_archive',
     'mail_draft_reply',
     'mail_flag_important',
+    'mail_get_body',
     'mail_label',
     'mail_send_reply',
     'mail_summarize',
   ]);
+});
+
+Deno.test('actionTypeFromToolName maps each tool to its ActionType', () => {
+  assertEquals(actionTypeFromToolName('mail_get_body'), 'mail.get_body');
+  assertEquals(actionTypeFromToolName('cal_list_events'), 'cal.list_events');
+  assertEquals(actionTypeFromToolName('drive_search'), 'drive.search');
+  // Existing six still resolve
+  assertEquals(actionTypeFromToolName('mail_send_reply'), 'mail.send_reply');
+  // Unknown returns null
+  assertEquals(actionTypeFromToolName('foo'), null);
 });
 
 Deno.test('buildMailTriagePrompt: includes each thread with subject and from', () => {
