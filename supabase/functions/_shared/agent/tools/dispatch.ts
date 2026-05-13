@@ -22,6 +22,7 @@ import {
   type OutlookFlagReverseToken,
   type OutlookCategoryReverseToken,
 } from './outlook.ts';
+import { gmailGetBody, outlookGetBody } from './mail-body.ts';
 
 export interface ExecuteContext {
   fetch: GmailFetch & OutlookFetch;
@@ -189,6 +190,52 @@ export async function executeTool(
         reversible: false,
         reverseToken: null,
         recordPayload: { provider, thread_id: threadId, summary },
+      };
+    }
+    case 'mail.get_body': {
+      const threadId = mustString(payload, 'thread_id');
+      if (provider === 'google') {
+        const r = await gmailGetBody({
+          fetch: ctx.fetch,
+          accessToken: ctx.gmail.accessToken,
+          threadId,
+        });
+        return {
+          mode: 'executed',
+          reversible: false,
+          reverseToken: null,
+          recordPayload: {
+            provider,
+            thread_id: threadId,
+            from: r.from,
+            to: r.to,
+            subject: r.subject,
+            sent_at: r.sent_at,
+            body_text: r.body_text,
+          },
+        };
+      }
+      if (!ctx.outlook) {
+        throw new Error('outlook get_body requested but outlook context missing');
+      }
+      const r = await outlookGetBody({
+        fetch: ctx.fetch,
+        accessToken: ctx.outlook.accessToken,
+        threadId,
+      });
+      return {
+        mode: 'executed',
+        reversible: false,
+        reverseToken: null,
+        recordPayload: {
+          provider,
+          thread_id: threadId,
+          from: r.from,
+          to: r.to,
+          subject: r.subject,
+          sent_at: r.sent_at,
+          body_text: r.body_text,
+        },
       };
     }
     case 'mail.draft_reply': {
