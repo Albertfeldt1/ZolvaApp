@@ -211,28 +211,14 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
         if (policy === 'propose' && defaultMode === 'auto') {
           try {
             const idemKey = deriveIdemKey(action, input);
-            const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
-            const preview = buildProposalPreview(action, input);
-            const proposalId = await deps.writeProposedAction({
-              user_id: userId,
-              run_id: runId,
-              action_type: action,
+            await writeProposalAndMaybePush(deps, {
+              userId,
+              runId,
+              action,
               payload: { ...input, idem_key: idemKey, deferred_execute: true },
-              preview,
-              expires_at: expiresAt,
-            });
-            const presence = await deps.loadUserPresence(userId);
-            if (shouldPushForProposal(presence, new Date())) {
-              await deps.dispatchProposalPush(userId, {
-                title: typeof preview.title === 'string' ? preview.title : 'Zolva',
-                body: typeof preview.body === 'string' ? preview.body : 'En handling venter',
-                actionId: proposalId,
-              });
-            }
-            toolResults.push({
-              type: 'tool_result',
-              tool_use_id: tu.id,
-              content: `proposed:${proposalId}`,
+              toolUseId: tu.id,
+              toolResults,
+              fallbackPushBody: 'En handling venter',
             });
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
@@ -268,28 +254,14 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
           });
           if (exec.mode === 'propose') {
             const idemKey = deriveIdemKey(action, exec.recordPayload);
-            const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
-            const preview = buildProposalPreview(action, exec.recordPayload);
-            const proposalId = await deps.writeProposedAction({
-              user_id: userId,
-              run_id: runId,
-              action_type: action,
+            await writeProposalAndMaybePush(deps, {
+              userId,
+              runId,
+              action,
               payload: { ...exec.recordPayload, idem_key: idemKey },
-              preview,
-              expires_at: expiresAt,
-            });
-            const presence = await deps.loadUserPresence(userId);
-            if (shouldPushForProposal(presence, new Date())) {
-              await deps.dispatchProposalPush(userId, {
-                title: typeof preview.title === 'string' ? preview.title : 'Zolva',
-                body: typeof preview.body === 'string' ? preview.body : 'Et udkast venter',
-                actionId: proposalId,
-              });
-            }
-            toolResults.push({
-              type: 'tool_result',
-              tool_use_id: tu.id,
-              content: `proposed:${proposalId}`,
+              toolUseId: tu.id,
+              toolResults,
+              fallbackPushBody: 'Et udkast venter',
             });
             continue;
           }
@@ -373,4 +345,45 @@ function buildProposalPreview(
     default:
       return { title: 'Zolva foreslår', body: previewText || `${action}` };
   }
+}
+
+// Shared proposal-write path used by both deferred-execute (currently-auto
+// action flipped to propose) and the mail.send_reply propose branch from the
+// dispatcher. Caller is responsible for embedding `idem_key` (and any flags
+// like `deferred_execute: true`) into `payload` before calling.
+async function writeProposalAndMaybePush(
+  deps: RunnerDeps,
+  args: {
+    userId: string;
+    runId: string;
+    action: ActionType;
+    payload: Record<string, unknown>;
+    toolUseId: string;
+    toolResults: Array<Record<string, unknown>>;
+    fallbackPushBody: string;
+  },
+): Promise<void> {
+  const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+  const preview = buildProposalPreview(args.action, args.payload);
+  const proposalId = await deps.writeProposedAction({
+    user_id: args.userId,
+    run_id: args.runId,
+    action_type: args.action,
+    payload: args.payload,
+    preview,
+    expires_at: expiresAt,
+  });
+  const presence = await deps.loadUserPresence(args.userId);
+  if (shouldPushForProposal(presence, new Date())) {
+    await deps.dispatchProposalPush(args.userId, {
+      title: typeof preview.title === 'string' ? preview.title : 'Zolva',
+      body: typeof preview.body === 'string' ? preview.body : args.fallbackPushBody,
+      actionId: proposalId,
+    });
+  }
+  args.toolResults.push({
+    type: 'tool_result',
+    tool_use_id: args.toolUseId,
+    content: `proposed:${proposalId}`,
+  });
 }

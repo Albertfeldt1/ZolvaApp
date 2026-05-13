@@ -135,19 +135,31 @@ serve(async (req) => {
   }
 
   // Mirror to agent_actions so the executed row appears in the Today feed.
-  await client.from('agent_actions').insert({
-    user_id: userId,
-    run_id: claimed.run_id,
-    proposal_id: actionId,
-    action_type: claimed.action_type,
-    payload: exec.recordPayload,
-    reversible: exec.reversible,
-    reverse_token: exec.reverseToken,
-  });
-  await client
-    .from('proposed_actions')
-    .update({ status: 'executed', executed_at: new Date().toISOString() })
-    .eq('id', actionId);
+  try {
+    await client.from('agent_actions').insert({
+      user_id: userId,
+      run_id: claimed.run_id,
+      proposal_id: actionId,
+      action_type: claimed.action_type,
+      payload: exec.recordPayload,
+      reversible: exec.reversible,
+      reverse_token: exec.reverseToken,
+    });
+    await client
+      .from('proposed_actions')
+      .update({ status: 'executed', executed_at: new Date().toISOString() })
+      .eq('id', actionId);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[agent-approve] post-execute write failed', msg);
+    // The action already happened — we can't roll it back. Mark the
+    // proposal failed so the row doesn't sit forever in 'approved'.
+    await client.from('proposed_actions').update({ status: 'failed' }).eq('id', actionId);
+    return new Response(
+      JSON.stringify({ ok: false, error: 'post_execute_write_failed', detail: msg }),
+      { status: 500 },
+    );
+  }
 
   return new Response(JSON.stringify({ ok: true, sent: true }), { status: 200 });
 });
