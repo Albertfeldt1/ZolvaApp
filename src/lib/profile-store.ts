@@ -59,6 +59,7 @@ function rowToMailEvent(r: Record<string, unknown>): MailEvent {
     eventType: r.event_type as MailEventType,
     providerThreadId: r.provider_thread_id as string,
     providerFrom: (r.provider_from as string | null) ?? null,
+    providerTo: (r.provider_to as string | null) ?? null,
     providerSubject: (r.provider_subject as string | null) ?? null,
     occurredAt: new Date(r.occurred_at as string),
   };
@@ -286,6 +287,7 @@ export async function insertMailEvent(
     event_type: ev.eventType,
     provider_thread_id: ev.providerThreadId,
     provider_from: ev.providerFrom,
+    provider_to: ev.providerTo,
     provider_subject: ev.providerSubject,
   });
   if (error) throw error;

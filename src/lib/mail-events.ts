@@ -8,6 +8,7 @@ type RecordInput = {
   eventType: MailEventType;
   providerThreadId: string;
   providerFrom: string | null;
+  providerTo: string | null;
   providerSubject: string | null;
 };
 
@@ -18,6 +19,7 @@ export function recordMailEvent(input: RecordInput): void {
     eventType: input.eventType,
     providerThreadId: input.providerThreadId,
     providerFrom: input.providerFrom,
+    providerTo: input.providerTo,
     providerSubject: input.providerSubject,
   })
     .then(() => {

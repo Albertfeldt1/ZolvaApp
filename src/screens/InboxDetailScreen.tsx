@@ -35,6 +35,7 @@ type Props = {
 
 export function InboxDetailScreen({ mail, onClose, autoDraft = false }: Props) {
   const { user } = useAuth();
+  const userEmail = user?.email ?? null;
   const { t, type, fonts, radius, spacing, surface } = useTheme();
   const { data: detail, loading, error } = useMailDetail(mail.id, mail.provider);
   const { send, archive, sending, error: sendError } = useSendReply();
@@ -91,6 +92,7 @@ export function InboxDetailScreen({ mail, onClose, autoDraft = false }: Props) {
           eventType: 'replied',
           providerThreadId: replyContextThreadId(detail.replyContext),
           providerFrom: mail.from,
+          providerTo: mail.from,
           providerSubject: mail.subject,
         });
         runExtractor({
@@ -113,6 +115,7 @@ export function InboxDetailScreen({ mail, onClose, autoDraft = false }: Props) {
           eventType: 'dismissed',
           providerThreadId: detail ? replyContextThreadId(detail.replyContext) : mail.id,
           providerFrom: mail.from,
+          providerTo: userEmail,
           providerSubject: mail.subject,
         });
         runExtractor({
