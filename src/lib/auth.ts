@@ -519,25 +519,34 @@ async function persistProviderRefreshToken(
   }
 }
 
-// Ensure a mail_watchers row exists for the (user, provider) pair. Sets
-// `enabled` to match the user's current newMail preference so toggling it
-// later is the only thing that controls server-side polling.
+// Ensure a mail_watchers row exists for the (user, provider) pair. On
+// initial creation we use the user's current newMail preference; on
+// subsequent sign-ins we MUST preserve the existing `enabled` value —
+// otherwise re-auth flips the watcher off and the autonomous agent goes
+// dark for the user until they manually toggle it back (incident
+// 2026-05-13: every Google sign-in disabled the watcher silently).
 async function bootstrapMailWatcher(
   userId: string,
   provider: 'google' | 'microsoft',
 ): Promise<void> {
+  // Read-then-insert: cheap because the index on (user_id, provider) is
+  // unique and the table is tiny.
+  const { data: existing } = await supabase
+    .from('mail_watchers')
+    .select('user_id')
+    .eq('user_id', userId)
+    .eq('provider', provider)
+    .maybeSingle();
+  if (existing) return; // preserve existing `enabled` value
   const enabled = getNotificationSettings().newMail;
   const { error } = await supabase
     .from('mail_watchers')
-    .upsert(
-      {
-        user_id: userId,
-        provider,
-        enabled,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id,provider' },
-    );
+    .insert({
+      user_id: userId,
+      provider,
+      enabled,
+      updated_at: new Date().toISOString(),
+    });
   if (error && __DEV__) {
     console.warn('[auth] bootstrap mail watcher failed:', error.message);
   }
