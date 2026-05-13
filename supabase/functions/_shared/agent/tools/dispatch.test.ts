@@ -167,6 +167,7 @@ Deno.test('executeTool: mail.send_reply returns mode=propose without calling pro
       draft_id: 'draft-1',
       draft_hash: 'sha1-abc',
       preview_text: 'Tak for invitationen.',
+      to: 'r@x.com',
     },
     ctx,
   );
@@ -176,6 +177,7 @@ Deno.test('executeTool: mail.send_reply returns mode=propose without calling pro
   assertEquals(result.recordPayload.draft_id, 'draft-1');
   assertEquals(result.recordPayload.draft_hash, 'sha1-abc');
   assertEquals(result.recordPayload.preview_text, 'Tak for invitationen.');
+  assertEquals(result.recordPayload.to, 'r@x.com');
 });
 
 Deno.test('mail.archive (outlook): pre-fetches parent folder then moves message', async () => {
@@ -265,6 +267,194 @@ Deno.test('mail.label (outlook): op=remove is not yet supported', async () => {
     Error,
     'outlook category remove not yet supported',
   );
+});
+
+Deno.test('mail.send_reply (policy=auto, all rails pass): executes via Gmail', async () => {
+  let sentUrl = '';
+  let sentBody = '';
+  const ctx = makeCtx({
+    fetch: async (u, init) => {
+      sentUrl = u;
+      sentBody = typeof init?.body === 'string' ? init.body : '';
+      return new Response('{"id":"sent-1"}', { status: 200 });
+    },
+  });
+  const result = await executeTool(
+    'mail.send_reply',
+    {
+      provider: 'google',
+      thread_id: 't-1',
+      draft_id: 'd-1',
+      draft_hash: 'h-1',
+      preview_text: 'Hej',
+      to: 'mor@example.dk',
+    },
+    ctx,
+    {
+      policy: 'auto',
+      safety: {
+        userIsIdle: true,
+        hasRecipientHistory: async () => true,
+        hasPriorFailedIdem: async () => false,
+      },
+    },
+  );
+  assertEquals(result.mode, 'executed');
+  assertEquals(sentUrl, 'https://gmail.googleapis.com/gmail/v1/users/me/drafts/send');
+  assertEquals(JSON.parse(sentBody), { id: 'd-1' });
+});
+
+Deno.test('mail.send_reply (policy=auto, all rails pass): executes via Outlook', async () => {
+  let sentUrl = '';
+  const ctx = makeCtx({
+    fetch: async (u) => {
+      sentUrl = u;
+      return new Response('', { status: 202 });
+    },
+  });
+  const result = await executeTool(
+    'mail.send_reply',
+    {
+      provider: 'microsoft',
+      thread_id: 't-1',
+      draft_id: 'd-1',
+      draft_hash: 'h-1',
+      preview_text: 'Hej',
+      to: 'mor@example.dk',
+    },
+    ctx,
+    {
+      policy: 'auto',
+      safety: {
+        userIsIdle: true,
+        hasRecipientHistory: async () => true,
+        hasPriorFailedIdem: async () => false,
+      },
+    },
+  );
+  assertEquals(result.mode, 'executed');
+  assertEquals(sentUrl, 'https://graph.microsoft.com/v1.0/me/messages/d-1/send');
+});
+
+Deno.test('mail.send_reply (policy=auto, recipient not in allowlist): falls back to propose', async () => {
+  let called = false;
+  const ctx = makeCtx({
+    fetch: async () => {
+      called = true;
+      return new Response('{}', { status: 200 });
+    },
+  });
+  const result = await executeTool(
+    'mail.send_reply',
+    {
+      provider: 'google',
+      thread_id: 't-1',
+      draft_id: 'd-1',
+      draft_hash: 'h-1',
+      preview_text: 'Hej',
+      to: 'stranger@example.com',
+    },
+    ctx,
+    {
+      policy: 'auto',
+      safety: {
+        userIsIdle: true,
+        hasRecipientHistory: async () => false,
+        hasPriorFailedIdem: async () => false,
+      },
+    },
+  );
+  assertEquals(result.mode, 'propose');
+  assertEquals(called, false);
+});
+
+Deno.test('mail.send_reply (policy=auto, user not idle): falls back to propose', async () => {
+  let called = false;
+  const ctx = makeCtx({
+    fetch: async () => {
+      called = true;
+      return new Response('{}', { status: 200 });
+    },
+  });
+  const result = await executeTool(
+    'mail.send_reply',
+    {
+      provider: 'google',
+      thread_id: 't',
+      draft_id: 'd',
+      draft_hash: 'h',
+      preview_text: 'p',
+      to: 'a@b.dk',
+    },
+    ctx,
+    {
+      policy: 'auto',
+      safety: {
+        userIsIdle: false,
+        hasRecipientHistory: async () => true,
+        hasPriorFailedIdem: async () => false,
+      },
+    },
+  );
+  assertEquals(result.mode, 'propose');
+  assertEquals(called, false);
+});
+
+Deno.test('mail.send_reply (policy=auto, prior failed idem): falls back to propose', async () => {
+  let called = false;
+  const ctx = makeCtx({
+    fetch: async () => {
+      called = true;
+      return new Response('{}', { status: 200 });
+    },
+  });
+  const result = await executeTool(
+    'mail.send_reply',
+    {
+      provider: 'google',
+      thread_id: 't',
+      draft_id: 'd',
+      draft_hash: 'h',
+      preview_text: 'p',
+      to: 'a@b.dk',
+    },
+    ctx,
+    {
+      policy: 'auto',
+      safety: {
+        userIsIdle: true,
+        hasRecipientHistory: async () => true,
+        hasPriorFailedIdem: async () => true,
+      },
+    },
+  );
+  assertEquals(result.mode, 'propose');
+  assertEquals(called, false);
+});
+
+Deno.test('mail.send_reply (policy=auto, missing safety): falls back to propose (back-compat)', async () => {
+  let called = false;
+  const ctx = makeCtx({
+    fetch: async () => {
+      called = true;
+      return new Response('{}', { status: 200 });
+    },
+  });
+  const result = await executeTool(
+    'mail.send_reply',
+    {
+      provider: 'google',
+      thread_id: 't',
+      draft_id: 'd',
+      draft_hash: 'h',
+      preview_text: 'p',
+      to: 'a@b.dk',
+    },
+    ctx,
+    { policy: 'auto' },
+  );
+  assertEquals(result.mode, 'propose');
+  assertEquals(called, false);
 });
 
 Deno.test('mail.flag_important (outlook): PATCHes flag.flagStatus=flagged', async () => {

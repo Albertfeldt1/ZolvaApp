@@ -1,9 +1,10 @@
 // supabase/functions/_shared/agent/tools/dispatch.ts
-import type { ActionType } from '../types.ts';
+import type { ActionMode, ActionType } from '../types.ts';
 import {
   gmailModifyThread,
   resolveLabelId,
   gmailCreateDraft,
+  gmailSendDraft,
   ZOLVA_FLAGGED_LABEL,
   type GmailFetch,
   type GmailModifyReverseToken,
@@ -14,6 +15,7 @@ import {
   outlookMoveMessage,
   outlookSetFlag,
   outlookAddCategory,
+  outlookSendDraft,
   type OutlookFetch,
   type OutlookDraftReverseToken,
   type OutlookMoveReverseToken,
@@ -46,10 +48,25 @@ export interface ExecuteResult {
   recordPayload: Record<string, unknown>;
 }
 
+// Safety hooks the runner can pass in to authorize an auto-send. Each
+// predicate is async because real implementations hit Supabase. The
+// dispatcher only reads these from inside the mail.send_reply auto path.
+export interface ExecuteSafetyContext {
+  userIsIdle: boolean;
+  hasRecipientHistory: (address: string) => Promise<boolean>;
+  hasPriorFailedIdem: (idemKey: string) => Promise<boolean>;
+}
+
+export interface ExecuteOptions {
+  policy?: ActionMode;
+  safety?: ExecuteSafetyContext;
+}
+
 export async function executeTool(
   action: ActionType,
   payload: Record<string, unknown>,
   ctx: ExecuteContext,
+  opts: ExecuteOptions = {},
 ): Promise<ExecuteResult> {
   const provider = mustProvider(payload);
 
@@ -225,24 +242,73 @@ export async function executeTool(
       };
     }
     case 'mail.send_reply': {
-      // Proposal path: dispatcher does NOT execute the send. Runner writes
-      // a proposed_actions row with this payload; agent-approve executes
-      // later when the user taps Send.
+      // Two paths:
+      // 1. Default / propose: dispatcher does NOT execute the send. Runner
+      //    writes a proposed_actions row; agent-approve sends when the
+      //    user taps Send.
+      // 2. Auto: caller passes opts.policy='auto' AND a safety context.
+      //    All three rails (idle, recipient allow-listed, no prior failed
+      //    idem) must hold or we fall back to propose.
       const threadId = mustString(payload, 'thread_id');
       const draftId = mustString(payload, 'draft_id');
       const draftHash = mustString(payload, 'draft_hash');
       const previewText = mustString(payload, 'preview_text');
+      const toAddr = mustString(payload, 'to');
+
+      const baseRecord: Record<string, unknown> = {
+        provider,
+        thread_id: threadId,
+        draft_id: draftId,
+        draft_hash: draftHash,
+        preview_text: previewText,
+        to: toAddr,
+      };
+
+      if (opts.policy !== 'auto' || !opts.safety) {
+        return {
+          mode: 'propose',
+          reversible: false,
+          reverseToken: null,
+          recordPayload: baseRecord,
+        };
+      }
+
+      // Auto-send path — every rail must hold.
+      const idemKey = `${threadId}::${draftHash}`;
+      const [recipientOk, priorFail] = await Promise.all([
+        opts.safety.hasRecipientHistory(toAddr),
+        opts.safety.hasPriorFailedIdem(idemKey),
+      ]);
+      if (!opts.safety.userIsIdle || !recipientOk || priorFail) {
+        return {
+          mode: 'propose',
+          reversible: false,
+          reverseToken: null,
+          recordPayload: baseRecord,
+        };
+      }
+
+      if (provider === 'google') {
+        await gmailSendDraft({
+          fetch: ctx.fetch,
+          accessToken: ctx.gmail.accessToken,
+          draftId,
+        });
+      } else {
+        if (!ctx.outlook) {
+          throw new Error('outlook send requested but outlook context missing');
+        }
+        await outlookSendDraft({
+          fetch: ctx.fetch,
+          accessToken: ctx.outlook.accessToken,
+          draftId,
+        });
+      }
       return {
-        mode: 'propose',
+        mode: 'executed',
         reversible: false,
         reverseToken: null,
-        recordPayload: {
-          provider,
-          thread_id: threadId,
-          draft_id: draftId,
-          draft_hash: draftHash,
-          preview_text: previewText,
-        },
+        recordPayload: baseRecord,
       };
     }
     default:

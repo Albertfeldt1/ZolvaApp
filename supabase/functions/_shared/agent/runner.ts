@@ -12,7 +12,7 @@
 
 import type { AgentEventKind, AgentRunTrigger, ActionType } from './types.ts';
 import type { CallClaudeResult, ClaudeSystemBlock, ClaudeUserMessage } from './claude.ts';
-import type { ExecuteReverseToken } from './tools/dispatch.ts';
+import type { ExecuteOptions, ExecuteReverseToken } from './tools/dispatch.ts';
 import type { ThreadBrief } from './prompt.ts';
 
 import { buildMailTriagePrompt, MAIL_TRIAGE_TOOLS } from './prompt.ts';
@@ -57,6 +57,7 @@ export interface RunnerDeps {
   executeTool: (
     action: ActionType,
     payload: Record<string, unknown>,
+    opts?: ExecuteOptions,
   ) => Promise<{
     mode: 'executed' | 'propose';
     reversible: boolean;
@@ -71,6 +72,10 @@ export interface RunnerDeps {
   // Phase 3 deps
   loadUserPolicy: (userId: string) => Promise<Array<{ user_id: string; action_type: ActionType; mode: 'auto' | 'propose' | 'off' }>>;
   loadUserPresence: (userId: string) => Promise<Date | null>;
+  // Phase 3.1 safety deps — only consulted on mail.send_reply with policy=auto.
+  isUserIdle: (userId: string, now: Date) => Promise<boolean>;
+  recipientAllowlistCheck: (userId: string, address: string) => Promise<boolean>;
+  agentActionsPriorFailedIdem: (userId: string, idemKey: string) => Promise<boolean>;
   writeProposedAction: (row: {
     user_id: string;
     run_id: string;
@@ -200,7 +205,23 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
           continue;
         }
         try {
-          const exec = await deps.executeTool(action, input);
+          // Only build the safety context when it's actually consulted —
+          // mail.send_reply is the only auto-eligible action that uses it
+          // today, and isUserIdle / recipient check both hit Supabase.
+          const needsSafety = action === 'mail.send_reply' && policy === 'auto';
+          const safety = needsSafety
+            ? {
+                userIsIdle: await deps.isUserIdle(userId, new Date()),
+                hasRecipientHistory: (addr: string) =>
+                  deps.recipientAllowlistCheck(userId, addr),
+                hasPriorFailedIdem: (idem: string) =>
+                  deps.agentActionsPriorFailedIdem(userId, idem),
+              }
+            : undefined;
+          const exec = await deps.executeTool(action, input, {
+            policy,
+            safety,
+          });
           if (exec.mode === 'propose') {
             const idemKey = deriveIdemKey(action, exec.recordPayload);
             const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();

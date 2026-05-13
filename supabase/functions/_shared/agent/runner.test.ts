@@ -46,6 +46,12 @@ function makeDeps(): { deps: RunnerDeps; log: string[] } {
       loadUserPresence: async () => null,
       writeProposedAction: async () => 'p-stub',
       dispatchProposalPush: async () => {},
+      // Phase 3.1 safety deps — defaults err on the safe side: NOT idle,
+      // recipient NOT trusted, NO prior failure. Tests that exercise the
+      // send_reply auto path override these explicitly.
+      isUserIdle: async () => false,
+      recipientAllowlistCheck: async () => false,
+      agentActionsPriorFailedIdem: async () => false,
     },
   };
 }
@@ -277,6 +283,237 @@ Deno.test('runAgent: propose path skips push when user is foreground (<60s idle)
 
   await runAgent({ userId: 'u-1', trigger: 'tick', deps });
   assertEquals(pushDispatched, false);
+});
+
+Deno.test('runAgent: mail.send_reply executes when policy=auto and all rails pass', async () => {
+  let executedAction: { action_type: string; payload: Record<string, unknown> } | null = null as
+    | { action_type: string; payload: Record<string, unknown> }
+    | null;
+  let proposed = false;
+  const { deps } = makeDeps();
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't1', message_id: 'm1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't1', from: 'a@x', subject: 'Hi', snippet: '' },
+  ];
+  deps.loadUserPolicy = async () => [
+    { user_id: 'u-1', action_type: 'mail.send_reply', mode: 'auto' },
+  ];
+  // All rails clear:
+  deps.isUserIdle = async () => true;
+  deps.recipientAllowlistCheck = async () => true;
+  deps.agentActionsPriorFailedIdem = async () => false;
+  deps.callClaudeTurn = async () => ({
+    content: [
+      {
+        type: 'tool_use',
+        id: 'toolu_1',
+        name: 'mail.send_reply',
+        input: {
+          provider: 'google',
+          thread_id: 't1',
+          draft_id: 'draft-1',
+          draft_hash: 'sha1-abc',
+          preview_text: 'Tak.',
+          to: 'mor@example.dk',
+        },
+      },
+    ],
+    usage: { input_tokens: 1, output_tokens: 1 },
+    stop_reason: 'end_turn',
+  });
+  // Mimic real dispatcher: when policy=auto + safety provided + all rails
+  // pass, return mode=executed. Verify the runner actually forwarded both.
+  let receivedOpts: { policy?: string; safetyDefined?: boolean } | null = null as
+    | { policy?: string; safetyDefined?: boolean }
+    | null;
+  deps.executeTool = async (_action, payload, opts) => {
+    receivedOpts = {
+      policy: opts?.policy,
+      safetyDefined: Boolean(opts?.safety),
+    };
+    const allRailsClear =
+      opts?.safety?.userIsIdle === true &&
+      (await opts.safety.hasRecipientHistory('mor@example.dk')) &&
+      !(await opts.safety.hasPriorFailedIdem('t1::sha1-abc'));
+    return {
+      mode: allRailsClear ? 'executed' : 'propose',
+      reversible: false,
+      reverseToken: null,
+      recordPayload: { ...payload },
+    };
+  };
+  deps.recordAction = async (row) => {
+    executedAction = { action_type: row.action_type, payload: row.payload };
+  };
+  deps.writeProposedAction = async () => { proposed = true; return 'p-stub'; };
+
+  const result = await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  assertEquals(result.status, 'ok');
+  assertEquals(executedAction?.action_type, 'mail.send_reply');
+  assertEquals(proposed, false);
+  assertEquals(receivedOpts?.policy, 'auto');
+  assertEquals(receivedOpts?.safetyDefined, true);
+});
+
+Deno.test('runAgent: mail.send_reply proposes when recipient not in allowlist', async () => {
+  let executed = false;
+  let proposedRow: Record<string, unknown> | null = null as Record<string, unknown> | null;
+  const { deps } = makeDeps();
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't1', message_id: 'm1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't1', from: 'a@x', subject: 'Hi', snippet: '' },
+  ];
+  deps.loadUserPolicy = async () => [
+    { user_id: 'u-1', action_type: 'mail.send_reply', mode: 'auto' },
+  ];
+  deps.isUserIdle = async () => true;
+  deps.recipientAllowlistCheck = async () => false; // stranger
+  deps.agentActionsPriorFailedIdem = async () => false;
+  deps.callClaudeTurn = async () => ({
+    content: [
+      {
+        type: 'tool_use',
+        id: 'toolu_1',
+        name: 'mail.send_reply',
+        input: {
+          provider: 'google',
+          thread_id: 't1',
+          draft_id: 'draft-1',
+          draft_hash: 'sha1-abc',
+          preview_text: 'Tak.',
+          to: 'stranger@example.com',
+        },
+      },
+    ],
+    usage: { input_tokens: 1, output_tokens: 1 },
+    stop_reason: 'end_turn',
+  });
+  deps.executeTool = async (_action, payload, opts) => {
+    const allRailsClear =
+      opts?.safety?.userIsIdle === true &&
+      (await opts.safety.hasRecipientHistory('stranger@example.com')) &&
+      !(await opts.safety.hasPriorFailedIdem('t1::sha1-abc'));
+    return {
+      mode: allRailsClear ? 'executed' : 'propose',
+      reversible: false,
+      reverseToken: null,
+      recordPayload: { ...payload },
+    };
+  };
+  deps.recordAction = async () => { executed = true; };
+  deps.writeProposedAction = async (row) => { proposedRow = row; return 'p-1'; };
+
+  await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  assertEquals(executed, false);
+  assertEquals(proposedRow?.action_type, 'mail.send_reply');
+});
+
+Deno.test('runAgent: mail.send_reply proposes when user not idle', async () => {
+  let executed = false;
+  let proposedRow: Record<string, unknown> | null = null as Record<string, unknown> | null;
+  const { deps } = makeDeps();
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't1', message_id: 'm1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't1', from: 'a@x', subject: 'Hi', snippet: '' },
+  ];
+  deps.loadUserPolicy = async () => [
+    { user_id: 'u-1', action_type: 'mail.send_reply', mode: 'auto' },
+  ];
+  deps.isUserIdle = async () => false; // user is foreground
+  deps.recipientAllowlistCheck = async () => true;
+  deps.agentActionsPriorFailedIdem = async () => false;
+  deps.callClaudeTurn = async () => ({
+    content: [
+      {
+        type: 'tool_use',
+        id: 'toolu_1',
+        name: 'mail.send_reply',
+        input: {
+          provider: 'google',
+          thread_id: 't1',
+          draft_id: 'draft-1',
+          draft_hash: 'sha1-abc',
+          preview_text: 'Tak.',
+          to: 'mor@example.dk',
+        },
+      },
+    ],
+    usage: { input_tokens: 1, output_tokens: 1 },
+    stop_reason: 'end_turn',
+  });
+  deps.executeTool = async (_action, payload, opts) => {
+    const allRailsClear =
+      opts?.safety?.userIsIdle === true &&
+      (await opts.safety.hasRecipientHistory('mor@example.dk')) &&
+      !(await opts.safety.hasPriorFailedIdem('t1::sha1-abc'));
+    return {
+      mode: allRailsClear ? 'executed' : 'propose',
+      reversible: false,
+      reverseToken: null,
+      recordPayload: { ...payload },
+    };
+  };
+  deps.recordAction = async () => { executed = true; };
+  deps.writeProposedAction = async (row) => { proposedRow = row; return 'p-1'; };
+
+  await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  assertEquals(executed, false);
+  assertEquals(proposedRow?.action_type, 'mail.send_reply');
+});
+
+Deno.test('runAgent: mail.send_reply skips safety lookups when policy=propose', async () => {
+  let idleCalls = 0;
+  let allowlistCalls = 0;
+  const { deps } = makeDeps();
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't1', message_id: 'm1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't1', from: 'a@x', subject: 'Hi', snippet: '' },
+  ];
+  // policy=propose explicitly — falls through default; safety should be
+  // skipped entirely to avoid a wasted presence read per tool call.
+  deps.loadUserPolicy = async () => [
+    { user_id: 'u-1', action_type: 'mail.send_reply', mode: 'propose' },
+  ];
+  deps.isUserIdle = async () => { idleCalls += 1; return true; };
+  deps.recipientAllowlistCheck = async () => { allowlistCalls += 1; return true; };
+  deps.callClaudeTurn = async () => ({
+    content: [
+      {
+        type: 'tool_use',
+        id: 'toolu_1',
+        name: 'mail.send_reply',
+        input: {
+          provider: 'google',
+          thread_id: 't1',
+          draft_id: 'draft-1',
+          draft_hash: 'sha1-abc',
+          preview_text: 'Tak.',
+          to: 'mor@example.dk',
+        },
+      },
+    ],
+    usage: { input_tokens: 1, output_tokens: 1 },
+    stop_reason: 'end_turn',
+  });
+  deps.executeTool = async (_action, payload, opts) => ({
+    mode: opts?.safety ? 'executed' : 'propose',
+    reversible: false,
+    reverseToken: null,
+    recordPayload: { ...payload },
+  });
+  deps.writeProposedAction = async () => 'p-1';
+
+  await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  assertEquals(idleCalls, 0);
+  assertEquals(allowlistCalls, 0);
 });
 
 Deno.test('runAgent: policy off causes the tool to be rejected without execution', async () => {
