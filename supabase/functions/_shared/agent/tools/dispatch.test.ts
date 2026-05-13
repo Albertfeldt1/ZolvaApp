@@ -178,16 +178,27 @@ Deno.test('executeTool: mail.send_reply returns mode=propose without calling pro
   assertEquals(result.recordPayload.preview_text, 'Tak for invitationen.');
 });
 
-Deno.test('mail.archive (outlook): moves message to archive folder', async () => {
-  let url = '';
-  let method = '';
-  let body = '';
+Deno.test('mail.archive (outlook): pre-fetches parent folder then moves message', async () => {
+  const urls: string[] = [];
+  const methods: string[] = [];
+  const bodies: string[] = [];
+  let step = 0;
   const ctx = makeCtx({
     fetch: async (u, init) => {
-      url = u;
-      method = init?.method ?? 'GET';
-      body = typeof init?.body === 'string' ? init.body : '';
-      return new Response(JSON.stringify({ id: 'moved-1' }), { status: 201 });
+      urls.push(u);
+      methods.push(init?.method ?? 'GET');
+      bodies.push(typeof init?.body === 'string' ? init.body : '');
+      step += 1;
+      if (step === 1) {
+        // GET parentFolderId
+        return new Response(JSON.stringify({ id: 'm-x', parentFolderId: 'inbox' }), {
+          status: 200,
+        });
+      }
+      // POST /move
+      return new Response(JSON.stringify({ id: 'moved-1', parentFolderId: 'archive' }), {
+        status: 201,
+      });
     },
   });
   const result = await executeTool(
@@ -197,10 +208,15 @@ Deno.test('mail.archive (outlook): moves message to archive folder', async () =>
   );
   assertEquals(result.mode, 'executed');
   assertEquals(result.reversible, true);
-  assertEquals(url, 'https://graph.microsoft.com/v1.0/me/messages/m-x/move');
-  assertEquals(method, 'POST');
-  assertEquals(JSON.parse(body), { destinationId: 'archive' });
+  assertEquals(urls[0], 'https://graph.microsoft.com/v1.0/me/messages/m-x?$select=parentFolderId');
+  assertEquals(methods[0], 'GET');
+  assertEquals(urls[1], 'https://graph.microsoft.com/v1.0/me/messages/m-x/move');
+  assertEquals(methods[1], 'POST');
+  assertEquals(JSON.parse(bodies[1]), { destinationId: 'archive' });
   assertEquals(result.reverseToken?.kind, 'graph.move');
+  if (result.reverseToken?.kind === 'graph.move') {
+    assertEquals(result.reverseToken.original_folder_id, 'inbox');
+  }
   assertEquals(result.recordPayload.archive_folder_id, 'archive');
 });
 
@@ -237,7 +253,7 @@ Deno.test('mail.label (outlook): adds category via two-step GET-then-PATCH', asy
   assertEquals(JSON.parse(bodies[1]), { categories: ['Receipts'] });
 });
 
-Deno.test('mail.label (outlook): op=remove is not supported in phase 3.1', async () => {
+Deno.test('mail.label (outlook): op=remove is not yet supported', async () => {
   const ctx = makeCtx();
   await assertRejects(
     () =>
@@ -247,7 +263,7 @@ Deno.test('mail.label (outlook): op=remove is not supported in phase 3.1', async
         ctx,
       ),
     Error,
-    'outlook label remove not supported',
+    'outlook category remove not yet supported',
   );
 });
 

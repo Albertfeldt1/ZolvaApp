@@ -129,6 +129,23 @@ export interface OutlookMoveMessageResult {
 export async function outlookMoveMessage(
   input: OutlookMoveMessageInput,
 ): Promise<OutlookMoveMessageResult> {
+  // Look up the current folder BEFORE moving so the reverse token
+  // can drive an "Undo archive" later. Caller may pass originalFolderId
+  // to skip the pre-fetch.
+  let originalFolderId = input.originalFolderId ?? null;
+  if (originalFolderId == null) {
+    const getRes = await input.fetch(
+      `https://graph.microsoft.com/v1.0/me/messages/${input.messageId}?$select=parentFolderId`,
+      { method: 'GET', headers: { authorization: `Bearer ${input.accessToken}` } },
+    );
+    if (!getRes.ok) {
+      const detail = await getRes.text().catch(() => '');
+      throw new Error(`graph messages.get ${getRes.status}: ${detail.slice(0, 200)}`);
+    }
+    const cur = (await getRes.json()) as { parentFolderId?: string };
+    originalFolderId = cur.parentFolderId ?? null;
+  }
+
   const res = await input.fetch(
     `https://graph.microsoft.com/v1.0/me/messages/${input.messageId}/move`,
     {
@@ -150,7 +167,7 @@ export async function outlookMoveMessage(
     reverseToken: {
       kind: 'graph.move',
       new_message_id: moved.id,
-      original_folder_id: input.originalFolderId ?? null,
+      original_folder_id: originalFolderId,
     },
   };
 }

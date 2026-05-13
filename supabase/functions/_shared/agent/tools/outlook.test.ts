@@ -107,8 +107,13 @@ Deno.test('outlookCreateDraft: 4xx surfaces error', async () => {
   );
 });
 
-Deno.test('outlookMoveMessage: POST /me/messages/{id}/move with destinationId', async () => {
+Deno.test('outlookMoveMessage: pre-fetches parent folder then POSTs /move with destinationId', async () => {
   const { fetch, calls } = makeFetch([
+    {
+      url: 'https://graph.microsoft.com/v1.0/me/messages/m-1?$select=parentFolderId',
+      status: 200,
+      body: { id: 'm-1', parentFolderId: 'inbox' },
+    },
     {
       url: 'https://graph.microsoft.com/v1.0/me/messages/m-1/move',
       status: 201,
@@ -125,10 +130,31 @@ Deno.test('outlookMoveMessage: POST /me/messages/{id}/move with destinationId', 
   assertEquals(result.reverseToken, {
     kind: 'graph.move',
     new_message_id: 'm-1-moved',
-    original_folder_id: null,
+    original_folder_id: 'inbox',
   });
+  assertEquals(calls[0].method, 'GET');
+  assertEquals(calls[1].method, 'POST');
+  assertEquals(JSON.parse(calls[1].body!), { destinationId: 'archive' });
+});
+
+Deno.test('outlookMoveMessage: skips pre-fetch when originalFolderId provided', async () => {
+  const { fetch, calls } = makeFetch([
+    {
+      url: 'https://graph.microsoft.com/v1.0/me/messages/m-2/move',
+      status: 201,
+      body: { id: 'm-2-moved' },
+    },
+  ]);
+  const result = await outlookMoveMessage({
+    fetch,
+    accessToken: 'tok',
+    messageId: 'm-2',
+    destinationFolderId: 'archive',
+    originalFolderId: 'inbox',
+  });
+  assertEquals(result.reverseToken.original_folder_id, 'inbox');
+  assertEquals(calls.length, 1);
   assertEquals(calls[0].method, 'POST');
-  assertEquals(JSON.parse(calls[0].body!), { destinationId: 'archive' });
 });
 
 Deno.test('outlookSetFlag: PATCH /me/messages/{id} flag.flagStatus', async () => {

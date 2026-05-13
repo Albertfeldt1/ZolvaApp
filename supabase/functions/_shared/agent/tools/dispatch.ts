@@ -115,7 +115,7 @@ export async function executeTool(
         throw new Error('outlook label requested but outlook context missing');
       }
       if (op !== 'add') {
-        throw new Error('outlook label remove not supported in phase 3.1');
+        throw new Error('outlook category remove not yet supported');
       }
       const { reverseToken } = await outlookAddCategory({
         fetch: ctx.fetch,
