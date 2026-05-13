@@ -603,3 +603,172 @@ Deno.test('runAgent: policy off causes the tool to be rejected without execution
   assertEquals(executed, false);
   assertEquals(proposed, false);
 });
+
+// Phase 4a, Task 5 — fourth safety rail: mail.send_reply auto-send must be
+// preceded by mail.get_body on the same thread in the same run.
+Deno.test('runAgent: mail.send_reply auto-send sees threadWasResearched=false when no prior mail.get_body', async () => {
+  type SafetyShape = { threadWasResearched: (t: string) => boolean; userIsIdle: boolean };
+  let safetyForSendReply: SafetyShape | null = null as SafetyShape | null;
+  const { deps } = makeDeps();
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't-1', message_id: 'm-1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't-1', from: 'mor@example.dk', subject: 'Middag?', snippet: 'Hej' },
+  ];
+  deps.loadUserPolicy = async () => [
+    { user_id: 'u-1', action_type: 'mail.send_reply', mode: 'auto' },
+  ];
+  deps.isUserIdle = async () => true;
+  deps.recipientAllowlistCheck = async () => true;
+  deps.priorFailedSendIdem = async () => false;
+  // Only emits mail_send_reply — no prior mail_get_body. Rail must fire.
+  deps.callClaudeTurn = async () => ({
+    content: [
+      {
+        type: 'tool_use',
+        id: 'toolu_1',
+        name: 'mail_send_reply',
+        input: {
+          provider: 'google',
+          thread_id: 't-1',
+          draft_id: 'd-1',
+          draft_hash: 'h-1',
+          preview_text: 'Ja, jeg er fri.',
+          to: 'mor@example.dk',
+        },
+      },
+    ],
+    usage: { input_tokens: 1, output_tokens: 1 },
+    stop_reason: 'end_turn',
+  });
+  let writeProposalCalled = false;
+  deps.executeTool = async (action, payload, opts) => {
+    if (action === 'mail.send_reply') {
+      safetyForSendReply = opts?.safety
+        ? {
+            threadWasResearched: opts.safety.threadWasResearched,
+            userIsIdle: opts.safety.userIsIdle,
+          }
+        : null;
+    }
+    // Simulate the real dispatcher's behavior: rail fails → propose.
+    return {
+      mode: 'propose',
+      reversible: false,
+      reverseToken: null,
+      recordPayload: { ...payload },
+    };
+  };
+  deps.writeProposedAction = async () => { writeProposalCalled = true; return 'p-1'; };
+
+  const result = await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  assertEquals(result.status, 'ok');
+  if (!safetyForSendReply) throw new Error('safety context not built for mail.send_reply');
+  assertEquals(safetyForSendReply.threadWasResearched('t-1'), false);
+  // And idle was still computed (safety object was built).
+  assertEquals(safetyForSendReply.userIsIdle, true);
+  // The propose fallback path ran.
+  assertEquals(writeProposalCalled, true);
+});
+
+Deno.test('runAgent: mail.send_reply auto-send sees threadWasResearched=true after a prior mail.get_body in same run', async () => {
+  type SafetyShape = { threadWasResearched: (t: string) => boolean };
+  let safetyForSendReply: SafetyShape | null = null as SafetyShape | null;
+  let callIdx = 0;
+  const { deps } = makeDeps();
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't-1', message_id: 'm-1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't-1', from: 'mor@example.dk', subject: 'Middag?', snippet: 'Hej' },
+  ];
+  deps.loadUserPolicy = async () => [
+    { user_id: 'u-1', action_type: 'mail.send_reply', mode: 'auto' },
+  ];
+  deps.isUserIdle = async () => true;
+  deps.recipientAllowlistCheck = async () => true;
+  deps.priorFailedSendIdem = async () => false;
+  // Round 1: mail_get_body on t-1. Round 2: mail_send_reply on t-1.
+  // Round 3: stop.
+  const turns: CallClaudeResult[] = [
+    {
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_body',
+          name: 'mail_get_body',
+          input: { provider: 'google', thread_id: 't-1' },
+        },
+      ],
+      usage: { input_tokens: 1, output_tokens: 1 },
+      stop_reason: 'tool_use',
+    },
+    {
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_send',
+          name: 'mail_send_reply',
+          input: {
+            provider: 'google',
+            thread_id: 't-1',
+            draft_id: 'd-1',
+            draft_hash: 'h-1',
+            preview_text: 'Ja, jeg er fri.',
+            to: 'mor@example.dk',
+          },
+        },
+      ],
+      usage: { input_tokens: 1, output_tokens: 1 },
+      stop_reason: 'tool_use',
+    },
+    {
+      content: [{ type: 'text', text: 'done' }],
+      usage: { input_tokens: 0, output_tokens: 0 },
+      stop_reason: 'end_turn',
+    },
+  ];
+  deps.callClaudeTurn = async () => turns[callIdx++];
+  let executed = false;
+  deps.executeTool = async (action, payload, opts) => {
+    if (action === 'mail.get_body') {
+      return {
+        mode: 'executed',
+        reversible: false,
+        reverseToken: null,
+        recordPayload: { ...payload, body_text: 'Hej, har du tid på fredag?' },
+      };
+    }
+    if (action === 'mail.send_reply') {
+      safetyForSendReply = opts?.safety
+        ? { threadWasResearched: opts.safety.threadWasResearched }
+        : null;
+      // Body-grounded — real dispatcher would now check the other rails and
+      // execute. Mirror that with mode='executed'.
+      return {
+        mode: 'executed',
+        reversible: false,
+        reverseToken: null,
+        recordPayload: { ...payload },
+      };
+    }
+    return {
+      mode: 'executed',
+      reversible: false,
+      reverseToken: null,
+      recordPayload: { ...payload },
+    };
+  };
+  deps.recordAction = async (row) => {
+    if (row.action_type === 'mail.send_reply') executed = true;
+  };
+
+  const result = await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  assertEquals(result.status, 'ok');
+  if (!safetyForSendReply) throw new Error('safety context not built for mail.send_reply');
+  assertEquals(safetyForSendReply.threadWasResearched('t-1'), true);
+  // Other thread_ids still report false — set is scoped to actually-opened threads.
+  assertEquals(safetyForSendReply.threadWasResearched('t-other'), false);
+  assertEquals(executed, true);
+});

@@ -58,6 +58,10 @@ export interface ExecuteSafetyContext {
   userIsIdle: boolean;
   hasRecipientHistory: (address: string) => Promise<boolean>;
   hasPriorFailedIdem: (idemKey: string) => Promise<boolean>;
+  // Fourth rail: refuse auto-send on threads the agent never opened with
+  // mail.get_body during the same run. The runner populates a per-run
+  // Set<thread_id>; this predicate is sync because it's a Set lookup.
+  threadWasResearched: (threadId: string) => boolean;
 }
 
 export interface ExecuteOptions {
@@ -371,6 +375,19 @@ export async function executeTool(
       };
 
       if (opts.policy !== 'auto' || !opts.safety) {
+        return {
+          mode: 'propose',
+          reversible: false,
+          reverseToken: null,
+          recordPayload: baseRecord,
+        };
+      }
+
+      // Fourth rail (cheap, sync): refuse auto-send on a thread the agent
+      // never opened with mail.get_body during this run. Body-grounding is
+      // mandatory — we don't send "yes I'm free" off the snippet alone.
+      // Checked before the Promise.allSettled so we skip wasted DB reads.
+      if (!opts.safety.threadWasResearched(threadId)) {
         return {
           mode: 'propose',
           reversible: false,

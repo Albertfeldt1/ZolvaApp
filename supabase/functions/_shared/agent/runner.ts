@@ -116,6 +116,15 @@ const SUPPORTED_ACTIONS = new Set<ActionType>([
   'cal.list_events',
   'drive.search',
 ]);
+// Read-only context tools (Phase 4a). These never produce an agent_actions
+// row — they exist purely to feed Claude richer context within the run, so
+// idem/recordAction don't apply. The dispatcher still returns recordPayload
+// (used as the tool_result content sent back to Claude).
+const CONTEXT_ONLY_ACTIONS = new Set<ActionType>([
+  'mail.get_body',
+  'cal.list_events',
+  'drive.search',
+]);
 
 export async function runAgent(input: RunInput): Promise<RunResult> {
   const { userId, trigger, deps } = input;
@@ -144,6 +153,11 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
     const userPolicy = await deps.loadUserPolicy(userId);
     const { system, messages } = buildMailTriagePrompt({ threads });
     const conversation: ClaudeUserMessage[] = [...messages];
+
+    // Per-run set of thread_ids the agent has opened with mail.get_body.
+    // Consulted by the mail.send_reply safety rail so we never auto-send a
+    // reply off the snippet alone. Resets every run (scoped inside the try).
+    const researchedThreads = new Set<string>();
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const turn = await deps.callClaudeTurn(system, conversation, MAIL_TRIAGE_TOOLS);
@@ -249,6 +263,7 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
                   deps.recipientAllowlistCheck(userId, addr),
                 hasPriorFailedIdem: (idem: string) =>
                   deps.priorFailedSendIdem(userId, idem),
+                threadWasResearched: (tid: string) => researchedThreads.has(tid),
               }
             : undefined;
           const exec = await deps.executeTool(action, input, {
@@ -265,6 +280,22 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
               toolUseId: tu.id,
               toolResults,
               fallbackPushBody: 'Et udkast venter',
+            });
+            continue;
+          }
+          // Context-only tools (mail.get_body / cal.list_events / drive.search)
+          // skip idem + recordAction — they produce no audit-worthy side
+          // effect — and instead pass the dispatcher's recordPayload back to
+          // Claude as the tool_result content for in-run grounding.
+          if (CONTEXT_ONLY_ACTIONS.has(action)) {
+            if (action === 'mail.get_body') {
+              const tid = typeof input.thread_id === 'string' ? input.thread_id : '';
+              if (tid) researchedThreads.add(tid);
+            }
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: tu.id,
+              content: JSON.stringify(exec.recordPayload),
             });
             continue;
           }
