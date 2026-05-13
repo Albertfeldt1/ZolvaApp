@@ -1,4 +1,4 @@
-import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
+import { assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { gmailGetBody, outlookGetBody, type GmailFetch, type OutlookFetch } from './mail-body.ts';
 
 Deno.test('gmailGetBody: fetches latest message in thread, decodes text body', async () => {
@@ -42,7 +42,38 @@ Deno.test('gmailGetBody: fetches latest message in thread, decodes text body', a
   assertEquals(result.to, 'Albert <albert@example.com>');
   assertEquals(result.subject, 'Frokost?');
   assertEquals(result.body_text, bodyText);
-  assertEquals(result.snippet.startsWith('Hej Albert'), true);
+});
+
+Deno.test('gmailGetBody: throws with status + detail on non-2xx', async () => {
+  const fetch: GmailFetch = async () =>
+    new Response(JSON.stringify({ error: { message: 'Insufficient Permission' } }), { status: 403 });
+  await assertRejects(
+    () => gmailGetBody({ fetch, accessToken: 'tok', threadId: 't-x' }),
+    Error,
+    'gmail threads.get 403',
+  );
+});
+
+Deno.test('outlookGetBody: strips <style> content from HTML body', async () => {
+  const html =
+    '<html><head><style>.a{color:red}.b{font-size:99px}</style></head>' +
+    '<body><p>Hej Albert,</p><p>Mødes kl. 14?</p></body></html>';
+  const fetch: OutlookFetch = async () =>
+    new Response(JSON.stringify({
+      value: [{
+        id: 'm-out-2',
+        from: { emailAddress: { name: 'Far', address: 'far@outlook.com' } },
+        toRecipients: [{ emailAddress: { address: 'albert@example.com' } }],
+        subject: 'Aftale',
+        sentDateTime: '2026-05-13T08:00:00Z',
+        uniqueBody: { content: html, contentType: 'html' },
+      }],
+    }), { status: 200 });
+  const result = await outlookGetBody({ fetch, accessToken: 'tok', threadId: 'c-2' });
+  // CSS rules must NOT bleed into body_text.
+  assertEquals(result.body_text.includes('color:red'), false);
+  assertEquals(result.body_text.includes('font-size'), false);
+  assertEquals(result.body_text, 'Hej Albert, Mødes kl. 14?');
 });
 
 Deno.test('outlookGetBody: fetches by conversationId, uses uniqueBody for plain text', async () => {

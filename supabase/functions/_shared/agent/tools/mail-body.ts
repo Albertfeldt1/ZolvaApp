@@ -18,7 +18,20 @@ export interface MailBodyResult {
   subject: string;
   sent_at: string;
   body_text: string;
-  snippet: string;
+}
+
+function stripHtml(s: string): string {
+  // Outlook HTML bodies always carry <style>/<script>/<head> blocks with raw
+  // CSS rules and meta tags inside. A bare /<[^>]+>/g strip leaves their
+  // TEXT CONTENT verbatim, eating the body_text budget with CSS noise.
+  return s
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<head[\s\S]*?<\/head>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 const MAX_BODY_CHARS = 8000;
@@ -95,7 +108,6 @@ export async function gmailGetBody(input: {
     subject: findHeader(headers, 'Subject'),
     sent_at: msg.internalDate ? new Date(Number(msg.internalDate)).toISOString() : new Date().toISOString(),
     body_text,
-    snippet: body_text.slice(0, 200),
   };
 }
 
@@ -130,7 +142,7 @@ export async function outlookGetBody(input: {
   const toAddr = msg.toRecipients?.[0]?.emailAddress;
   const rawBody = msg.uniqueBody?.content ?? msg.body?.content ?? '';
   const body_text = (msg.uniqueBody?.contentType === 'html' || msg.body?.contentType === 'html')
-    ? rawBody.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+    ? stripHtml(rawBody)
     : rawBody;
   const truncated = body_text.slice(0, MAX_BODY_CHARS);
   return {
@@ -140,6 +152,5 @@ export async function outlookGetBody(input: {
     subject: msg.subject ?? '',
     sent_at: msg.sentDateTime ?? new Date().toISOString(),
     body_text: truncated,
-    snippet: truncated.slice(0, 200),
   };
 }
