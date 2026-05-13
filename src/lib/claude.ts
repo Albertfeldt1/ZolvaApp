@@ -211,9 +211,45 @@ export async function completeJson<T>(opts: CompleteOptions & { schemaHint: stri
   const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '').trim();
   try {
     return JSON.parse(cleaned) as T;
-  } catch (e) {
+  } catch {
+    const extracted = extractFirstJsonObject(cleaned);
+    if (extracted) {
+      try {
+        return JSON.parse(extracted) as T;
+      } catch {
+        // fall through to throw
+      }
+    }
     throw new Error(`Claude returned non-JSON: ${cleaned.slice(0, 200)}`);
   }
+}
+
+// Some models append free-form reasoning after the JSON despite the "ONLY
+// valid JSON" instruction. Extract the first complete top-level {...} object
+// by counting braces, skipping over strings (which may contain unbalanced
+// braces themselves).
+function extractFirstJsonObject(s: string): string | null {
+  const start = s.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (inString) {
+      if (escaped) { escaped = false; continue; }
+      if (ch === '\\') { escaped = true; continue; }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return null;
 }
 
 // Parse a ClaudeCompletion looking for a single tool_use matching the named
