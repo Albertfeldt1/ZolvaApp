@@ -106,3 +106,154 @@ export async function outlookDeleteDraft(input: OutlookDeleteDraftInput): Promis
     throw new Error(`graph messages.delete ${res.status}: ${detail.slice(0, 200)}`);
   }
 }
+
+export interface OutlookMoveReverseToken {
+  kind: 'graph.move';
+  new_message_id: string;
+  original_folder_id: string | null;
+}
+
+export interface OutlookMoveMessageInput {
+  fetch: OutlookFetch;
+  accessToken: string;
+  messageId: string;
+  destinationFolderId: string;
+  originalFolderId?: string | null;
+}
+
+export interface OutlookMoveMessageResult {
+  newMessageId: string;
+  reverseToken: OutlookMoveReverseToken;
+}
+
+export async function outlookMoveMessage(
+  input: OutlookMoveMessageInput,
+): Promise<OutlookMoveMessageResult> {
+  const res = await input.fetch(
+    `https://graph.microsoft.com/v1.0/me/messages/${input.messageId}/move`,
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${input.accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ destinationId: input.destinationFolderId }),
+    },
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`graph messages.move ${res.status}: ${detail.slice(0, 200)}`);
+  }
+  const moved = (await res.json()) as { id: string };
+  return {
+    newMessageId: moved.id,
+    reverseToken: {
+      kind: 'graph.move',
+      new_message_id: moved.id,
+      original_folder_id: input.originalFolderId ?? null,
+    },
+  };
+}
+
+export interface OutlookFlagReverseToken {
+  kind: 'graph.flag';
+  message_id: string;
+  previous: 'flagged' | 'notFlagged';
+}
+
+export interface OutlookSetFlagInput {
+  fetch: OutlookFetch;
+  accessToken: string;
+  messageId: string;
+  flagged: boolean;
+}
+
+export async function outlookSetFlag(
+  input: OutlookSetFlagInput,
+): Promise<{ reverseToken: OutlookFlagReverseToken }> {
+  const status = input.flagged ? 'flagged' : 'notFlagged';
+  const res = await input.fetch(
+    `https://graph.microsoft.com/v1.0/me/messages/${input.messageId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${input.accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ flag: { flagStatus: status } }),
+    },
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`graph messages.flag ${res.status}: ${detail.slice(0, 200)}`);
+  }
+  return {
+    reverseToken: {
+      kind: 'graph.flag',
+      message_id: input.messageId,
+      previous: input.flagged ? 'notFlagged' : 'flagged',
+    },
+  };
+}
+
+export interface OutlookCategoryReverseToken {
+  kind: 'graph.category';
+  message_id: string;
+  category: string;
+  previous_categories: string[];
+}
+
+export interface OutlookAddCategoryInput {
+  fetch: OutlookFetch;
+  accessToken: string;
+  messageId: string;
+  category: string;
+}
+
+export async function outlookAddCategory(
+  input: OutlookAddCategoryInput,
+): Promise<{ reverseToken: OutlookCategoryReverseToken }> {
+  const getRes = await input.fetch(
+    `https://graph.microsoft.com/v1.0/me/messages/${input.messageId}?$select=categories`,
+    { method: 'GET', headers: { authorization: `Bearer ${input.accessToken}` } },
+  );
+  if (!getRes.ok) {
+    const detail = await getRes.text().catch(() => '');
+    throw new Error(`graph messages.get ${getRes.status}: ${detail.slice(0, 200)}`);
+  }
+  const existing = ((await getRes.json()) as { categories?: string[] }).categories ?? [];
+  if (existing.includes(input.category)) {
+    return {
+      reverseToken: {
+        kind: 'graph.category',
+        message_id: input.messageId,
+        category: input.category,
+        previous_categories: existing,
+      },
+    };
+  }
+  const next = [...existing, input.category];
+  const patchRes = await input.fetch(
+    `https://graph.microsoft.com/v1.0/me/messages/${input.messageId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${input.accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ categories: next }),
+    },
+  );
+  if (!patchRes.ok) {
+    const detail = await patchRes.text().catch(() => '');
+    throw new Error(`graph messages.category ${patchRes.status}: ${detail.slice(0, 200)}`);
+  }
+  return {
+    reverseToken: {
+      kind: 'graph.category',
+      message_id: input.messageId,
+      category: input.category,
+      previous_categories: existing,
+    },
+  };
+}

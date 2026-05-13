@@ -178,11 +178,101 @@ Deno.test('executeTool: mail.send_reply returns mode=propose without calling pro
   assertEquals(result.recordPayload.preview_text, 'Tak for invitationen.');
 });
 
-Deno.test('executeTool: mail.archive with provider=microsoft is rejected (phase 3 scope)', async () => {
+Deno.test('mail.archive (outlook): moves message to archive folder', async () => {
+  let url = '';
+  let method = '';
+  let body = '';
+  const ctx = makeCtx({
+    fetch: async (u, init) => {
+      url = u;
+      method = init?.method ?? 'GET';
+      body = typeof init?.body === 'string' ? init.body : '';
+      return new Response(JSON.stringify({ id: 'moved-1' }), { status: 201 });
+    },
+  });
+  const result = await executeTool(
+    'mail.archive',
+    { provider: 'microsoft', thread_id: 'm-x', archive_folder_id: 'archive' },
+    ctx,
+  );
+  assertEquals(result.mode, 'executed');
+  assertEquals(result.reversible, true);
+  assertEquals(url, 'https://graph.microsoft.com/v1.0/me/messages/m-x/move');
+  assertEquals(method, 'POST');
+  assertEquals(JSON.parse(body), { destinationId: 'archive' });
+  assertEquals(result.reverseToken?.kind, 'graph.move');
+  assertEquals(result.recordPayload.archive_folder_id, 'archive');
+});
+
+Deno.test('mail.label (outlook): adds category via two-step GET-then-PATCH', async () => {
+  const urls: string[] = [];
+  const methods: string[] = [];
+  const bodies: string[] = [];
+  let step = 0;
+  const ctx = makeCtx({
+    fetch: async (u, init) => {
+      urls.push(u);
+      methods.push(init?.method ?? 'GET');
+      bodies.push(typeof init?.body === 'string' ? init.body : '');
+      step += 1;
+      if (step === 1) {
+        // GET existing categories
+        return new Response(JSON.stringify({ id: 'm-x', categories: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ id: 'm-x', categories: ['Receipts'] }), {
+        status: 200,
+      });
+    },
+  });
+  const result = await executeTool(
+    'mail.label',
+    { provider: 'microsoft', thread_id: 'm-x', label: 'Receipts', op: 'add' },
+    ctx,
+  );
+  assertEquals(result.mode, 'executed');
+  assertEquals(result.reverseToken?.kind, 'graph.category');
+  assertEquals(urls[0], 'https://graph.microsoft.com/v1.0/me/messages/m-x?$select=categories');
+  assertEquals(urls[1], 'https://graph.microsoft.com/v1.0/me/messages/m-x');
+  assertEquals(methods[1], 'PATCH');
+  assertEquals(JSON.parse(bodies[1]), { categories: ['Receipts'] });
+});
+
+Deno.test('mail.label (outlook): op=remove is not supported in phase 3.1', async () => {
   const ctx = makeCtx();
   await assertRejects(
-    () => executeTool('mail.archive', { provider: 'microsoft', thread_id: 't1' }, ctx),
+    () =>
+      executeTool(
+        'mail.label',
+        { provider: 'microsoft', thread_id: 'm-x', label: 'Receipts', op: 'remove' },
+        ctx,
+      ),
     Error,
-    'outlook triage',
+    'outlook label remove not supported',
   );
+});
+
+Deno.test('mail.flag_important (outlook): PATCHes flag.flagStatus=flagged', async () => {
+  let url = '';
+  let method = '';
+  let body = '';
+  const ctx = makeCtx({
+    fetch: async (u, init) => {
+      url = u;
+      method = init?.method ?? 'GET';
+      body = typeof init?.body === 'string' ? init.body : '';
+      return new Response(JSON.stringify({ id: 'm-x', flag: { flagStatus: 'flagged' } }), {
+        status: 200,
+      });
+    },
+  });
+  const result = await executeTool(
+    'mail.flag_important',
+    { provider: 'microsoft', thread_id: 'm-x' },
+    ctx,
+  );
+  assertEquals(result.mode, 'executed');
+  assertEquals(result.reverseToken?.kind, 'graph.flag');
+  assertEquals(url, 'https://graph.microsoft.com/v1.0/me/messages/m-x');
+  assertEquals(method, 'PATCH');
+  assertEquals(JSON.parse(body), { flag: { flagStatus: 'flagged' } });
 });

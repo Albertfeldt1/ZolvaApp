@@ -3,6 +3,9 @@ import {
   outlookCreateDraft,
   outlookSendDraft,
   outlookDeleteDraft,
+  outlookMoveMessage,
+  outlookSetFlag,
+  outlookAddCategory,
   type OutlookFetch,
 } from './outlook.ts';
 
@@ -102,4 +105,80 @@ Deno.test('outlookCreateDraft: 4xx surfaces error', async () => {
     Error,
     'graph createReply 403',
   );
+});
+
+Deno.test('outlookMoveMessage: POST /me/messages/{id}/move with destinationId', async () => {
+  const { fetch, calls } = makeFetch([
+    {
+      url: 'https://graph.microsoft.com/v1.0/me/messages/m-1/move',
+      status: 201,
+      body: { id: 'm-1-moved', parentFolderId: 'archive' },
+    },
+  ]);
+  const result = await outlookMoveMessage({
+    fetch,
+    accessToken: 'tok',
+    messageId: 'm-1',
+    destinationFolderId: 'archive',
+  });
+  assertEquals(result.newMessageId, 'm-1-moved');
+  assertEquals(result.reverseToken, {
+    kind: 'graph.move',
+    new_message_id: 'm-1-moved',
+    original_folder_id: null,
+  });
+  assertEquals(calls[0].method, 'POST');
+  assertEquals(JSON.parse(calls[0].body!), { destinationId: 'archive' });
+});
+
+Deno.test('outlookSetFlag: PATCH /me/messages/{id} flag.flagStatus', async () => {
+  const { fetch, calls } = makeFetch([
+    {
+      url: 'https://graph.microsoft.com/v1.0/me/messages/m-2',
+      status: 200,
+      body: { id: 'm-2', flag: { flagStatus: 'flagged' } },
+    },
+  ]);
+  const result = await outlookSetFlag({
+    fetch,
+    accessToken: 'tok',
+    messageId: 'm-2',
+    flagged: true,
+  });
+  assertEquals(result.reverseToken, {
+    kind: 'graph.flag',
+    message_id: 'm-2',
+    previous: 'notFlagged',
+  });
+  assertEquals(JSON.parse(calls[0].body!), {
+    flag: { flagStatus: 'flagged' },
+  });
+});
+
+Deno.test('outlookAddCategory: PATCH /me/messages/{id} adds category preserving existing', async () => {
+  const { fetch, calls } = makeFetch([
+    {
+      url: 'https://graph.microsoft.com/v1.0/me/messages/m-3?$select=categories',
+      status: 200,
+      body: { id: 'm-3', categories: ['Existing'] },
+    },
+    {
+      url: 'https://graph.microsoft.com/v1.0/me/messages/m-3',
+      status: 200,
+      body: { id: 'm-3', categories: ['Existing', 'Zolva'] },
+    },
+  ]);
+  const result = await outlookAddCategory({
+    fetch,
+    accessToken: 'tok',
+    messageId: 'm-3',
+    category: 'Zolva',
+  });
+  assertEquals(result.reverseToken, {
+    kind: 'graph.category',
+    message_id: 'm-3',
+    category: 'Zolva',
+    previous_categories: ['Existing'],
+  });
+  assertEquals(JSON.parse(calls[1].body!), { categories: ['Existing', 'Zolva'] });
 });

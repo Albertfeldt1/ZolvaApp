@@ -11,8 +11,14 @@ import {
 } from './gmail.ts';
 import {
   outlookCreateDraft,
+  outlookMoveMessage,
+  outlookSetFlag,
+  outlookAddCategory,
   type OutlookFetch,
   type OutlookDraftReverseToken,
+  type OutlookMoveReverseToken,
+  type OutlookFlagReverseToken,
+  type OutlookCategoryReverseToken,
 } from './outlook.ts';
 
 export interface ExecuteContext {
@@ -26,6 +32,9 @@ export type ExecuteReverseToken =
   | GmailModifyReverseToken
   | GmailDraftReverseToken
   | OutlookDraftReverseToken
+  | OutlookMoveReverseToken
+  | OutlookFlagReverseToken
+  | OutlookCategoryReverseToken
   | null;
 
 export type ExecuteMode = 'executed' | 'propose';
@@ -37,12 +46,6 @@ export interface ExecuteResult {
   recordPayload: Record<string, unknown>;
 }
 
-const OUTLOOK_REJECTED_TRIAGE: ReadonlySet<ActionType> = new Set([
-  'mail.label',
-  'mail.archive',
-  'mail.flag_important',
-]);
-
 export async function executeTool(
   action: ActionType,
   payload: Record<string, unknown>,
@@ -50,26 +53,39 @@ export async function executeTool(
 ): Promise<ExecuteResult> {
   const provider = mustProvider(payload);
 
-  // Outlook triage is not supported in Phase 3 — surface a clear error.
-  if (provider === 'microsoft' && OUTLOOK_REJECTED_TRIAGE.has(action)) {
-    throw new Error(`outlook triage not supported in phase 3 (${action})`);
-  }
-
   switch (action) {
     case 'mail.archive': {
       const threadId = mustString(payload, 'thread_id');
-      const { reverseToken } = await gmailModifyThread({
+      if (provider === 'google') {
+        const { reverseToken } = await gmailModifyThread({
+          fetch: ctx.fetch,
+          accessToken: ctx.gmail.accessToken,
+          threadId,
+          addLabelIds: [],
+          removeLabelIds: ['INBOX'],
+        });
+        return {
+          mode: 'executed',
+          reversible: true,
+          reverseToken,
+          recordPayload: { provider, thread_id: threadId },
+        };
+      }
+      if (!ctx.outlook) {
+        throw new Error('outlook archive requested but outlook context missing');
+      }
+      const archiveFolderId = mustString(payload, 'archive_folder_id');
+      const { reverseToken } = await outlookMoveMessage({
         fetch: ctx.fetch,
-        accessToken: ctx.gmail.accessToken,
-        threadId,
-        addLabelIds: [],
-        removeLabelIds: ['INBOX'],
+        accessToken: ctx.outlook.accessToken,
+        messageId: threadId,
+        destinationFolderId: archiveFolderId,
       });
       return {
         mode: 'executed',
         reversible: true,
         reverseToken,
-        recordPayload: { provider, thread_id: threadId },
+        recordPayload: { provider, thread_id: threadId, archive_folder_id: archiveFolderId },
       };
     }
     case 'mail.label': {
@@ -79,13 +95,33 @@ export async function executeTool(
       if (op !== 'add' && op !== 'remove') {
         throw new Error(`mail.label op must be add|remove, got ${op}`);
       }
-      const labelId = await ctx.gmail.resolveLabelId(label);
-      const { reverseToken } = await gmailModifyThread({
+      if (provider === 'google') {
+        const labelId = await ctx.gmail.resolveLabelId(label);
+        const { reverseToken } = await gmailModifyThread({
+          fetch: ctx.fetch,
+          accessToken: ctx.gmail.accessToken,
+          threadId,
+          addLabelIds: op === 'add' ? [labelId] : [],
+          removeLabelIds: op === 'remove' ? [labelId] : [],
+        });
+        return {
+          mode: 'executed',
+          reversible: true,
+          reverseToken,
+          recordPayload: { provider, thread_id: threadId, label, op },
+        };
+      }
+      if (!ctx.outlook) {
+        throw new Error('outlook label requested but outlook context missing');
+      }
+      if (op !== 'add') {
+        throw new Error('outlook label remove not supported in phase 3.1');
+      }
+      const { reverseToken } = await outlookAddCategory({
         fetch: ctx.fetch,
-        accessToken: ctx.gmail.accessToken,
-        threadId,
-        addLabelIds: op === 'add' ? [labelId] : [],
-        removeLabelIds: op === 'remove' ? [labelId] : [],
+        accessToken: ctx.outlook.accessToken,
+        messageId: threadId,
+        category: label,
       });
       return {
         mode: 'executed',
@@ -96,13 +132,30 @@ export async function executeTool(
     }
     case 'mail.flag_important': {
       const threadId = mustString(payload, 'thread_id');
-      const labelId = await ctx.gmail.resolveLabelId(ZOLVA_FLAGGED_LABEL);
-      const { reverseToken } = await gmailModifyThread({
+      if (provider === 'google') {
+        const labelId = await ctx.gmail.resolveLabelId(ZOLVA_FLAGGED_LABEL);
+        const { reverseToken } = await gmailModifyThread({
+          fetch: ctx.fetch,
+          accessToken: ctx.gmail.accessToken,
+          threadId,
+          addLabelIds: [labelId],
+          removeLabelIds: [],
+        });
+        return {
+          mode: 'executed',
+          reversible: true,
+          reverseToken,
+          recordPayload: { provider, thread_id: threadId },
+        };
+      }
+      if (!ctx.outlook) {
+        throw new Error('outlook flag requested but outlook context missing');
+      }
+      const { reverseToken } = await outlookSetFlag({
         fetch: ctx.fetch,
-        accessToken: ctx.gmail.accessToken,
-        threadId,
-        addLabelIds: [labelId],
-        removeLabelIds: [],
+        accessToken: ctx.outlook.accessToken,
+        messageId: threadId,
+        flagged: true,
       });
       return {
         mode: 'executed',
