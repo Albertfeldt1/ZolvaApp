@@ -24,6 +24,7 @@ import {
 } from './outlook.ts';
 import { gmailGetBody, outlookGetBody } from './mail-body.ts';
 import { googleListEvents, outlookListEvents } from './calendar.ts';
+import { driveSearchFiles } from './drive.ts';
 
 export interface ExecuteContext {
   fetch: GmailFetch & OutlookFetch;
@@ -272,6 +273,28 @@ export async function executeTool(
         reversible: false,
         reverseToken: null,
         recordPayload: { provider, start_iso: startIso, end_iso: endIso, events },
+      };
+    }
+    case 'drive.search': {
+      // Google-only for Phase 4a. OneDrive search is Phase 4b.
+      if (provider !== 'google') {
+        throw new Error('drive.search: only google supported in phase 4a');
+      }
+      const query = mustString(payload, 'query');
+      const limit = typeof payload.limit === 'number' ? payload.limit : 10;
+      const files = await driveSearchFiles({
+        fetch: ctx.fetch,
+        // Same Google access token covers drive.readonly via the OAuth grant
+        // (src/lib/auth.ts).
+        accessToken: ctx.gmail.accessToken,
+        query,
+        limit,
+      });
+      return {
+        mode: 'executed',
+        reversible: false,
+        reverseToken: null,
+        recordPayload: { provider, query, files },
       };
     }
     case 'mail.draft_reply': {

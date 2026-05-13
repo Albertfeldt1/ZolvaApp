@@ -31,6 +31,7 @@ export type ActionType =
   | 'mail.send_new'
   | 'mail.get_body'
   | 'cal.list_events'
+  | 'drive.search'
   | 'cal.rsvp'
   | 'cal.create_event'
   | 'cal.update_event'
@@ -77,6 +78,7 @@ export const DEFAULT_POLICY: Record<ActionType, PolicyMode> = {
   'mail.send_new': 'propose',
   'mail.get_body': 'auto',
   'cal.list_events': 'auto',
+  'drive.search': 'auto',
   'cal.rsvp': 'propose',
   'cal.create_event': 'propose',
   'cal.update_event': 'propose',
@@ -104,6 +106,7 @@ export const ACTION_DEFAULT_MODE: Record<ActionType, ActionMode> = {
   'mail.send_new': 'propose',
   'mail.get_body': 'auto',
   'cal.list_events': 'auto',
+  'drive.search': 'auto',
   'cal.rsvp': 'propose',
   'cal.create_event': 'propose',
   'cal.update_event': 'propose',
