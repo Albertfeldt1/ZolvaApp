@@ -516,6 +516,58 @@ Deno.test('runAgent: mail.send_reply skips safety lookups when policy=propose', 
   assertEquals(allowlistCalls, 0);
 });
 
+Deno.test('runAgent: deferred-execute — policy=propose on default-auto action writes proposal instead of executing', async () => {
+  let executeToolCalled = false;
+  let proposedRow: Record<string, unknown> | null = null as Record<string, unknown> | null;
+  let pushDispatched = false;
+  const { deps } = makeDeps();
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't1', message_id: 'm1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't1', from: 'a@x', subject: 'Newsletter', snippet: '' },
+  ];
+  // User flipped mail.archive (default=auto) to propose.
+  deps.loadUserPolicy = async () => [
+    { user_id: 'u-1', action_type: 'mail.archive', mode: 'propose' },
+  ];
+  // No recent presence → push fires.
+  deps.loadUserPresence = async () => null;
+  deps.callClaudeTurn = async () => ({
+    content: [
+      {
+        type: 'tool_use',
+        id: 'toolu_1',
+        name: 'mail.archive',
+        input: { provider: 'google', thread_id: 't1' },
+      },
+    ],
+    usage: { input_tokens: 1, output_tokens: 1 },
+    stop_reason: 'end_turn',
+  });
+  // Tripwire — must NOT be called when policy=propose on a default-auto action.
+  deps.executeTool = async () => {
+    executeToolCalled = true;
+    throw new Error('executeTool should not be invoked on deferred-execute');
+  };
+  deps.writeProposedAction = async (row) => {
+    proposedRow = row;
+    return 'p-deferred-1';
+  };
+  deps.dispatchProposalPush = async () => { pushDispatched = true; };
+
+  const result = await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  assertEquals(result.status, 'ok');
+  assertEquals(executeToolCalled, false);
+  assertEquals(proposedRow?.action_type, 'mail.archive');
+  const payload = proposedRow?.payload as Record<string, unknown>;
+  assertEquals(payload?.thread_id, 't1');
+  assertEquals(payload?.provider, 'google');
+  assertEquals(payload?.deferred_execute, true);
+  assertEquals(typeof payload?.idem_key, 'string');
+  assertEquals(pushDispatched, true);
+});
+
 Deno.test('runAgent: policy off causes the tool to be rejected without execution', async () => {
   let executed = false;
   let proposed = false;

@@ -10,6 +10,7 @@
 // modules (policy, idem, verify, prompt, tools/dispatch). All side-effects
 // live behind RunnerDeps so unit tests can stub them.
 
+import { ACTION_DEFAULT_MODE } from './types.ts';
 import type { AgentEventKind, AgentRunTrigger, ActionType } from './types.ts';
 import type { CallClaudeResult, ClaudeSystemBlock, ClaudeUserMessage } from './claude.ts';
 import type { ExecuteOptions, ExecuteReverseToken } from './tools/dispatch.ts';
@@ -186,14 +187,12 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
           });
           continue;
         }
-        // Phase 3: resolve policy. mode='off' rejects.
-        // mode='propose' on a currently-auto action (e.g. mail.archive) is
-        //   NOT honored as deferred-execute in Phase 3 — the runner still
-        //   executes and we treat it as auto. Phase 3.1 will wire deferred
-        //   execution via agent-approve dispatching any action. Until then,
-        //   the policy slot exists in the UI but only `off` actually blocks
-        //   currently-auto actions. For mail.send_reply, dispatcher returns
-        //   mode='propose' intrinsically (no provider call), which IS honored.
+        // Phase 3 + 3.1: resolve policy. mode='off' rejects. mode='propose'
+        // on a currently-auto action (mail.archive etc.) is honored via the
+        // deferred-execute branch below — runner writes a proposal, agent-
+        // approve dispatches when the user taps Send. For mail.send_reply,
+        // the dispatcher already returns mode='propose' intrinsically unless
+        // policy=auto + every safety rail holds.
         const policy = resolvePolicy(action, userPolicy);
         if (policy === 'off') {
           toolResults.push({
@@ -202,6 +201,51 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
             is_error: true,
             content: `policy_off: user disabled ${action}`,
           });
+          continue;
+        }
+        // Phase 3.1 deferred-execute: user override flipped a currently-auto
+        // action (e.g. mail.archive) to propose. Write a proposed_actions row
+        // with the raw Claude input instead of executing — agent-approve will
+        // dispatch via executeTool when the user taps Send.
+        const defaultMode = ACTION_DEFAULT_MODE[action];
+        if (policy === 'propose' && defaultMode === 'auto') {
+          try {
+            const idemKey = deriveIdemKey(action, input);
+            const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+            const preview = buildProposalPreview(action, input);
+            const proposalId = await deps.writeProposedAction({
+              user_id: userId,
+              run_id: runId,
+              action_type: action,
+              payload: { ...input, idem_key: idemKey, deferred_execute: true },
+              preview,
+              expires_at: expiresAt,
+            });
+            const presence = await deps.loadUserPresence(userId);
+            if (shouldPushForProposal(presence, new Date())) {
+              await deps.dispatchProposalPush(userId, {
+                title: typeof preview.title === 'string' ? preview.title : 'Zolva',
+                body: typeof preview.body === 'string' ? preview.body : 'En handling venter',
+                actionId: proposalId,
+              });
+            }
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: tu.id,
+              content: `proposed:${proposalId}`,
+            });
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.error(
+              `[runner] deferred-execute proposal failed user=${userId} run=${runId} action=${action}: ${msg}`,
+            );
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: tu.id,
+              is_error: true,
+              content: msg,
+            });
+          }
           continue;
         }
         try {

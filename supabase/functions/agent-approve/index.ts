@@ -4,13 +4,16 @@
 // ownership + status='pending' + not expired, dispatches the action via
 // the same tool catalog the runner uses, transitions the proposal row.
 //
-// Phase 3 only handles mail.send_reply (the sole propose action shipped).
+// Handles both Phase 3 drafts (mail.send_reply) and Phase 3.1 deferred-
+// execute proposals (mail.archive / mail.label / mail.flag_important when
+// the user's policy is `propose`).
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { loadRefreshToken, refreshAccessToken } from '../_shared/oauth.ts';
-import { gmailSendDraft } from '../_shared/agent/tools/gmail.ts';
-import { outlookSendDraft } from '../_shared/agent/tools/outlook.ts';
+import { resolveLabelId } from '../_shared/agent/tools/gmail.ts';
+import { executeTool, type ExecuteContext } from '../_shared/agent/tools/dispatch.ts';
+import type { ActionType } from '../_shared/agent/types.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -73,23 +76,60 @@ serve(async (req) => {
 
   const payload = claimed.payload as Record<string, unknown>;
   const provider = payload.provider;
-  const draftId = payload.draft_id as string | undefined;
-  if (!draftId || (provider !== 'google' && provider !== 'microsoft')) {
+  if (provider !== 'google' && provider !== 'microsoft') {
     await client.from('proposed_actions').update({ status: 'failed' }).eq('id', actionId);
-    return new Response(JSON.stringify({ ok: false, reason: 'bad_payload' }), { status: 500 });
+    return new Response(JSON.stringify({ ok: false, reason: 'bad_provider' }), { status: 500 });
   }
 
+  // For mail.send_reply with an edited body, splice it into the payload so
+  // the dispatcher uses the user's edit when sending the draft. (Drafts-
+  // only Phase 3 path; the dispatcher reads draft_id directly.)
+  const finalPayload = body.edited_body && claimed.action_type === 'mail.send_reply'
+    ? { ...payload, edited_body: body.edited_body }
+    : payload;
+
+  let gmailTok = '';
+  let outlookTok = '';
   try {
-    if (provider === 'google') {
-      const tok = await loadGmailToken(client, userId);
-      await gmailSendDraft({ fetch: fetch as never, accessToken: tok, draftId });
-    } else {
-      const tok = await loadOutlookToken(client, userId);
-      await outlookSendDraft({ fetch: fetch as never, accessToken: tok, draftId });
-    }
+    if (provider === 'google') gmailTok = await loadGmailToken(client, userId);
+    if (provider === 'microsoft') outlookTok = await loadOutlookToken(client, userId);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error('[agent-approve] send error', msg);
+    console.error('[agent-approve] token load', msg);
+    await client.from('proposed_actions').update({ status: 'failed' }).eq('id', actionId);
+    return new Response(JSON.stringify({ ok: false, error: msg }), { status: 502 });
+  }
+
+  const ctx: ExecuteContext = {
+    fetch: fetch as never,
+    gmail: {
+      accessToken: gmailTok,
+      resolveLabelId: async (name: string) =>
+        resolveLabelId({ fetch: fetch as never, accessToken: gmailTok, name }),
+    },
+    outlook: provider === 'microsoft' ? { accessToken: outlookTok } : undefined,
+  };
+
+  let exec;
+  try {
+    exec = await executeTool(
+      claimed.action_type as ActionType,
+      finalPayload,
+      ctx,
+      {
+        policy: 'auto', // user tapped Send — treat as authorized auto
+        // The user's explicit tap IS the safety check; bypass the runner's
+        // unattended-send rails (which exist to gate auto-send during a tick).
+        safety: {
+          userIsIdle: true,
+          hasRecipientHistory: async () => true,
+          hasPriorFailedIdem: async () => false,
+        },
+      },
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[agent-approve] execute', msg);
     await client.from('proposed_actions').update({ status: 'failed' }).eq('id', actionId);
     return new Response(JSON.stringify({ ok: false, error: msg }), { status: 502 });
   }
@@ -100,9 +140,9 @@ serve(async (req) => {
     run_id: claimed.run_id,
     proposal_id: actionId,
     action_type: claimed.action_type,
-    payload,
-    reversible: false,
-    reverse_token: null,
+    payload: exec.recordPayload,
+    reversible: exec.reversible,
+    reverse_token: exec.reverseToken,
   });
   await client
     .from('proposed_actions')
