@@ -98,3 +98,15 @@ Deno.test('hasRecipientHistory: returns false for empty address', async () => {
   // Ensure we did NOT hit the DB for empty addresses.
   assertEquals(q.filters.length, 0);
 });
+
+Deno.test('hasRecipientHistory: returns false when db returns null count with no error', async () => {
+  const q: FakeQuery = { selectArg: '', filters: [], resolveWith: { count: null, error: null } };
+  const client = makeClient(q);
+  const ok = await hasRecipientHistory(client as never, {
+    userId: 'u-1',
+    address: 'a@b.dk',
+    threshold: 3,
+    withinDays: 60,
+  });
+  assertEquals(ok, false);
+});
