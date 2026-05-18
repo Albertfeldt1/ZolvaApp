@@ -46,6 +46,9 @@ const SYSTEM =
   '- Skriv "pludselig" (ikke "plutseligt")\n' +
   '- Brug danske artikler og endelser: -en/-et/-erne, aldrig -et/-ene på norsk vis\n' +
   'Hvis du er i tvivl om et ord, vælg det mest almindelige danske hverdagsord.\n\n' +
+  'TIDSFORMAT: Skriv mødetider med HH:mm præcis som de står på "Møder"-listen. ' +
+  'Hvis et møde slutter på en anden dag (slut-tiden har et dagnavn foran, fx "tirsdag 00:30"), ' +
+  'så gør det tydeligt i body at det krydser midnat - ellers tror brugeren slut-tiden er samme dag.\n\n' +
   'Max 3–5 sætninger i body (hilsenen tæller med). ' +
   'Vælg tone baseret på hvor presset dagen ser ud: "calm" (rolig), "busy" (pakket), "heads-up" (noget haster).';
 
@@ -91,6 +94,7 @@ export { SYSTEM as COMPOSER_SYSTEM, SCHEMA as COMPOSER_SCHEMA };
 
 // Danish-friendly event line. Examples:
 //   "14:30–15:30 Møde med Mette · Mødelokale 4"
+//   "16:00–tirsdag 00:30 Vagt · Rox Resort"     (crosses midnight)
 //   "Hele dagen · Teamdag"
 // For events whose ISO lacks a zone designator (Microsoft Graph with
 // Prefer: outlook.timezone returns naive local time), read HH:mm directly.
@@ -103,7 +107,15 @@ function formatEventLine(
   if (e.allDay) return `Hele dagen · ${e.title}${locationSuffix}`;
   const start = formatHM(e.startIso, timezone);
   const end = formatHM(e.endIso, timezone);
-  return `${start}–${end} ${e.title}${locationSuffix}`;
+  const startDate = localDateParts(e.startIso, timezone);
+  const endDate = localDateParts(e.endIso, timezone);
+  // Cross-midnight / multi-day events used to render as a same-day range
+  // ("16:00-00:30") with no signal of the day flip - users read this as
+  // "ends at half past midnight tonight" or as a wildly wrong time. Prefix
+  // the end time with the end weekday so briefer copy reflects reality.
+  const crossesDay = startDate && endDate && startDate.ymd !== endDate.ymd;
+  const endLabel = crossesDay && endDate ? `${endDate.weekday} ${end}` : end;
+  return `${start}–${endLabel} ${e.title}${locationSuffix}`;
 }
 
 function formatHM(iso: string, timezone: string): string {
@@ -125,4 +137,50 @@ function formatHM(iso: string, timezone: string): string {
   const h = parts.find((p) => p.type === 'hour')?.value ?? '00';
   const m = parts.find((p) => p.type === 'minute')?.value ?? '00';
   return `${h}:${m}`;
+}
+
+// Resolves the local calendar date for an event ISO, returning both the
+// machine-friendly YYYY-MM-DD (for cross-day comparison) and the Danish
+// weekday name (for display). Naive ISO strings from Microsoft Graph have
+// the local date in the prefix and need no Intl conversion; zone-aware
+// strings go through Intl with the user's IANA zone.
+function localDateParts(
+  iso: string,
+  timezone: string,
+): { ymd: string; weekday: string } | null {
+  let year: number;
+  let month: number;
+  let day: number;
+  const naiveMatch = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}/.exec(iso);
+  const hasZoneDesignator = /(Z|[+-]\d{2}:?\d{2})$/.test(iso);
+  if (naiveMatch && !hasZoneDesignator) {
+    year = Number(naiveMatch[1]);
+    month = Number(naiveMatch[2]);
+    day = Number(naiveMatch[3]);
+  } else {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(d);
+    year = Number(parts.find((p) => p.type === 'year')?.value);
+    month = Number(parts.find((p) => p.type === 'month')?.value);
+    day = Number(parts.find((p) => p.type === 'day')?.value);
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+      return null;
+    }
+  }
+  const ymd = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  // Noon UTC anchor avoids any DST edge where local midnight could fall on
+  // the previous calendar day when read back via Intl.
+  const weekday = new Intl.DateTimeFormat('da-DK', {
+    timeZone: 'UTC',
+    weekday: 'long',
+  })
+    .format(new Date(Date.UTC(year, month - 1, day, 12)))
+    .toLowerCase();
+  return { ymd, weekday };
 }
