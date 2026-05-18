@@ -187,12 +187,35 @@ export async function runMicrosoftOAuth(opts: {
         'microsoft-oauth-exchange',
         { body },
       );
-      return {
-        data: res.data,
-        error: res.error
-          ? { message: res.error.message, status: (res.error as unknown as { status?: number }).status }
-          : null,
-      };
+      if (!res.error) return { data: res.data, error: null };
+      // supabase-js's FunctionsHttpError sets .message to a generic
+      // "Edge Function returned a non-2xx status code" string and stashes the
+      // Response on .context. Without unwrapping it, translateProviderError
+      // has no signal to act on and the user sees the opaque generic copy.
+      // Pull the JSON body so error codes (invalid-code, no-refresh-token,
+      // exchange-failed, AADSTS…) surface in support screenshots.
+      let detail = '';
+      const ctx = (res.error as unknown as { context?: unknown }).context;
+      if (ctx instanceof Response) {
+        try {
+          const text = await ctx.clone().text();
+          if (text) {
+            try {
+              const parsed = JSON.parse(text) as { error?: string; detail?: string };
+              detail = [parsed.error, parsed.detail].filter(Boolean).join(': ');
+            } catch {
+              detail = text.slice(0, 200);
+            }
+          }
+        } catch {
+          // Body already consumed or unreadable - fall through with empty detail.
+        }
+      }
+      const status = (res.error as unknown as { status?: number }).status;
+      const message = detail
+        ? `microsoft-oauth-exchange ${status ?? ''} ${detail}`.trim()
+        : res.error.message;
+      return { data: null, error: { message, status } };
     },
     getMailWatcherEnabled: () => opts.mailWatcherEnabled,
   });

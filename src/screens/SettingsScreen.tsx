@@ -1492,9 +1492,19 @@ export function SettingsScreen({
     {
       const idIsGoogle = id === 'gmail' || id === 'google-calendar' || id === 'google-drive';
       const idIsMicrosoft = id === 'outlook-mail' || id === 'outlook-calendar' || id === 'onedrive';
+      // 'stale' for Microsoft = token row exists but access-token cache is null
+      // (silentRefresh keeps failing). The card shows an "UDLØBET" pill and the
+      // user explicitly taps "Forbind" expecting to re-OAuth - short-circuiting
+      // to a flag flip leaves them stuck. The custom-PKCE flow doesn't go
+      // through unlinkIdentity, so a forced re-grant just upserts a fresh
+      // refresh_token over the stale one. Google is left as-is for now because
+      // its runOAuth path still calls unlinkIdentity and would revoke every
+      // refresh token (see auth.ts:647-651).
+      const microsoftStale = idIsMicrosoft && microsoftLinked && !microsoftAccessToken;
       const alreadyEstablished =
-        (idIsGoogle && (googleLinked || !!googleAccessToken)) ||
-        (idIsMicrosoft && (microsoftLinked || !!microsoftAccessToken));
+        !microsoftStale &&
+        ((idIsGoogle && (googleLinked || !!googleAccessToken)) ||
+          (idIsMicrosoft && (microsoftLinked || !!microsoftAccessToken)));
       if (alreadyEstablished) {
         await setIntegrationEnabled(id, true);
         return;
@@ -1640,7 +1650,13 @@ export function SettingsScreen({
     const providerLinked = (isGoogle && googleLinked) || (isMicrosoft && microsoftLinked);
     const parentTokenPresent =
       (isGoogle && !!googleAccessToken) || (isMicrosoft && !!microsoftAccessToken);
-    const oauthAlreadyEstablished = providerLinked || parentTokenPresent;
+    // Microsoft stale (linked but no cached access token) means silentRefresh
+    // is broken. User flipping this switch ON is asking to re-auth - don't
+    // short-circuit to a flag flip. Custom-PKCE upserts cleanly over the
+    // stale row without touching unlinkIdentity. Google is excluded because
+    // its OAuth path still revokes refresh tokens via unlinkIdentity.
+    const microsoftStale = isMicrosoft && microsoftLinked && !microsoftAccessToken;
+    const oauthAlreadyEstablished = !microsoftStale && (providerLinked || parentTokenPresent);
 
     if (!next) {
       await setIntegrationEnabled(id, false);
