@@ -24,6 +24,7 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
   buildAdminConsentUrl,
+  isPersonalEmailDomain,
   logEvent,
   resolveTenantId,
   signState,
@@ -74,6 +75,21 @@ serve(async (req) => {
   const tenantDomain =
     typeof body.tenant_domain === 'string' ? body.tenant_domain.trim().toLowerCase() : '';
   if (!tenantDomain) return json({ error: 'bad-request', detail: 'tenant_domain required' }, 400);
+  // Personal-account domains (gmail.com, outlook.com, icloud.com, …) cannot
+  // grant admin consent for an Entra ID app. Microsoft's discovery endpoint
+  // sometimes routes these to a fallback tenant; if we accepted that we'd
+  // mint a URL Microsoft rejects with AADSTS90036. Fail fast with a clear
+  // error so the client can prompt for the actual work email.
+  if (isPersonalEmailDomain(tenantDomain)) {
+    return json(
+      {
+        error: 'personal-domain',
+        detail:
+          'Personal email domains cannot grant tenant admin consent. Use your work Microsoft 365 email.',
+      },
+      400,
+    );
+  }
 
   const service = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },

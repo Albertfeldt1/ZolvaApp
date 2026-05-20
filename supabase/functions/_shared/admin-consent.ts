@@ -95,15 +95,55 @@ export async function verifyState(token: string, secret: string): Promise<StateP
   return parsed;
 }
 
+// Consumer / personal-account domains that should never go through Entra ID
+// admin consent. OIDC discovery on these used to "succeed" against a
+// Microsoft fallback tenant (e.g. gmail.com returned tenant 9cd80435-...),
+// and we'd happily cache + build an admin-consent URL pointing at that
+// bogus tenant. Microsoft then rejected the actual work-account sign-in
+// with AADSTS90036. Treat these as not-a-tenant and return null early.
+export const PERSONAL_EMAIL_DOMAINS = new Set([
+  'gmail.com',
+  'googlemail.com',
+  'outlook.com',
+  'hotmail.com',
+  'live.com',
+  'msn.com',
+  'icloud.com',
+  'me.com',
+  'mac.com',
+  'yahoo.com',
+  'aol.com',
+  'proton.me',
+  'protonmail.com',
+]);
+// Microsoft's well-known personal-accounts (MSA) tenant id. If OIDC
+// discovery for an arbitrary domain returns this, it means "we don't have
+// a real work tenant for that domain, route to MSA" - not what we want
+// for admin consent.
+const MICROSOFT_MSA_TENANT_ID = '9188040d-6c67-4c5b-b112-36a304b66dad';
+
 // Resolve a Microsoft tenant ID from an email domain via OIDC discovery.
 // Returns null if discovery fails (domain isn't an Entra ID tenant, or
 // network/parsing error). All outcomes are logged to consent_events.
+export function isPersonalEmailDomain(domain: string): boolean {
+  return PERSONAL_EMAIL_DOMAINS.has(domain.trim().toLowerCase());
+}
+
 export async function resolveTenantId(
   client: SupabaseClient,
   domain: string,
 ): Promise<string | null> {
   const normalized = domain.trim().toLowerCase();
   if (!normalized) return null;
+
+  if (PERSONAL_EMAIL_DOMAINS.has(normalized)) {
+    await logEvent(client, {
+      event_type: 'tenant_lookup_failed',
+      tenant_domain: normalized,
+      error_description: 'personal-domain rejected',
+    });
+    return null;
+  }
 
   const cached = await client
     .from('tenant_id_cache')
@@ -144,6 +184,17 @@ export async function resolveTenantId(
     return null;
   }
   const tenantId = match[1];
+  if (tenantId.toLowerCase() === MICROSOFT_MSA_TENANT_ID) {
+    // Discovery routed to the MSA fallback tenant - this is not a work
+    // tenant, admin consent will fail with AADSTS90036. Reject and skip
+    // the cache write so the caller can prompt for a different email.
+    await logEvent(client, {
+      event_type: 'tenant_lookup_failed',
+      tenant_domain: normalized,
+      error_description: 'discovery routed to MSA tenant',
+    });
+    return null;
+  }
   await client
     .from('tenant_id_cache')
     .upsert(
