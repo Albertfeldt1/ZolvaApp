@@ -51,6 +51,38 @@ export function extractDomain(email: string): string | null {
   return email.slice(at + 1).trim().toLowerCase() || null;
 }
 
+// Mirrors PERSONAL_EMAIL_DOMAINS in supabase/functions/_shared/admin-consent.ts.
+// Kept in sync manually - the two-copy cost is trivial and avoids pulling
+// edge-function code into the client bundle. Used to skip auto-prefilling
+// the admin-consent email field when the user's Supabase login is a
+// personal account (gmail.com, outlook.com, icloud.com, …); they almost
+// always need to type their actual work-tenant email instead.
+const PERSONAL_EMAIL_DOMAINS = new Set([
+  'gmail.com',
+  'googlemail.com',
+  'outlook.com',
+  'hotmail.com',
+  'live.com',
+  'msn.com',
+  'icloud.com',
+  'me.com',
+  'mac.com',
+  'yahoo.com',
+  'aol.com',
+  'proton.me',
+  'protonmail.com',
+]);
+
+export function isPersonalEmailDomain(domain: string | null | undefined): boolean {
+  if (!domain) return false;
+  return PERSONAL_EMAIL_DOMAINS.has(domain.trim().toLowerCase());
+}
+
+export function isPersonalEmail(email: string | null | undefined): boolean {
+  if (!email) return false;
+  return isPersonalEmailDomain(extractDomain(email));
+}
+
 export type AdminConsentLink = {
   url: string;
   tenant_id: string;

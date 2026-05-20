@@ -21,7 +21,11 @@ import {
 } from 'react-native';
 import { Copy, Mail } from 'lucide-react-native';
 import { useChromeInsets } from '../components/PhoneChrome';
-import { extractDomain, requestAdminConsentLink } from '../lib/admin-consent';
+import {
+  extractDomain,
+  isPersonalEmailDomain,
+  requestAdminConsentLink,
+} from '../lib/admin-consent';
 import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { Stone } from '../design/primitives/Stone';
@@ -32,14 +36,15 @@ type Props = {
   onCancel: () => void;
 };
 
-type ScreenError = 'unauthorized' | 'bad-request' | 'network' | 'internal';
+type ScreenError = 'unauthorized' | 'bad-request' | 'personal-domain' | 'network' | 'internal';
 
 function errorMessage(e: ScreenError): string {
   switch (e) {
-    case 'unauthorized': return 'Du skal være logget ind for at sende en anmodning.';
-    case 'bad-request':  return 'Vi kunne ikke læse mailen. Tjek at du har skrevet en gyldig arbejdsmail.';
-    case 'network':      return 'Ingen forbindelse. Prøv igen om lidt.';
-    case 'internal':     return 'Noget gik galt. Prøv igen om lidt.';
+    case 'unauthorized':    return 'Du skal være logget ind for at sende en anmodning.';
+    case 'bad-request':     return 'Vi kunne ikke læse mailen. Tjek at du har skrevet en gyldig arbejdsmail.';
+    case 'personal-domain': return 'Brug din Microsoft 365-arbejdsmail (fx navn@firma.dk). En privat mail som gmail.com eller icloud.com kan ikke godkende Zolva for en organisation.';
+    case 'network':         return 'Ingen forbindelse. Prøv igen om lidt.';
+    case 'internal':        return 'Noget gik galt. Prøv igen om lidt.';
   }
 }
 
@@ -97,10 +102,21 @@ export function MicrosoftAdminConsentScreen({ prefilledEmail, onCancel }: Props)
     setErrorCode(null);
     const domain = extractDomain(email);
     if (!domain) { setErrorCode('bad-request'); return; }
+    // Short-circuit personal domains client-side so the user gets the
+    // dedicated error copy instead of the generic "bad-request" string the
+    // edge function returns.
+    if (isPersonalEmailDomain(domain)) { setErrorCode('personal-domain'); return; }
     setBusy(true);
     const res = await requestAdminConsentLink(domain);
     setBusy(false);
-    if (!res.ok) { setErrorCode(res.error.code); return; }
+    if (!res.ok) {
+      const code =
+        res.error.code === 'bad-request' && /personal/i.test(res.error.detail ?? '')
+          ? 'personal-domain'
+          : res.error.code;
+      setErrorCode(code);
+      return;
+    }
     setLinkUrl(res.data.url);
   };
 

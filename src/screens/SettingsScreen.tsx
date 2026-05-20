@@ -101,6 +101,7 @@ import { detectImportedTargets, type DetectedTargets } from '../lib/mail-signatu
 import { applyBoundTargets } from '../lib/mail-signature/apply-bound-targets';
 import { renderSocials } from '../lib/mail-signature/template';
 import { translateProviderError } from '../utils/danish';
+import { isPersonalEmail } from '../lib/admin-consent';
 
 import {
   ensurePermission,
@@ -1515,9 +1516,15 @@ export function SettingsScreen({
     setConnectingId(null);
 
     // Detected admin-consent: open the screen with whatever tenant hint we have.
+    // Don't pre-fill the work-email field with the user's Supabase login when
+    // it's a personal account (gmail.com, icloud.com, …) - the user's actual
+    // Microsoft 365 tenant lives under a different domain, and accepting the
+    // personal one mints an admin-consent URL Microsoft rejects with
+    // AADSTS90036.
     if (result.adminConsent && onOpenMicrosoftAdminConsent) {
-      const hint = result.adminConsent.tenantHint
-        ?? (authUser?.email ? authUser.email : undefined);
+      const explicit = result.adminConsent.tenantHint;
+      const supabaseEmail = authUser?.email ?? undefined;
+      const hint = explicit ?? (isPersonalEmail(supabaseEmail) ? undefined : supabaseEmail);
       onOpenMicrosoftAdminConsent(hint);
       return;
     }
@@ -1540,7 +1547,12 @@ export function SettingsScreen({
           { text: 'Nej, prøv igen', style: 'cancel' },
           {
             text: 'Ja, send anmodning',
-            onPress: () => onOpenMicrosoftAdminConsent(authUser?.email ?? undefined),
+            onPress: () => {
+              const supabaseEmail = authUser?.email ?? undefined;
+              onOpenMicrosoftAdminConsent(
+                isPersonalEmail(supabaseEmail) ? undefined : supabaseEmail,
+              );
+            },
           },
         ],
       );
@@ -1676,7 +1688,10 @@ export function SettingsScreen({
     const result = await connect(id);
     setConnectingId(null);
     if (result.adminConsent && onOpenMicrosoftAdminConsent) {
-      const hint = result.adminConsent.tenantHint ?? authUser?.email ?? undefined;
+      // See handleConnect for the personal-email-suppression rationale.
+      const explicit = result.adminConsent.tenantHint;
+      const supabaseEmail = authUser?.email ?? undefined;
+      const hint = explicit ?? (isPersonalEmail(supabaseEmail) ? undefined : supabaseEmail);
       onOpenMicrosoftAdminConsent(hint);
       return;
     }
@@ -1693,7 +1708,12 @@ export function SettingsScreen({
           { text: 'Nej, prøv igen', style: 'cancel' },
           {
             text: 'Ja, send anmodning',
-            onPress: () => onOpenMicrosoftAdminConsent(authUser?.email ?? undefined),
+            onPress: () => {
+              const supabaseEmail = authUser?.email ?? undefined;
+              onOpenMicrosoftAdminConsent(
+                isPersonalEmail(supabaseEmail) ? undefined : supabaseEmail,
+              );
+            },
           },
         ],
       );
