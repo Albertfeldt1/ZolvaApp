@@ -176,12 +176,46 @@ export async function listPendingFactsForReview(userId: string): Promise<Fact[]>
   return unique;
 }
 
+export class BulkUpdateTimeoutError extends Error {
+  readonly kind = 'timeout' as const;
+  constructor() {
+    super('bulkUpdatePendingFacts timed out');
+    this.name = 'BulkUpdateTimeoutError';
+  }
+}
+
 export async function bulkUpdatePendingFacts(
   userId: string,
   updates: Array<{ id: string; status: 'confirmed' | 'rejected' }>,
+  options?: { timeoutMs?: number },
 ): Promise<void> {
   if (updates.length === 0) return;
 
+  // Without a timeout, a single flaky Supabase request (auto-refresh
+  // race, dropped keep-alive, slow mobile network) leaves the caller
+  // stuck on its await indefinitely. The onboarding fact-review screen
+  // surfaces this as a permanent "Gemmer…" spinner. Both the outer
+  // deadline and the per-request abort signal are honored so partial
+  // progress doesn't keep an orphaned in-flight request running after
+  // the user has already seen the timeout error.
+  const timeoutMs = options?.timeoutMs ?? 20_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    await runBulkUpdate(userId, updates, controller.signal);
+  } catch (err) {
+    if (controller.signal.aborted) throw new BulkUpdateTimeoutError();
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runBulkUpdate(
+  userId: string,
+  updates: Array<{ id: string; status: 'confirmed' | 'rejected' }>,
+  signal: AbortSignal,
+): Promise<void> {
   const confirmedIds = updates.filter((u) => u.status === 'confirmed').map((u) => u.id);
   let rejectedIds = updates.filter((u) => u.status === 'rejected').map((u) => u.id);
   const now = new Date().toISOString();
@@ -200,7 +234,8 @@ export async function bulkUpdatePendingFacts(
       .from('facts')
       .select('id, normalized_text')
       .eq('user_id', userId)
-      .in('id', confirmedIds);
+      .in('id', confirmedIds)
+      .abortSignal(signal);
     if (fetchErr) throw fetchErr;
     const seen = new Set<string>();
     actualConfirmedIds = [];
@@ -226,7 +261,8 @@ export async function bulkUpdatePendingFacts(
       .from('facts')
       .update({ status: 'confirmed', confirmed_at: now })
       .eq('user_id', userId)
-      .in('id', actualConfirmedIds);
+      .in('id', actualConfirmedIds)
+      .abortSignal(signal);
     if (error) throw error;
   }
   if (rejectedIds.length > 0) {
@@ -234,7 +270,8 @@ export async function bulkUpdatePendingFacts(
       .from('facts')
       .update({ status: 'rejected', rejected_at: now, rejection_ttl: ttl })
       .eq('user_id', userId)
-      .in('id', rejectedIds);
+      .in('id', rejectedIds)
+      .abortSignal(signal);
     if (error) throw error;
   }
 
@@ -248,7 +285,8 @@ export async function bulkUpdatePendingFacts(
       .update({ status: 'rejected', rejected_at: now, rejection_ttl: ttl })
       .eq('user_id', userId)
       .eq('status', 'pending')
-      .in('normalized_text', confirmedTexts);
+      .in('normalized_text', confirmedTexts)
+      .abortSignal(signal);
     if (error) throw error;
   }
 

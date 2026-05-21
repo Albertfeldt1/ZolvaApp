@@ -33,6 +33,7 @@ import { subscribeUserId } from '../lib/auth';
 import { invalidatePreamble } from '../lib/profile';
 import { triggerBackfillRerun, type BackfillJob } from '../lib/onboarding-backfill';
 import {
+  BulkUpdateTimeoutError,
   bulkUpdatePendingFacts,
   listPendingFactsForReview,
 } from '../lib/profile-store';
@@ -103,6 +104,7 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingSlow, setSavingSlow] = useState(false);
 
   useEffect(() => {
     if (!userId) {
@@ -146,6 +148,12 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
   const save = async () => {
     if (!userId || saving) return;
     setSaving(true);
+    setSavingSlow(false);
+    // After 5s the save still hasn't returned: surface "Stadig i gang…"
+    // so the user knows we're not frozen and waits a beat before
+    // force-quitting. The deadline inside bulkUpdatePendingFacts (20s)
+    // will resolve to a real error after that.
+    const slowTimer = setTimeout(() => setSavingSlow(true), 5_000);
     try {
       const updates = facts.map((f) => ({
         id: f.id,
@@ -156,12 +164,17 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
       onDone();
     } catch (e) {
       if (__DEV__) console.warn('[fact-review] save failed:', e);
+      const isTimeout = e instanceof BulkUpdateTimeoutError;
       Alert.alert(
         'Kunne ikke gemme',
-        'Noget gik galt. Prøv igen om et øjeblik.',
+        isTimeout
+          ? 'Forbindelsen er langsom lige nu. Tjek dit netværk og prøv igen.'
+          : 'Noget gik galt. Prøv igen om et øjeblik.',
         [{ text: 'OK' }],
       );
     } finally {
+      clearTimeout(slowTimer);
+      setSavingSlow(false);
       setSaving(false);
     }
   };
@@ -456,7 +469,9 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
           })}
         >
           <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#FFFFFF' }}>
-            {saving ? 'Gemmer…' : `Gem ${checkedCount} fakta`}
+            {saving
+              ? (savingSlow ? 'Stadig i gang…' : 'Gemmer…')
+              : `Gem ${checkedCount} fakta`}
           </Text>
         </Pressable>
       </View>
