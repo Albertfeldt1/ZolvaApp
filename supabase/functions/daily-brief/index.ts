@@ -20,6 +20,7 @@
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { recordAiUsage } from '../_shared/usage.ts';
 import { fetchWeather, Weather } from './weather.ts';
 import { fetchCalendarForUser } from '../_shared/calendar.ts';
 import {
@@ -208,8 +209,10 @@ async function generateOneBrief(
     inputs.reminders.length > 0;
   if (!nonEmpty) return 'empty-skipped';
 
-  const brief = await composeWithClaude(anthropicKey, inputs);
-  if (!brief) return 'compose-failed';
+  const composed = await composeWithClaude(anthropicKey, inputs);
+  if (!composed) return 'compose-failed';
+  const { brief, usage } = composed;
+  void recordAiUsage(client, userId, 'daily-brief', MODEL, usage);
 
   const { data: inserted, error: insertErr } = await client
     .from('briefs')
@@ -297,7 +300,7 @@ async function assembleInputs(
 async function composeWithClaude(
   anthropicKey: string,
   inputs: BriefInputs,
-): Promise<BriefOutput | null> {
+): Promise<{ brief: BriefOutput; usage: { input_tokens: number; output_tokens: number } } | null> {
   const body = {
     model: MODEL,
     max_tokens: 512,
@@ -321,7 +324,10 @@ async function composeWithClaude(
       body: JSON.stringify(body),
     });
     if (!res.ok) return null;
-    const data = (await res.json()) as { content: Array<{ type: string; text?: string }> };
+    const data = (await res.json()) as {
+      content: Array<{ type: string; text?: string }>;
+      usage?: { input_tokens?: number; output_tokens?: number };
+    };
     const text = (data.content ?? [])
       .flatMap((b) => (b.type === 'text' ? [b.text ?? ''] : []))
       .join('')
@@ -331,7 +337,14 @@ async function composeWithClaude(
       .replace(/^```\s*/i, '')
       .replace(/\s*```$/, '')
       .trim();
-    return JSON.parse(cleaned) as BriefOutput;
+    const brief = JSON.parse(cleaned) as BriefOutput;
+    return {
+      brief,
+      usage: {
+        input_tokens: data.usage?.input_tokens ?? 0,
+        output_tokens: data.usage?.output_tokens ?? 0,
+      },
+    };
   } catch {
     return null;
   }

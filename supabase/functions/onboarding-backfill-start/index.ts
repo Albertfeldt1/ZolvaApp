@@ -10,8 +10,10 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { loadRefreshToken, refreshAccessToken } from '../_shared/oauth.ts';
+import { recordAiUsage } from '../_shared/usage.ts';
 import {
   callClaudeBatch,
+  type CallClaudeBatchResult,
   finishJob,
   insertPendingFacts,
   isCancelled,
@@ -383,7 +385,8 @@ Fra: ${c.from}
 Emne: ${c.subject}
 Uddrag: ${c.snippet}`)
           .join('\n\n');
-        const facts = await callClaudeBatch(anthropicKey, MAIL_SYSTEM, userPayload, priorFactTexts);
+        const { facts, usage, model } = await callClaudeBatch(anthropicKey, MAIL_SYSTEM, userPayload, priorFactTexts);
+        void recordAiUsage(service, userId, `backfill:${job.provider}:mail`, model, usage);
         for (const f of facts) priorFactTexts.push(f.text);
         factsThisJob += await insertPendingFacts(service, userId, facts, `backfill:${job.provider}:mail`);
         processed += slice.length;
@@ -438,7 +441,8 @@ Type: ${c.from}
 Titel: ${c.subject}
 Metadata: ${c.snippet}`)
           .join('\n\n');
-        const facts = await callClaudeBatch(anthropicKey, DRIVE_SYSTEM, userPayload, priorFactTexts);
+        const { facts, usage, model } = await callClaudeBatch(anthropicKey, DRIVE_SYSTEM, userPayload, priorFactTexts);
+        void recordAiUsage(service, userId, `backfill:${job.provider}:drive`, model, usage);
         for (const f of facts) priorFactTexts.push(f.text);
         factsThisJob += await insertPendingFacts(service, userId, facts, `backfill:${job.provider}:drive`);
         processed += slice.length;
@@ -469,7 +473,8 @@ Fra: ${c.from}
 Emne: ${c.subject}
 Uddrag: ${c.snippet}`)
           .join('\n\n');
-        const facts = await callClaudeBatch(anthropicKey, MAIL_SYSTEM, userPayload, priorFactTexts);
+        const { facts, usage, model } = await callClaudeBatch(anthropicKey, MAIL_SYSTEM, userPayload, priorFactTexts);
+        void recordAiUsage(service, userId, `backfill:${job.provider}:mail`, model, usage);
         for (const f of facts) priorFactTexts.push(f.text);
         factsThisJob += await insertPendingFacts(service, userId, facts, `backfill:${job.provider}:mail`);
         processed += slice.length;
@@ -500,7 +505,8 @@ Titel: ${s.title}
 Mønster: ${s.recurrencePattern}
 Deltagere: ${s.attendeeEmails.join(', ')}`)
         .join('\n\n');
-      const facts = await callClaudeBatch(anthropicKey, CAL_SYSTEM, userPayload, priorFactTexts);
+      const { facts, usage, model } = await callClaudeBatch(anthropicKey, CAL_SYSTEM, userPayload, priorFactTexts);
+      void recordAiUsage(service, userId, `backfill:${job.provider}:calendar`, model, usage);
       for (const f of facts) priorFactTexts.push(f.text);
       factsThisJob += await insertPendingFacts(service, userId, facts, `backfill:${job.provider}:calendar`);
       processed += slice.length;

@@ -3,6 +3,7 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { extractAction } from './claude.ts';
+import { recordAiUsage } from '../_shared/usage.ts';
 import type { ClaudeExtraction } from './claude.ts';
 import { verifyJwt } from './jwt.ts';
 import {
@@ -169,7 +170,10 @@ export async function workerHandler(req: Request): Promise<Response> {
   try {
     const claude = await extractAction(prompt, timezone);
     extraction = claude.extraction;
-    // usage + model captured for logging in Task 18.
+    void recordAiUsage(admin(), userId, 'widget-action', claude.model, {
+      input_tokens: claude.usage.input,
+      output_tokens: claude.usage.output,
+    });
   } catch (err) {
     console.warn('[widget-action] claude error:', err instanceof Error ? err.message : err);
     return await respond(unparseable());

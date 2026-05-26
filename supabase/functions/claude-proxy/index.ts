@@ -15,6 +15,7 @@
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { recordAiUsage } from '../_shared/usage.ts';
 
 type ContentBlock =
   | { type: 'text'; text: string }
@@ -204,6 +205,10 @@ serve(async (req) => {
             console.warn(`[claude-proxy] token_record_failed user=${userId} err=${error.message}`);
           }
         });
+      void recordAiUsage(authClient, userId, 'claude-proxy', model, {
+        input_tokens: usage.input,
+        output_tokens: usage.output,
+      });
     }
   } else {
     console.warn(

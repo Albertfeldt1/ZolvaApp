@@ -12,6 +12,7 @@ import type { ClaimedEvent, RunnerDeps } from '../_shared/agent/runner.ts';
 import type { AgentRunTrigger, ActionType } from '../_shared/agent/types.ts';
 import { loadTodayBudget, incrementBudget, DEFAULT_LIMITS } from '../_shared/agent/budget.ts';
 import { callClaude } from '../_shared/agent/claude.ts';
+import { recordAiUsage } from '../_shared/usage.ts';
 import { executeTool as dispatchTool } from '../_shared/agent/tools/dispatch.ts';
 import { resolveLabelId } from '../_shared/agent/tools/gmail.ts';
 import type { ThreadBrief } from '../_shared/agent/prompt.ts';
@@ -154,13 +155,15 @@ function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
       return loadThreadBriefs(await accessToken(), events);
     },
     async callClaudeTurn(system, messages, tools) {
-      return callClaude({
+      const out = await callClaude({
         fetch: fetch as never,
         apiKey: ANTHROPIC_API_KEY,
         system,
         messages,
         tools: tools as unknown[],
       });
+      void recordAiUsage(client, userId, 'agent-tick', 'claude-haiku-4-5-20251001', out.usage);
+      return out;
     },
     async executeTool(action: ActionType, payload, opts?: ExecuteOptions) {
       const gmailTok = await accessToken();

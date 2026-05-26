@@ -153,12 +153,18 @@ export async function fetchWithRetry(url: string, init: RequestInit): Promise<Re
   return fetch(url, init);
 }
 
+export type CallClaudeBatchResult = {
+  facts: ExtractedFact[];
+  usage: { input_tokens: number; output_tokens: number };
+  model: string;
+};
+
 export async function callClaudeBatch(
   apiKey: string,
   systemPrompt: string,
   userPayload: string,
   priorFacts: string[] = [],
-): Promise<ExtractedFact[]> {
+): Promise<CallClaudeBatchResult> {
   // Cross-batch anti-context: tell Claude what earlier batches in this run
   // already produced so it doesn't restate the same theme with slightly
   // different wording (the partial unique index on confirmed facts catches
@@ -184,7 +190,14 @@ export async function callClaudeBatch(
     const body = (await res.text()).slice(0, 200);
     throw new Error(`anthropic ${res.status}: ${body}`);
   }
-  const json = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
+  const json = (await res.json()) as {
+    content?: Array<{ type: string; text?: string }>;
+    usage?: { input_tokens?: number; output_tokens?: number };
+  };
+  const usage = {
+    input_tokens: json.usage?.input_tokens ?? 0,
+    output_tokens: json.usage?.output_tokens ?? 0,
+  };
   const text = (json.content ?? [])
     .filter((b) => b.type === 'text')
     .map((b) => b.text ?? '')
@@ -197,15 +210,16 @@ export async function callClaudeBatch(
     .trim();
   try {
     const parsed = JSON.parse(cleaned);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((f) =>
+    if (!Array.isArray(parsed)) return { facts: [], usage, model: MODEL };
+    const facts = parsed.filter((f) =>
       typeof f.text === 'string' &&
       typeof f.category === 'string' &&
       typeof f.confidence === 'number',
     ) as ExtractedFact[];
+    return { facts, usage, model: MODEL };
   } catch {
     console.warn('[backfill] claude returned non-JSON:', cleaned.slice(0, 200));
-    return [];
+    return { facts: [], usage, model: MODEL };
   }
 }
 
