@@ -421,8 +421,8 @@ export function TodayScreen({
             overlay={surface.bone}
             style={{ paddingVertical: spacing.lg, paddingHorizontal: spacing.lg }}
           >
-            <Text style={{ ...type.displayXL, color: t.ink }}>
-              {user ? `${hello},\n${user.name}.` : `${hello}.`}
+            <Text style={{ ...type.displayM, color: t.ink }}>
+              {user ? `${hello}, ${user.name}.` : `${hello}.`}
             </Text>
             {authUser ? (
               <Text style={{ ...type.body, color: t.ink2, marginTop: spacing.md - 2, maxWidth: 300 }}>
