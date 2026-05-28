@@ -14,23 +14,21 @@ export type AdminConsentDetection =
   | { detected: false }
   | { detected: true; tenantHint?: string };
 
-// Any AADSTS-* error from Azure AD routes to the admin-consent screen.
-// The previous narrow list (90094 / 65001 / 900971) only caught three
-// specific codes and dropped every other tenant-policy failure into the
-// generic "Noget gik galt" dialog with no recovery path - users on
-// tenants returning AADSTS50105 (user-not-assigned-to-app), AADSTS50020
-// (external-account-not-permitted), AADSTS530xx (Conditional Access),
-// AADSTS50158 (External MFA required) etc. all hit the dead-end. The
-// admin-consent screen is recoverable for all of these (it asks for the
-// work email and offers to mint a tenant-wide consent link), so
-// over-routing here is much cheaper than under-routing.
-//
-// consent_required / interaction_required = OAuth-spec error names AAD
-// also emits when no AADSTS code is present in the bubbled message.
+// Route to MicrosoftAdminConsentScreen only when the error is genuinely a
+// consent issue. An earlier version of this catch-all matched any AADSTS
+// code plus `interaction_required` to give all AAD failures a "recovery
+// path", but the side effect was a loop: in tenants that already have
+// admin consent, AAD still emits AADSTS65001 / interaction_required for
+// unrelated reasons (conditional access, MFA, user-not-assigned, the now-
+// removed `prompt=consent` re-prompt), and we'd send those users straight
+// back to the admin-consent screen even though their admin had already
+// approved the app. Other AAD failures (Conditional Access, MFA, etc.)
+// belong in their own error path, not here.
 const ADMIN_CONSENT_PATTERNS: ReadonlyArray<RegExp> = [
-  /aadsts\d+/i,
+  /aadsts65001/i,
+  /aadsts90094/i,
   /\bconsent[_-]?required\b/i,
-  /\binteraction[_-]?required\b/i,
+  /\badmin[_-]?consent[_-]?required\b/i,
   /admin\s*consent/i,
 ];
 

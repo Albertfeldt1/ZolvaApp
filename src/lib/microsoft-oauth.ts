@@ -94,6 +94,13 @@ function buildAuthorizeUrl(input: {
   challenge: string;
   state: string;
 }): string {
+  // No `prompt` param: let Microsoft decide. Forcing `prompt=consent` here
+  // re-asked for user consent on every sign-in, which in tenants that
+  // disable user-self-consent (a common default) bounces with
+  // AADSTS65001 / interaction_required even after admin consent is granted
+  // tenant-wide. Combined with the broad error→admin-consent routing in
+  // src/lib/admin-consent.ts, that produced a re-loop where users from an
+  // already-consented tenant kept landing back on the admin-consent screen.
   const params = new URLSearchParams({
     client_id: input.clientId,
     response_type: 'code',
@@ -102,7 +109,6 @@ function buildAuthorizeUrl(input: {
     code_challenge: input.challenge,
     code_challenge_method: 'S256',
     state: input.state,
-    prompt: 'consent',
   });
   return `${MICROSOFT_AUTHORIZE_URL}?${params.toString()}`;
 }
