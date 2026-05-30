@@ -77,3 +77,40 @@ export async function googleCreateEvent(
   if (!j.id) throw new Error('google calendar.create: response missing id');
   return { eventId: j.id, reverseToken: { kind: 'gcal.event_delete', provider: 'google', event_id: j.id } };
 }
+
+const GRAPH_EVENTS = 'https://graph.microsoft.com/v1.0/me/events';
+
+// Graph wants a naive datetime plus an explicit timeZone; our contract is that
+// callers pass UTC ISO ending in Z, so drop the Z and label it UTC.
+function stripZone(iso: string): string {
+  return iso.replace(/Z$/, '');
+}
+
+export async function outlookCreateEvent(
+  input: CreateEventInput,
+): Promise<{ eventId: string; reverseToken: GraphEventDeleteToken }> {
+  const body: Record<string, unknown> = {
+    subject: input.title,
+    start: { dateTime: stripZone(input.startIso), timeZone: 'UTC' },
+    end: { dateTime: stripZone(input.endIso), timeZone: 'UTC' },
+  };
+  if (input.location) body.location = { displayName: input.location };
+  if (input.attendees && input.attendees.length) {
+    body.attendees = input.attendees.map((address) => ({
+      emailAddress: { address },
+      type: 'required',
+    }));
+  }
+  const res = await input.fetch(GRAPH_EVENTS, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${input.accessToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`graph events.create ${res.status}: ${detail.slice(0, 200)}`);
+  }
+  const j = (await res.json()) as { id?: string };
+  if (!j.id) throw new Error('graph events.create: response missing id');
+  return { eventId: j.id, reverseToken: { kind: 'graph.event_delete', provider: 'microsoft', event_id: j.id } };
+}
