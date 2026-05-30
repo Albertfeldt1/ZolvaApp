@@ -203,6 +203,18 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
       return (tid && senderByThread.get(tid)) || soleSender;
     };
 
+    // Original incoming message body, captured from mail_get_body, keyed by
+    // thread_id. Surfaced on proposals as `source_body` so the approval UI can
+    // show what the user is replying to. Capped to bound payload size.
+    const sourceBodyByThread = new Map<string, string>();
+    const resolveSourceBody = (payload: Record<string, unknown>): string | undefined => {
+      const tid = typeof payload.thread_id === 'string' ? payload.thread_id : '';
+      if (tid && sourceBodyByThread.has(tid)) return sourceBodyByThread.get(tid);
+      // Non-thread proposals (e.g. cal.create_event) — fall back to the sole
+      // researched body when the run read exactly one thread.
+      return sourceBodyByThread.size === 1 ? [...sourceBodyByThread.values()][0] : undefined;
+    };
+
     const allow = buildThreadAllowlist(events);
     const userPolicy = await deps.loadUserPolicy(userId);
     const promotions = await deps.loadActivePromotions(userId);
@@ -317,11 +329,12 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
           try {
             const idemKey = deriveIdemKey(action, input);
             const sourceFrom = resolveSourceFrom(input);
+            const sourceBody = resolveSourceBody(input);
             await writeProposalAndMaybePush(deps, {
               userId,
               runId,
               action,
-              payload: { ...input, idem_key: idemKey, deferred_execute: true, ...(sourceFrom ? { source_from: sourceFrom } : {}) },
+              payload: { ...input, idem_key: idemKey, deferred_execute: true, ...(sourceFrom ? { source_from: sourceFrom } : {}), ...(sourceBody ? { source_body: sourceBody } : {}) },
               toolUseId: tu.id,
               toolResults,
               fallbackPushBody: 'En handling venter',
@@ -369,11 +382,12 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
                 ? draftDetail.get(exec.recordPayload.draft_id)
                 : undefined;
             const sourceFrom = resolveSourceFrom(exec.recordPayload);
+            const sourceBody = resolveSourceBody(exec.recordPayload);
             await writeProposalAndMaybePush(deps, {
               userId,
               runId,
               action,
-              payload: { ...(carried ?? {}), ...exec.recordPayload, idem_key: idemKey, ...(sourceFrom ? { source_from: sourceFrom } : {}) },
+              payload: { ...(carried ?? {}), ...exec.recordPayload, idem_key: idemKey, ...(sourceFrom ? { source_from: sourceFrom } : {}), ...(sourceBody ? { source_body: sourceBody } : {}) },
               toolUseId: tu.id,
               toolResults,
               fallbackPushBody: 'Et udkast venter',
@@ -387,7 +401,11 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
           if (CONTEXT_ONLY_ACTIONS.has(action)) {
             if (action === 'mail.get_body') {
               const tid = typeof input.thread_id === 'string' ? input.thread_id : '';
-              if (tid) researchedThreads.add(tid);
+              if (tid) {
+                researchedThreads.add(tid);
+                const bodyText = typeof exec.recordPayload.body_text === 'string' ? exec.recordPayload.body_text : '';
+                if (bodyText) sourceBodyByThread.set(tid, bodyText.slice(0, 4000));
+              }
             }
             toolResults.push({
               type: 'tool_result',

@@ -1102,3 +1102,116 @@ Deno.test('runAgent: cal.create_event proposal carries source_from from sole thr
     'NJFJORDSALLE <njfjordsalle16@gmail.com>',
   );
 });
+
+// source_body: the original incoming email body captured from mail.get_body
+// must be attached to the subsequent mail.send_reply proposal as `source_body`
+// so the approval UI can show what the user is actually replying to.
+Deno.test('runAgent: send_reply proposal carries source_body captured from prior mail.get_body', async () => {
+  let proposedPayload: Record<string, unknown> | null = null;
+  let callIdx = 0;
+  const { deps } = makeDeps();
+
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't1', message_id: 'm1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't1', from: 'a@x', subject: 'Frokost', snippet: '' },
+  ];
+  // No explicit user policy rows → defaults: draft_reply=auto, send_reply=propose.
+  deps.loadUserPolicy = async () => [];
+  deps.loadUserPresence = async () => null;
+
+  // Round 0: Claude calls mail_get_body (context-only, populates sourceBodyByThread).
+  // Round 1: Claude calls mail_send_reply (proposed).
+  // Round 2: Claude ends.
+  const turns: CallClaudeResult[] = [
+    {
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_body',
+          name: 'mail_get_body',
+          input: { provider: 'google', thread_id: 't1' },
+        },
+      ],
+      usage: { input_tokens: 1, output_tokens: 1 },
+      stop_reason: 'tool_use',
+    },
+    {
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_send',
+          name: 'mail_send_reply',
+          input: {
+            provider: 'google',
+            thread_id: 't1',
+            draft_id: 'd1',
+            draft_hash: 'h',
+            preview_text: 'p',
+            to: 'a@x',
+          },
+        },
+      ],
+      usage: { input_tokens: 1, output_tokens: 1 },
+      stop_reason: 'tool_use',
+    },
+    {
+      content: [{ type: 'text', text: 'done' }],
+      usage: { input_tokens: 0, output_tokens: 0 },
+      stop_reason: 'end_turn',
+    },
+  ];
+  deps.callClaudeTurn = async () => turns[callIdx++];
+
+  deps.executeTool = async (action, payload) => {
+    if (action === 'mail.get_body') {
+      return {
+        mode: 'executed' as const,
+        reversible: false,
+        reverseToken: null,
+        recordPayload: {
+          provider: 'google',
+          thread_id: 't1',
+          from: 'a@x',
+          subject: 'Frokost',
+          body_text: 'Kan vi mødes til frokost onsdag den 4. juni kl. 12?',
+        },
+      };
+    }
+    if (action === 'mail.send_reply') {
+      // Default policy=propose: dispatcher returns propose.
+      return {
+        mode: 'propose' as const,
+        reversible: false,
+        reverseToken: null,
+        recordPayload: {
+          provider: 'google',
+          thread_id: 't1',
+          draft_id: 'd1',
+          draft_hash: 'h',
+          preview_text: 'p',
+          to: 'a@x',
+        },
+      };
+    }
+    return { mode: 'executed' as const, reversible: false, reverseToken: null, recordPayload: { ...payload } };
+  };
+
+  deps.writeProposedAction = async (row) => {
+    if (row.action_type === 'mail.send_reply') {
+      proposedPayload = row.payload;
+    }
+    return 'p-body-1';
+  };
+
+  const result = await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  assertEquals(result.status, 'ok');
+
+  if (!proposedPayload) throw new Error('writeProposedAction was not called for mail.send_reply');
+  // Core assertion: the original incoming body must be on the proposal payload.
+  assertEquals(
+    proposedPayload['source_body'],
+    'Kan vi mødes til frokost onsdag den 4. juni kl. 12?',
+  );
+});
