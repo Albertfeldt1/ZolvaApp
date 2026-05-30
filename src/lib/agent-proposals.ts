@@ -85,10 +85,19 @@ export async function approveProposedAction(actionId: string, editedBody?: strin
 }
 
 export async function dismissProposedAction(actionId: string): Promise<{ ok: boolean; error?: string }> {
-  const { error } = await supabase
-    .from('proposed_actions')
-    .update({ status: 'dismissed', decided_at: new Date().toISOString() })
-    .eq('id', actionId)
-    .eq('status', 'pending');
-  return error ? { ok: false, error: error.message } : { ok: true };
+  // Routed through the edge function (not a direct table update) so the server
+  // can also delete the underlying mail draft — otherwise "Spring over" leaves
+  // an orphan draft in the user's mailbox.
+  const { data: sess } = await supabase.auth.getSession();
+  const token = sess.session?.access_token;
+  if (!token) return { ok: false, error: 'no session' };
+  const baseUrl = (supabase as unknown as { supabaseUrl: string }).supabaseUrl;
+  const res = await fetch(`${baseUrl}/functions/v1/agent-dismiss`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ action_id: actionId }),
+  });
+  if (!res.ok) return { ok: false, error: `http ${res.status}` };
+  const j = (await res.json()) as { ok?: boolean; error?: string };
+  return { ok: !!j.ok, error: j.error };
 }
