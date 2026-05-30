@@ -153,6 +153,8 @@ Deno.test('executeTool: mail.draft_reply with provider=microsoft hits graph crea
   );
   assertEquals(urls[0].includes('createReply'), true);
   assertEquals(result.reverseToken?.kind, 'graph.draft');
+  assertEquals(result.recordPayload.body_full, 'Tak.');
+  assertEquals(result.recordPayload.in_reply_to_message_id, 'm-orig');
 });
 
 Deno.test('executeTool: mail.send_reply returns mode=propose without calling provider', async () => {
@@ -694,7 +696,7 @@ Deno.test('executeTool: mail.send_reply (outlook) applies edited_body via PATCH-
       return new Response('{}', { status: 200 });
     },
   });
-  await executeTool(
+  const result = await executeTool(
     'mail.send_reply',
     { provider: 'microsoft', thread_id: 't1', draft_id: 'd1', draft_hash: 'h', preview_text: 'p', to: 'a@x.com', edited_body: 'Redigeret' },
     ctx,
@@ -705,4 +707,5 @@ Deno.test('executeTool: mail.send_reply (outlook) applies edited_body via PATCH-
   assertEquals(!!patch, true);
   assertEquals(!!send, true);
   assertEquals(calls.indexOf(patch!) < calls.indexOf(send!), true);
+  assertEquals(result.mode, 'executed');
 });
