@@ -58,7 +58,16 @@ async function applyReverseToken(
   const provider = reverseTokenProvider(token);
   const refresh = await loadRefreshToken(client, userId, provider);
   if (!refresh) throw new Error(`no ${provider} refresh token for user`);
-  const { accessToken } = await refreshAccessToken(client, userId, provider, refresh);
+  // The only microsoft-reversible actions today are calendar writes
+  // (graph.event_*), and Microsoft scopes tokens per-refresh — so request
+  // Calendars.ReadWrite explicitly or the Graph calendar call 403s.
+  const { accessToken } = await refreshAccessToken(
+    client,
+    userId,
+    provider,
+    refresh,
+    provider === 'microsoft' ? { microsoftScope: 'offline_access Calendars.ReadWrite' } : {},
+  );
 
   switch (token.kind) {
     case 'gmail.modify':
