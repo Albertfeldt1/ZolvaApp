@@ -211,15 +211,33 @@ Deno.test('outlookAddCategory: PATCH /me/messages/{id} adds category preserving 
 });
 
 Deno.test('outlookUpdateDraft: PATCHes the draft body', async () => {
-  let captured: { url: string; method: string; body: string } | null = null;
-  const fetch = (async (url: string, init?: { method?: string; body?: string }) => {
-    captured = { url, method: init?.method ?? 'GET', body: String(init?.body ?? '') };
-    return new Response('{}', { status: 200 });
-  }) as unknown as OutlookFetch;
+  const { fetch, calls } = makeFetch([
+    {
+      url: 'https://graph.microsoft.com/v1.0/me/messages/d1',
+      status: 200,
+      body: { id: 'd1' },
+    },
+  ]);
   await outlookUpdateDraft({ fetch, accessToken: 'tok', draftId: 'd1', bodyText: 'Nyt svar' });
-  assertEquals(captured!.method, 'PATCH');
-  assertEquals(captured!.url.endsWith('/me/messages/d1'), true);
-  const parsed = JSON.parse(captured!.body) as { body: { contentType: string; content: string } };
+  assertEquals(calls.length, 1);
+  assertEquals(calls[0].method, 'PATCH');
+  assertEquals(calls[0].url, 'https://graph.microsoft.com/v1.0/me/messages/d1');
+  const parsed = JSON.parse(calls[0].body!) as { body: { contentType: string; content: string } };
   assertEquals(parsed.body.contentType, 'Text');
   assertEquals(parsed.body.content, 'Nyt svar');
+});
+
+Deno.test('outlookUpdateDraft: 4xx surfaces error', async () => {
+  const { fetch } = makeFetch([
+    {
+      url: 'https://graph.microsoft.com/v1.0/me/messages/d1',
+      status: 403,
+      body: { error: { message: 'insufficient_scope' } },
+    },
+  ]);
+  await assertRejects(
+    () => outlookUpdateDraft({ fetch, accessToken: 'tok', draftId: 'd1', bodyText: 'Nyt svar' }),
+    Error,
+    'graph messages.patch(update draft) 4',
+  );
 });

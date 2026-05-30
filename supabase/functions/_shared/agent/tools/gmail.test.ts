@@ -255,21 +255,49 @@ Deno.test('gmailCreateDraft: 4xx surfaces error', async () => {
 });
 
 Deno.test('gmailUpdateDraft: PUTs rebuilt message onto the draft id', async () => {
-  let captured: { url: string; method: string; body: string } | null = null;
-  const fetch = (async (url: string, init?: { method?: string; body?: string }) => {
-    captured = { url, method: init?.method ?? 'GET', body: String(init?.body ?? '') };
-    return new Response('{}', { status: 200 });
-  }) as unknown as GmailFetch;
+  const { fetch, calls } = makeFetch([
+    {
+      url: 'https://gmail.googleapis.com/gmail/v1/users/me/drafts/d1',
+      status: 200,
+      body: { id: 'd1', message: { id: 'm1', threadId: 't1' } },
+    },
+  ]);
   await gmailUpdateDraft({
     fetch, accessToken: 'tok', draftId: 'd1', threadId: 't1',
     to: 'a@example.com', subject: 'Re: Hej', bodyText: 'Nyt svar', inReplyToMessageId: 'm1',
   });
-  assertEquals(captured!.method, 'PUT');
-  assertEquals(captured!.url.endsWith('/drafts/d1'), true);
-  const parsed = JSON.parse(captured!.body) as { id: string; message: { threadId: string; raw: string } };
+  assertEquals(calls.length, 1);
+  assertEquals(calls[0].method, 'PUT');
+  assertEquals(calls[0].url, 'https://gmail.googleapis.com/gmail/v1/users/me/drafts/d1');
+  const parsed = JSON.parse(calls[0].body!) as { id: string; message: { threadId: string; raw: string } };
   assertEquals(parsed.id, 'd1');
   assertEquals(parsed.message.threadId, 't1');
   const decoded = atob(parsed.message.raw.replace(/-/g, '+').replace(/_/g, '/'));
   assertEquals(decoded.includes('Subject: Re: Hej'), true);
   assertEquals(decoded.includes('Nyt svar'), true);
+});
+
+Deno.test('gmailUpdateDraft: 4xx surfaces error', async () => {
+  const { fetch } = makeFetch([
+    {
+      url: 'https://gmail.googleapis.com/gmail/v1/users/me/drafts/d1',
+      status: 403,
+      body: { error: { message: 'insufficient scope' } },
+    },
+  ]);
+  await assertRejects(
+    () =>
+      gmailUpdateDraft({
+        fetch,
+        accessToken: 'tok',
+        draftId: 'd1',
+        threadId: 't1',
+        to: 'a@example.com',
+        subject: 'Re: Hej',
+        bodyText: 'Nyt svar',
+        inReplyToMessageId: 'm1',
+      }),
+    Error,
+    'gmail drafts.update 4',
+  );
 });
