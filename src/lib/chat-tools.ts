@@ -18,6 +18,7 @@ import {
   type GoogleEventInput,
 } from './google-calendar';
 import { listGoogleCalendars, listWritableCalendars } from './calendar-providers';
+import { formatMailWhen } from './mail-when';
 import {
   listCalendarEvents as listGraphEvents,
   listInboxMessages as listGraphMessages,
@@ -309,7 +310,12 @@ export async function listRecentMailAcrossProviders(
 
   if (ctx.gmail) {
     try {
-      const ms = await listGmailMessages(perProvider);
+      // "last N mails" must mirror the user's main inbox: Primary tab only, and
+      // grouped by conversation like Gmail (so a 2-message thread is one entry).
+      const ms = await listGmailMessages(perProvider, {
+        query: 'in:inbox category:primary',
+        groupByThread: true,
+      });
       ms.forEach((m) => rows.push(toGmailRow(m)));
       outcomes.push({ source: 'google', ok: true });
     } catch (err) {
@@ -349,8 +355,12 @@ export async function listRecentMailAcrossProviders(
     return { text: 'Ingen mails i postkasserne.', isError: false };
   }
 
+  // Hand the model a pre-formatted Danish local-time label, not a UTC ISO it
+  // has to convert - it was rendering yesterday's mail as "i dag" and shifting
+  // times by the timezone offset.
+  const now = new Date();
   const lines = trimmed.map((r) =>
-    `[${r.source}:${r.id}] ${r.receivedAt.toISOString()} - ${r.from} - "${r.subject}" - ${truncate(r.snippet, 120)}`,
+    `[${r.source}:${r.id}] ${formatMailWhen(r.receivedAt, now)} - ${r.from} - "${r.subject}" - ${truncate(r.snippet, 120)}`,
   );
   const header = `${trimmed.length} af de nyeste mails:`;
   const footer = formatOutcomesFooter(outcomes);

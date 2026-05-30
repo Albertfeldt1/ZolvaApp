@@ -53,7 +53,7 @@ export type GmailMessageBody = {
 
 type RawHeader = { name: string; value: string };
 
-type RawMessageList = { messages?: { id: string }[] };
+type RawMessageList = { messages?: { id: string; threadId?: string }[] };
 
 type RawMessagePart = {
   mimeType?: string;
@@ -132,16 +132,49 @@ export async function getInboxCounts(): Promise<{ total: number; unread: number 
   });
 }
 
-export async function listInboxMessages(maxResults = 12): Promise<GmailMessage[]> {
-  // Exclude Promotions and Social so marketing/network noise (LinkedIn invites,
-  // Dribbble contests, domain offers) doesn't crowd out real mail in the "latest
-  // mails" glance. Updates is kept on purpose - receipts, security alerts and
-  // signup confirmations live there and the user wants those. Mirrors the
-  // category scoping already used by the unread counter and the backfill reader.
-  const q = encodeURIComponent('in:inbox -category:promotions -category:social');
+// Keep the first message of each thread, preserving order. Callers pass an
+// internalDate-descending list, so "first" is the most recent message per
+// conversation - mirroring Gmail's one-row-per-thread inbox grouping.
+export function dedupeByThread<T extends { id: string; threadId?: string }>(
+  messages: T[],
+): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const m of messages) {
+    const key = m.threadId ?? m.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(m);
+  }
+  return out;
+}
+
+export type ListInboxOptions = {
+  // Gmail search query. Defaults to excluding Promotions/Social noise. The chat
+  // "last N mails" path overrides this with `in:inbox category:primary` so it
+  // mirrors exactly what the user sees at the top of their main inbox.
+  query?: string;
+  // Collapse messages to one entry per conversation, keeping the most recent
+  // message of each thread - matches how Gmail groups the inbox. Without it, a
+  // multi-message conversation (e.g. two Google security alerts) fills several
+  // slots and pushes distinct mail off the list.
+  groupByThread?: boolean;
+};
+
+export async function listInboxMessages(
+  maxResults = 12,
+  opts: ListInboxOptions = {},
+): Promise<GmailMessage[]> {
+  const q = encodeURIComponent(opts.query ?? 'in:inbox -category:promotions -category:social');
+  // When grouping by thread, over-fetch so de-duping still yields ~maxResults
+  // distinct conversations. The list call is a single cheap request; only the
+  // surviving ids get a metadata fetch.
+  const fetchCount = opts.groupByThread
+    ? Math.min(Math.max(maxResults * 5, 25), 100)
+    : maxResults;
   return tryWithRefresh('google', async (accessToken) => {
     const listRes = await fetchListWithRetry(
-      `${BASE}/messages?q=${q}&maxResults=${maxResults}`,
+      `${BASE}/messages?q=${q}&maxResults=${fetchCount}`,
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
     if (listRes.status === 401 || listRes.status === 403) {
@@ -153,11 +186,17 @@ export async function listInboxMessages(maxResults = 12): Promise<GmailMessage[]
     const list = (await listRes.json()) as RawMessageList;
     if (!list.messages?.length) return [];
 
+    // The list is internalDate-descending, so the first message seen for a
+    // thread is its most recent one - exactly the entry Gmail shows for that row.
+    const picked = opts.groupByThread
+      ? dedupeByThread(list.messages).slice(0, maxResults)
+      : list.messages;
+
     // allSettled, not all: one transient metadata failure (timeout, 5xx)
     // shouldn't blank the other 49 mails. Auth errors still propagate so
     // tryWithRefresh can refresh the token and retry the whole batch.
     const settled = await Promise.allSettled(
-      list.messages.map((m) => fetchMessageMeta(accessToken, m.id)),
+      picked.map((m) => fetchMessageMeta(accessToken, m.id)),
     );
     const authErr = settled.find(
       (r): r is PromiseRejectedResult =>
