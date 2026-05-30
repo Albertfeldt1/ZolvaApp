@@ -891,7 +891,7 @@ Deno.test('runAgent: mail.send_reply auto-send sees threadWasResearched=true aft
 
 import { buildProposalPreview } from './runner.ts';
 
-// Phase 4 / T19 — draftDetail bridge: a mail.draft_reply executed step records
+// Phase 4 / T20 — draftDetail bridge: a mail.draft_reply executed step records
 // body_full + subject + in_reply_to_message_id in the per-run draftDetail map;
 // the subsequent mail.send_reply proposal must carry those fields into its
 // payload so the approval UI can prefill the real text.
