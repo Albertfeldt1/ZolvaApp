@@ -13,6 +13,13 @@ export type SnapshotEvent = {
   title: string;
 };
 
+export type PendingTrustOffer = {
+  id: string;
+  actionType: string; // e.g. "mail.send_reply"
+  recipient: string; // e.g. "mom@example.com"
+  approvalCount: number;
+};
+
 export type SnapshotPayload = {
   schema: number;
   generatedAt: string; // ISO 8601 with offset
@@ -21,6 +28,10 @@ export type SnapshotPayload = {
   todayEvents: SnapshotEvent[];
   // Empty string falls back to default "Spørg Zolva..." copy on the widget side.
   chatPrompt: string;
+  // Additive (schema stays 1): Swift's JSONDecoder ignores unknown keys, so
+  // old widget binaries drop this and render the existing context row. New
+  // binaries swap the context row for a tap-to-decide offer card.
+  pendingTrustOffer: PendingTrustOffer | null;
 };
 
 export type BuildSnapshotInput = {
@@ -28,6 +39,7 @@ export type BuildSnapshotInput = {
   morningBrief: { headline: string } | null;
   eveningBrief: { headline: string } | null;
   events: Array<{ id: string; start: Date; end: Date; title: string }>;
+  pendingTrustOffer?: PendingTrustOffer | null;
 };
 
 const MAX_TODAY_EVENTS = 8;
@@ -58,5 +70,6 @@ export function buildSnapshotFromState(input: BuildSnapshotInput): SnapshotPaylo
     eveningBrief: input.eveningBrief,
     todayEvents: today,
     chatPrompt: '',
+    pendingTrustOffer: input.pendingTrustOffer ?? null,
   };
 }

@@ -79,6 +79,7 @@ export function useTodayBrief(): {
       // has the right field set; the inactive slot stays null until that brief
       // kind lands separately.
       void writeSnapshotFromSources({
+        userId,
         morningBriefHeadline: fresh?.kind === 'morning' ? fresh.headline : null,
         eveningBriefHeadline: fresh?.kind === 'evening' ? fresh.headline : null,
       });

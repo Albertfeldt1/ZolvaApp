@@ -1021,7 +1021,7 @@ function useCalendarItems(
         const todayEvents = fulfilled
           .filter((e) => e.start >= todayStart && e.start < todayEnd)
           .map((e) => ({ id: e.id, start: e.start, end: e.end, title: e.title }));
-        void writeSnapshotFromSources({ events: todayEvents });
+        void writeSnapshotFromSources({ userId, events: todayEvents });
       });
 
     return () => {

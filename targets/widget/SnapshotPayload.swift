@@ -23,6 +23,13 @@ struct BriefHeadline: Codable {
   let headline: String
 }
 
+struct PendingTrustOffer: Codable {
+  let id: String
+  let actionType: String
+  let recipient: String
+  let approvalCount: Int
+}
+
 struct SnapshotPayload: Codable {
   let schema: Int
   let generatedAt: Date
@@ -30,6 +37,9 @@ struct SnapshotPayload: Codable {
   let eveningBrief: BriefHeadline?
   let todayEvents: [SnapshotEvent]
   let chatPrompt: String
+  // Additive: schema stays at 1. JSONDecoder tolerates a missing key for an
+  // optional, so this binary decodes both old (no key) and new snapshots.
+  let pendingTrustOffer: PendingTrustOffer?
 }
 
 func decodeSnapshot(_ data: Data) -> SnapshotPayload? {

@@ -69,4 +69,31 @@ describe('buildSnapshotFromState', () => {
     });
     expect(out.chatPrompt).toBe('');
   });
+
+  it('defaults pendingTrustOffer to null when not provided', () => {
+    const out = buildSnapshotFromState({
+      now: REF_NOW,
+      morningBrief: null,
+      eveningBrief: null,
+      events: [],
+    });
+    expect(out.pendingTrustOffer).toBeNull();
+  });
+
+  it('passes pendingTrustOffer through when present', () => {
+    const offer = {
+      id: 'offer-1',
+      actionType: 'mail.send_reply',
+      recipient: 'mom@example.com',
+      approvalCount: 4,
+    };
+    const out = buildSnapshotFromState({
+      now: REF_NOW,
+      morningBrief: null,
+      eveningBrief: null,
+      events: [],
+      pendingTrustOffer: offer,
+    });
+    expect(out.pendingTrustOffer).toEqual(offer);
+  });
 });
