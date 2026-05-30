@@ -10,7 +10,9 @@ type ActionType =
   | 'mail.flag_important'
   | 'mail.summarize'
   | 'mail.draft_reply'
-  | 'mail.send_reply';
+  | 'mail.send_reply'
+  | 'cal.create_event'
+  | 'cal.update_event';
 type Mode = 'auto' | 'propose' | 'off';
 
 const ROWS: Array<{ key: ActionType; label: string; defaultMode: Mode }> = [
@@ -20,6 +22,8 @@ const ROWS: Array<{ key: ActionType; label: string; defaultMode: Mode }> = [
   { key: 'mail.summarize', label: 'Opsummering', defaultMode: 'auto' },
   { key: 'mail.draft_reply', label: 'Udkast til svar', defaultMode: 'auto' },
   { key: 'mail.send_reply', label: 'Send svar', defaultMode: 'propose' },
+  { key: 'cal.create_event', label: 'Opret begivenhed', defaultMode: 'propose' },
+  { key: 'cal.update_event', label: 'Ret begivenhed', defaultMode: 'propose' },
 ];
 
 const MODES: Array<{ key: Mode; label: string }> = [
