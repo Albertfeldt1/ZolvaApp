@@ -164,7 +164,9 @@ Deno.test('googleUpdateEvent: captures prior then patches; restore token carries
 });
 
 Deno.test('outlookUpdateEvent: restore token carries prior', async () => {
+  const calls: string[] = [];
   const fetch: CalWriteFetch = async (_url, init) => {
+    calls.push(init?.method ?? 'GET');
     if ((init?.method ?? 'GET') === 'GET') {
       return new Response(JSON.stringify({
         subject: 'Gammel', start: { dateTime: '2026-06-02T10:00:00.0000000' }, end: { dateTime: '2026-06-02T11:00:00.0000000' }, location: { displayName: 'A' },
@@ -173,6 +175,8 @@ Deno.test('outlookUpdateEvent: restore token carries prior', async () => {
     return new Response('{}', { status: 200 });
   };
   const out = await outlookUpdateEvent({ fetch, accessToken: 't', eventId: 'e1', patch: { title: 'Ny' } });
+  assertEquals(calls[0], 'GET');
+  assertEquals(calls[1], 'PATCH');
   assertEquals(out.reverseToken.kind, 'graph.event_restore');
   assertEquals(out.reverseToken.prior.title, 'Gammel');
 });
