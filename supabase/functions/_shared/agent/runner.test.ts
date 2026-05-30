@@ -681,6 +681,7 @@ Deno.test('runAgent: deferred-execute — policy=propose on default-auto action 
   assertEquals(payload?.provider, 'google');
   assertEquals(payload?.deferred_execute, true);
   assertEquals(typeof payload?.idem_key, 'string');
+  assertEquals(payload?.source_from, 'a@x');
   assertEquals(pushDispatched, true);
 });
 
