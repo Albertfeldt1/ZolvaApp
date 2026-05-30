@@ -12,6 +12,8 @@ const TITLES: Record<string, string> = {
   'mail.draft_reply': 'Udkast til svar',
   'mail.send_reply': 'Svar sendt',
   'mail.send_new': 'Mail sendt',
+  'cal.create_event': 'Begivenhed oprettet',
+  'cal.update_event': 'Begivenhed opdateret',
 };
 
 function str(v: unknown): string {
@@ -35,6 +37,19 @@ function detailFor(row: AgentActionRow): string {
       const to = str(row.payload.to);
       if (subject && to) return `${subject} · til ${to}`;
       return subject || (to ? `Til ${to}` : '');
+    }
+    case 'cal.create_event': {
+      const title = str(row.payload.title);
+      const when = str(row.payload.start_iso);
+      if (title && when) return `${title} · ${when}`;
+      return title || when;
+    }
+    case 'cal.update_event': {
+      const parts: string[] = [];
+      if (str(row.payload.start_iso)) parts.push(`ny tid ${str(row.payload.start_iso)}`);
+      if (str(row.payload.title)) parts.push(`ny titel ${str(row.payload.title)}`);
+      if (str(row.payload.location)) parts.push(`nyt sted ${str(row.payload.location)}`);
+      return parts.join(' · ');
     }
     default:
       return '';
