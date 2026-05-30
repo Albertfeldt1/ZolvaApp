@@ -623,3 +623,12 @@ Deno.test('executeTool: cal.update_event throws when no change fields given', as
     'no fields to change',
   );
 });
+
+Deno.test('executeTool: cal.update_event throws on empty patch even on propose path', async () => {
+  const ctx = makeCtx();
+  await assertRejects(
+    () => executeTool('cal.update_event', { provider: 'google', event_id: 'e1' }, ctx),
+    Error,
+    'no fields to change',
+  );
+});
