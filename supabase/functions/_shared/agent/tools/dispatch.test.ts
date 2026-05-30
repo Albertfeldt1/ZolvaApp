@@ -632,3 +632,77 @@ Deno.test('executeTool: cal.update_event throws on empty patch even on propose p
     'no fields to change',
   );
 });
+
+Deno.test('executeTool: mail.draft_reply (google) stores full body + in_reply_to', async () => {
+  const ctx = makeCtx({
+    fetch: async () => new Response(JSON.stringify({ id: 'd1', message: { id: 'm1' } }), { status: 200 }),
+  });
+  const result = await executeTool(
+    'mail.draft_reply',
+    { provider: 'google', thread_id: 't1', in_reply_to_message_id: 'msg1', to: 'a@x.com', subject: 'Re: Hej', body: 'Det fulde svar som er ret langt' },
+    ctx,
+  );
+  assertEquals(result.recordPayload.body_full, 'Det fulde svar som er ret langt');
+  assertEquals(result.recordPayload.in_reply_to_message_id, 'msg1');
+});
+
+Deno.test('executeTool: mail.send_reply (google) applies edited_body via update-then-send', async () => {
+  const calls: Array<{ method: string; url: string }> = [];
+  const ctx = makeCtx({
+    fetch: async (url: string, init?: { method?: string }) => {
+      calls.push({ method: init?.method ?? 'GET', url });
+      return new Response('{}', { status: 200 });
+    },
+  });
+  const result = await executeTool(
+    'mail.send_reply',
+    { provider: 'google', thread_id: 't1', draft_id: 'd1', draft_hash: 'h', preview_text: 'p', to: 'a@x.com', subject: 'Re: Hej', in_reply_to_message_id: 'm1', edited_body: 'Min redigerede tekst' },
+    ctx,
+    { policy: 'auto', safety: { userIsIdle: true, hasRecipientHistory: async () => true, hasPriorFailedIdem: async () => false, threadWasResearched: () => true } },
+  );
+  assertEquals(result.mode, 'executed');
+  // a PUT to the draft (update) happened before the send
+  const put = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/drafts/d1'));
+  const send = calls.find((c) => c.url.endsWith('/drafts/send'));
+  assertEquals(!!put, true);
+  assertEquals(!!send, true);
+  assertEquals(calls.indexOf(put!) < calls.indexOf(send!), true);
+});
+
+Deno.test('executeTool: mail.send_reply (google) without edited_body does NOT update the draft', async () => {
+  const calls: Array<{ method: string; url: string }> = [];
+  const ctx = makeCtx({
+    fetch: async (url: string, init?: { method?: string }) => {
+      calls.push({ method: init?.method ?? 'GET', url });
+      return new Response('{}', { status: 200 });
+    },
+  });
+  await executeTool(
+    'mail.send_reply',
+    { provider: 'google', thread_id: 't1', draft_id: 'd1', draft_hash: 'h', preview_text: 'p', to: 'a@x.com' },
+    ctx,
+    { policy: 'auto', safety: { userIsIdle: true, hasRecipientHistory: async () => true, hasPriorFailedIdem: async () => false, threadWasResearched: () => true } },
+  );
+  assertEquals(calls.some((c) => c.method === 'PUT'), false);
+});
+
+Deno.test('executeTool: mail.send_reply (outlook) applies edited_body via PATCH-then-send', async () => {
+  const calls: Array<{ method: string; url: string }> = [];
+  const ctx = makeCtx({
+    fetch: async (url: string, init?: { method?: string }) => {
+      calls.push({ method: init?.method ?? 'GET', url });
+      return new Response('{}', { status: 200 });
+    },
+  });
+  await executeTool(
+    'mail.send_reply',
+    { provider: 'microsoft', thread_id: 't1', draft_id: 'd1', draft_hash: 'h', preview_text: 'p', to: 'a@x.com', edited_body: 'Redigeret' },
+    ctx,
+    { policy: 'auto', safety: { userIsIdle: true, hasRecipientHistory: async () => true, hasPriorFailedIdem: async () => false, threadWasResearched: () => true } },
+  );
+  const patch = calls.find((c) => c.method === 'PATCH' && c.url.endsWith('/me/messages/d1'));
+  const send = calls.find((c) => c.url.endsWith('/me/messages/d1/send'));
+  assertEquals(!!patch, true);
+  assertEquals(!!send, true);
+  assertEquals(calls.indexOf(patch!) < calls.indexOf(send!), true);
+});

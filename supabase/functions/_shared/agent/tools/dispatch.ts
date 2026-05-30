@@ -5,6 +5,7 @@ import {
   resolveLabelId,
   gmailCreateDraft,
   gmailSendDraft,
+  gmailUpdateDraft,
   ZOLVA_FLAGGED_LABEL,
   type GmailFetch,
   type GmailModifyReverseToken,
@@ -16,6 +17,7 @@ import {
   outlookSetFlag,
   outlookAddCategory,
   outlookSendDraft,
+  outlookUpdateDraft,
   type OutlookFetch,
   type OutlookDraftReverseToken,
   type OutlookMoveReverseToken,
@@ -349,6 +351,8 @@ export async function executeTool(
             to,
             subject,
             body_preview: bodyText.slice(0, 200),
+            body_full: bodyText,
+            in_reply_to_message_id: inReplyTo,
           },
         };
       }
@@ -371,6 +375,8 @@ export async function executeTool(
           draft_id: out.draftId,
           draft_hash: draftHash,
           body_preview: bodyText.slice(0, 200),
+          body_full: bodyText,
+          in_reply_to_message_id: inReplyTo,
         },
       };
     }
@@ -435,6 +441,29 @@ export async function executeTool(
           reverseToken: null,
           recordPayload: baseRecord,
         };
+      }
+
+      // If the user edited the reply in the approval modal, push the edit onto
+      // the draft before sending so what they saw is what actually goes out.
+      // (edited_body is only present on the agent-approve path; unattended
+      // auto-sends never carry it.)
+      const editedBody = typeof payload.edited_body === 'string' ? payload.edited_body.trim() : '';
+      if (editedBody) {
+        if (provider === 'google') {
+          await gmailUpdateDraft({
+            fetch: ctx.fetch,
+            accessToken: ctx.gmail.accessToken,
+            draftId,
+            threadId,
+            to: toAddr,
+            subject: mustString(payload, 'subject'),
+            bodyText: editedBody,
+            inReplyToMessageId: mustString(payload, 'in_reply_to_message_id'),
+          });
+        } else {
+          if (!ctx.outlook) throw new Error('outlook send requested but outlook context missing');
+          await outlookUpdateDraft({ fetch: ctx.fetch, accessToken: ctx.outlook.accessToken, draftId, bodyText: editedBody });
+        }
       }
 
       if (provider === 'google') {
