@@ -1,16 +1,19 @@
 import React, { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useAuth } from '../lib/auth';
 import { decideTrustOffer, type TrustOfferRow } from '../lib/trust-offers';
 import { colors } from '../theme';
 
 export function TrustOfferCard({ row }: { row: TrustOfferRow }) {
+  const { user } = useAuth();
   const [pending, setPending] = useState<'yes' | 'no' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function decide(status: 'accepted' | 'dismissed') {
+    if (!user) return;
     setPending(status === 'accepted' ? 'yes' : 'no');
     setError(null);
-    const r = await decideTrustOffer(row.id, status);
+    const r = await decideTrustOffer(row.id, user.id, status);
     setPending(null);
     if (!r.ok) setError('fejl');
   }

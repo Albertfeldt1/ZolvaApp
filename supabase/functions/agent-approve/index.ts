@@ -189,16 +189,22 @@ async function maybeCreateTrustOffer(
   if (actionType !== 'mail.send_reply') return;
   if (!recipient) return;
 
+  // Email recipients are case-insensitive. resolveTrustPolicy lowercases on
+  // match, and the uniq partial index is case-sensitive text — so we must
+  // store + look up + count by a single canonical (lowercased) form, or a
+  // case-variant send could double-prompt or miss the threshold.
+  const normalized = recipient.toLowerCase();
+
   // Lifetime count of approved sends to this recipient. PostgREST exposes
-  // JSONB extraction via the ->> operator inside filter values; supabase-js
-  // forwards the literal string.
+  // JSONB extraction via the ->> operator inside filter values; ilike makes
+  // the match case-insensitive against historically-stored payload casing.
   const { count, error: countErr } = await client
     .from('proposed_actions')
     .select('id', { count: 'exact', head: true })
     .eq('user_id', userId)
     .eq('action_type', actionType)
     .eq('status', 'executed')
-    .eq('payload->>to', recipient);
+    .ilike('payload->>to', normalized);
   if (countErr) {
     console.error('[agent-approve] trust count error', countErr);
     return;
@@ -210,7 +216,7 @@ async function maybeCreateTrustOffer(
     .select('status')
     .eq('user_id', userId)
     .eq('action_type', actionType)
-    .eq('recipient', recipient)
+    .eq('recipient', normalized)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -224,7 +230,7 @@ async function maybeCreateTrustOffer(
   const { error: insertErr } = await client.from('trust_offers').insert({
     user_id: userId,
     action_type: actionType,
-    recipient,
+    recipient: normalized,
     status: 'pending',
     approval_count: count,
   });

@@ -10,8 +10,9 @@ export function TrustPromotionsSection() {
   const accepted = rows.filter((r) => r.status === 'accepted');
 
   const revert = useCallback(async (id: string) => {
-    await revertTrustOffer(id);
-  }, []);
+    if (!user) return;
+    await revertTrustOffer(id, user.id);
+  }, [user?.id]);
 
   if (!user || loading || accepted.length === 0) return null;
 

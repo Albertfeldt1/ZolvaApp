@@ -89,6 +89,10 @@ export type WriteSnapshotSources = {
 };
 
 export async function writeSnapshotFromSources(s: WriteSnapshotSources): Promise<void> {
+  // Mirror writeSnapshot's guards so a debounced/non-iOS call doesn't burn a
+  // Supabase round-trip just to have the write dropped downstream.
+  if (Platform.OS !== 'ios') return;
+  if (Date.now() - lastWriteAt < DEBOUNCE_MS) return;
   const pendingTrustOffer = s.userId ? await fetchPendingTrustOffer(s.userId) : null;
   await writeSnapshot({
     now: new Date(),

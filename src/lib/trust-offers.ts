@@ -67,25 +67,29 @@ export function useTrustOffers(userId: string | null | undefined): {
   return { rows, loading };
 }
 
-// Pending → accepted | dismissed. Owner-update RLS gates the write.
+// Pending → accepted | dismissed. Owner-update RLS is the real gate; the
+// explicit user_id filter is defense-in-depth, matching trust-offer-decide.
 export async function decideTrustOffer(
   offerId: string,
+  userId: string,
   status: 'accepted' | 'dismissed',
 ): Promise<{ ok: boolean }> {
   const { error } = await supabase
     .from('trust_offers')
     .update({ status, decided_at: new Date().toISOString() })
     .eq('id', offerId)
+    .eq('user_id', userId)
     .eq('status', 'pending');
   return { ok: !error };
 }
 
 // Accepted → reverted (from Settings).
-export async function revertTrustOffer(offerId: string): Promise<{ ok: boolean }> {
+export async function revertTrustOffer(offerId: string, userId: string): Promise<{ ok: boolean }> {
   const { error } = await supabase
     .from('trust_offers')
     .update({ status: 'reverted', reverted_at: new Date().toISOString() })
     .eq('id', offerId)
+    .eq('user_id', userId)
     .eq('status', 'accepted');
   return { ok: !error };
 }
