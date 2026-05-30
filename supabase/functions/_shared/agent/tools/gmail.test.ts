@@ -201,6 +201,35 @@ Deno.test('gmailDeleteDraft: DELETEs the draft', async () => {
   assertEquals(calls[0].method, 'DELETE');
 });
 
+Deno.test('gmailDeleteDraft: 404 (already deleted) is treated as success (idempotent undo)', async () => {
+  const { fetch } = makeFetch([
+    {
+      url: 'https://gmail.googleapis.com/gmail/v1/users/me/drafts/gone-1',
+      status: 404,
+      body: { error: { message: 'Requested entity was not found.' } },
+    },
+  ]);
+  // Must not throw — the draft being gone is the desired end state.
+  await gmailDeleteDraft({ fetch, accessToken: 'tok', draftId: 'gone-1' });
+});
+
+Deno.test('gmailDeleteDraft: other 4xx still surfaces an error', async () => {
+  const { fetch } = makeFetch([
+    {
+      url: 'https://gmail.googleapis.com/gmail/v1/users/me/drafts/d1',
+      status: 403,
+      body: { error: { message: 'insufficient scope' } },
+    },
+  ]);
+  let threw = false;
+  try {
+    await gmailDeleteDraft({ fetch, accessToken: 'tok', draftId: 'd1' });
+  } catch {
+    threw = true;
+  }
+  assertEquals(threw, true);
+});
+
 Deno.test('gmailCreateDraft: 4xx surfaces error', async () => {
   const { fetch } = makeFetch([
     {

@@ -198,7 +198,9 @@ export async function gmailDeleteDraft(input: DeleteDraftInput): Promise<void> {
       headers: { authorization: `Bearer ${input.accessToken}` },
     },
   );
-  if (!res.ok && res.status !== 204) {
+  // 204/2xx = deleted. 404 = already gone — for an undo that's the desired
+  // end state, so treat it as success (idempotent). Anything else is real.
+  if (!res.ok && res.status !== 404) {
     const detail = await res.text().catch(() => '');
     throw new Error(`gmail drafts.delete ${res.status}: ${detail.slice(0, 200)}`);
   }
