@@ -140,6 +140,7 @@ export async function outlookDeleteEvent(input: {
     method: 'DELETE',
     headers: { authorization: `Bearer ${input.accessToken}` },
   });
+  // 404/410 = already gone — for an undo that's the desired end state.
   if (!res.ok && res.status !== 404 && res.status !== 410) {
     const detail = await res.text().catch(() => '');
     throw new Error(`graph events.delete ${res.status}: ${detail.slice(0, 200)}`);

@@ -122,10 +122,19 @@ Deno.test('googleGetEventPatch: maps current event to EventPatch', async () => {
 });
 
 Deno.test('outlookGetEventPatch: maps current event to EventPatch', async () => {
-  const fetch: CalWriteFetch = async () =>
-    new Response(JSON.stringify({
+  let preferHeader = '';
+  const fetch: CalWriteFetch = async (_url, init) => {
+    preferHeader = (init?.headers as Record<string, string> | undefined)?.['prefer'] ?? '';
+    return new Response(JSON.stringify({
       subject: 'Møde', start: { dateTime: '2026-06-02T10:00:00.0000000' }, end: { dateTime: '2026-06-02T11:00:00.0000000' }, location: { displayName: 'A' },
     }), { status: 200 });
+  };
   const prior = await outlookGetEventPatch({ fetch, accessToken: 't', eventId: 'e1' });
   assertEquals(prior, { title: 'Møde', startIso: '2026-06-02T10:00:00.0000000', endIso: '2026-06-02T11:00:00.0000000', location: 'A' });
+  assertEquals(preferHeader.includes('UTC'), true);
+});
+
+Deno.test('outlookDeleteEvent: treats 410 as success', async () => {
+  const fetch: CalWriteFetch = async () => new Response(null, { status: 410 });
+  await outlookDeleteEvent({ fetch, accessToken: 't', eventId: 'gone' });
 });
