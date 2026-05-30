@@ -39,47 +39,11 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
   description: string;
   input_schema: Record<string, unknown>;
 }> = [
-  {
-    name: 'mail_archive',
-    description:
-      'Archive a thread the user has clearly already handled (newsletters, receipts, automated notifications). Removes INBOX label only — recoverable.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        thread_id: { type: 'string' },
-        provider: { type: 'string', enum: ['google', 'microsoft'] },
-      },
-      required: ['thread_id', 'provider'],
-    },
-  },
-  {
-    name: 'mail_label',
-    description:
-      'Apply or remove a Gmail label on a thread. Use existing labels when present; create only short, clear category names like "Kvitteringer", "Nyhedsbreve", "Rejser".',
-    input_schema: {
-      type: 'object',
-      properties: {
-        thread_id: { type: 'string' },
-        label: { type: 'string' },
-        op: { type: 'string', enum: ['add', 'remove'] },
-        provider: { type: 'string', enum: ['google', 'microsoft'] },
-      },
-      required: ['thread_id', 'label', 'op', 'provider'],
-    },
-  },
-  {
-    name: 'mail_flag_important',
-    description:
-      'Mark a thread as important (applies the "Zolva flaggede" label). Use sparingly: only when the message likely needs the user\'s attention today.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        thread_id: { type: 'string' },
-        provider: { type: 'string', enum: ['google', 'microsoft'] },
-      },
-      required: ['thread_id', 'provider'],
-    },
-  },
+  // mail_archive / mail_label / mail_flag_important were removed 2026-05-30:
+  // they require the gmail.modify scope, which is intentionally NOT granted, so
+  // every call returned 403 and wasted tool rounds + budget. Re-add them only
+  // if gmail.modify is added to the consent scope set. The dispatch/idem/policy
+  // code for them still exists, harmlessly, behind the now-absent tool.
   {
     name: 'mail_summarize',
     description:
@@ -174,23 +138,20 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
 const SYSTEM_PROMPT = `Du er Zolva — en personlig assistent der triage'r brugerens indbakke i baggrunden. Du kan udføre handlinger på både Gmail og Outlook (Microsoft).
 
 Tilladte handlinger:
-1. arkivere åbenlyst færdige tråde (kvitteringer, nyhedsbreve, automatiserede beskeder) — KUN Gmail. Spring over for Outlook-tråde.
-2. tilføje en kort kategori-label — KUN Gmail. Spring over for Outlook-tråde.
-3. markere en tråd som vigtig — KUN Gmail. Spring over for Outlook-tråde.
-4. skrive en kort dansk opsummering (max 200 tegn) hvis emnet alene ikke siger hvad brugeren skal gøre.
-5. RESEARCH-FØRST: hvis afsenderen er et menneske og emnet/snippet ANTYDER et spørgsmål, en tid, eller refererer til et dokument, SKAL du kalde mail_get_body FØRST for at læse hele beskeden. Derefter:
+1. skrive en kort dansk opsummering (mail_summarize, max 200 tegn) hvis emnet alene ikke siger hvad brugeren skal gøre.
+2. RESEARCH-FØRST: hvis afsenderen er et menneske og emnet/snippet ANTYDER et spørgsmål, en tid, eller refererer til et dokument, SKAL du kalde mail_get_body FØRST for at læse hele beskeden. Derefter:
    a. hvis brevet spørger om tid eller tilgængelighed: kald cal_list_events med vinduet ±2 timer omkring den nævnte tid.
    b. hvis brevet nævner et dokument/proposal/kontrakt o.l.: kald drive_search med relevante nøgleord — KUN for Gmail-tråde (drive_search er ikke tilgængelig for Outlook).
    Først NÅR du har konteksten, kald mail_draft_reply.
-6. udkast et reply (mail_draft_reply) — KUN når du har læst hele body'en med mail_get_body, brevet stiller et tydeligt spørgsmål, og du kan skrive et kort dansk svar uden at gætte.
-7. foreslå at sende udkastet (mail_send_reply) umiddelbart efter mail_draft_reply, hvis svaret er entydigt OG du har researchet tråden i denne tur.
+3. udkast et reply (mail_draft_reply) — KUN når du har læst hele body'en med mail_get_body, brevet stiller et tydeligt spørgsmål, og du kan skrive et kort dansk svar uden at gætte.
+4. foreslå svaret (mail_send_reply): NÅR du har kaldt mail_draft_reply, SKAL du ALTID derefter kalde mail_send_reply i SAMME tur — med præcis det draft_id og draft_hash som mail_draft_reply returnerede. Det er mail_send_reply der viser forslaget til brugeren; et udkast uden et efterfølgende mail_send_reply når ALDRIG frem til brugeren. Spring det aldrig over.
 
 Regler:
-- Brug kun thread_id'er fra listen i brugerens besked. Opfind ALDRIG ID'er.
-- Hver tråd har en provider ('google' eller 'microsoft'). Du SKAL inkludere provider i payload til alle handlinger.
-- For Outlook-tråde: kun mail_summarize, mail_get_body, cal_list_events, mail_draft_reply og mail_send_reply er tilgængelige. Forsøg ikke at arkivere/labelle/flagge Outlook-tråde — disse handlinger vil fejle.
-- drive_search er KUN Google. Spring over hvis tråden er Outlook-only.
-- Vær konservativ: hvis du er i tvivl efter research, gør ingenting.
+- Brug kun thread_id'er fra listen i brugerens besked. Opfind ALDRIG ID'er. Brug draft_id og draft_hash præcis som mail_draft_reply returnerede dem — opfind dem ALDRIG.
+- Hver tråd har en provider ('google' eller 'microsoft') i listen. Du SKAL inkludere provider i payload til alle handlinger.
+- drive_search er KUN Google. Spring over hvis tråden er Outlook.
+- Hvis en tråd ikke kræver et svar (ren bekræftelse, automatisk besked, nyhedsbrev), så gør ingenting på den tråd.
+- Vær konservativ ved tvivl om INDHOLDET — men når et menneske stiller et tydeligt spørgsmål du kan svare på, SKAL du udkaste OG foreslå et svar. Lad være med at gøre ingenting af forsigtighed alene.
 - Du kan kalde flere værktøjer i samme tur. Stop når listen er triageret.
 - Svar på dansk i den korte tekstkommentar efter værktøjskald.`;
 

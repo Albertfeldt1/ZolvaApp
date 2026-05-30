@@ -11,8 +11,8 @@ export interface BudgetLimits {
 }
 
 export const DEFAULT_LIMITS: BudgetLimits = {
-  dailyInput: 100_000,
-  dailyOutput: 25_000,
+  dailyInput: 500_000,
+  dailyOutput: 125_000,
 };
 
 export function isBudgetExceeded(

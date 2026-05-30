@@ -2,16 +2,13 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { actionTypeFromToolName, buildMailTriagePrompt, MAIL_TRIAGE_TOOLS } from './prompt.ts';
 
-Deno.test('MAIL_TRIAGE_TOOLS exposes nine tools after phase 4a', () => {
+Deno.test('MAIL_TRIAGE_TOOLS exposes six tools (archive/label/flag retired — need gmail.modify)', () => {
   const names = MAIL_TRIAGE_TOOLS.map((t) => t.name).sort();
   assertEquals(names, [
     'cal_list_events',
     'drive_search',
-    'mail_archive',
     'mail_draft_reply',
-    'mail_flag_important',
     'mail_get_body',
-    'mail_label',
     'mail_send_reply',
     'mail_summarize',
   ]);

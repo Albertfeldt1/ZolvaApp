@@ -158,16 +158,18 @@ const NON_THREAD_ACTIONS = new Set<ActionType>([
 export async function runAgent(input: RunInput): Promise<RunResult> {
   const { userId, trigger, deps } = input;
 
+  // Budget guard BEFORE claiming. claimEvents sets batch_id to lock rows, and
+  // a budget-exceeded early return never releases that lock — so claiming
+  // first would strand the batch permanently (batch_id set, never re-claimed,
+  // never processed). Checking first leaves the events unclaimed for tomorrow.
+  const budget = await deps.checkBudget(userId);
+  if (budget.exceeded) {
+    return { runId: null, processed: 0, status: 'budget_exceeded' };
+  }
+
   const events = await deps.claimEvents(userId, CLAIM_BATCH);
   if (events.length === 0) {
     return { runId: null, processed: 0, status: 'ok' };
-  }
-
-  const budget = await deps.checkBudget(userId);
-  if (budget.exceeded) {
-    // Budget guard: don't mark events processed (so they get retried tomorrow),
-    // don't open a run row. Surface the status to the caller for logging.
-    return { runId: null, processed: 0, status: 'budget_exceeded' };
   }
 
   const eventIds = events.map((e) => e.id);
