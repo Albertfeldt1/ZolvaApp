@@ -8,6 +8,7 @@ export type CalFetch = (
 ) => Promise<Response>;
 
 export interface CalEvent {
+  id: string;
   title: string;
   start: string;
   end: string;
@@ -27,7 +28,7 @@ export async function googleListEvents(input: {
     singleEvents: 'true',
     orderBy: 'startTime',
     maxResults: '50',
-    fields: 'items(summary,start,end,attendees(email,self),location)',
+    fields: 'items(id,summary,start,end,attendees(email,self),location)',
   });
   const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`;
   const res = await input.fetch(url, { headers: { authorization: `Bearer ${input.accessToken}` } });
@@ -37,6 +38,7 @@ export async function googleListEvents(input: {
   }
   const json = (await res.json()) as {
     items?: Array<{
+      id?: string;
       summary?: string;
       start?: { dateTime?: string; date?: string };
       end?: { dateTime?: string; date?: string };
@@ -45,6 +47,7 @@ export async function googleListEvents(input: {
     }>;
   };
   return (json.items ?? []).map((it) => ({
+    id: it.id ?? '',
     title: it.summary ?? '(uden titel)',
     start: it.start?.dateTime ?? it.start?.date ?? '',
     end: it.end?.dateTime ?? it.end?.date ?? '',
@@ -63,7 +66,7 @@ export async function outlookListEvents(input: {
 }): Promise<CalEvent[]> {
   const url = `https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=${
     encodeURIComponent(input.startIso)
-  }&endDateTime=${encodeURIComponent(input.endIso)}&$top=50&$select=subject,start,end,attendees,location`;
+  }&endDateTime=${encodeURIComponent(input.endIso)}&$top=50&$select=id,subject,start,end,attendees,location`;
   const res = await input.fetch(url, {
     headers: {
       authorization: `Bearer ${input.accessToken}`,
@@ -76,6 +79,7 @@ export async function outlookListEvents(input: {
   }
   const json = (await res.json()) as {
     value?: Array<{
+      id?: string;
       subject?: string;
       start?: { dateTime?: string };
       end?: { dateTime?: string };
@@ -84,6 +88,7 @@ export async function outlookListEvents(input: {
     }>;
   };
   return (json.value ?? []).map((it) => ({
+    id: it.id ?? '',
     title: it.subject ?? '(uden titel)',
     start: it.start?.dateTime ?? '',
     end: it.end?.dateTime ?? '',

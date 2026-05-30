@@ -28,6 +28,7 @@ Deno.test('googleListEvents: lists events in window with attendees', async () =>
     endIso: '2026-05-15T00:00:00Z',
   });
   assertEquals(events.length, 1);
+  assertEquals(events[0].id, 'evt-1');
   assertEquals(events[0].title, 'Frokost');
   assertEquals(events[0].start, '2026-05-14T11:30:00+02:00');
   assertEquals(events[0].attendees, ['kollega@example.com']);
@@ -74,6 +75,7 @@ Deno.test('outlookListEvents: queries calendarView with start/end + UTC prefer h
     preferHeader = (init?.headers as Record<string, string> | undefined)?.['prefer'] ?? '';
     return new Response(JSON.stringify({
       value: [{
+        id: 'evt-ms-1',
         subject: 'Standup',
         start: { dateTime: '2026-05-14T09:00:00' },
         end: { dateTime: '2026-05-14T09:15:00' },
@@ -92,6 +94,7 @@ Deno.test('outlookListEvents: queries calendarView with start/end + UTC prefer h
     endIso: '2026-05-15T00:00:00Z',
   });
   assertEquals(events.length, 1);
+  assertEquals(events[0].id, 'evt-ms-1');
   assertEquals(events[0].title, 'Standup');
   assertEquals(events[0].attendees, ['kollega@example.com']); // resource filtered out
   assertEquals(events[0].location, 'Mødelokale 1');
