@@ -138,6 +138,8 @@ const SUPPORTED_ACTIONS = new Set<ActionType>([
   'mail.get_body',
   'cal.list_events',
   'drive.search',
+  'cal.create_event',
+  'cal.update_event',
 ]);
 // Read-only context tools (Phase 4a). These never produce an agent_actions
 // row — they exist purely to feed Claude richer context within the run, so
@@ -156,6 +158,8 @@ const CONTEXT_ONLY_ACTIONS = new Set<ActionType>([
 const NON_THREAD_ACTIONS = new Set<ActionType>([
   'cal.list_events',
   'drive.search',
+  'cal.create_event',
+  'cal.update_event',
 ]);
 
 export async function runAgent(input: RunInput): Promise<RunResult> {
@@ -441,7 +445,7 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
   };
 }
 
-function buildProposalPreview(
+export function buildProposalPreview(
   action: ActionType,
   payload: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -454,6 +458,18 @@ function buildProposalPreview(
         thread_id: payload.thread_id,
         draft_id: payload.draft_id,
       };
+    case 'cal.create_event': {
+      const title = typeof payload.title === 'string' ? payload.title : 'begivenhed';
+      const when = typeof payload.start_iso === 'string' ? payload.start_iso : '';
+      return { title: 'Opret begivenhed?', body: when ? `${title} · ${when}` : title };
+    }
+    case 'cal.update_event': {
+      const parts: string[] = [];
+      if (typeof payload.start_iso === 'string') parts.push(`ny tid ${payload.start_iso}`);
+      if (typeof payload.title === 'string') parts.push(`ny titel ${payload.title}`);
+      if (typeof payload.location === 'string') parts.push(`nyt sted ${payload.location}`);
+      return { title: 'Ret begivenhed?', body: parts.join(' · ') || 'Opdatér begivenhed' };
+    }
     default:
       return { title: 'Zolva foreslår', body: previewText || `${action}` };
   }

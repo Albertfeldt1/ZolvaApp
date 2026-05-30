@@ -888,3 +888,17 @@ Deno.test('runAgent: mail.send_reply auto-send sees threadWasResearched=true aft
   assertEquals(safetyForSendReply.threadWasResearched('t-other'), false);
   assertEquals(executed, true);
 });
+
+import { buildProposalPreview } from './runner.ts';
+
+Deno.test('buildProposalPreview: cal.create_event shows title + time', () => {
+  const p = buildProposalPreview('cal.create_event', { title: 'Frokost', start_iso: '2026-06-01T11:00:00Z' });
+  assertEquals(p.title, 'Opret begivenhed?');
+  assertEquals(p.body, 'Frokost · 2026-06-01T11:00:00Z');
+});
+
+Deno.test('buildProposalPreview: cal.update_event describes the change', () => {
+  const p = buildProposalPreview('cal.update_event', { start_iso: '2026-06-02T14:00:00Z' });
+  assertEquals(p.title, 'Ret begivenhed?');
+  assertEquals(p.body, 'ny tid 2026-06-02T14:00:00Z');
+});
