@@ -57,8 +57,8 @@ export async function googleCreateEvent(
 ): Promise<{ eventId: string; reverseToken: GcalEventDeleteToken }> {
   const body: Record<string, unknown> = {
     summary: input.title,
-    start: { dateTime: input.startIso },
-    end: { dateTime: input.endIso },
+    start: { dateTime: input.startIso, timeZone: 'UTC' },
+    end: { dateTime: input.endIso, timeZone: 'UTC' },
   };
   if (input.location) body.location = input.location;
   if (input.attendees && input.attendees.length) {

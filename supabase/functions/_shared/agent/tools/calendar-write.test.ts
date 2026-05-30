@@ -22,8 +22,8 @@ Deno.test('googleCreateEvent: posts event and returns id + delete reverse token'
   assertEquals(captured!.url.endsWith('/calendars/primary/events'), true);
   const body = JSON.parse(captured!.body);
   assertEquals(body.summary, 'Frokost');
-  assertEquals(body.start, { dateTime: '2026-06-01T11:00:00Z' });
-  assertEquals(body.end, { dateTime: '2026-06-01T12:00:00Z' });
+  assertEquals(body.start, { dateTime: '2026-06-01T11:00:00Z', timeZone: 'UTC' });
+  assertEquals(body.end, { dateTime: '2026-06-01T12:00:00Z', timeZone: 'UTC' });
   assertEquals(body.location, 'Kantinen');
   assertEquals(body.attendees, [{ email: 'a@example.com' }]);
 });
