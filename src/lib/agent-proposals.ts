@@ -84,11 +84,11 @@ export async function approveProposedAction(actionId: string, editedBody?: strin
   return { ok: !!j.ok, error: j.error };
 }
 
-export async function dismissProposedAction(actionId: string): Promise<{ ok: boolean }> {
+export async function dismissProposedAction(actionId: string): Promise<{ ok: boolean; error?: string }> {
   const { error } = await supabase
     .from('proposed_actions')
     .update({ status: 'dismissed', decided_at: new Date().toISOString() })
     .eq('id', actionId)
     .eq('status', 'pending');
-  return { ok: !error };
+  return error ? { ok: false, error: error.message } : { ok: true };
 }

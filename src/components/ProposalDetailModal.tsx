@@ -112,9 +112,13 @@ export function ProposalDetailModal({ row, onClose }: Props) {
   async function handleDismiss() {
     setPending('dismiss');
     setError(null);
-    await dismissProposedAction(row.id);
+    const r = await dismissProposedAction(row.id);
     setPending(null);
-    onClose();
+    if (r.ok) {
+      onClose();
+    } else {
+      setError(r.error ?? 'Kunne ikke springe over');
+    }
   }
 
   // -------------------------------------------------------------------------
