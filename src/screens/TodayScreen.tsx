@@ -19,6 +19,8 @@ import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanim
 import { useAuth } from '../lib/auth';
 import { loadCredential } from '../lib/icloud-credentials';
 import { TodayAgentFeed } from '../components/TodayAgentFeed';
+import { ProposalDetailModal } from '../components/ProposalDetailModal';
+import type { ProposedActionRow } from '../lib/agent-proposals';
 import { BriefBanner } from '../components/BriefBanner';
 import { CountUp } from '../components/CountUp';
 import { DayRibbon } from '../components/DayRibbon';
@@ -311,6 +313,7 @@ export function TodayScreen({
   const hasMoreObservations =
     pendingFacts.length + dedupedObservations.length > FEED_OBSERVATION_COUNT;
   const [observationsModalOpen, setObservationsModalOpen] = useState(false);
+  const [selectedProposal, setSelectedProposal] = useState<ProposedActionRow | null>(null);
 
   // Match the MemoryScreen filter: pending + dueAt within 5min past - so a
   // reminder that already fired and decayed stops counting toward the
@@ -671,7 +674,7 @@ export function TodayScreen({
           />
         )}
 
-        <TodayAgentFeed />
+        <TodayAgentFeed onSelectProposal={setSelectedProposal} />
 
         {/* Brief history pills - wrapped in a single glass card so the
             three time-of-day shortcuts read as one element, not as
@@ -871,6 +874,17 @@ export function TodayScreen({
           </View>
         </Modal>
       </ScrollView>
+
+      {/* ProposalDetailModal — mounted OUTSIDE the ScrollView so the
+          Animated.View overlay is never clipped by the scroll container.
+          Pattern matches MemoryConsentModal: absoluteFill Animated.View
+          with zIndex, mounted in the root <View style={{ flex:1, position:'relative' }}> */}
+      {selectedProposal ? (
+        <ProposalDetailModal
+          row={selectedProposal}
+          onClose={() => setSelectedProposal(null)}
+        />
+      ) : null}
     </View>
   );
 }

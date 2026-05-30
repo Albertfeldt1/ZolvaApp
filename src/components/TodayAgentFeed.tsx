@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useAgentActions } from '../lib/agent-feed';
-import { useProposedActions } from '../lib/agent-proposals';
+import { useProposedActions, type ProposedActionRow } from '../lib/agent-proposals';
 import { useTrustOffers } from '../lib/trust-offers';
 import { useAuth } from '../lib/auth';
 import { AgentActionCard } from './AgentActionCard';
@@ -10,7 +10,17 @@ import { TrustOfferCard } from './TrustOfferCard';
 import { AgentEmptyState } from './AgentEmptyState';
 import { colors } from '../theme';
 
-export function TodayAgentFeed() {
+type Props = {
+  /**
+   * Called when the user taps a proposal card's body/title area to open
+   * the full detail modal. The parent (TodayScreen) holds the selected-row
+   * state and mounts ProposalDetailModal **outside the ScrollView** so the
+   * Animated.View overlay is never clipped by the scroll container.
+   */
+  onSelectProposal: (row: ProposedActionRow) => void;
+};
+
+export function TodayAgentFeed({ onSelectProposal }: Props) {
   const { user } = useAuth();
   const { rows: actions, loading: actionsLoading } = useAgentActions(user?.id);
   const { rows: proposals, loading: proposalsLoading } = useProposedActions(user?.id);
@@ -36,7 +46,11 @@ export function TodayAgentFeed() {
         <TrustOfferCard key={o.id} row={o} />
       ))}
       {pending.map((p) => (
-        <ProposedActionCard key={p.id} row={p} />
+        <ProposedActionCard
+          key={p.id}
+          row={p}
+          onOpenDetail={() => onSelectProposal(p)}
+        />
       ))}
       {visibleActions.map((r) => (
         <AgentActionCard key={r.id} row={r} />

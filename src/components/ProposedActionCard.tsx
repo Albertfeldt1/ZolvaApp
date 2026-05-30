@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View, ActivityIndicator } from 'react-native';
+import { Pressable, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
 import {
   approveProposedAction,
   dismissProposedAction,
@@ -18,33 +18,34 @@ function previewTitle(row: ProposedActionRow): string {
   return typeof t === 'string' ? t : 'Zolva foreslår';
 }
 
-// Only mail replies support an editable body server-side (agent-approve splices
-// edited_body only for mail.send_reply). Other proposal types (e.g. calendar
-// writes) are approve-or-skip with no inline edit.
-function isEditable(row: ProposedActionRow): boolean {
-  return row.action_type === 'mail.send_reply';
-}
-
 // "Send" reads wrong for a calendar event; use a neutral confirm verb for
 // non-mail proposals.
 function confirmLabel(row: ProposedActionRow): string {
-  return row.action_type === 'mail.send_reply' ? 'Send' : 'Godkend';
+  const mailTypes = new Set(['mail.send_reply', 'mail.draft_reply', 'mail.send_new']);
+  return mailTypes.has(row.action_type) ? 'Send' : 'Godkend';
 }
 
-export function ProposedActionCard({ row }: { row: ProposedActionRow }) {
+type Props = {
+  row: ProposedActionRow;
+  /** Called when the user taps the title/body area to open the detail modal. */
+  onOpenDetail: () => void;
+};
+
+export function ProposedActionCard({ row, onOpenDetail }: Props) {
   const { surface, shadows } = useTheme();
-  const [editing, setEditing] = useState(false);
-  const [edited, setEdited] = useState(previewBody(row));
   const [pending, setPending] = useState<'send' | 'skip' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function onSend() {
     setPending('send');
     setError(null);
-    const r = await approveProposedAction(row.id, editing ? edited : undefined);
+    // Quick-approve: sends the original draft without edits.
+    // Edits live in ProposalDetailModal (opened via onOpenDetail).
+    const r = await approveProposedAction(row.id, undefined);
     setPending(null);
     if (!r.ok) setError(r.error ?? 'fejl');
   }
+
   async function onSkip() {
     setPending('skip');
     setError(null);
@@ -57,27 +58,16 @@ export function ProposedActionCard({ row }: { row: ProposedActionRow }) {
       style={[styles.card, { backgroundColor: surface.bone, borderColor: surface.glassRim, ...shadows.softCard }]}
       accessibilityLabel={`proposed-${row.action_type}`}
     >
-      <Text style={styles.title}>{previewTitle(row)}</Text>
-      {editing && isEditable(row) ? (
-        <TextInput
-          value={edited}
-          onChangeText={setEdited}
-          multiline
-          style={styles.input}
-          accessibilityLabel="edit-body"
-        />
-      ) : (
-        <Text style={styles.body}>{previewBody(row)}</Text>
-      )}
+      {/* Tappable title+body area — opens the full detail modal */}
+      <Pressable onPress={onOpenDetail} accessibilityLabel="Åbn detaljer" accessibilityRole="button">
+        <Text style={styles.title}>{previewTitle(row)}</Text>
+        <Text style={styles.body} numberOfLines={3}>{previewBody(row)}</Text>
+      </Pressable>
+
       <View style={styles.actions}>
         <Pressable onPress={onSend} disabled={!!pending} style={styles.primary} accessibilityLabel="send">
           {pending === 'send' ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>{confirmLabel(row)}</Text>}
         </Pressable>
-        {isEditable(row) ? (
-          <Pressable onPress={() => setEditing((v) => !v)} disabled={!!pending} accessibilityLabel="edit">
-            <Text style={styles.secondary}>{editing ? 'Annullér' : 'Rediger'}</Text>
-          </Pressable>
-        ) : null}
         <Pressable onPress={onSkip} disabled={!!pending} accessibilityLabel="skip">
           {pending === 'skip' ? <ActivityIndicator size="small" /> : <Text style={styles.secondary}>Spring over</Text>}
         </Pressable>
@@ -99,7 +89,6 @@ const styles = StyleSheet.create({
   },
   title: { color: colors.ink, fontSize: 16, fontWeight: '600' },
   body: { color: colors.fg3, fontSize: 14, lineHeight: 20 },
-  input: { color: colors.ink, fontSize: 14, lineHeight: 20, minHeight: 64, padding: 4, backgroundColor: '#fff', borderRadius: 8 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 6 },
   primary: { backgroundColor: colors.ink, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 999 },
   primaryText: { color: '#fff', fontSize: 14, fontWeight: '600' },
