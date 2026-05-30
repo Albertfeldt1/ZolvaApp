@@ -244,3 +244,29 @@ export async function outlookGetEventPatch(input: {
     location: j.location?.displayName,
   };
 }
+
+export async function googleUpdateEvent(input: {
+  fetch: CalWriteFetch;
+  accessToken: string;
+  eventId: string;
+  patch: EventPatch;
+}): Promise<{ reverseToken: GcalEventRestoreToken }> {
+  const prior = await googleGetEventPatch({ fetch: input.fetch, accessToken: input.accessToken, eventId: input.eventId });
+  await googlePatchEvent(input);
+  return {
+    reverseToken: { kind: 'gcal.event_restore', provider: 'google', event_id: input.eventId, prior },
+  };
+}
+
+export async function outlookUpdateEvent(input: {
+  fetch: CalWriteFetch;
+  accessToken: string;
+  eventId: string;
+  patch: EventPatch;
+}): Promise<{ reverseToken: GraphEventRestoreToken }> {
+  const prior = await outlookGetEventPatch({ fetch: input.fetch, accessToken: input.accessToken, eventId: input.eventId });
+  await outlookPatchEvent(input);
+  return {
+    reverseToken: { kind: 'graph.event_restore', provider: 'microsoft', event_id: input.eventId, prior },
+  };
+}

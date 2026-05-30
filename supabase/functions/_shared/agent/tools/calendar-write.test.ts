@@ -8,6 +8,8 @@ import {
   outlookPatchEvent,
   googleGetEventPatch,
   outlookGetEventPatch,
+  googleUpdateEvent,
+  outlookUpdateEvent,
   type CalWriteFetch,
 } from './calendar-write.ts';
 
@@ -137,4 +139,40 @@ Deno.test('outlookGetEventPatch: maps current event to EventPatch', async () => 
 Deno.test('outlookDeleteEvent: treats 410 as success', async () => {
   const fetch: CalWriteFetch = async () => new Response(null, { status: 410 });
   await outlookDeleteEvent({ fetch, accessToken: 't', eventId: 'gone' });
+});
+
+Deno.test('googleUpdateEvent: captures prior then patches; restore token carries prior', async () => {
+  const calls: string[] = [];
+  const fetch: CalWriteFetch = async (url, init) => {
+    calls.push(`${init?.method ?? 'GET'} ${url.split('/events/')[1] ?? url}`);
+    if ((init?.method ?? 'GET') === 'GET') {
+      return new Response(JSON.stringify({
+        summary: 'Gammel', start: { dateTime: '2026-06-02T10:00:00Z' }, end: { dateTime: '2026-06-02T11:00:00Z' }, location: 'A',
+      }), { status: 200 });
+    }
+    return new Response('{}', { status: 200 });
+  };
+  const out = await googleUpdateEvent({
+    fetch, accessToken: 't', eventId: 'e1', patch: { startIso: '2026-06-02T14:00:00Z' },
+  });
+  assertEquals(out.reverseToken.kind, 'gcal.event_restore');
+  assertEquals(out.reverseToken.provider, 'google');
+  assertEquals(out.reverseToken.event_id, 'e1');
+  assertEquals(out.reverseToken.prior, { title: 'Gammel', startIso: '2026-06-02T10:00:00Z', endIso: '2026-06-02T11:00:00Z', location: 'A' });
+  assertEquals(calls[0].startsWith('GET'), true);
+  assertEquals(calls[1].startsWith('PATCH'), true);
+});
+
+Deno.test('outlookUpdateEvent: restore token carries prior', async () => {
+  const fetch: CalWriteFetch = async (_url, init) => {
+    if ((init?.method ?? 'GET') === 'GET') {
+      return new Response(JSON.stringify({
+        subject: 'Gammel', start: { dateTime: '2026-06-02T10:00:00.0000000' }, end: { dateTime: '2026-06-02T11:00:00.0000000' }, location: { displayName: 'A' },
+      }), { status: 200 });
+    }
+    return new Response('{}', { status: 200 });
+  };
+  const out = await outlookUpdateEvent({ fetch, accessToken: 't', eventId: 'e1', patch: { title: 'Ny' } });
+  assertEquals(out.reverseToken.kind, 'graph.event_restore');
+  assertEquals(out.reverseToken.prior.title, 'Gammel');
 });
