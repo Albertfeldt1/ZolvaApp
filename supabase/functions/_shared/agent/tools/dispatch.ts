@@ -24,6 +24,17 @@ import {
 } from './outlook.ts';
 import { gmailGetBody, outlookGetBody } from './mail-body.ts';
 import { googleListEvents, outlookListEvents } from './calendar.ts';
+import {
+  googleCreateEvent,
+  outlookCreateEvent,
+  googleUpdateEvent,
+  outlookUpdateEvent,
+  type EventPatch,
+  type GcalEventDeleteToken,
+  type GcalEventRestoreToken,
+  type GraphEventDeleteToken,
+  type GraphEventRestoreToken,
+} from './calendar-write.ts';
 import { driveSearchFiles } from './drive.ts';
 
 export interface ExecuteContext {
@@ -40,6 +51,10 @@ export type ExecuteReverseToken =
   | OutlookMoveReverseToken
   | OutlookFlagReverseToken
   | OutlookCategoryReverseToken
+  | GcalEventDeleteToken
+  | GcalEventRestoreToken
+  | GraphEventDeleteToken
+  | GraphEventRestoreToken
   | null;
 
 export type ExecuteMode = 'executed' | 'propose';
@@ -444,6 +459,68 @@ export async function executeTool(
         reverseToken: null,
         recordPayload: baseRecord,
       };
+    }
+    case 'cal.create_event': {
+      const title = mustString(payload, 'title');
+      const startIso = mustString(payload, 'start_iso');
+      const endIso = mustString(payload, 'end_iso');
+      const attendees = Array.isArray(payload.attendees)
+        ? (payload.attendees as unknown[]).filter((a): a is string => typeof a === 'string')
+        : undefined;
+      const location = typeof payload.location === 'string' ? payload.location : undefined;
+      const baseRecord: Record<string, unknown> = { provider, title, start_iso: startIso, end_iso: endIso };
+      if (attendees && attendees.length) baseRecord.attendees = attendees;
+      if (location) baseRecord.location = location;
+
+      // Propose path: no write. Runner writes a proposed_actions row; the real
+      // create happens when agent-approve re-dispatches with policy='auto'.
+      if (opts.policy !== 'auto') {
+        return { mode: 'propose', reversible: false, reverseToken: null, recordPayload: baseRecord };
+      }
+      if (provider === 'google') {
+        const out = await googleCreateEvent({
+          fetch: ctx.fetch, accessToken: ctx.gmail.accessToken, title, startIso, endIso, attendees, location,
+        });
+        return {
+          mode: 'executed', reversible: true, reverseToken: out.reverseToken,
+          recordPayload: { ...baseRecord, event_id: out.eventId },
+        };
+      }
+      if (!ctx.outlook) throw new Error('outlook create_event requested but outlook context missing');
+      const out = await outlookCreateEvent({
+        fetch: ctx.fetch, accessToken: ctx.outlook.accessToken, title, startIso, endIso, attendees, location,
+      });
+      return {
+        mode: 'executed', reversible: true, reverseToken: out.reverseToken,
+        recordPayload: { ...baseRecord, event_id: out.eventId },
+      };
+    }
+    case 'cal.update_event': {
+      const eventId = mustString(payload, 'event_id');
+      const patch: EventPatch = {};
+      if (typeof payload.title === 'string') patch.title = payload.title;
+      if (typeof payload.start_iso === 'string') patch.startIso = payload.start_iso;
+      if (typeof payload.end_iso === 'string') patch.endIso = payload.end_iso;
+      if (typeof payload.location === 'string') patch.location = payload.location;
+      if (Object.keys(patch).length === 0) {
+        throw new Error('cal.update_event: no fields to change');
+      }
+      const baseRecord: Record<string, unknown> = { provider, event_id: eventId };
+      if (patch.title !== undefined) baseRecord.title = patch.title;
+      if (patch.startIso !== undefined) baseRecord.start_iso = patch.startIso;
+      if (patch.endIso !== undefined) baseRecord.end_iso = patch.endIso;
+      if (patch.location !== undefined) baseRecord.location = patch.location;
+
+      if (opts.policy !== 'auto') {
+        return { mode: 'propose', reversible: false, reverseToken: null, recordPayload: baseRecord };
+      }
+      if (provider === 'google') {
+        const out = await googleUpdateEvent({ fetch: ctx.fetch, accessToken: ctx.gmail.accessToken, eventId, patch });
+        return { mode: 'executed', reversible: true, reverseToken: out.reverseToken, recordPayload: baseRecord };
+      }
+      if (!ctx.outlook) throw new Error('outlook update_event requested but outlook context missing');
+      const out = await outlookUpdateEvent({ fetch: ctx.fetch, accessToken: ctx.outlook.accessToken, eventId, patch });
+      return { mode: 'executed', reversible: true, reverseToken: out.reverseToken, recordPayload: baseRecord };
     }
     default:
       throw new Error(`executeTool: unsupported action type ${action}`);

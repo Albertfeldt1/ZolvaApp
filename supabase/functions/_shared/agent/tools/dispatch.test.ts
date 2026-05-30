@@ -566,3 +566,60 @@ Deno.test('mail.flag_important (outlook): PATCHes flag.flagStatus=flagged', asyn
   assertEquals(method, 'PATCH');
   assertEquals(JSON.parse(body), { flag: { flagStatus: 'flagged' } });
 });
+
+Deno.test('executeTool: cal.create_event proposes (no write) when policy != auto', async () => {
+  let called = false;
+  const ctx = makeCtx({ fetch: async () => { called = true; return new Response('{}', { status: 200 }); } });
+  const result = await executeTool(
+    'cal.create_event',
+    { provider: 'google', title: 'Frokost', start_iso: '2026-06-01T11:00:00Z', end_iso: '2026-06-01T12:00:00Z' },
+    ctx,
+  );
+  assertEquals(result.mode, 'propose');
+  assertEquals(result.reversible, false);
+  assertEquals(result.reverseToken, null);
+  assertEquals(result.recordPayload.title, 'Frokost');
+  assertEquals(called, false);
+});
+
+Deno.test('executeTool: cal.create_event (google) writes + returns delete token when policy=auto', async () => {
+  let captured: { url: string; method: string } | null = null;
+  const ctx = makeCtx({
+    fetch: async (url, init) => {
+      captured = { url, method: init?.method ?? 'GET' };
+      return new Response(JSON.stringify({ id: 'evt-9' }), { status: 200 });
+    },
+  });
+  const result = await executeTool(
+    'cal.create_event',
+    { provider: 'google', title: 'Frokost', start_iso: '2026-06-01T11:00:00Z', end_iso: '2026-06-01T12:00:00Z' },
+    ctx,
+    { policy: 'auto' },
+  );
+  assertEquals(result.mode, 'executed');
+  assertEquals(result.reversible, true);
+  assertEquals(result.reverseToken?.kind, 'gcal.event_delete');
+  assertEquals(result.recordPayload.event_id, 'evt-9');
+  assertEquals(captured!.method, 'POST');
+});
+
+Deno.test('executeTool: cal.update_event proposes when policy != auto', async () => {
+  const ctx = makeCtx();
+  const result = await executeTool(
+    'cal.update_event',
+    { provider: 'microsoft', event_id: 'e1', start_iso: '2026-06-02T14:00:00Z' },
+    ctx,
+  );
+  assertEquals(result.mode, 'propose');
+  assertEquals(result.recordPayload.event_id, 'e1');
+  assertEquals(result.recordPayload.start_iso, '2026-06-02T14:00:00Z');
+});
+
+Deno.test('executeTool: cal.update_event throws when no change fields given', async () => {
+  const ctx = makeCtx();
+  await assertRejects(
+    () => executeTool('cal.update_event', { provider: 'google', event_id: 'e1' }, ctx, { policy: 'auto' }),
+    Error,
+    'no fields to change',
+  );
+});
