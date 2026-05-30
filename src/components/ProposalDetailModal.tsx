@@ -225,7 +225,9 @@ export function ProposalDetailModal({ row, onClose }: Props) {
                   </>
                 ) : null}
 
-                <Text style={styles.sectionHeading}>Dit svar</Text>
+                {(hasFullBody || bodyForDisplay.length > 0) ? (
+                  <Text style={styles.sectionHeading}>Dit svar</Text>
+                ) : null}
 
                 {hasFullBody ? (
                   <TextInput
