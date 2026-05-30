@@ -38,6 +38,7 @@ import {
   submitChatJob,
 } from './chat-jobs';
 import { buildProfilePreamble } from './profile';
+import { currentWeekBounds } from './week-bounds';
 import { fetchServerMemoryEnabled } from './user-profile';
 import {
   addNote as storeAddNote,
@@ -3539,11 +3540,21 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
   const mm = String(absMin % 60).padStart(2, '0');
   const offsetIso = `${sign}${hh}:${mm}`;
   const pad = (n: number) => String(n).padStart(2, '0');
-  const localIso =
-    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
-    `T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}${offsetIso}`;
+  const fmtLocal = (d: Date) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}${offsetIso}`;
+  const localIso = fmtLocal(now);
+  // Current calendar week (Mon 00:00 -> next Mon 00:00, end exclusive), local
+  // time. Injected so "denne uge" covers the whole week including days already
+  // passed - left to the model, it queries from today forward and misses
+  // earlier events (e.g. Monday's meeting when asked on a Saturday).
+  const { start: weekStart, end: weekEnd } = currentWeekBounds(now);
   const timeContext =
     `Nuværende lokaltid er ${localIso} (tidszone: ${tz}). ` +
+    `Den aktuelle uge (mandag-søndag) går fra ${fmtLocal(weekStart)} til ${fmtLocal(weekEnd)} ` +
+    '(slut eksklusivt). Når brugeren spørger om kalenderen "denne uge", "ugen" eller "i denne uge", ' +
+    'brug NETOP dette interval som from/to - altså HELE ugen inklusive dage der allerede er passeret, ' +
+    'ikke kun fra i dag og frem. ' +
     'Når du udregner due_at for add_reminder, skal tidspunktet altid ligge i fremtiden ' +
     'regnet fra dette tidspunkt. Brug ISO 8601 med samme tidszone-offset. ' +
     'Hvis brugeren siger "om 2 minutter", læg 2 minutter til nu. Hvis brugeren siger ' +
