@@ -6,6 +6,7 @@ import {
   outlookMoveMessage,
   outlookSetFlag,
   outlookAddCategory,
+  outlookUpdateDraft,
   type OutlookFetch,
 } from './outlook.ts';
 
@@ -207,4 +208,18 @@ Deno.test('outlookAddCategory: PATCH /me/messages/{id} adds category preserving 
     previous_categories: ['Existing'],
   });
   assertEquals(JSON.parse(calls[1].body!), { categories: ['Existing', 'Zolva'] });
+});
+
+Deno.test('outlookUpdateDraft: PATCHes the draft body', async () => {
+  let captured: { url: string; method: string; body: string } | null = null;
+  const fetch = (async (url: string, init?: { method?: string; body?: string }) => {
+    captured = { url, method: init?.method ?? 'GET', body: String(init?.body ?? '') };
+    return new Response('{}', { status: 200 });
+  }) as unknown as OutlookFetch;
+  await outlookUpdateDraft({ fetch, accessToken: 'tok', draftId: 'd1', bodyText: 'Nyt svar' });
+  assertEquals(captured!.method, 'PATCH');
+  assertEquals(captured!.url.endsWith('/me/messages/d1'), true);
+  const parsed = JSON.parse(captured!.body) as { body: { contentType: string; content: string } };
+  assertEquals(parsed.body.contentType, 'Text');
+  assertEquals(parsed.body.content, 'Nyt svar');
 });

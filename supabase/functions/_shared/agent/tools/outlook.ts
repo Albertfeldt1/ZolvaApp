@@ -107,6 +107,29 @@ export async function outlookDeleteDraft(input: OutlookDeleteDraftInput): Promis
   }
 }
 
+export interface OutlookUpdateDraftInput {
+  fetch: OutlookFetch;
+  accessToken: string;
+  draftId: string;
+  bodyText: string;
+}
+
+// Replace a draft message's body (used when the user edits the reply before sending).
+export async function outlookUpdateDraft(input: OutlookUpdateDraftInput): Promise<void> {
+  const res = await input.fetch(
+    `https://graph.microsoft.com/v1.0/me/messages/${input.draftId}`,
+    {
+      method: 'PATCH',
+      headers: { authorization: `Bearer ${input.accessToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ body: { contentType: 'Text', content: input.bodyText } }),
+    },
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`graph messages.patch(update draft) ${res.status}: ${detail.slice(0, 200)}`);
+  }
+}
+
 export interface OutlookMoveReverseToken {
   kind: 'graph.move';
   new_message_id: string;

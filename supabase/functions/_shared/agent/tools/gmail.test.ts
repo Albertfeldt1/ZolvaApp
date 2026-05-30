@@ -6,7 +6,7 @@ import {
   ZOLVA_FLAGGED_LABEL,
   type GmailFetch,
 } from './gmail.ts';
-import { gmailCreateDraft, gmailSendDraft, gmailDeleteDraft } from './gmail.ts';
+import { gmailCreateDraft, gmailSendDraft, gmailDeleteDraft, gmailUpdateDraft } from './gmail.ts';
 
 function makeFetch(
   responses: Array<{ url: string; status: number; body: unknown }>,
@@ -252,4 +252,24 @@ Deno.test('gmailCreateDraft: 4xx surfaces error', async () => {
     Error,
     'gmail drafts.create 403',
   );
+});
+
+Deno.test('gmailUpdateDraft: PUTs rebuilt message onto the draft id', async () => {
+  let captured: { url: string; method: string; body: string } | null = null;
+  const fetch = (async (url: string, init?: { method?: string; body?: string }) => {
+    captured = { url, method: init?.method ?? 'GET', body: String(init?.body ?? '') };
+    return new Response('{}', { status: 200 });
+  }) as unknown as GmailFetch;
+  await gmailUpdateDraft({
+    fetch, accessToken: 'tok', draftId: 'd1', threadId: 't1',
+    to: 'a@example.com', subject: 'Re: Hej', bodyText: 'Nyt svar', inReplyToMessageId: 'm1',
+  });
+  assertEquals(captured!.method, 'PUT');
+  assertEquals(captured!.url.endsWith('/drafts/d1'), true);
+  const parsed = JSON.parse(captured!.body) as { id: string; message: { threadId: string; raw: string } };
+  assertEquals(parsed.id, 'd1');
+  assertEquals(parsed.message.threadId, 't1');
+  const decoded = atob(parsed.message.raw.replace(/-/g, '+').replace(/_/g, '/'));
+  assertEquals(decoded.includes('Subject: Re: Hej'), true);
+  assertEquals(decoded.includes('Nyt svar'), true);
 });

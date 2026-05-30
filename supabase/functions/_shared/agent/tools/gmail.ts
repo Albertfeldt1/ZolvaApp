@@ -157,6 +157,44 @@ export async function gmailCreateDraft(input: CreateDraftInput): Promise<CreateD
   };
 }
 
+export interface UpdateDraftInput {
+  fetch: GmailFetch;
+  accessToken: string;
+  draftId: string;
+  threadId: string;
+  to: string;
+  subject: string;
+  bodyText: string;
+  inReplyToMessageId: string;
+}
+
+// Replace a draft's content (used when the user edits the reply before sending).
+// Gmail drafts.update requires the full re-encoded RFC822 message, same shape as
+// create — we just PUT it onto the existing draft id.
+export async function gmailUpdateDraft(input: UpdateDraftInput): Promise<void> {
+  const raw = buildRfc822({
+    fetch: input.fetch,
+    accessToken: input.accessToken,
+    threadId: input.threadId,
+    to: input.to,
+    subject: input.subject,
+    bodyText: input.bodyText,
+    inReplyToMessageId: input.inReplyToMessageId,
+  });
+  const res = await input.fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${input.draftId}`,
+    {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${input.accessToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ id: input.draftId, message: { threadId: input.threadId, raw } }),
+    },
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`gmail drafts.update ${res.status}: ${detail.slice(0, 200)}`);
+  }
+}
+
 export interface SendDraftInput {
   fetch: GmailFetch;
   accessToken: string;
