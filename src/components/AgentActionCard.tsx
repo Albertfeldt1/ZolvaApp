@@ -4,23 +4,37 @@ import { revertAgentAction, type AgentActionRow } from '../lib/agent-feed';
 import { useTheme } from '../design/useTheme';
 import { colors } from '../theme';
 
-const TITLES: Record<AgentActionRow['action_type'], string> = {
+const TITLES: Record<string, string> = {
   'mail.archive': 'Arkiveret',
   'mail.label': 'Mærket',
   'mail.flag_important': 'Markeret som vigtig',
   'mail.summarize': 'Opsummeret',
+  'mail.draft_reply': 'Udkast til svar',
+  'mail.send_reply': 'Svar sendt',
+  'mail.send_new': 'Mail sendt',
 };
+
+function str(v: unknown): string {
+  return typeof v === 'string' ? v : '';
+}
 
 function detailFor(row: AgentActionRow): string {
   switch (row.action_type) {
-    case 'mail.summarize': {
-      const s = row.payload.summary;
-      return typeof s === 'string' ? s : '';
-    }
+    case 'mail.summarize':
+      return str(row.payload.summary);
     case 'mail.label': {
       const l = row.payload.label;
       const op = row.payload.op;
       return typeof l === 'string' ? `${op === 'remove' ? 'Fjernet' : 'Tilføjet'}: ${l}` : '';
+    }
+    case 'mail.draft_reply':
+    case 'mail.send_reply':
+    case 'mail.send_new': {
+      // Prefer the subject/preview line; fall back to the recipient.
+      const subject = str(row.payload.subject) || str(row.payload.preview_text);
+      const to = str(row.payload.to);
+      if (subject && to) return `${subject} · til ${to}`;
+      return subject || (to ? `Til ${to}` : '');
     }
     default:
       return '';
@@ -48,7 +62,7 @@ export function AgentActionCard({ row }: { row: AgentActionRow }) {
     >
       <View style={styles.row}>
         <Text style={styles.badge}>✓ Udført</Text>
-        <Text style={styles.title}>{TITLES[row.action_type]}</Text>
+        <Text style={styles.title}>{TITLES[row.action_type] ?? 'Handling udført'}</Text>
       </View>
       {detailFor(row) ? <Text style={styles.detail}>{detailFor(row)}</Text> : null}
       <View style={styles.actions}>

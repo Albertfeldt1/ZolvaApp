@@ -8,7 +8,10 @@ export interface AgentActionRow {
     | 'mail.label'
     | 'mail.archive'
     | 'mail.flag_important'
-    | 'mail.summarize';
+    | 'mail.summarize'
+    | 'mail.draft_reply'
+    | 'mail.send_reply'
+    | 'mail.send_new';
   payload: Record<string, unknown>;
   executed_at: string;
   reversible: boolean;
