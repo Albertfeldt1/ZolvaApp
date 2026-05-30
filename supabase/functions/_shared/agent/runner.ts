@@ -191,7 +191,7 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
     const allow = buildThreadAllowlist(events);
     const userPolicy = await deps.loadUserPolicy(userId);
     const promotions = await deps.loadActivePromotions(userId);
-    const { system, messages } = buildMailTriagePrompt({ threads });
+    const { system, messages } = buildMailTriagePrompt({ threads, nowIso: new Date().toISOString() });
     const conversation: ClaudeUserMessage[] = [...messages];
 
     // Per-run set of thread_ids the agent has opened with mail.get_body.

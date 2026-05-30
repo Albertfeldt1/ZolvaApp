@@ -181,13 +181,14 @@ Tilladte handlinger:
    Først NÅR du har konteksten, kald mail_draft_reply.
 3. udkast et reply (mail_draft_reply) — KUN når du har læst hele body'en med mail_get_body, brevet stiller et tydeligt spørgsmål, og du kan skrive et kort dansk svar uden at gætte.
 4. foreslå svaret (mail_send_reply): NÅR du har kaldt mail_draft_reply, SKAL du ALTID derefter kalde mail_send_reply i SAMME tur — med præcis det draft_id og draft_hash som mail_draft_reply returnerede. Det er mail_send_reply der viser forslaget til brugeren; et udkast uden et efterfølgende mail_send_reply når ALDRIG frem til brugeren. Spring det aldrig over.
-5. KALENDER: hvis en menneskelig tråd foreslår et konkret mødetidspunkt, kald cal_list_events (±2 timer omkring tidspunktet) for at tjekke for konflikter, og foreslå derefter cal_create_event med UTC ISO-8601 tider (slut med Z). Hvis tråden beder om at flytte/ændre et eksisterende møde, find begivenheden via cal_list_events og kald cal_update_event med dens event_id. Begge foreslås til brugeren, før de udføres. Brug KUN cal_create_event når brevet foreslår et konkret tidspunkt der skal sættes i kalenderen; hvis brevet blot spørger om din tilgængelighed, hører det under punkt 2a og besvares med mail_draft_reply (ikke en kalenderbegivenhed).
+5. KALENDER: hvis en menneskelig tråd foreslår et konkret mødetidspunkt, kald cal_list_events (±2 timer omkring tidspunktet) for at tjekke for konflikter. Hvis tidspunktet er ledigt, SKAL du derefter kalde cal_create_event med UTC ISO-8601 tider (slut med Z) — det er en obligatorisk del af at triagere en mødeinvitation, ud over at udkaste et svar. Spring ALDRIG kalenderbegivenheden over når et konkret tidspunkt er foreslået og ledigt; et svar alene er ikke nok. Hvis tråden beder om at flytte/ændre et eksisterende møde, find begivenheden via cal_list_events og kald cal_update_event med dens event_id. Alle kalenderhandlinger foreslås til brugeren, før de udføres. Brug KUN cal_create_event når brevet foreslår et konkret tidspunkt der skal sættes i kalenderen; hvis brevet blot spørger om din tilgængelighed, hører det under punkt 2a og besvares med mail_draft_reply (ikke en kalenderbegivenhed).
 
 Regler:
 - Brug kun thread_id'er fra listen i brugerens besked. Opfind ALDRIG ID'er. Brug draft_id og draft_hash præcis som mail_draft_reply returnerede dem — opfind dem ALDRIG.
 - Hver tråd har en provider ('google' eller 'microsoft') i listen. Du SKAL inkludere provider i payload til alle handlinger.
 - drive_search er KUN Google. Spring over hvis tråden er Outlook.
 - event_id til cal_update_event SKAL komme fra cal_list_events — opfind ALDRIG et event_id. Brug UTC (Z-suffiks) for alle tider i kalenderhandlinger.
+- DATO: Brug 'Dags dato' fra brugerens besked til at udregne korrekt årstal og ugedag i ALLE kalenderhandlinger (cal_list_events, cal_create_event, cal_update_event). Gæt eller opfind ALDRIG et årstal. F.eks.: hvis dags dato er i 2026 og brevet siger "torsdag den 5. juni", så er året 2026 — ikke 2025.
 - Hvis en tråd ikke kræver et svar (ren bekræftelse, automatisk besked, nyhedsbrev), så gør ingenting på den tråd.
 - Vær konservativ ved tvivl om INDHOLDET — men når et menneske stiller et tydeligt spørgsmål du kan svare på, SKAL du udkaste OG foreslå et svar. Lad være med at gøre ingenting af forsigtighed alene.
 - Du kan kalde flere værktøjer i samme tur. Stop når listen er triageret.
@@ -195,11 +196,27 @@ Regler:
 
 export interface BuildMailTriagePromptInput {
   threads: ThreadBrief[];
+  // ISO-8601 instant for "now". Surfaced to the model as a Danish "Dags dato"
+  // line so calendar date math (especially the year) is anchored instead of
+  // guessed. Optional so tests/callers without a clock stay deterministic.
+  nowIso?: string;
 }
 
 export interface BuildMailTriagePromptResult {
   system: ClaudeSystemBlock[];
   messages: ClaudeUserMessage[];
+}
+
+// "fredag den 30. maj 2026" — anchored to Copenhagen so weekday/date match the
+// user's local sense of "torsdag den 5. juni".
+function formatDanishDate(iso: string): string {
+  return new Intl.DateTimeFormat('da-DK', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'Europe/Copenhagen',
+  }).format(new Date(iso));
 }
 
 export function buildMailTriagePrompt(
@@ -208,9 +225,15 @@ export function buildMailTriagePrompt(
   const system: ClaudeSystemBlock[] = [
     { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
   ];
+  // Per-run date line lives in the user message (not the cached system block)
+  // so it never busts the ephemeral prompt cache.
+  const dateLine = input.nowIso
+    ? `Dags dato: ${formatDanishDate(input.nowIso)} (tidszone Europe/Copenhagen). Brug denne til at udregne korrekt årstal og ugedag i kalenderhandlinger.`
+    : '';
   const body = input.threads.length === 0
     ? 'Ingen nye tråde. Returnér en kort tekstbekræftelse uden værktøjskald.'
     : [
+        ...(dateLine ? [dateLine, ''] : []),
         'Triager følgende tråde:',
         '',
         ...input.threads.map((t) =>

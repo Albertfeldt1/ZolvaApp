@@ -64,3 +64,21 @@ Deno.test('MAIL_TRIAGE_TOOLS: includes calendar-write tools', () => {
   assertEquals(names.includes('cal_create_event'), true);
   assertEquals(names.includes('cal_update_event'), true);
 });
+
+Deno.test('buildMailTriagePrompt: injects Danish current date when nowIso given', () => {
+  const { messages } = buildMailTriagePrompt({
+    threads: [{ thread_id: 't1', from: 'a@x.com', subject: 'Frokost', snippet: '' }],
+    nowIso: '2026-05-30T12:00:00Z',
+  });
+  const userText = messages[0].content as string;
+  assertEquals(userText.includes('Dags dato:'), true);
+  assertEquals(userText.includes('2026'), true);
+  assertEquals(userText.includes('maj'), true);
+});
+
+Deno.test('buildMailTriagePrompt: omits date line when nowIso absent', () => {
+  const { messages } = buildMailTriagePrompt({
+    threads: [{ thread_id: 't1', from: 'a@x.com', subject: 'Frokost', snippet: '' }],
+  });
+  assertEquals((messages[0].content as string).includes('Dags dato:'), false);
+});
