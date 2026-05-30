@@ -5,6 +5,7 @@ import {
   dismissProposedAction,
   type ProposedActionRow,
 } from '../lib/agent-proposals';
+import { useTheme } from '../design/useTheme';
 import { colors } from '../theme';
 
 function previewBody(row: ProposedActionRow): string {
@@ -18,6 +19,7 @@ function previewTitle(row: ProposedActionRow): string {
 }
 
 export function ProposedActionCard({ row }: { row: ProposedActionRow }) {
+  const { surface, shadows } = useTheme();
   const [editing, setEditing] = useState(false);
   const [edited, setEdited] = useState(previewBody(row));
   const [pending, setPending] = useState<'send' | 'skip' | null>(null);
@@ -38,7 +40,10 @@ export function ProposedActionCard({ row }: { row: ProposedActionRow }) {
   }
 
   return (
-    <View style={styles.card} accessibilityLabel={`proposed-${row.action_type}`}>
+    <View
+      style={[styles.card, { backgroundColor: surface.bone, borderColor: surface.glassRim, ...shadows.softCard }]}
+      accessibilityLabel={`proposed-${row.action_type}`}
+    >
       <Text style={styles.title}>{previewTitle(row)}</Text>
       {editing ? (
         <TextInput
@@ -69,14 +74,13 @@ export function ProposedActionCard({ row }: { row: ProposedActionRow }) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.paperDeep,
     borderRadius: 14,
     padding: 14,
     marginHorizontal: 16,
     marginTop: 8,
     gap: 8,
     borderWidth: 1,
-    borderColor: colors.ink + '22',
+    overflow: 'hidden',
   },
   title: { color: colors.ink, fontSize: 16, fontWeight: '600' },
   body: { color: colors.fg3, fontSize: 14, lineHeight: 20 },

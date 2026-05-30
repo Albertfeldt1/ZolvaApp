@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../lib/auth';
 import { decideTrustOffer, type TrustOfferRow } from '../lib/trust-offers';
+import { useTheme } from '../design/useTheme';
 import { colors } from '../theme';
 
 export function TrustOfferCard({ row }: { row: TrustOfferRow }) {
   const { user } = useAuth();
+  const { surface, shadows } = useTheme();
   const [pending, setPending] = useState<'yes' | 'no' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,7 +21,10 @@ export function TrustOfferCard({ row }: { row: TrustOfferRow }) {
   }
 
   return (
-    <View style={styles.card} accessibilityLabel={`trust-offer-${row.id}`}>
+    <View
+      style={[styles.card, { backgroundColor: surface.bone, borderColor: surface.glassRim, ...shadows.softCard }]}
+      accessibilityLabel={`trust-offer-${row.id}`}
+    >
       <Text style={styles.title}>Sende automatisk fremover?</Text>
       <Text style={styles.body}>
         Du har godkendt mine svar til <Text style={styles.bold}>{row.recipient}</Text> {row.approval_count} gange.
@@ -40,14 +45,13 @@ export function TrustOfferCard({ row }: { row: TrustOfferRow }) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.paperDeep,
     borderRadius: 14,
     padding: 14,
     marginHorizontal: 16,
     marginTop: 8,
     gap: 8,
     borderWidth: 1,
-    borderColor: colors.ink + '22',
+    overflow: 'hidden',
   },
   title: { color: colors.ink, fontSize: 16, fontWeight: '600' },
   body: { color: colors.fg3, fontSize: 14, lineHeight: 20 },

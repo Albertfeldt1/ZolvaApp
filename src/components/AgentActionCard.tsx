@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
 import { revertAgentAction, type AgentActionRow } from '../lib/agent-feed';
+import { useTheme } from '../design/useTheme';
 import { colors } from '../theme';
 
 const TITLES: Record<AgentActionRow['action_type'], string> = {
@@ -27,6 +28,7 @@ function detailFor(row: AgentActionRow): string {
 }
 
 export function AgentActionCard({ row }: { row: AgentActionRow }) {
+  const { surface, shadows } = useTheme();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isReverted = !!row.reversed_at;
@@ -40,7 +42,10 @@ export function AgentActionCard({ row }: { row: AgentActionRow }) {
   }
 
   return (
-    <View style={styles.card} accessibilityLabel={`agent-action-${row.action_type}`}>
+    <View
+      style={[styles.card, { backgroundColor: surface.bone, borderColor: surface.glassRim, ...shadows.softCard }]}
+      accessibilityLabel={`agent-action-${row.action_type}`}
+    >
       <View style={styles.row}>
         <Text style={styles.badge}>✓ Udført</Text>
         <Text style={styles.title}>{TITLES[row.action_type]}</Text>
@@ -62,12 +67,13 @@ export function AgentActionCard({ row }: { row: AgentActionRow }) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.paperDeep,
     borderRadius: 14,
+    borderWidth: 1,
     padding: 14,
     marginHorizontal: 16,
     marginTop: 8,
     gap: 6,
+    overflow: 'hidden',
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   badge: { color: colors.fg3, fontSize: 12, fontWeight: '600' },
