@@ -902,3 +902,16 @@ Deno.test('buildProposalPreview: cal.update_event describes the change', () => {
   assertEquals(p.title, 'Ret begivenhed?');
   assertEquals(p.body, 'ny tid 2026-06-02T14:00:00Z');
 });
+
+Deno.test('buildProposalPreview: cal.update_event multi-field shows all parts', () => {
+  const p = buildProposalPreview('cal.update_event', {
+    title: 'Ny titel', start_iso: '2026-06-02T14:00:00Z', location: 'Kontoret',
+  });
+  assertEquals(p.title, 'Ret begivenhed?');
+  assertEquals(p.body, 'ny tid 2026-06-02T14:00:00Z · ny titel Ny titel · nyt sted Kontoret');
+});
+
+Deno.test('buildProposalPreview: cal.update_event fallback body when no change fields', () => {
+  const p = buildProposalPreview('cal.update_event', {});
+  assertEquals(p.body, 'Opdatér begivenhed');
+});
