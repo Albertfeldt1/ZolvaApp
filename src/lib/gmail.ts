@@ -133,9 +133,15 @@ export async function getInboxCounts(): Promise<{ total: number; unread: number 
 }
 
 export async function listInboxMessages(maxResults = 12): Promise<GmailMessage[]> {
+  // Exclude Promotions and Social so marketing/network noise (LinkedIn invites,
+  // Dribbble contests, domain offers) doesn't crowd out real mail in the "latest
+  // mails" glance. Updates is kept on purpose - receipts, security alerts and
+  // signup confirmations live there and the user wants those. Mirrors the
+  // category scoping already used by the unread counter and the backfill reader.
+  const q = encodeURIComponent('in:inbox -category:promotions -category:social');
   return tryWithRefresh('google', async (accessToken) => {
     const listRes = await fetchListWithRetry(
-      `${BASE}/messages?q=in:inbox&maxResults=${maxResults}`,
+      `${BASE}/messages?q=${q}&maxResults=${maxResults}`,
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
     if (listRes.status === 401 || listRes.status === 403) {
