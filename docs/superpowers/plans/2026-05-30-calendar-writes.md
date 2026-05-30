@@ -142,8 +142,8 @@ Deno.test('googleCreateEvent: posts event and returns id + delete reverse token'
   assertEquals(captured!.url.endsWith('/calendars/primary/events'), true);
   const body = JSON.parse(captured!.body);
   assertEquals(body.summary, 'Frokost');
-  assertEquals(body.start, { dateTime: '2026-06-01T11:00:00Z' });
-  assertEquals(body.end, { dateTime: '2026-06-01T12:00:00Z' });
+  assertEquals(body.start, { dateTime: '2026-06-01T11:00:00Z', timeZone: 'UTC' });
+  assertEquals(body.end, { dateTime: '2026-06-01T12:00:00Z', timeZone: 'UTC' });
   assertEquals(body.location, 'Kantinen');
   assertEquals(body.attendees, [{ email: 'a@example.com' }]);
 });
@@ -225,8 +225,8 @@ export async function googleCreateEvent(
 ): Promise<{ eventId: string; reverseToken: GcalEventDeleteToken }> {
   const body: Record<string, unknown> = {
     summary: input.title,
-    start: { dateTime: input.startIso },
-    end: { dateTime: input.endIso },
+    start: { dateTime: input.startIso, timeZone: 'UTC' },
+    end: { dateTime: input.endIso, timeZone: 'UTC' },
   };
   if (input.location) body.location = input.location;
   if (input.attendees && input.attendees.length) {
