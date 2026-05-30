@@ -188,6 +188,21 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
 
   try {
     const threads = await deps.loadThreadBriefs(userId, events);
+
+    // Sender of each triggering thread, surfaced on proposals as `source_from`
+    // so the approval UI can show who the proposal is about. Calendar proposals
+    // carry no thread_id, so fall back to the sole thread's sender when the run
+    // is about a single thread (the common case).
+    const senderByThread = new Map<string, string>();
+    for (const t of threads) {
+      if (t.from) senderByThread.set(t.thread_id, t.from);
+    }
+    const soleSender = threads.length === 1 ? (threads[0].from ?? undefined) : undefined;
+    const resolveSourceFrom = (payload: Record<string, unknown>): string | undefined => {
+      const tid = typeof payload.thread_id === 'string' ? payload.thread_id : '';
+      return (tid && senderByThread.get(tid)) || soleSender;
+    };
+
     const allow = buildThreadAllowlist(events);
     const userPolicy = await deps.loadUserPolicy(userId);
     const promotions = await deps.loadActivePromotions(userId);
@@ -301,11 +316,12 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
         if (policy === 'propose' && defaultMode === 'auto') {
           try {
             const idemKey = deriveIdemKey(action, input);
+            const sourceFrom = resolveSourceFrom(input);
             await writeProposalAndMaybePush(deps, {
               userId,
               runId,
               action,
-              payload: { ...input, idem_key: idemKey, deferred_execute: true },
+              payload: { ...input, idem_key: idemKey, deferred_execute: true, ...(sourceFrom ? { source_from: sourceFrom } : {}) },
               toolUseId: tu.id,
               toolResults,
               fallbackPushBody: 'En handling venter',
@@ -352,11 +368,12 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
               action === 'mail.send_reply' && typeof exec.recordPayload.draft_id === 'string'
                 ? draftDetail.get(exec.recordPayload.draft_id)
                 : undefined;
+            const sourceFrom = resolveSourceFrom(exec.recordPayload);
             await writeProposalAndMaybePush(deps, {
               userId,
               runId,
               action,
-              payload: { ...(carried ?? {}), ...exec.recordPayload, idem_key: idemKey },
+              payload: { ...(carried ?? {}), ...exec.recordPayload, idem_key: idemKey, ...(sourceFrom ? { source_from: sourceFrom } : {}) },
               toolUseId: tu.id,
               toolResults,
               fallbackPushBody: 'Et udkast venter',

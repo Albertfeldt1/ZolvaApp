@@ -1027,3 +1027,77 @@ Deno.test('buildProposalPreview: cal.update_event fallback body when no change f
   const p = buildProposalPreview('cal.update_event', {});
   assertEquals(p.body, 'Opdatér begivenhed');
 });
+
+// source_from: sole-thread sender must be attached to a non-thread proposal
+// (cal.create_event carries no thread_id) via the sole-sender fallback.
+Deno.test('runAgent: cal.create_event proposal carries source_from from sole thread sender', async () => {
+  let proposedPayload: Record<string, unknown> | null = null;
+  let callIdx = 0;
+  const { deps } = makeDeps();
+
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't1', message_id: 'm1', provider: 'google' } },
+  ];
+  // Single thread with a named sender.
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't1', from: 'NJFJORDSALLE <njfjordsalle16@gmail.com>', subject: 'Møde', snippet: '' },
+  ];
+  deps.loadUserPolicy = async () => [];
+  deps.loadUserPresence = async () => null;
+
+  const turns: CallClaudeResult[] = [
+    {
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_cal',
+          name: 'cal_create_event',
+          input: {
+            provider: 'google',
+            title: 'Frokost',
+            start_iso: '2026-06-04T10:00:00Z',
+            end_iso: '2026-06-04T11:00:00Z',
+          },
+        },
+      ],
+      usage: { input_tokens: 1, output_tokens: 1 },
+      stop_reason: 'tool_use',
+    },
+    {
+      content: [{ type: 'text', text: 'done' }],
+      usage: { input_tokens: 0, output_tokens: 0 },
+      stop_reason: 'end_turn',
+    },
+  ];
+  deps.callClaudeTurn = async () => turns[callIdx++];
+
+  deps.executeTool = async (_action, _payload) => ({
+    mode: 'propose' as const,
+    reversible: false,
+    reverseToken: null,
+    recordPayload: {
+      provider: 'google',
+      title: 'Frokost',
+      start_iso: '2026-06-04T10:00:00Z',
+      end_iso: '2026-06-04T11:00:00Z',
+    },
+  });
+
+  deps.writeProposedAction = async (row) => {
+    if (row.action_type === 'cal.create_event') {
+      proposedPayload = row.payload;
+    }
+    return 'p-cal-1';
+  };
+
+  const result = await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  assertEquals(result.status, 'ok');
+
+  if (!proposedPayload) throw new Error('writeProposedAction was not called for cal.create_event');
+  // Core assertion: sole-thread fallback must attach the sender even though
+  // cal.create_event has no thread_id in its payload.
+  assertEquals(
+    proposedPayload['source_from'],
+    'NJFJORDSALLE <njfjordsalle16@gmail.com>',
+  );
+});
