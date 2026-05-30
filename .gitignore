@@ -53,6 +53,8 @@ yarn-error.*
 
 # Supabase CLI scratch state
 supabase/.temp/
+# Stray scratch dir created when the supabase CLI is run from inside functions/
+supabase/functions/supabase/
 
 # Filled-in copy of the cron schedule (contains service_role key + cron secret).
 # The committed template is supabase/schedule-poll-mail.sql.template.
