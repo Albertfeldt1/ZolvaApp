@@ -52,6 +52,8 @@ function makeDeps(): { deps: RunnerDeps; log: string[] } {
       isUserIdle: async () => false,
       recipientAllowlistCheck: async () => false,
       priorFailedSendIdem: async () => false,
+      // Phase 4 trust-escalation: no active promotions by default.
+      loadActivePromotions: async () => [],
     },
   };
 }
@@ -405,6 +407,70 @@ Deno.test('runAgent: mail.send_reply executes when policy=auto and all rails pas
   assertEquals(proposed, false);
   assertEquals(receivedOpts?.policy, 'auto');
   assertEquals(receivedOpts?.safetyDefined, true);
+});
+
+Deno.test('runAgent: active trust promotion auto-sends even when user policy=propose', async () => {
+  let executedAction: string | null = null;
+  let proposed = false;
+  const { deps } = makeDeps();
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't1', message_id: 'm1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't1', from: 'mor@example.dk', subject: 'Hi', snippet: '' },
+  ];
+  // User policy is only `propose` — but an accepted promotion for this
+  // recipient must pin the resolved policy to `auto`.
+  deps.loadUserPolicy = async () => [
+    { user_id: 'u-1', action_type: 'mail.send_reply', mode: 'propose' },
+  ];
+  deps.loadActivePromotions = async () => [
+    { action_type: 'mail.send_reply', recipient: 'mor@example.dk' },
+  ];
+  deps.isUserIdle = async () => true;
+  deps.recipientAllowlistCheck = async () => true;
+  deps.priorFailedSendIdem = async () => false;
+  deps.callClaudeTurn = async () => ({
+    content: [
+      {
+        type: 'tool_use',
+        id: 'toolu_1',
+        name: 'mail_send_reply',
+        input: {
+          provider: 'google',
+          thread_id: 't1',
+          draft_id: 'draft-1',
+          draft_hash: 'sha1-abc',
+          preview_text: 'Tak.',
+          to: 'mor@example.dk',
+        },
+      },
+    ],
+    usage: { input_tokens: 1, output_tokens: 1 },
+    stop_reason: 'end_turn',
+  });
+  let receivedPolicy: string | undefined;
+  deps.executeTool = async (_action, payload, opts) => {
+    receivedPolicy = opts?.policy;
+    const allRailsClear =
+      opts?.safety?.userIsIdle === true &&
+      (await opts.safety.hasRecipientHistory('mor@example.dk')) &&
+      !(await opts.safety.hasPriorFailedIdem('t1::sha1-abc'));
+    return {
+      mode: allRailsClear ? 'executed' : 'propose',
+      reversible: false,
+      reverseToken: null,
+      recordPayload: { ...payload },
+    };
+  };
+  deps.recordAction = async (row) => { executedAction = row.action_type; };
+  deps.writeProposedAction = async () => { proposed = true; return 'p-stub'; };
+
+  const result = await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  assertEquals(result.status, 'ok');
+  assertEquals(receivedPolicy, 'auto');
+  assertEquals(executedAction, 'mail.send_reply');
+  assertEquals(proposed, false);
 });
 
 Deno.test('runAgent: mail.send_reply proposes when recipient not in allowlist', async () => {

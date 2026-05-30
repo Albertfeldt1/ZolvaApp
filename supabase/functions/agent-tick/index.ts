@@ -211,6 +211,18 @@ function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
       if (error) throw error;
       return (data ?? []) as Array<{ user_id: string; action_type: ActionType; mode: 'auto' | 'propose' | 'off' }>;
     },
+    async loadActivePromotions(uid) {
+      const { data, error } = await client
+        .from('trust_offers')
+        .select('action_type, recipient')
+        .eq('user_id', uid)
+        .eq('status', 'accepted');
+      if (error) {
+        console.warn('[agent-tick] trust promotions read failed:', error.message);
+        return [];
+      }
+      return (data ?? []) as Array<{ action_type: string; recipient: string }>;
+    },
     async loadUserPresence(uid) {
       const { data, error } = await client
         .from('user_presence')

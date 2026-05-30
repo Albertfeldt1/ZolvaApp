@@ -104,6 +104,9 @@ export interface RunnerDeps {
     userId: string,
     preview: { title: string; body: string; actionId: string },
   ) => Promise<void>;
+  // Phase 4 trust-escalation: accepted per-recipient promotions.
+  // Loaded once per run alongside loadUserPolicy.
+  loadActivePromotions: (userId: string) => Promise<Array<{ action_type: string; recipient: string }>>;
 }
 
 export interface RunInput {
@@ -183,6 +186,7 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
     const threads = await deps.loadThreadBriefs(userId, events);
     const allow = buildThreadAllowlist(events);
     const userPolicy = await deps.loadUserPolicy(userId);
+    const promotions = await deps.loadActivePromotions(userId);
     const { system, messages } = buildMailTriagePrompt({ threads });
     const conversation: ClaudeUserMessage[] = [...messages];
 
@@ -263,7 +267,14 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
         // approve dispatches when the user taps Send. For mail.send_reply,
         // the dispatcher already returns mode='propose' intrinsically unless
         // policy=auto + every safety rail holds.
-        const policy = resolvePolicy(action, userPolicy);
+        const recipient =
+          action === 'mail.send_reply' && typeof input.to === 'string'
+            ? input.to
+            : undefined;
+        const policy = resolvePolicy(action, userPolicy, {
+          recipient,
+          promotions,
+        });
         if (policy === 'off') {
           toolResults.push({
             type: 'tool_result',

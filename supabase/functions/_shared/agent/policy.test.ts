@@ -29,3 +29,28 @@ Deno.test('resolvePolicy: only the row matching action_type wins', () => {
   assertEquals(resolvePolicy('mail.archive', rows), 'propose');
   assertEquals(resolvePolicy('mail.flag_important', rows), 'auto');
 });
+
+Deno.test('resolvePolicy: accepted promotion overrides user_agent_policy=propose', () => {
+  const rows = [{ user_id: 'u', action_type: 'mail.send_reply' as const, mode: 'propose' as const }];
+  const promotions = [{ action_type: 'mail.send_reply', recipient: 'mom@example.com' }];
+  assertEquals(
+    resolvePolicy('mail.send_reply', rows, { recipient: 'mom@example.com', promotions }),
+    'auto',
+  );
+});
+
+Deno.test('resolvePolicy: no matching promotion falls through to user_agent_policy', () => {
+  const rows = [{ user_id: 'u', action_type: 'mail.send_reply' as const, mode: 'propose' as const }];
+  const promotions = [{ action_type: 'mail.send_reply', recipient: 'dad@example.com' }];
+  assertEquals(
+    resolvePolicy('mail.send_reply', rows, { recipient: 'mom@example.com', promotions }),
+    'propose',
+  );
+});
+
+Deno.test('resolvePolicy: empty promotions + no row falls back to DEFAULT_POLICY', () => {
+  assertEquals(
+    resolvePolicy('mail.send_reply', [], { recipient: 'x@y.com', promotions: [] }),
+    'propose',
+  );
+});
