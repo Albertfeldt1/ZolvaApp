@@ -11,7 +11,9 @@ export interface AgentActionRow {
     | 'mail.summarize'
     | 'mail.draft_reply'
     | 'mail.send_reply'
-    | 'mail.send_new';
+    | 'mail.send_new'
+    | 'cal.create_event'
+    | 'cal.update_event';
   payload: Record<string, unknown>;
   executed_at: string;
   reversible: boolean;
