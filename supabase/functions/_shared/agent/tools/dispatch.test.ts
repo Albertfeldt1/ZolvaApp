@@ -125,6 +125,10 @@ Deno.test('executeTool: mail.draft_reply with provider=google calls gmail draft'
   assertEquals(result.reversible, true);
   assertEquals(result.reverseToken?.kind, 'gmail.draft');
   assertEquals(result.recordPayload.draft_id, 'draft-1');
+  // draft_hash must be present (deriveIdemKey + send_reply both require it) and
+  // be a 40-char SHA-1 hex of the body.
+  assertEquals(typeof result.recordPayload.draft_hash, 'string');
+  assertEquals((result.recordPayload.draft_hash as string).length, 40);
 });
 
 Deno.test('executeTool: mail.draft_reply with provider=microsoft hits graph createReply', async () => {

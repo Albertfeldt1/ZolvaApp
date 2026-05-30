@@ -305,6 +305,10 @@ export async function executeTool(
       const threadId = mustString(payload, 'thread_id');
       const inReplyTo = mustString(payload, 'in_reply_to_message_id');
       const bodyText = mustString(payload, 'body');
+      // Idempotency hash of the body. deriveIdemKey + the send-path idem key
+      // both require draft_hash, and send_reply must reference the SAME value,
+      // so we compute it here and hand it back to Claude in the tool result.
+      const draftHash = await sha1Hex(bodyText);
       if (provider === 'google') {
         const to = mustString(payload, 'to');
         const subject = mustString(payload, 'subject');
@@ -325,7 +329,10 @@ export async function executeTool(
             provider,
             thread_id: threadId,
             draft_id: out.draftId,
+            draft_hash: draftHash,
             message_id: out.messageId,
+            to,
+            subject,
             body_preview: bodyText.slice(0, 200),
           },
         };
@@ -347,6 +354,7 @@ export async function executeTool(
           provider,
           thread_id: threadId,
           draft_id: out.draftId,
+          draft_hash: draftHash,
           body_preview: bodyText.slice(0, 200),
         },
       };
@@ -454,4 +462,15 @@ function mustProvider(payload: Record<string, unknown>): 'google' | 'microsoft' 
   const v = payload.provider;
   if (v === 'google' || v === 'microsoft') return v;
   throw new Error(`tool payload missing or invalid provider (got ${String(v)})`);
+}
+
+// SHA-1 hex of a string — used as the body idempotency token (draft_hash).
+// Not security-sensitive; it only needs to be deterministic so the same draft
+// body maps to the same idem key across draft_reply → send_reply → approve.
+async function sha1Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest('SHA-1', data);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }

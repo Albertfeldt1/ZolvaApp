@@ -72,6 +72,18 @@ Deno.test('runAgent: no-op orchestration writes a run and marks events', async (
   ]);
 });
 
+Deno.test('runAgent: finishRun receives a per-turn trace (stop_reason + text + tools)', async () => {
+  const { deps } = makeDeps();
+  let captured: unknown;
+  deps.finishRun = async (_runId, _status, _usage, _error, trace) => {
+    captured = trace;
+  };
+  await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  assertEquals(captured, [
+    { round: 0, stop_reason: 'end_turn', text: 'ok', tools: [] },
+  ]);
+});
+
 Deno.test('runAgent: when there are no events, do not open a run', async () => {
   const { deps, log } = makeDeps();
   deps.claimEvents = async () => [];
@@ -142,6 +154,44 @@ Deno.test('runAgent: phase-2 path executes one tool call', async () => {
   assertEquals(recordedAction?.payload.thread_id, 't1');
   assertEquals(result.processed, 1);
   assertEquals(result.status, 'ok');
+});
+
+Deno.test('runAgent: cal_list_events (no thread_id) is NOT rejected by the thread guard', async () => {
+  let calledAction: string | null = null;
+  const { deps } = makeDeps();
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't1', message_id: 'm1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't1', from: 'a@x', subject: 'Møde?', snippet: '' },
+  ];
+  let turn = 0;
+  deps.callClaudeTurn = async () => {
+    if (turn++ === 0) {
+      return {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_cal',
+            name: 'cal_list_events',
+            input: { start_iso: '2026-05-31T12:00:00Z', end_iso: '2026-05-31T16:00:00Z', provider: 'google' },
+          },
+        ],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        stop_reason: 'tool_use',
+      };
+    }
+    return { content: [{ type: 'text', text: 'done' }], usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: 'end_turn' };
+  };
+  deps.executeTool = async (action) => {
+    calledAction = action;
+    return { mode: 'executed' as const, reversible: false, reverseToken: null, recordPayload: { events: [] } };
+  };
+
+  await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  // Before the fix the guard threw 'hallucination-guard: unknown thread' on the
+  // empty thread_id and executeTool was never reached.
+  assertEquals(calledAction, 'cal.list_events');
 });
 
 Deno.test('runAgent: phase-2 path rejects hallucinated thread_id without aborting run', async () => {

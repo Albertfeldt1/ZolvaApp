@@ -37,6 +37,17 @@ export interface RecordActionRow {
   reverse_token: ExecuteReverseToken;
 }
 
+export interface RunTraceTurn {
+  round: number;
+  stop_reason: string;
+  text: string;
+  tools: Array<{ name: string; thread_id: string | null }>;
+  // Outcome of each tool call this round — the verbatim tool_result fed back
+  // to Claude. is_error=true means executeTool threw (provider 4xx, dup idem,
+  // policy_off, etc). This is what tells us WHY a tool failed.
+  results?: Array<{ name: string | null; is_error: boolean; content: string }>;
+}
+
 export interface RunnerDeps {
   claimEvents: (userId: string, limit: number) => Promise<ClaimedEvent[]>;
   openRun: (userId: string, trigger: AgentRunTrigger, eventIds: number[]) => Promise<string>;
@@ -45,6 +56,10 @@ export interface RunnerDeps {
     status: 'ok' | 'error' | 'budget_exceeded',
     usage?: { input_tokens: number; output_tokens: number },
     error?: string,
+    // Compact per-turn trace for observability: stop_reason, the assistant's
+    // text, and which tools it called each round. Lets us see WHY a run took
+    // no action without storing the full transcript.
+    trace?: RunTraceTurn[],
   ) => Promise<void>;
   markProcessed: (eventIds: number[]) => Promise<void>;
   // Phase-2 deps.
@@ -104,7 +119,12 @@ export interface RunResult {
 }
 
 const CLAIM_BATCH = 50;
-const MAX_TOOL_ROUNDS = 3;
+// The research→draft→propose flow needs: mail_get_body, cal_list_events
+// (and/or drive_search), mail_draft_reply, mail_send_reply — already 4 rounds
+// for a single thread. 3 was too tight: the chain ran out before it could
+// propose, so a drafted reply never surfaced as an approve-card. 6 leaves
+// headroom for one research detour without unbounded looping.
+const MAX_TOOL_ROUNDS = 6;
 const SUPPORTED_ACTIONS = new Set<ActionType>([
   'mail.label',
   'mail.archive',
@@ -122,6 +142,15 @@ const SUPPORTED_ACTIONS = new Set<ActionType>([
 // (used as the tool_result content sent back to Claude).
 const CONTEXT_ONLY_ACTIONS = new Set<ActionType>([
   'mail.get_body',
+  'cal.list_events',
+  'drive.search',
+]);
+// Context tools that are NOT thread-scoped — their inputs carry no thread_id
+// (cal.list_events takes start/end, drive.search takes a query). The thread
+// hallucination-guard must be skipped for them, or it throws on the empty
+// thread_id and the call dies before it runs. (mail.get_body IS thread-scoped
+// and still goes through the guard.)
+const NON_THREAD_ACTIONS = new Set<ActionType>([
   'cal.list_events',
   'drive.search',
 ]);
@@ -146,6 +175,7 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
 
   let usage = { input_tokens: 0, output_tokens: 0 };
   let runError: string | undefined;
+  const trace: RunTraceTurn[] = [];
 
   try {
     const threads = await deps.loadThreadBriefs(userId, events);
@@ -177,6 +207,22 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
       // so a follow-up Claude call has the context if we need to loop.
       conversation.push({ role: 'assistant', content: turn.content });
 
+      // Record this turn for observability before we act on (or bail from) it.
+      const turnText = turn.content
+        .filter((b) => b.type === 'text')
+        .map((b) => (typeof (b as { text?: unknown }).text === 'string' ? (b as { text: string }).text : ''))
+        .join(' ')
+        .trim();
+      trace.push({
+        round,
+        stop_reason: turn.stop_reason,
+        text: turnText.slice(0, 500),
+        tools: toolUses.map((tu) => ({
+          name: tu.name,
+          thread_id: typeof tu.input?.thread_id === 'string' ? tu.input.thread_id : null,
+        })),
+      });
+
       if (toolUses.length === 0) break;
 
       const toolResults: Array<Record<string, unknown>> = [];
@@ -193,16 +239,21 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
         }
         const input = (tu.input && typeof tu.input === 'object') ? tu.input : {};
         const threadId = typeof input.thread_id === 'string' ? input.thread_id : '';
-        try {
-          verifyThreadId(threadId, allow);
-        } catch (e) {
-          toolResults.push({
-            type: 'tool_result',
-            tool_use_id: tu.id,
-            is_error: true,
-            content: String(e instanceof Error ? e.message : e),
-          });
-          continue;
+        // Thread guard applies only to thread-scoped tools. cal.list_events /
+        // drive.search carry no thread_id; running the guard on them throws
+        // 'unknown thread' on the empty id and kills the call (Phase 4a bug).
+        if (!NON_THREAD_ACTIONS.has(action)) {
+          try {
+            verifyThreadId(threadId, allow);
+          } catch (e) {
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: tu.id,
+              is_error: true,
+              content: String(e instanceof Error ? e.message : e),
+            });
+            continue;
+          }
         }
         // Phase 3 + 3.1: resolve policy. mode='off' rejects. mode='propose'
         // on a currently-auto action (mail.archive etc.) is honored via the
@@ -310,10 +361,15 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
             reversible: exec.reversible,
             reverse_token: exec.reverseToken,
           });
+          // mail.draft_reply must hand its real draft_id + draft_hash back to
+          // Claude so the follow-up mail.send_reply references the actual draft
+          // (not a hallucinated id). Other actions just need an ack.
           toolResults.push({
             type: 'tool_result',
             tool_use_id: tu.id,
-            content: 'ok',
+            content: action === 'mail.draft_reply'
+              ? JSON.stringify(exec.recordPayload)
+              : 'ok',
           });
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -330,6 +386,14 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
           });
         }
       }
+
+      // Attach this round's tool outcomes to the trace turn recorded above.
+      const idToName = new Map(toolUses.map((tu) => [tu.id, tu.name]));
+      trace[trace.length - 1].results = toolResults.map((r) => ({
+        name: (idToName.get(r.tool_use_id as string) ?? null) as string | null,
+        is_error: r.is_error === true,
+        content: (typeof r.content === 'string' ? r.content : JSON.stringify(r.content)).slice(0, 300),
+      }));
 
       conversation.push({ role: 'user', content: toolResults });
 
@@ -353,6 +417,7 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
       runError ? 'error' : 'ok',
       usage,
       runError,
+      trace,
     );
   }
 

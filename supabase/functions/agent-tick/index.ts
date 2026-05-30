@@ -59,6 +59,7 @@ async function loadThreadBriefs(
       from: headers.find((h) => h.name === 'From')?.value ?? '',
       subject: headers.find((h) => h.name === 'Subject')?.value ?? '(uden emne)',
       snippet: msg?.snippet ?? '',
+      provider: ev.payload.provider === 'microsoft' ? 'microsoft' : 'google',
     });
   }
   return briefs;
@@ -121,7 +122,7 @@ function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
       if (error) throw error;
       return data!.id as string;
     },
-    async finishRun(runId, status, usage, errorMsg) {
+    async finishRun(runId, status, usage, errorMsg, trace) {
       const update: Record<string, unknown> = {
         status,
         finished_at: new Date().toISOString(),
@@ -131,6 +132,7 @@ function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
         update.output_tokens = usage.output_tokens;
       }
       if (errorMsg) update.error = errorMsg.slice(0, 1000);
+      if (trace && trace.length > 0) update.trace = trace;
       const { error } = await client.from('agent_runs').update(update).eq('id', runId);
       if (error) throw error;
     },

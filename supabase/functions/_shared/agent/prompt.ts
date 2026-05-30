@@ -28,6 +28,10 @@ export interface ThreadBrief {
   from: string;
   subject: string;
   snippet: string;
+  // Which mailbox the thread lives in. Every tool payload must carry this, so
+  // it has to be visible in the brief — Claude was previously left to guess it
+  // from the sender domain, which fails for Outlook and isn't reliable anyway.
+  provider?: 'google' | 'microsoft';
 }
 
 export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
@@ -41,8 +45,11 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
       'Archive a thread the user has clearly already handled (newsletters, receipts, automated notifications). Removes INBOX label only — recoverable.',
     input_schema: {
       type: 'object',
-      properties: { thread_id: { type: 'string' } },
-      required: ['thread_id'],
+      properties: {
+        thread_id: { type: 'string' },
+        provider: { type: 'string', enum: ['google', 'microsoft'] },
+      },
+      required: ['thread_id', 'provider'],
     },
   },
   {
@@ -55,8 +62,9 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
         thread_id: { type: 'string' },
         label: { type: 'string' },
         op: { type: 'string', enum: ['add', 'remove'] },
+        provider: { type: 'string', enum: ['google', 'microsoft'] },
       },
-      required: ['thread_id', 'label', 'op'],
+      required: ['thread_id', 'label', 'op', 'provider'],
     },
   },
   {
@@ -65,8 +73,11 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
       'Mark a thread as important (applies the "Zolva flaggede" label). Use sparingly: only when the message likely needs the user\'s attention today.',
     input_schema: {
       type: 'object',
-      properties: { thread_id: { type: 'string' } },
-      required: ['thread_id'],
+      properties: {
+        thread_id: { type: 'string' },
+        provider: { type: 'string', enum: ['google', 'microsoft'] },
+      },
+      required: ['thread_id', 'provider'],
     },
   },
   {
@@ -78,8 +89,9 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
       properties: {
         thread_id: { type: 'string' },
         summary: { type: 'string', maxLength: 200 },
+        provider: { type: 'string', enum: ['google', 'microsoft'] },
       },
-      required: ['thread_id', 'summary'],
+      required: ['thread_id', 'summary', 'provider'],
     },
   },
   {
@@ -94,8 +106,9 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
         to: { type: 'string', description: 'recipient address (Gmail only; Outlook draft is pre-filled by createReply)' },
         subject: { type: 'string', description: 'Gmail only' },
         body: { type: 'string', description: 'Danish, ≤ 600 chars' },
+        provider: { type: 'string', enum: ['google', 'microsoft'] },
       },
-      required: ['thread_id', 'in_reply_to_message_id', 'body'],
+      required: ['thread_id', 'in_reply_to_message_id', 'body', 'provider'],
     },
   },
   {
@@ -110,8 +123,9 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
         draft_hash: { type: 'string', description: 'sha1 of the body — used for idempotency' },
         preview_text: { type: 'string', description: 'one-line preview for the proposal card, ≤ 120 chars' },
         to: { type: 'string', description: 'recipient email address — must equal the to used in the prior mail_draft_reply step' },
+        provider: { type: 'string', enum: ['google', 'microsoft'] },
       },
-      required: ['thread_id', 'draft_id', 'draft_hash', 'preview_text', 'to'],
+      required: ['thread_id', 'draft_id', 'draft_hash', 'preview_text', 'to', 'provider'],
     },
   },
   {
@@ -201,7 +215,7 @@ export function buildMailTriagePrompt(
         'Triager følgende tråde:',
         '',
         ...input.threads.map((t) =>
-          `- thread_id=${t.thread_id} | from=${t.from} | subject=${t.subject}${t.snippet ? ` | snippet=${t.snippet.slice(0, 120)}` : ''}`,
+          `- thread_id=${t.thread_id} | provider=${t.provider ?? 'google'} | from=${t.from} | subject=${t.subject}${t.snippet ? ` | snippet=${t.snippet.slice(0, 120)}` : ''}`,
         ),
       ].join('\n');
   const messages: ClaudeUserMessage[] = [{ role: 'user', content: body }];
