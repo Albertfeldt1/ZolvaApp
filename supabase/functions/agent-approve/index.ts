@@ -38,10 +38,25 @@ async function loadGmailToken(client: SupabaseClient, userId: string): Promise<s
   return accessToken;
 }
 
-async function loadOutlookToken(client: SupabaseClient, userId: string): Promise<string> {
+async function loadOutlookToken(
+  client: SupabaseClient,
+  userId: string,
+  actionType: string,
+): Promise<string> {
   const r = await loadRefreshToken(client, userId, 'microsoft');
   if (!r) throw new Error('no microsoft refresh token');
-  const { accessToken } = await refreshAccessToken(client, userId, 'microsoft', r);
+  // Microsoft scopes tokens per-refresh. Calendar writes need Calendars.ReadWrite;
+  // mail actions use the default mail scope. Requesting the wrong scope 403s.
+  const microsoftScope = actionType.startsWith('cal.')
+    ? 'offline_access Calendars.ReadWrite'
+    : undefined;
+  const { accessToken } = await refreshAccessToken(
+    client,
+    userId,
+    'microsoft',
+    r,
+    microsoftScope ? { microsoftScope } : {},
+  );
   return accessToken;
 }
 
@@ -93,7 +108,7 @@ serve(async (req) => {
   let outlookTok = '';
   try {
     if (provider === 'google') gmailTok = await loadGmailToken(client, userId);
-    if (provider === 'microsoft') outlookTok = await loadOutlookToken(client, userId);
+    if (provider === 'microsoft') outlookTok = await loadOutlookToken(client, userId, claimed.action_type);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[agent-approve] token load', msg);
