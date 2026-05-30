@@ -404,7 +404,7 @@ Deno.test('googlePatchEvent: PATCHes only provided fields', async () => {
     return new Response('{}', { status: 200 });
   };
   await googlePatchEvent({ fetch, accessToken: 't', eventId: 'e1', patch: { startIso: '2026-06-02T10:00:00Z' } });
-  assertEquals(JSON.parse(body), { start: { dateTime: '2026-06-02T10:00:00Z' } });
+  assertEquals(JSON.parse(body), { start: { dateTime: '2026-06-02T10:00:00Z', timeZone: 'UTC' } });
 });
 
 Deno.test('outlookPatchEvent: PATCHes with UTC timeZone and stripped Z', async () => {
@@ -483,8 +483,8 @@ export async function googlePatchEvent(input: {
 }): Promise<void> {
   const body: Record<string, unknown> = {};
   if (input.patch.title !== undefined) body.summary = input.patch.title;
-  if (input.patch.startIso !== undefined) body.start = { dateTime: input.patch.startIso };
-  if (input.patch.endIso !== undefined) body.end = { dateTime: input.patch.endIso };
+  if (input.patch.startIso !== undefined) body.start = { dateTime: input.patch.startIso, timeZone: 'UTC' };
+  if (input.patch.endIso !== undefined) body.end = { dateTime: input.patch.endIso, timeZone: 'UTC' };
   if (input.patch.location !== undefined) body.location = input.patch.location;
   const res = await input.fetch(`${GCAL_EVENTS}/${encodeURIComponent(input.eventId)}`, {
     method: 'PATCH',
