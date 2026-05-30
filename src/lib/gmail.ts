@@ -198,14 +198,20 @@ async function fetchMessageMeta(
   };
 }
 
-function parseGmailDate(header: string, internalDate?: string): Date {
-  if (header) {
-    const parsed = new Date(header);
-    if (!Number.isNaN(parsed.getTime())) return parsed;
-  }
+// internalDate is Gmail's authoritative receive timestamp - the same field
+// that orders the inbox. The `Date:` header is sender-controlled and routinely
+// wrong on marketing/cold-outreach mail (bad clocks, timezone games, or
+// deliberate top-of-inbox inflation), so trusting it floats old mail above
+// genuinely recent mail once callers sort by this value. Prefer internalDate;
+// fall back to the header only when Gmail omits internalDate.
+export function parseGmailDate(header: string, internalDate?: string): Date {
   if (internalDate) {
     const ms = Number(internalDate);
     if (Number.isFinite(ms)) return new Date(ms);
+  }
+  if (header) {
+    const parsed = new Date(header);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
   }
   return new Date();
 }
