@@ -151,6 +151,9 @@ export function ProposalDetailModal({ row, onClose }: Props) {
   // Sender (present in both reply and calendar proposals)
   const sourceFrom = str(row.payload.source_from);
 
+  // Original incoming message body — shown read-only so the user has full context
+  const sourceBody = str(row.payload.source_body);
+
   // Reply fields
   const replyTo = str(row.payload.to);
   const replySubject = str(row.payload.subject);
@@ -215,6 +218,15 @@ export function ProposalDetailModal({ row, onClose }: Props) {
                   </Text>
                 ) : null}
 
+                {sourceBody ? (
+                  <>
+                    <Text style={styles.sectionHeading}>Original besked</Text>
+                    <Text style={styles.sourceBodyText}>{sourceBody}</Text>
+                  </>
+                ) : null}
+
+                <Text style={styles.sectionHeading}>Dit svar</Text>
+
                 {hasFullBody ? (
                   <TextInput
                     value={editedText}
@@ -265,6 +277,12 @@ export function ProposalDetailModal({ row, onClose }: Props) {
                     <Text style={styles.calLabel}>Deltagere</Text>
                     <Text style={styles.calValue}>{calAttendees}</Text>
                   </View>
+                ) : null}
+                {sourceBody ? (
+                  <>
+                    <Text style={styles.sectionHeading}>Original besked</Text>
+                    <Text style={styles.sourceBodyText}>{sourceBody}</Text>
+                  </>
                 ) : null}
               </>
             )}
@@ -441,6 +459,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     flex: 1,
+  },
+  // Section headings — e.g. "Original besked" / "Dit svar"
+  sectionHeading: {
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginTop: 8,
+    marginBottom: 2,
+    opacity: 0.55,
+  },
+  // Read-only original message text
+  sourceBodyText: {
+    color: colors.fg3,
+    fontSize: 13,
+    lineHeight: 20,
+    backgroundColor: 'rgba(11,11,12,0.04)',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(11,11,12,0.08)',
   },
   // Error line above buttons
   errorText: {
