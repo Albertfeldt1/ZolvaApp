@@ -55,3 +55,15 @@ Deno.test('mail.draft_reply throws on missing draft_hash', () => {
     'draft_hash',
   );
 });
+
+Deno.test('deriveIdemKey: cal.create_event keys on provider+title+start', () => {
+  const key = deriveIdemKey('cal.create_event', {
+    provider: 'google', title: 'Frokost', start_iso: '2026-06-01T11:00:00Z',
+  });
+  assertEquals(key, 'cal.create_event:google:Frokost:2026-06-01T11:00:00Z');
+});
+
+Deno.test('deriveIdemKey: cal.update_event keys on provider+event_id', () => {
+  const key = deriveIdemKey('cal.update_event', { provider: 'microsoft', event_id: 'e1' });
+  assertEquals(key, 'cal.update_event:microsoft:e1');
+});

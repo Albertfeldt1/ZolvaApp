@@ -25,6 +25,10 @@ export function deriveIdemKey(action: ActionType, payload: IdemPayload): string 
       return `mail.draft_reply:${req(payload, 'thread_id')}:${req(payload, 'draft_hash')}`;
     case 'mail.send_reply':
       return `mail.send_reply:${req(payload, 'thread_id')}:${req(payload, 'draft_hash')}`;
+    case 'cal.create_event':
+      return `cal.create_event:${req(payload, 'provider')}:${req(payload, 'title')}:${req(payload, 'start_iso')}`;
+    case 'cal.update_event':
+      return `cal.update_event:${req(payload, 'provider')}:${req(payload, 'event_id')}`;
     default:
       // Phase 3+ action types reach this branch — caller is responsible
       // for not invoking it on unsupported types in Phase 2.
