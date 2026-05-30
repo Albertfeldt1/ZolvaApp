@@ -114,3 +114,132 @@ export async function outlookCreateEvent(
   if (!j.id) throw new Error('graph events.create: response missing id');
   return { eventId: j.id, reverseToken: { kind: 'graph.event_delete', provider: 'microsoft', event_id: j.id } };
 }
+
+export async function googleDeleteEvent(input: {
+  fetch: CalWriteFetch;
+  accessToken: string;
+  eventId: string;
+}): Promise<void> {
+  const res = await input.fetch(`${GCAL_EVENTS}/${encodeURIComponent(input.eventId)}`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${input.accessToken}` },
+  });
+  // 404/410 = already gone — for an undo that's the desired end state.
+  if (!res.ok && res.status !== 404 && res.status !== 410) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`google calendar.delete ${res.status}: ${detail.slice(0, 200)}`);
+  }
+}
+
+export async function outlookDeleteEvent(input: {
+  fetch: CalWriteFetch;
+  accessToken: string;
+  eventId: string;
+}): Promise<void> {
+  const res = await input.fetch(`${GRAPH_EVENTS}/${encodeURIComponent(input.eventId)}`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${input.accessToken}` },
+  });
+  if (!res.ok && res.status !== 404 && res.status !== 410) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`graph events.delete ${res.status}: ${detail.slice(0, 200)}`);
+  }
+}
+
+export async function googlePatchEvent(input: {
+  fetch: CalWriteFetch;
+  accessToken: string;
+  eventId: string;
+  patch: EventPatch;
+}): Promise<void> {
+  const body: Record<string, unknown> = {};
+  if (input.patch.title !== undefined) body.summary = input.patch.title;
+  if (input.patch.startIso !== undefined) body.start = { dateTime: input.patch.startIso, timeZone: 'UTC' };
+  if (input.patch.endIso !== undefined) body.end = { dateTime: input.patch.endIso, timeZone: 'UTC' };
+  if (input.patch.location !== undefined) body.location = input.patch.location;
+  const res = await input.fetch(`${GCAL_EVENTS}/${encodeURIComponent(input.eventId)}`, {
+    method: 'PATCH',
+    headers: { authorization: `Bearer ${input.accessToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`google calendar.patch ${res.status}: ${detail.slice(0, 200)}`);
+  }
+}
+
+export async function outlookPatchEvent(input: {
+  fetch: CalWriteFetch;
+  accessToken: string;
+  eventId: string;
+  patch: EventPatch;
+}): Promise<void> {
+  const body: Record<string, unknown> = {};
+  if (input.patch.title !== undefined) body.subject = input.patch.title;
+  if (input.patch.startIso !== undefined) body.start = { dateTime: stripZone(input.patch.startIso), timeZone: 'UTC' };
+  if (input.patch.endIso !== undefined) body.end = { dateTime: stripZone(input.patch.endIso), timeZone: 'UTC' };
+  if (input.patch.location !== undefined) body.location = { displayName: input.patch.location };
+  const res = await input.fetch(`${GRAPH_EVENTS}/${encodeURIComponent(input.eventId)}`, {
+    method: 'PATCH',
+    headers: { authorization: `Bearer ${input.accessToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`graph events.patch ${res.status}: ${detail.slice(0, 200)}`);
+  }
+}
+
+export async function googleGetEventPatch(input: {
+  fetch: CalWriteFetch;
+  accessToken: string;
+  eventId: string;
+}): Promise<EventPatch> {
+  const res = await input.fetch(
+    `${GCAL_EVENTS}/${encodeURIComponent(input.eventId)}?fields=summary,start,end,location`,
+    { headers: { authorization: `Bearer ${input.accessToken}` } },
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`google calendar.get ${res.status}: ${detail.slice(0, 200)}`);
+  }
+  const j = (await res.json()) as {
+    summary?: string;
+    start?: { dateTime?: string; date?: string };
+    end?: { dateTime?: string; date?: string };
+    location?: string;
+  };
+  return {
+    title: j.summary,
+    startIso: j.start?.dateTime ?? j.start?.date,
+    endIso: j.end?.dateTime ?? j.end?.date,
+    location: j.location,
+  };
+}
+
+export async function outlookGetEventPatch(input: {
+  fetch: CalWriteFetch;
+  accessToken: string;
+  eventId: string;
+}): Promise<EventPatch> {
+  const res = await input.fetch(
+    `${GRAPH_EVENTS}/${encodeURIComponent(input.eventId)}?$select=subject,start,end,location`,
+    { headers: { authorization: `Bearer ${input.accessToken}`, prefer: 'outlook.timezone="UTC"' } },
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`graph events.get ${res.status}: ${detail.slice(0, 200)}`);
+  }
+  const j = (await res.json()) as {
+    subject?: string;
+    start?: { dateTime?: string };
+    end?: { dateTime?: string };
+    location?: { displayName?: string };
+  };
+  return {
+    title: j.subject,
+    startIso: j.start?.dateTime,
+    endIso: j.end?.dateTime,
+    location: j.location?.displayName,
+  };
+}
