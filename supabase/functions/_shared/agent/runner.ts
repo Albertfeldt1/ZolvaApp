@@ -198,6 +198,11 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
     // Consulted by the mail.send_reply safety rail so we never auto-send a
     // reply off the snippet alone. Resets every run (scoped inside the try).
     const researchedThreads = new Set<string>();
+    // Per-run bridge: a mail.draft_reply step records the full reply body +
+    // headers; the later mail.send_reply proposal needs them (for the approval
+    // UI to show/edit the real text, and for the edited-send path to have
+    // subject + in_reply_to). Keyed by draft_id.
+    const draftDetail = new Map<string, { body_full?: string; subject?: string; in_reply_to_message_id?: string }>();
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const turn = await deps.callClaudeTurn(system, conversation, MAIL_TRIAGE_TOOLS);
@@ -340,11 +345,18 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
           });
           if (exec.mode === 'propose') {
             const idemKey = deriveIdemKey(action, exec.recordPayload);
+            // Splice the full reply body + headers captured from the draft_reply
+            // step into the send_reply proposal. exec.recordPayload wins on any
+            // overlapping key (e.g. `to`).
+            const carried =
+              action === 'mail.send_reply' && typeof exec.recordPayload.draft_id === 'string'
+                ? draftDetail.get(exec.recordPayload.draft_id)
+                : undefined;
             await writeProposalAndMaybePush(deps, {
               userId,
               runId,
               action,
-              payload: { ...exec.recordPayload, idem_key: idemKey },
+              payload: { ...(carried ?? {}), ...exec.recordPayload, idem_key: idemKey },
               toolUseId: tu.id,
               toolResults,
               fallbackPushBody: 'Et udkast venter',
@@ -378,6 +390,13 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
             reversible: exec.reversible,
             reverse_token: exec.reverseToken,
           });
+          if (action === 'mail.draft_reply' && typeof exec.recordPayload.draft_id === 'string') {
+            draftDetail.set(exec.recordPayload.draft_id, {
+              body_full: typeof exec.recordPayload.body_full === 'string' ? exec.recordPayload.body_full : undefined,
+              subject: typeof exec.recordPayload.subject === 'string' ? exec.recordPayload.subject : undefined,
+              in_reply_to_message_id: typeof exec.recordPayload.in_reply_to_message_id === 'string' ? exec.recordPayload.in_reply_to_message_id : undefined,
+            });
+          }
           // mail.draft_reply must hand its real draft_id + draft_hash back to
           // Claude so the follow-up mail.send_reply references the actual draft
           // (not a hallucinated id). Other actions just need an ack.

@@ -891,6 +891,118 @@ Deno.test('runAgent: mail.send_reply auto-send sees threadWasResearched=true aft
 
 import { buildProposalPreview } from './runner.ts';
 
+// Phase 4 / T19 — draftDetail bridge: a mail.draft_reply executed step records
+// body_full + subject + in_reply_to_message_id in the per-run draftDetail map;
+// the subsequent mail.send_reply proposal must carry those fields into its
+// payload so the approval UI can prefill the real text.
+Deno.test('runAgent: send_reply proposal carries body_full + subject + in_reply_to from prior draft_reply step', async () => {
+  let proposedPayload: Record<string, unknown> | null = null;
+  let callIdx = 0;
+  const { deps } = makeDeps();
+
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't1', message_id: 'm1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't1', from: 'a@x', subject: 'Hej', snippet: '' },
+  ];
+  // No user policy rows → defaults apply: draft_reply=auto, send_reply=propose.
+  deps.loadUserPolicy = async () => [];
+
+  // Round 0: Claude emits mail_draft_reply (executed by runner).
+  // Round 1: Claude emits mail_send_reply (proposed by runner).
+  // Round 2: Claude ends.
+  const turns: CallClaudeResult[] = [
+    {
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_draft',
+          name: 'mail_draft_reply',
+          input: { provider: 'google', thread_id: 't1', to: 'a@x.com' },
+        },
+      ],
+      usage: { input_tokens: 1, output_tokens: 1 },
+      stop_reason: 'tool_use',
+    },
+    {
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_send',
+          name: 'mail_send_reply',
+          input: { provider: 'google', thread_id: 't1', draft_id: 'd1', draft_hash: 'h', preview_text: 'p', to: 'a@x.com' },
+        },
+      ],
+      usage: { input_tokens: 1, output_tokens: 1 },
+      stop_reason: 'tool_use',
+    },
+    {
+      content: [{ type: 'text', text: 'done' }],
+      usage: { input_tokens: 0, output_tokens: 0 },
+      stop_reason: 'end_turn',
+    },
+  ];
+  deps.callClaudeTurn = async () => turns[callIdx++];
+
+  deps.executeTool = async (action, _payload) => {
+    if (action === 'mail.draft_reply') {
+      return {
+        mode: 'executed' as const,
+        reversible: true,
+        reverseToken: { kind: 'gmail.draft', draft_id: 'd1' },
+        recordPayload: {
+          provider: 'google',
+          thread_id: 't1',
+          draft_id: 'd1',
+          draft_hash: 'h',
+          to: 'a@x.com',
+          subject: 'Re: Hej',
+          body_full: 'Det fulde svar',
+          in_reply_to_message_id: 'm1',
+        },
+      };
+    }
+    if (action === 'mail.send_reply') {
+      // Dispatcher returns propose (no safety rails configured for auto).
+      return {
+        mode: 'propose' as const,
+        reversible: false,
+        reverseToken: null,
+        recordPayload: {
+          provider: 'google',
+          thread_id: 't1',
+          draft_id: 'd1',
+          draft_hash: 'h',
+          preview_text: 'p',
+          to: 'a@x.com',
+        },
+      };
+    }
+    return { mode: 'executed' as const, reversible: false, reverseToken: null, recordPayload: {} };
+  };
+
+  deps.writeProposedAction = async (row) => {
+    if (row.action_type === 'mail.send_reply') {
+      proposedPayload = row.payload;
+    }
+    return 'p-1';
+  };
+  deps.loadUserPresence = async () => null;
+
+  const result = await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  assertEquals(result.status, 'ok');
+
+  if (!proposedPayload) throw new Error('writeProposedAction was not called for mail.send_reply');
+  // Core assertion: draft detail fields must be present in the send_reply proposal.
+  assertEquals(proposedPayload['body_full'], 'Det fulde svar');
+  assertEquals(proposedPayload['subject'], 'Re: Hej');
+  assertEquals(proposedPayload['in_reply_to_message_id'], 'm1');
+  // exec.recordPayload fields must still win (not overwritten by carried detail).
+  assertEquals(proposedPayload['to'], 'a@x.com');
+  assertEquals(proposedPayload['draft_id'], 'd1');
+});
+
 Deno.test('buildProposalPreview: cal.create_event shows title + time', () => {
   const p = buildProposalPreview('cal.create_event', { title: 'Frokost', start_iso: '2026-06-01T11:00:00Z' });
   assertEquals(p.title, 'Opret begivenhed?');
