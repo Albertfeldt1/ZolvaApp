@@ -14,6 +14,7 @@ import { loadRefreshToken, refreshAccessToken } from '../_shared/oauth.ts';
 import { resolveLabelId } from '../_shared/agent/tools/gmail.ts';
 import { executeTool, type ExecuteContext } from '../_shared/agent/tools/dispatch.ts';
 import type { ActionType } from '../_shared/agent/types.ts';
+import { shouldOfferPromotion } from '../_shared/agent/trust.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -124,6 +125,10 @@ serve(async (req) => {
           userIsIdle: true,
           hasRecipientHistory: async () => true,
           hasPriorFailedIdem: async () => false,
+          // The user tapped Send — the body-grounding rail (which gates
+          // unattended auto-send) does not apply. Without this the dispatcher
+          // calls undefined() at the threadWasResearched check and throws.
+          threadWasResearched: () => true,
         },
       },
     );
@@ -161,5 +166,70 @@ serve(async (req) => {
     );
   }
 
+  // Trust escalation: >=3 approvals for the same recipient + no live offer
+  // -> surface a one-tap "auto from now on?" card in Today. Best-effort:
+  // failures are logged but don't block the success response.
+  try {
+    const toAddr = typeof payload.to === 'string' ? payload.to : '';
+    await maybeCreateTrustOffer(client, userId, claimed.action_type, toAddr);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[agent-approve] trust escalation check failed', msg);
+  }
+
   return new Response(JSON.stringify({ ok: true, sent: true }), { status: 200 });
 });
+
+async function maybeCreateTrustOffer(
+  client: SupabaseClient,
+  userId: string,
+  actionType: string,
+  recipient: string,
+): Promise<void> {
+  if (actionType !== 'mail.send_reply') return;
+  if (!recipient) return;
+
+  // Lifetime count of approved sends to this recipient. PostgREST exposes
+  // JSONB extraction via the ->> operator inside filter values; supabase-js
+  // forwards the literal string.
+  const { count, error: countErr } = await client
+    .from('proposed_actions')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('action_type', actionType)
+    .eq('status', 'executed')
+    .eq('payload->>to', recipient);
+  if (countErr) {
+    console.error('[agent-approve] trust count error', countErr);
+    return;
+  }
+
+  // Most recent offer for this slot.
+  const { data: latest, error: latestErr } = await client
+    .from('trust_offers')
+    .select('status')
+    .eq('user_id', userId)
+    .eq('action_type', actionType)
+    .eq('recipient', recipient)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (latestErr) {
+    console.error('[agent-approve] trust latest error', latestErr);
+    return;
+  }
+
+  if (!shouldOfferPromotion(count ?? 0, latest?.status ?? null)) return;
+
+  const { error: insertErr } = await client.from('trust_offers').insert({
+    user_id: userId,
+    action_type: actionType,
+    recipient,
+    status: 'pending',
+    approval_count: count,
+  });
+  // Uniq partial index can race with a concurrent approval — swallow 23505.
+  if (insertErr && insertErr.code !== '23505') {
+    console.error('[agent-approve] trust insert error', insertErr);
+  }
+}
