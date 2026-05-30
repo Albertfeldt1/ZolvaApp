@@ -11,7 +11,6 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -169,7 +168,7 @@ export function ProposalDetailModal({ row, onClose }: Props) {
       {/* Dimmed backdrop — tap outside sheet to close */}
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Luk" />
 
-      <SafeAreaView style={styles.safeArea} pointerEvents="box-none">
+      <View style={styles.safeArea} pointerEvents="box-none">
         <View
           style={[
             styles.sheet,
@@ -310,7 +309,7 @@ export function ProposalDetailModal({ row, onClose }: Props) {
             </Pressable>
           </View>
         </View>
-      </SafeAreaView>
+      </View>
     </Animated.View>
   );
 }
