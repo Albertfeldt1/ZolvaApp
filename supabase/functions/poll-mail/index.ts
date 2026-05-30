@@ -75,7 +75,22 @@ serve(async (req) => {
     auth: { persistSession: false },
   });
 
-  let query = client.from('mail_watchers').select('*').eq('enabled', true);
+  // Decoupling: poll a user's mailbox if they opted into new-mail push
+  // (enabled) OR have the autonomous agent enabled. The agent is a first-class
+  // consumer of new mail and must NOT depend on the push-notification toggle —
+  // that coupling silently starved the agent for every user who never turned
+  // push on. Push dispatch itself stays gated on `enabled` (see processWatcher),
+  // so agent-only users get their mail triaged without push spam.
+  const { data: agentRows } = await client
+    .from('user_profiles')
+    .select('user_id')
+    .eq('agent_enabled', true);
+  const agentIds = (agentRows ?? []).map((r) => r.user_id as string);
+  const orFilter = agentIds.length > 0
+    ? `enabled.eq.true,user_id.in.(${agentIds.join(',')})`
+    : 'enabled.eq.true';
+
+  let query = client.from('mail_watchers').select('*').or(orFilter);
   if (scopedUserId) {
     query = query.eq('user_id', scopedUserId);
   }
@@ -157,7 +172,10 @@ async function processWatcher(client: SupabaseClient, watcher: Watcher): Promise
     }
   }
 
-  if (messages.length === 0) return;
+  // Push only for users who opted into new-mail notifications. Agent-only
+  // watchers (enabled=false, agent on) still emit agent_events above, but must
+  // not trigger a push the user never asked for.
+  if (messages.length === 0 || !watcher.enabled) return;
   const tokens = await loadPushTokens(client, watcher.user_id);
   if (tokens.length === 0) return;
 
