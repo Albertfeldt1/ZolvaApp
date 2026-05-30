@@ -2,10 +2,12 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { actionTypeFromToolName, buildMailTriagePrompt, MAIL_TRIAGE_TOOLS } from './prompt.ts';
 
-Deno.test('MAIL_TRIAGE_TOOLS exposes six tools (archive/label/flag retired — need gmail.modify)', () => {
+Deno.test('MAIL_TRIAGE_TOOLS exposes eight tools (archive/label/flag retired — need gmail.modify)', () => {
   const names = MAIL_TRIAGE_TOOLS.map((t) => t.name).sort();
   assertEquals(names, [
+    'cal_create_event',
     'cal_list_events',
+    'cal_update_event',
     'drive_search',
     'mail_draft_reply',
     'mail_get_body',
@@ -50,4 +52,15 @@ Deno.test('buildMailTriagePrompt: system prompt mentions outlook scope and conse
   // We just check anchors; full prose lives in prompt.ts.
   assertEquals(txt.includes('outlook'), true);
   assertEquals(txt.includes('draft'), true);
+});
+
+Deno.test('actionTypeFromToolName: maps the two calendar-write tools', () => {
+  assertEquals(actionTypeFromToolName('cal_create_event'), 'cal.create_event');
+  assertEquals(actionTypeFromToolName('cal_update_event'), 'cal.update_event');
+});
+
+Deno.test('MAIL_TRIAGE_TOOLS: includes calendar-write tools', () => {
+  const names = MAIL_TRIAGE_TOOLS.map((t) => t.name);
+  assertEquals(names.includes('cal_create_event'), true);
+  assertEquals(names.includes('cal_update_event'), true);
 });

@@ -17,6 +17,8 @@ const TOOL_NAME_TO_ACTION: Record<string, ActionType> = {
   mail_get_body: 'mail.get_body',
   cal_list_events: 'cal.list_events',
   drive_search: 'drive.search',
+  cal_create_event: 'cal.create_event',
+  cal_update_event: 'cal.update_event',
 };
 
 export function actionTypeFromToolName(name: string): ActionType | null {
@@ -133,6 +135,40 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
       required: ['query', 'provider'],
     },
   },
+  {
+    name: 'cal_create_event',
+    description:
+      'Create a calendar event. Use only when a human thread proposes a concrete date+time. Provide start_iso/end_iso as UTC ISO-8601 ending in Z. The event is proposed to the user for approval before it is created. Both providers.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        start_iso: { type: 'string', description: 'UTC ISO-8601, ends with Z' },
+        end_iso: { type: 'string', description: 'UTC ISO-8601, ends with Z' },
+        attendees: { type: 'array', items: { type: 'string' }, description: 'attendee email addresses' },
+        location: { type: 'string' },
+        provider: { type: 'string', enum: ['google', 'microsoft'] },
+      },
+      required: ['title', 'start_iso', 'end_iso', 'provider'],
+    },
+  },
+  {
+    name: 'cal_update_event',
+    description:
+      'Change an existing calendar event\'s time, title, or location. event_id MUST come from a prior cal_list_events result — never invent it. Provide new times as UTC ISO-8601 ending in Z. Proposed to the user for approval. Both providers.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        event_id: { type: 'string', description: 'from cal_list_events — never invented' },
+        title: { type: 'string' },
+        start_iso: { type: 'string', description: 'UTC ISO-8601, ends with Z' },
+        end_iso: { type: 'string', description: 'UTC ISO-8601, ends with Z' },
+        location: { type: 'string' },
+        provider: { type: 'string', enum: ['google', 'microsoft'] },
+      },
+      required: ['event_id', 'provider'],
+    },
+  },
 ];
 
 const SYSTEM_PROMPT = `Du er Zolva — en personlig assistent der triage'r brugerens indbakke i baggrunden. Du kan udføre handlinger på både Gmail og Outlook (Microsoft).
@@ -145,11 +181,13 @@ Tilladte handlinger:
    Først NÅR du har konteksten, kald mail_draft_reply.
 3. udkast et reply (mail_draft_reply) — KUN når du har læst hele body'en med mail_get_body, brevet stiller et tydeligt spørgsmål, og du kan skrive et kort dansk svar uden at gætte.
 4. foreslå svaret (mail_send_reply): NÅR du har kaldt mail_draft_reply, SKAL du ALTID derefter kalde mail_send_reply i SAMME tur — med præcis det draft_id og draft_hash som mail_draft_reply returnerede. Det er mail_send_reply der viser forslaget til brugeren; et udkast uden et efterfølgende mail_send_reply når ALDRIG frem til brugeren. Spring det aldrig over.
+5. KALENDER: hvis en menneskelig tråd foreslår et konkret mødetidspunkt, kald cal_list_events (±2 timer omkring tidspunktet) for at tjekke for konflikter, og foreslå derefter cal_create_event med UTC ISO-8601 tider (slut med Z). Hvis tråden beder om at flytte/ændre et eksisterende møde, find begivenheden via cal_list_events og kald cal_update_event med dens event_id. Begge foreslås til brugeren, før de udføres.
 
 Regler:
 - Brug kun thread_id'er fra listen i brugerens besked. Opfind ALDRIG ID'er. Brug draft_id og draft_hash præcis som mail_draft_reply returnerede dem — opfind dem ALDRIG.
 - Hver tråd har en provider ('google' eller 'microsoft') i listen. Du SKAL inkludere provider i payload til alle handlinger.
 - drive_search er KUN Google. Spring over hvis tråden er Outlook.
+- event_id til cal_update_event SKAL komme fra cal_list_events — opfind ALDRIG et event_id. Brug UTC (Z-suffiks) for alle tider i kalenderhandlinger.
 - Hvis en tråd ikke kræver et svar (ren bekræftelse, automatisk besked, nyhedsbrev), så gør ingenting på den tråd.
 - Vær konservativ ved tvivl om INDHOLDET — men når et menneske stiller et tydeligt spørgsmål du kan svare på, SKAL du udkaste OG foreslå et svar. Lad være med at gøre ingenting af forsigtighed alene.
 - Du kan kalde flere værktøjer i samme tur. Stop når listen er triageret.
