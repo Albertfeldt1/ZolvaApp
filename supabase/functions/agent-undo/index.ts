@@ -4,16 +4,36 @@
 // Atomically claims the action via agent_revert_action so a double-tap
 // can't double-revert, then applies the reverse_token against the provider.
 //
-// Supports `gmail.modify` (archive/label/flag) and `gmail.draft` (delete the
-// drafted reply) reverse tokens.
+// Supports `gmail.modify` (archive/label/flag), `gmail.draft` (delete the
+// drafted reply), and calendar event reverse tokens (gcal.event_delete,
+// gcal.event_restore, graph.event_delete, graph.event_restore).
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { loadRefreshToken, refreshAccessToken } from '../_shared/oauth.ts';
 import { gmailDeleteDraft, gmailModifyThread } from '../_shared/agent/tools/gmail.ts';
 import type { GmailDraftReverseToken, GmailModifyReverseToken } from '../_shared/agent/tools/gmail.ts';
+import {
+  googleDeleteEvent,
+  googlePatchEvent,
+  outlookDeleteEvent,
+  outlookPatchEvent,
+} from '../_shared/agent/tools/calendar-write.ts';
+import type {
+  GcalEventDeleteToken,
+  GcalEventRestoreToken,
+  GraphEventDeleteToken,
+  GraphEventRestoreToken,
+} from '../_shared/agent/tools/calendar-write.ts';
+import { reverseTokenProvider } from '../_shared/agent/tools/reverse-provider.ts';
 
-type ReverseToken = GmailModifyReverseToken | GmailDraftReverseToken;
+type ReverseToken =
+  | GmailModifyReverseToken
+  | GmailDraftReverseToken
+  | GcalEventDeleteToken
+  | GcalEventRestoreToken
+  | GraphEventDeleteToken
+  | GraphEventRestoreToken;
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -35,29 +55,39 @@ async function applyReverseToken(
   userId: string,
   token: ReverseToken,
 ): Promise<void> {
-  const refresh = await loadRefreshToken(client, userId, 'google');
-  if (!refresh) throw new Error('no google refresh token for user');
-  const { accessToken } = await refreshAccessToken(client, userId, 'google', refresh);
-  if (token.kind === 'gmail.modify') {
-    await gmailModifyThread({
-      fetch: fetch as never,
-      accessToken,
-      threadId: token.thread_id,
-      addLabelIds: token.add_label_ids,
-      removeLabelIds: token.remove_label_ids,
-    });
-    return;
+  const provider = reverseTokenProvider(token);
+  const refresh = await loadRefreshToken(client, userId, provider);
+  if (!refresh) throw new Error(`no ${provider} refresh token for user`);
+  const { accessToken } = await refreshAccessToken(client, userId, provider, refresh);
+
+  switch (token.kind) {
+    case 'gmail.modify':
+      await gmailModifyThread({
+        fetch: fetch as never,
+        accessToken,
+        threadId: token.thread_id,
+        addLabelIds: token.add_label_ids,
+        removeLabelIds: token.remove_label_ids,
+      });
+      return;
+    case 'gmail.draft':
+      await gmailDeleteDraft({ fetch: fetch as never, accessToken, draftId: token.draft_id });
+      return;
+    case 'gcal.event_delete':
+      await googleDeleteEvent({ fetch: fetch as never, accessToken, eventId: token.event_id });
+      return;
+    case 'gcal.event_restore':
+      await googlePatchEvent({ fetch: fetch as never, accessToken, eventId: token.event_id, patch: token.prior });
+      return;
+    case 'graph.event_delete':
+      await outlookDeleteEvent({ fetch: fetch as never, accessToken, eventId: token.event_id });
+      return;
+    case 'graph.event_restore':
+      await outlookPatchEvent({ fetch: fetch as never, accessToken, eventId: token.event_id, patch: token.prior });
+      return;
+    default:
+      throw new Error(`unsupported reverse_token kind ${(token as { kind: string }).kind}`);
   }
-  if (token.kind === 'gmail.draft') {
-    // Undoing a drafted reply = delete the Gmail draft.
-    await gmailDeleteDraft({
-      fetch: fetch as never,
-      accessToken,
-      draftId: token.draft_id,
-    });
-    return;
-  }
-  throw new Error(`unsupported reverse_token kind ${(token as { kind: string }).kind}`);
 }
 
 serve(async (req) => {
