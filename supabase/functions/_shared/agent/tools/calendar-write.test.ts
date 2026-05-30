@@ -1,6 +1,5 @@
 import { assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { googleCreateEvent, type CalWriteFetch } from './calendar-write.ts';
-import { outlookCreateEvent } from './calendar-write.ts';
+import { googleCreateEvent, outlookCreateEvent, type CalWriteFetch } from './calendar-write.ts';
 
 Deno.test('googleCreateEvent: posts event and returns id + delete reverse token', async () => {
   let captured: { url: string; method: string; body: string } | null = null;
@@ -55,6 +54,7 @@ Deno.test('outlookCreateEvent: posts to /me/events with UTC timeZone and strips 
   assertEquals(out.eventId, 'ms-evt-1');
   assertEquals(out.reverseToken, { kind: 'graph.event_delete', provider: 'microsoft', event_id: 'ms-evt-1' });
   assertEquals(captured!.url.endsWith('/v1.0/me/events'), true);
+  assertEquals(captured!.method, 'POST');
   const body = JSON.parse(captured!.body);
   assertEquals(body.subject, 'Standup');
   assertEquals(body.start, { dateTime: '2026-06-01T09:00:00', timeZone: 'UTC' });
