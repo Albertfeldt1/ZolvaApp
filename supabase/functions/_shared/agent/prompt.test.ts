@@ -20,7 +20,7 @@ Deno.test('actionTypeFromToolName maps each tool to its ActionType', () => {
   assertEquals(actionTypeFromToolName('mail_get_body'), 'mail.get_body');
   assertEquals(actionTypeFromToolName('cal_list_events'), 'cal.list_events');
   assertEquals(actionTypeFromToolName('drive_search'), 'drive.search');
-  // Existing six still resolve
+  // Previously six; now eight after calendar-write tools
   assertEquals(actionTypeFromToolName('mail_send_reply'), 'mail.send_reply');
   // Unknown returns null
   assertEquals(actionTypeFromToolName('foo'), null);
