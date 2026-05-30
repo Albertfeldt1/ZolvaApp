@@ -11,6 +11,18 @@ export interface PollMailMessage {
   from: string;
 }
 
+// True only for genuinely-received inbox mail. Gmail's history API
+// (historyTypes=messageAdded) is mailbox-wide, so it also reports the agent's
+// OWN drafts (DRAFT label) and auto-sends (SENT label) as "added" — emitting a
+// mail.new for those re-triggers the agent on a thread it just acted on, an
+// infinite draft→event→draft loop. Require INBOX and exclude DRAFT/SENT.
+// Missing labels → reject (can't confirm inbound; safer than looping).
+export function isInboundGmailMessage(labelIds: string[] | undefined): boolean {
+  if (!labelIds || labelIds.length === 0) return false;
+  if (labelIds.includes('DRAFT') || labelIds.includes('SENT')) return false;
+  return labelIds.includes('INBOX');
+}
+
 export interface BuildMailNewEventsInput {
   userId: string;
   provider: 'google' | 'microsoft';

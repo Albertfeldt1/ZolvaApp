@@ -1,6 +1,30 @@
 // supabase/functions/poll-mail/emit.test.ts
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { buildMailNewEventRows } from './emit.ts';
+import { buildMailNewEventRows, isInboundGmailMessage } from './emit.ts';
+
+Deno.test('isInboundGmailMessage: a received inbox message is inbound', () => {
+  assertEquals(isInboundGmailMessage(['INBOX', 'UNREAD', 'IMPORTANT']), true);
+});
+
+Deno.test('isInboundGmailMessage: the agent\'s own DRAFT is NOT inbound (breaks the re-draft loop)', () => {
+  assertEquals(isInboundGmailMessage(['DRAFT']), false);
+  // A draft that also carries INBOX must still be rejected.
+  assertEquals(isInboundGmailMessage(['INBOX', 'DRAFT']), false);
+});
+
+Deno.test('isInboundGmailMessage: a SENT message is NOT inbound (breaks the auto-send loop)', () => {
+  assertEquals(isInboundGmailMessage(['SENT']), false);
+});
+
+Deno.test('isInboundGmailMessage: a message not in INBOX (archived/spam) is NOT inbound', () => {
+  assertEquals(isInboundGmailMessage(['SPAM']), false);
+  assertEquals(isInboundGmailMessage(['CATEGORY_PROMOTIONS']), false);
+});
+
+Deno.test('isInboundGmailMessage: missing labels → not inbound (skip rather than risk a loop)', () => {
+  assertEquals(isInboundGmailMessage(undefined), false);
+  assertEquals(isInboundGmailMessage([]), false);
+});
 
 Deno.test('buildMailNewEventRows: one row per gmail message with idem_key', () => {
   const rows = buildMailNewEventRows({

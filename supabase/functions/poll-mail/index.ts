@@ -19,7 +19,7 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { loadRefreshToken, refreshAccessToken } from '../_shared/oauth.ts';
-import { buildMailNewEventRows } from './emit.ts';
+import { buildMailNewEventRows, isInboundGmailMessage } from './emit.ts';
 
 type Watcher = {
   user_id: string;
@@ -222,8 +222,12 @@ async function fetchGmailSince(
     );
     if (!metaRes.ok) continue;
     const meta = (await metaRes.json()) as {
+      labelIds?: string[];
       payload?: { headers?: Array<{ name: string; value: string }> };
     };
+    // Skip the agent's own drafts/sends and any non-inbox message — emitting
+    // for those would re-trigger the agent on a thread it just handled.
+    if (!isInboundGmailMessage(meta.labelIds)) continue;
     const headers = meta.payload?.headers ?? [];
     const subject = headers.find((h) => h.name === 'Subject')?.value ?? '(uden emne)';
     const from = headers.find((h) => h.name === 'From')?.value ?? '';

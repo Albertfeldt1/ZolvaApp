@@ -4,13 +4,16 @@
 // Atomically claims the action via agent_revert_action so a double-tap
 // can't double-revert, then applies the reverse_token against the provider.
 //
-// Phase 2 supports only `gmail.modify` reverse tokens.
+// Supports `gmail.modify` (archive/label/flag) and `gmail.draft` (delete the
+// drafted reply) reverse tokens.
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { loadRefreshToken, refreshAccessToken } from '../_shared/oauth.ts';
-import { gmailModifyThread } from '../_shared/agent/tools/gmail.ts';
-import type { GmailModifyReverseToken } from '../_shared/agent/tools/gmail.ts';
+import { gmailDeleteDraft, gmailModifyThread } from '../_shared/agent/tools/gmail.ts';
+import type { GmailDraftReverseToken, GmailModifyReverseToken } from '../_shared/agent/tools/gmail.ts';
+
+type ReverseToken = GmailModifyReverseToken | GmailDraftReverseToken;
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -30,21 +33,31 @@ async function authenticatedUserId(req: Request): Promise<string | null> {
 async function applyReverseToken(
   client: SupabaseClient,
   userId: string,
-  token: GmailModifyReverseToken,
+  token: ReverseToken,
 ): Promise<void> {
-  if (token.kind !== 'gmail.modify') {
-    throw new Error(`unsupported reverse_token kind ${token.kind}`);
-  }
   const refresh = await loadRefreshToken(client, userId, 'google');
   if (!refresh) throw new Error('no google refresh token for user');
   const { accessToken } = await refreshAccessToken(client, userId, 'google', refresh);
-  await gmailModifyThread({
-    fetch: fetch as never,
-    accessToken,
-    threadId: token.thread_id,
-    addLabelIds: token.add_label_ids,
-    removeLabelIds: token.remove_label_ids,
-  });
+  if (token.kind === 'gmail.modify') {
+    await gmailModifyThread({
+      fetch: fetch as never,
+      accessToken,
+      threadId: token.thread_id,
+      addLabelIds: token.add_label_ids,
+      removeLabelIds: token.remove_label_ids,
+    });
+    return;
+  }
+  if (token.kind === 'gmail.draft') {
+    // Undoing a drafted reply = delete the Gmail draft.
+    await gmailDeleteDraft({
+      fetch: fetch as never,
+      accessToken,
+      draftId: token.draft_id,
+    });
+    return;
+  }
+  throw new Error(`unsupported reverse_token kind ${(token as { kind: string }).kind}`);
 }
 
 serve(async (req) => {
@@ -68,7 +81,7 @@ serve(async (req) => {
     return new Response(JSON.stringify({ ok: false, error: error.message }), { status: 500 });
   }
   const row = (data ?? [])[0] as
-    | { claimed: boolean; action_type: string; reverse_token: GmailModifyReverseToken | null }
+    | { claimed: boolean; action_type: string; reverse_token: ReverseToken | null }
     | undefined;
   if (!row?.claimed) {
     // Either nonexistent, foreign user, already-reverted, or not reversible.
