@@ -18,6 +18,19 @@ function previewTitle(row: ProposedActionRow): string {
   return typeof t === 'string' ? t : 'Zolva foreslår';
 }
 
+// Only mail replies support an editable body server-side (agent-approve splices
+// edited_body only for mail.send_reply). Other proposal types (e.g. calendar
+// writes) are approve-or-skip with no inline edit.
+function isEditable(row: ProposedActionRow): boolean {
+  return row.action_type === 'mail.send_reply';
+}
+
+// "Send" reads wrong for a calendar event; use a neutral confirm verb for
+// non-mail proposals.
+function confirmLabel(row: ProposedActionRow): string {
+  return row.action_type === 'mail.send_reply' ? 'Send' : 'Godkend';
+}
+
 export function ProposedActionCard({ row }: { row: ProposedActionRow }) {
   const { surface, shadows } = useTheme();
   const [editing, setEditing] = useState(false);
@@ -45,7 +58,7 @@ export function ProposedActionCard({ row }: { row: ProposedActionRow }) {
       accessibilityLabel={`proposed-${row.action_type}`}
     >
       <Text style={styles.title}>{previewTitle(row)}</Text>
-      {editing ? (
+      {editing && isEditable(row) ? (
         <TextInput
           value={edited}
           onChangeText={setEdited}
@@ -58,11 +71,13 @@ export function ProposedActionCard({ row }: { row: ProposedActionRow }) {
       )}
       <View style={styles.actions}>
         <Pressable onPress={onSend} disabled={!!pending} style={styles.primary} accessibilityLabel="send">
-          {pending === 'send' ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Send</Text>}
+          {pending === 'send' ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>{confirmLabel(row)}</Text>}
         </Pressable>
-        <Pressable onPress={() => setEditing((v) => !v)} disabled={!!pending} accessibilityLabel="edit">
-          <Text style={styles.secondary}>{editing ? 'Annullér' : 'Rediger'}</Text>
-        </Pressable>
+        {isEditable(row) ? (
+          <Pressable onPress={() => setEditing((v) => !v)} disabled={!!pending} accessibilityLabel="edit">
+            <Text style={styles.secondary}>{editing ? 'Annullér' : 'Rediger'}</Text>
+          </Pressable>
+        ) : null}
         <Pressable onPress={onSkip} disabled={!!pending} accessibilityLabel="skip">
           {pending === 'skip' ? <ActivityIndicator size="small" /> : <Text style={styles.secondary}>Spring over</Text>}
         </Pressable>
