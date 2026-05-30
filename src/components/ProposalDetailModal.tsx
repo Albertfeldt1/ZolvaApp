@@ -25,6 +25,7 @@ import {
   type ProposedActionRow,
 } from '../lib/agent-proposals';
 import { useTheme } from '../design/useTheme';
+import { useChromeInsets } from './PhoneChrome';
 import { colors } from '../theme';
 
 // ---------------------------------------------------------------------------
@@ -76,6 +77,7 @@ export type Props = {
 
 export function ProposalDetailModal({ row, onClose }: Props) {
   const { surface, shadows } = useTheme();
+  const { bottom: chromeBottom } = useChromeInsets();
 
   const isReply = REPLY_TYPES.has(row.action_type);
   const isCal = CAL_TYPES.has(row.action_type);
@@ -147,6 +149,9 @@ export function ProposalDetailModal({ row, onClose }: Props) {
         ? formatDanishDateTime(calStart)
         : '';
 
+  // Sender (present in both reply and calendar proposals)
+  const sourceFrom = str(row.payload.source_from);
+
   // Reply fields
   const replyTo = str(row.payload.to);
   const replySubject = str(row.payload.subject);
@@ -192,6 +197,12 @@ export function ProposalDetailModal({ row, onClose }: Props) {
           >
             {isReply && (
               <>
+                {sourceFrom ? (
+                  <Text style={styles.meta}>
+                    <Text style={styles.metaLabel}>Fra: </Text>
+                    {sourceFrom}
+                  </Text>
+                ) : null}
                 {replyTo ? (
                   <Text style={styles.meta}>
                     <Text style={styles.metaLabel}>Til: </Text>
@@ -232,6 +243,12 @@ export function ProposalDetailModal({ row, onClose }: Props) {
                 {calTitle ? (
                   <Text style={styles.calEventTitle}>{calTitle}</Text>
                 ) : null}
+                {sourceFrom ? (
+                  <View style={styles.calRow}>
+                    <Text style={styles.calLabel}>Fra</Text>
+                    <Text style={styles.calValue}>{sourceFrom}</Text>
+                  </View>
+                ) : null}
                 {calDateTime ? (
                   <View style={styles.calRow}>
                     <Text style={styles.calLabel}>Tidspunkt</Text>
@@ -261,8 +278,8 @@ export function ProposalDetailModal({ row, onClose }: Props) {
           {/* Error message */}
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-          {/* Action buttons */}
-          <View style={styles.actions}>
+          {/* Action buttons — chromeBottom clears the floating tab bar */}
+          <View style={[styles.actions, { paddingBottom: Math.max(6, chromeBottom) }]}>
             <Pressable
               onPress={handleApprove}
               disabled={!!pending}
@@ -312,11 +329,10 @@ const ABSOLUTE_FILL = {
 
 const styles = StyleSheet.create({
   // Full-screen Animated.View — mounted outside the ScrollView in TodayScreen
-  // so it is never clipped. zIndex 200 sits above bone-glass cards (z ~0)
-  // and below tab-bar overlays (z 999+).
+  // so it is never clipped. zIndex 1000 sits above the tab bar (z 999).
   overlay: {
     ...ABSOLUTE_FILL,
-    zIndex: 200,
+    zIndex: 1000,
     justifyContent: 'flex-end',
   },
   // Semi-transparent backdrop — absorbs taps that miss the sheet
