@@ -94,11 +94,19 @@ serve(async (req) => {
       }
 
       const deps = buildDeps(client, uid);
-      await runMemoryFollowup({ userId: uid, events: fresh, deps });
-      // Stamp followed_up_at regardless of per-fact action: the fact has been
-      // surfaced to the agent this cycle; re-running daily would re-nudge.
-      await markFactsFollowedUp(client, factIds, nowIso);
-      results.push({ userId: uid, ran: true });
+      const result = await runMemoryFollowup({ userId: uid, events: fresh, deps });
+      // Stamp followed_up_at ONLY after a clean run, so each fact fires once.
+      // A budget-gated or errored cycle leaves followed_up_at null: the same-day
+      // re-emit is blocked by agent_events_fact_due_dedup, so the fact retries on
+      // the next day's sweep rather than being permanently silenced.
+      if (result.status === 'ok') {
+        await markFactsFollowedUp(client, factIds, nowIso);
+      }
+      results.push({
+        userId: uid,
+        ran: result.status === 'ok',
+        reason: result.status === 'ok' ? undefined : result.status,
+      });
     } catch (err) {
       const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
       console.error('[agent-memory-followups] error for', uid, msg);
