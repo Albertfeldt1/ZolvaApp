@@ -13,7 +13,8 @@ import { recordAiUsage } from '../usage.ts';
 import { executeTool as dispatchTool } from './tools/dispatch.ts';
 import { resolveLabelId } from './tools/gmail.ts';
 import type { ThreadBrief, ScanCandidate } from './prompt.ts';
-import type { CommitmentRow } from './commitments.ts';
+import { parseGmailThreadState } from './commitments.ts';
+import type { CommitmentRow, GmailThreadMeta, ThreadState } from './commitments.ts';
 import { loadRefreshToken, refreshAccessToken } from '../oauth.ts';
 import { dispatchExpoPush } from './expo-push.ts';
 import type { ExecuteContext, ExecuteOptions } from './tools/dispatch.ts';
@@ -482,6 +483,30 @@ export async function listStaleSentThreads(
     if (!msg.includes('no google refresh token')) console.warn('[agent-commitments] stale-sent scan (google) failed for', userId, msg);
   }
   return out;
+}
+
+// Read current thread state for a commitment's source thread, so Phase 2
+// reconcile can close loops that have moved (a sent follow-up resolves you_owe;
+// an inbound reply resolves owed_to_you). Gmail-only — the commitment scan only
+// produces 'google' rows in v1, so callers skip non-google providers. Any
+// failure degrades to expire-only ({null,null}); a transient Gmail blip must not
+// crash the whole sweep.
+export async function readThreadState(
+  token: string,
+  threadId: string,
+): Promise<ThreadState> {
+  try {
+    const res = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=minimal`,
+      { headers: { authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) return { lastMessageAt: null, lastDirection: null };
+    return parseGmailThreadState(await res.json() as GmailThreadMeta);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn('[agent-commitments] thread-state read failed for', threadId, msg);
+    return { lastMessageAt: null, lastDirection: null };
+  }
 }
 
 // Open commitments for reconcile + nudge.

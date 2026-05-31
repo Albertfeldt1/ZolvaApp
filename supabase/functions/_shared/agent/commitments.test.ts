@@ -1,5 +1,5 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { applyReconcile, buildCommitmentNudge, resolveDue, selectDue } from './commitments.ts';
+import { applyReconcile, buildCommitmentNudge, parseGmailThreadState, resolveDue, selectDue } from './commitments.ts';
 import type { CommitmentRow } from './commitments.ts';
 
 function row(over: Partial<CommitmentRow>): CommitmentRow {
@@ -163,4 +163,52 @@ Deno.test('selectDue owed_to_you boundary: silent exactly 3d included, under 3d 
   const under = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000 + 1).toISOString();
   assertEquals(selectDue([row({ direction: 'owed_to_you', last_message_at: at })], now).length, 1);
   assertEquals(selectDue([row({ direction: 'owed_to_you', last_message_at: under })], now).length, 0);
+});
+
+// --- parseGmailThreadState (Slice 3 reconcile signal) ---
+
+Deno.test('parseGmailThreadState: empty thread yields no state', () => {
+  assertEquals(parseGmailThreadState({}), { lastMessageAt: null, lastDirection: null });
+  assertEquals(parseGmailThreadState({ messages: [] }), { lastMessageAt: null, lastDirection: null });
+});
+
+Deno.test('parseGmailThreadState: newest message SENT => outbound with its timestamp', () => {
+  // Gmail returns oldest-first; the last entry is the newest. 1717405200000 = 2024-06-03T09:00:00Z.
+  const r = parseGmailThreadState({
+    messages: [
+      { labelIds: ['INBOX'], internalDate: '1717322400000' },
+      { labelIds: ['SENT'], internalDate: '1717405200000' },
+    ],
+  });
+  assertEquals(r, { lastMessageAt: '2024-06-03T09:00:00.000Z', lastDirection: 'outbound' });
+});
+
+Deno.test('parseGmailThreadState: newest message without SENT => inbound', () => {
+  const r = parseGmailThreadState({
+    messages: [
+      { labelIds: ['SENT'], internalDate: '1717322400000' },
+      { labelIds: ['INBOX'], internalDate: '1717405200000' },
+    ],
+  });
+  assertEquals(r.lastDirection, 'inbound');
+  assertEquals(r.lastMessageAt, '2024-06-03T09:00:00.000Z');
+});
+
+Deno.test('parseGmailThreadState: a DRAFT-only newest message is treated as inbound, not a resolution', () => {
+  // The agent's own unsent draft carries DRAFT but not SENT — it must NOT look
+  // like the user sent a follow-up, or you_owe would wrongly resolve.
+  const r = parseGmailThreadState({
+    messages: [
+      { labelIds: ['INBOX'], internalDate: '1717322400000' },
+      { labelIds: ['DRAFT'], internalDate: '1717405200000' },
+    ],
+  });
+  assertEquals(r.lastDirection, 'inbound');
+});
+
+Deno.test('parseGmailThreadState: missing/invalid internalDate yields null timestamp', () => {
+  assertEquals(parseGmailThreadState({ messages: [{ labelIds: ['SENT'] }] }),
+    { lastMessageAt: null, lastDirection: 'outbound' });
+  assertEquals(parseGmailThreadState({ messages: [{ labelIds: ['INBOX'], internalDate: 'nope' }] }),
+    { lastMessageAt: null, lastDirection: 'inbound' });
 });

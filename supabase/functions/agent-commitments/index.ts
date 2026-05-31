@@ -16,9 +16,11 @@ import {
   selectOpenCommitments,
   updateCommitment,
   markScanned,
+  loadGmailAccessToken,
+  readThreadState,
 } from '../_shared/agent/build-deps.ts';
 import { applyReconcile, selectDue, buildCommitmentNudge, copenhagenDay } from '../_shared/agent/commitments.ts';
-import type { CommitmentRow } from '../_shared/agent/commitments.ts';
+import type { CommitmentRow, ThreadState } from '../_shared/agent/commitments.ts';
 import type { ScanCandidate } from '../_shared/agent/prompt.ts';
 import { isQuietHours } from '../_shared/agent/quiet-hours.ts';
 import { deriveIdemKey } from '../_shared/agent/idem.ts';
@@ -104,12 +106,30 @@ serve(async (req) => {
         await markScanned(client, uid, now.toISOString());
       }
 
-      // Phase 2 — reconcile (expire-only in Slice 1: thread state is empty)
-      // then fire one templated nudge per due loop.
+      // Phase 2 — reconcile with real thread state (Slice 3) then fire one
+      // templated nudge per still-open due loop. Reconcile closes loops that
+      // moved: a sent follow-up resolves you_owe, an inbound reply resolves
+      // owed_to_you. This is the "stop nudging me about things I've already
+      // done" path — it runs before selectDue so a resolved loop never nudges.
       const open = await selectOpenCommitments(client, uid);
+      // Load the Gmail token once, only if a google row needs reconciling. A
+      // token-load failure degrades to expire-only (readThreadState is skipped),
+      // matching Slice 1 behaviour rather than crashing the user's sweep.
+      let gmailToken: string | null = null;
+      if (open.some((r) => r.provider === 'google')) {
+        try {
+          gmailToken = await loadGmailAccessToken(client, uid);
+        } catch (err) {
+          console.warn('[agent-commitments] gmail token for reconcile failed for', uid, err instanceof Error ? err.message : String(err));
+        }
+      }
       const stillOpen: CommitmentRow[] = [];
       for (const row of open) {
-        const change = applyReconcile(row, { lastMessageAt: null, lastDirection: null }, now);
+        let thread: ThreadState = { lastMessageAt: null, lastDirection: null };
+        if (row.provider === 'google' && gmailToken) {
+          thread = await readThreadState(gmailToken, row.thread_id);
+        }
+        const change = applyReconcile(row, thread, now);
         if (change) {
           await updateCommitment(client, row.id, change);
         } else {

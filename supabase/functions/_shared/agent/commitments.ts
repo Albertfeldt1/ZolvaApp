@@ -144,6 +144,27 @@ export function applyReconcile(
   return null;
 }
 
+// Minimal shape of a Gmail thread fetched with format=minimal: messages
+// oldest-first, each carrying labelIds + internalDate (ms-epoch string).
+export interface GmailThreadMeta {
+  messages?: Array<{ labelIds?: string[]; internalDate?: string }>;
+}
+
+// Derive ThreadState from a Gmail thread. The newest message is the last in the
+// array (Gmail returns oldest-first). Its direction is outbound iff it carries
+// the SENT label — which excludes DRAFT-only messages, so the agent's own
+// unsent drafts never look like a resolution. Kept pure (parse only, no fetch)
+// so the reconcile signal is unit-tested rather than assumed.
+export function parseGmailThreadState(thread: GmailThreadMeta): ThreadState {
+  const msgs = thread.messages ?? [];
+  if (msgs.length === 0) return { lastMessageAt: null, lastDirection: null };
+  const last = msgs[msgs.length - 1];
+  const ms = Number(last.internalDate);
+  const lastMessageAt = Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : null;
+  const lastDirection = (last.labelIds ?? []).includes('SENT') ? 'outbound' : 'inbound';
+  return { lastMessageAt, lastDirection };
+}
+
 export interface CommitmentNudge {
   action_kind: 'commitment';   // always 'commitment' — the rate-limit category
   target_id: string;     // thread_id — one nudge per loop per day
