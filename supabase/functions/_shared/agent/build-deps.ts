@@ -15,6 +15,7 @@ import { resolveLabelId } from './tools/gmail.ts';
 import type { ThreadBrief, ScanCandidate } from './prompt.ts';
 import { parseGmailThreadState, parseGraphThreadState } from './commitments.ts';
 import type { CommitmentRow, GmailThreadMeta, GraphMessageLite, ThreadState } from './commitments.ts';
+import type { FollowupFactRow } from './followup-facts.ts';
 import { loadRefreshToken, refreshAccessToken } from '../oauth.ts';
 import { dispatchExpoPush } from './expo-push.ts';
 import type { ExecuteContext, ExecuteOptions } from './tools/dispatch.ts';
@@ -744,5 +745,35 @@ export async function updateCommitment(
 // Stamp the per-user extraction watermark.
 export async function markScanned(client: SupabaseClient, userId: string, nowIso: string): Promise<void> {
   const { error } = await client.from('user_profiles').update({ commitments_scanned_at: nowIso }).eq('user_id', userId);
+  if (error) throw error;
+}
+
+// Confirmed facts whose follow-up is due and not yet acted. The partial index
+// facts_follow_up_due_idx backs this predicate.
+export async function selectDueFollowupFacts(
+  client: SupabaseClient,
+  userId: string,
+  nowIso: string,
+): Promise<FollowupFactRow[]> {
+  const { data, error } = await client
+    .from('facts')
+    .select('id, text, category, follow_up_at, followed_up_at, status')
+    .eq('user_id', userId)
+    .eq('status', 'confirmed')
+    .is('followed_up_at', null)
+    .not('follow_up_at', 'is', null)
+    .lte('follow_up_at', nowIso);
+  if (error) throw error;
+  return (data ?? []) as FollowupFactRow[];
+}
+
+// Stamp followed_up_at so each fact fires exactly once.
+export async function markFactsFollowedUp(
+  client: SupabaseClient,
+  factIds: string[],
+  nowIso: string,
+): Promise<void> {
+  if (factIds.length === 0) return;
+  const { error } = await client.from('facts').update({ followed_up_at: nowIso }).in('id', factIds);
   if (error) throw error;
 }
