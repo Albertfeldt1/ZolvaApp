@@ -16,7 +16,7 @@ import {
   updateCommitment,
   markScanned,
 } from '../_shared/agent/build-deps.ts';
-import { applyReconcile, selectDue, buildCommitmentNudge } from '../_shared/agent/commitments.ts';
+import { applyReconcile, selectDue, buildCommitmentNudge, copenhagenDay } from '../_shared/agent/commitments.ts';
 import type { CommitmentRow } from '../_shared/agent/commitments.ts';
 import { isQuietHours } from '../_shared/agent/quiet-hours.ts';
 import { deriveIdemKey } from '../_shared/agent/idem.ts';
@@ -29,15 +29,6 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 const SCAN_STALE_MS = 6 * 60 * 60 * 1000; // re-extract at most every 6h per user
-
-function copenhagenDay(now: Date): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Copenhagen',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(now);
-}
 
 async function selectAgentEnabledUsers(
   client: SupabaseClient,
@@ -113,44 +104,50 @@ serve(async (req) => {
 
       if (due.length > 0) {
         const runId = await deps.openRun(uid, 'commitments.nudge', []);
-        const day = copenhagenDay(now);
+        try {
+          const day = copenhagenDay(now);
 
-        for (const row of due) {
-          const n = buildCommitmentNudge(row);
-          // Mirror runner.ts lines 470-488 exactly:
-          //   idemKey = deriveIdemKey('nudge.push', { ...recordPayload, day })
-          // Here recordPayload is { action_kind, target_id, title, body } (what
-          // buildCommitmentNudge returns). day is appended the same way the runner
-          // appends it to exec.recordPayload before hashing.
-          const recordPayload = {
-            action_kind: n.action_kind,
-            target_id: n.target_id,
-            title: n.title,
-            body: n.body,
-          };
-          const idemKey = deriveIdemKey('nudge.push', { ...recordPayload, day });
-          const { sent } = await deps.fireNudge({
-            user_id: uid,
-            run_id: runId,
-            payload: { ...recordPayload, day, idem_key: idemKey },
-            title: n.title,
-            body: n.body,
-            data: { type: 'nudge', action_kind: n.action_kind, target_id: n.target_id },
-          });
-          // Stamp only nudged_at; keep status='open' so the loop stays visible to
-          // reconcile and re-nudges daily (you_owe) until resolved/expired.
-          if (sent) {
-            await updateCommitment(client, row.id, { nudged_at: now.toISOString() });
-            nudged++;
+          for (const row of due) {
+            const n = buildCommitmentNudge(row);
+            // Mirror runner.ts lines 470-488 exactly:
+            //   idemKey = deriveIdemKey('nudge.push', { ...recordPayload, day })
+            // Here recordPayload is { action_kind, target_id, title, body } (what
+            // buildCommitmentNudge returns). day is appended the same way the runner
+            // appends it to exec.recordPayload before hashing.
+            const recordPayload = {
+              action_kind: n.action_kind,
+              target_id: n.target_id,
+              title: n.title,
+              body: n.body,
+            };
+            const idemKey = deriveIdemKey('nudge.push', { ...recordPayload, day });
+            const { sent } = await deps.fireNudge({
+              user_id: uid,
+              run_id: runId,
+              payload: { ...recordPayload, day, idem_key: idemKey },
+              title: n.title,
+              body: n.body,
+              data: { type: 'nudge', action_kind: n.action_kind, target_id: n.target_id },
+            });
+            // Stamp only nudged_at; keep status='open' so the loop stays visible to
+            // reconcile and re-nudges daily (you_owe) until resolved/expired.
+            if (sent) {
+              await updateCommitment(client, row.id, { nudged_at: now.toISOString() });
+              nudged++;
+            }
           }
+        } finally {
+          await deps.finishRun(runId, 'ok', { input_tokens: 0, output_tokens: 0 }, undefined, []);
         }
-
-        await deps.finishRun(runId, 'ok', { input_tokens: 0, output_tokens: 0 }, undefined, []);
       }
 
       results.push({ userId: uid, scanned, nudged });
     } catch (err) {
-      const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      const msg = err instanceof Error
+        ? `${err.name}: ${err.message}`
+        : (() => {
+            try { return JSON.stringify(err); } catch { return String(err); }
+          })();
       console.error('[agent-commitments] error for', uid, msg);
       results.push({ userId: uid, scanned: false, nudged: 0, error: msg });
     }

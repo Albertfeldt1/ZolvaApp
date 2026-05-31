@@ -60,7 +60,7 @@ export function resolveDue(
 
 // Europe/Copenhagen calendar day (YYYY-MM-DD) — matches the nudge.push idem
 // day component so "already nudged today" lines up with local midnight.
-function copenhagenDay(d: Date): string {
+export function copenhagenDay(d: Date): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Copenhagen', year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(d);
