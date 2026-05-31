@@ -9,7 +9,6 @@ import { runReflect } from '../_shared/agent/runner.ts';
 import type { ClaimedEvent } from '../_shared/agent/runner.ts';
 import {
   buildDeps,
-  selectEligibleUserIds,
   loadGmailAccessToken,
   loadOutlookAccessToken,
 } from '../agent-tick/index.ts';
@@ -22,6 +21,15 @@ import {
 } from '../_shared/agent/reflect-events.ts';
 
 const LEAD_MINUTES = 120;
+
+async function selectAgentEnabledUserIds(client: SupabaseClient): Promise<string[]> {
+  const { data, error } = await client
+    .from('user_profiles')
+    .select('user_id')
+    .eq('agent_enabled', true);
+  if (error) throw error;
+  return Array.from(new Set((data ?? []).map((r: { user_id: string }) => r.user_id as string)));
+}
 const CRON_SECRET = Deno.env.get('CRON_SHARED_SECRET');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -108,7 +116,7 @@ serve(async (req) => {
   const now = new Date();
   const day = copenhagenDay(now);
 
-  const userIds = await selectEligibleUserIds(client);
+  const userIds = await selectAgentEnabledUserIds(client);
 
   const results: Array<{ userId: string; ran: boolean; error?: string }> = [];
   for (const uid of userIds) {
