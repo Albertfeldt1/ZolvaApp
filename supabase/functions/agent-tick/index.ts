@@ -262,6 +262,46 @@ function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
         data: { type: 'agent_proposal', action_id: preview.actionId },
       });
     },
+    async fireNudge(args) {
+      // Insert the agent_actions row FIRST — the agent_actions_idem uniq index
+      // (user_id, action_type, idem_key) is the rate-limit gate. A 23505 means
+      // this topic was already nudged today, so we send nothing.
+      const { error } = await client.from('agent_actions').insert({
+        user_id: args.user_id,
+        run_id: args.run_id,
+        action_type: 'nudge.push',
+        payload: args.payload,
+        reversible: false,
+        reverse_token: null,
+      });
+      if (error) {
+        if ((error as { code?: string }).code === '23505') return { sent: false };
+        throw error;
+      }
+      // The row is the receipt of a SENT push, and its idem key is day-scoped —
+      // so if the push send fails after the row committed, that key would
+      // suppress every retry for the rest of the day and the user would never
+      // be notified. Roll the row back on send failure so the next tick retries.
+      const tokens = await loadPushTokens(client, args.user_id);
+      try {
+        await dispatchExpoPush({
+          fetch: fetch as never,
+          tokens,
+          title: args.title,
+          body: args.body,
+          data: args.data,
+        });
+      } catch (sendErr) {
+        await client
+          .from('agent_actions')
+          .delete()
+          .eq('user_id', args.user_id)
+          .eq('action_type', 'nudge.push')
+          .eq('payload->>idem_key', String(args.payload.idem_key ?? ''));
+        throw sendErr;
+      }
+      return { sent: true };
+    },
     async isUserIdle(uid, now) {
       const { data, error } = await client
         .from('user_presence')

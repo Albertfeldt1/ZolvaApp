@@ -2,7 +2,7 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { actionTypeFromToolName, buildMailTriagePrompt, MAIL_TRIAGE_TOOLS } from './prompt.ts';
 
-Deno.test('MAIL_TRIAGE_TOOLS exposes eight tools (archive/label/flag retired — need gmail.modify)', () => {
+Deno.test('MAIL_TRIAGE_TOOLS exposes nine tools (archive/label/flag retired — need gmail.modify)', () => {
   const names = MAIL_TRIAGE_TOOLS.map((t) => t.name).sort();
   assertEquals(names, [
     'cal_create_event',
@@ -13,7 +13,25 @@ Deno.test('MAIL_TRIAGE_TOOLS exposes eight tools (archive/label/flag retired —
     'mail_get_body',
     'mail_send_reply',
     'mail_summarize',
+    'nudge_push',
   ]);
+});
+
+Deno.test('actionTypeFromToolName maps nudge_push to nudge.push', () => {
+  assertEquals(actionTypeFromToolName('nudge_push'), 'nudge.push');
+});
+
+Deno.test('nudge_push tool requires action_kind, target_id, title, body (no provider)', () => {
+  const tool = MAIL_TRIAGE_TOOLS.find((t) => t.name === 'nudge_push')!;
+  const schema = tool.input_schema as { required: string[]; properties: Record<string, unknown> };
+  assertEquals(schema.required.sort(), ['action_kind', 'body', 'target_id', 'title']);
+  assertEquals('provider' in schema.properties, false);
+});
+
+Deno.test('buildMailTriagePrompt: system prompt steers nudge usage as a last resort', () => {
+  const { system } = buildMailTriagePrompt({ threads: [] });
+  const txt = system[0].text.toLowerCase();
+  assertEquals(txt.includes('nudge_push'), true);
 });
 
 Deno.test('actionTypeFromToolName maps each tool to its ActionType', () => {

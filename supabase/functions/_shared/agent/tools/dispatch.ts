@@ -92,6 +92,25 @@ export async function executeTool(
   ctx: ExecuteContext,
   opts: ExecuteOptions = {},
 ): Promise<ExecuteResult> {
+  // nudge.push is the one action that carries no email/calendar provider — it
+  // sends a push notification. Validate + shape its payload here; the actual
+  // push send happens in the runner (after the agent_actions row is inserted,
+  // which is what rate-limits it). Handled before mustProvider so the absent
+  // provider field doesn't throw.
+  if (action === 'nudge.push') {
+    return {
+      mode: 'executed',
+      reversible: false,
+      reverseToken: null,
+      recordPayload: {
+        action_kind: mustString(payload, 'action_kind'),
+        target_id: mustString(payload, 'target_id'),
+        title: mustString(payload, 'title'),
+        body: mustString(payload, 'body'),
+      },
+    };
+  }
+
   const provider = mustProvider(payload);
 
   switch (action) {

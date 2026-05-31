@@ -54,6 +54,8 @@ function makeDeps(): { deps: RunnerDeps; log: string[] } {
       priorFailedSendIdem: async () => false,
       // Phase 4 trust-escalation: no active promotions by default.
       loadActivePromotions: async () => [],
+      // Phase 4 nudge.push: default reports the push as sent.
+      fireNudge: async () => ({ sent: true }),
     },
   };
 }
@@ -1214,4 +1216,97 @@ Deno.test('runAgent: send_reply proposal carries source_body captured from prior
     proposedPayload['source_body'],
     'Kan vi mødes til frokost onsdag den 4. juni kl. 12?',
   );
+});
+
+Deno.test('runAgent: nudge_push fires via fireNudge with a day-stamped idem key and records nothing else', async () => {
+  let fireArgs: { payload: Record<string, unknown>; title: string; body: string; data: Record<string, unknown> } | null = null;
+  let recordCalled = false;
+  const { deps } = makeDeps();
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't1', message_id: 'm1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't1', from: 'a@x', subject: 'Regning forfalder', snippet: '' },
+  ];
+  let turn = 0;
+  deps.callClaudeTurn = async () => {
+    if (turn++ === 0) {
+      return {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_nudge',
+            name: 'nudge_push',
+            input: { action_kind: 'deadline', target_id: 't1', title: 'Regning', body: 'Forfalder i dag' },
+          },
+        ],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        stop_reason: 'tool_use',
+      };
+    }
+    return { content: [{ type: 'text', text: 'done' }], usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: 'end_turn' };
+  };
+  deps.executeTool = async (_action, payload) => ({
+    mode: 'executed' as const,
+    reversible: false,
+    reverseToken: null,
+    recordPayload: { ...payload },
+  });
+  deps.recordAction = async () => { recordCalled = true; };
+  deps.fireNudge = async (args) => { fireArgs = args; return { sent: true }; };
+
+  const result = await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+
+  assertEquals(result.status, 'ok');
+  assertEquals(recordCalled, false); // nudge does NOT go through recordAction
+  assertEquals(fireArgs!.title, 'Regning');
+  assertEquals(fireArgs!.body, 'Forfalder i dag');
+  assertEquals(fireArgs!.data.type, 'nudge');
+  assertEquals(fireArgs!.data.action_kind, 'deadline');
+  assertEquals(fireArgs!.data.target_id, 't1');
+  const idem = String(fireArgs!.payload.idem_key);
+  assertEquals(/^nudge\.push:deadline:t1:\d{4}-\d{2}-\d{2}$/.test(idem), true);
+});
+
+Deno.test('runAgent: a rate-limited nudge reports back to the model so it stops retrying', async () => {
+  let traceCaptured: Array<{ results?: Array<{ name: string | null; is_error: boolean; content: string }> }> | undefined;
+  const { deps } = makeDeps();
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't1', message_id: 'm1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't1', from: 'a@x', subject: 'Regning', snippet: '' },
+  ];
+  let turn = 0;
+  deps.callClaudeTurn = async () => {
+    if (turn++ === 0) {
+      return {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_nudge',
+            name: 'nudge_push',
+            input: { action_kind: 'deadline', target_id: 't1', title: 'Regning', body: 'Forfalder i dag' },
+          },
+        ],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        stop_reason: 'tool_use',
+      };
+    }
+    return { content: [{ type: 'text', text: 'done' }], usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: 'end_turn' };
+  };
+  deps.executeTool = async (_action, payload) => ({
+    mode: 'executed' as const,
+    reversible: false,
+    reverseToken: null,
+    recordPayload: { ...payload },
+  });
+  deps.fireNudge = async () => ({ sent: false });
+  deps.finishRun = async (_runId, _status, _usage, _error, trace) => { traceCaptured = trace; };
+
+  await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+
+  const nudgeResult = traceCaptured?.[0]?.results?.find((r) => r.name === 'nudge_push');
+  assertEquals(!!nudgeResult, true);
+  assertEquals(nudgeResult!.content.includes('rate'), true);
 });

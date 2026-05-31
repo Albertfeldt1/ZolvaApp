@@ -29,6 +29,11 @@ export function deriveIdemKey(action: ActionType, payload: IdemPayload): string 
       return `cal.create_event:${req(payload, 'provider')}:${req(payload, 'title')}:${req(payload, 'start_iso')}`;
     case 'cal.update_event':
       return `cal.update_event:${req(payload, 'provider')}:${req(payload, 'event_id')}`;
+    case 'nudge.push':
+      // `day` (Europe/Copenhagen YYYY-MM-DD, supplied by the runner) makes the
+      // key change once a day, so the agent_actions_idem uniq index rate-limits
+      // to one push per (action_kind, target_id) per user per day.
+      return `nudge.push:${req(payload, 'action_kind')}:${req(payload, 'target_id')}:${req(payload, 'day')}`;
     default:
       // Phase 3+ action types reach this branch — caller is responsible
       // for not invoking it on unsupported types in Phase 2.

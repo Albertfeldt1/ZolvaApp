@@ -709,3 +709,36 @@ Deno.test('executeTool: mail.send_reply (outlook) applies edited_body via PATCH-
   assertEquals(calls.indexOf(patch!) < calls.indexOf(send!), true);
   assertEquals(result.mode, 'executed');
 });
+
+Deno.test('executeTool: nudge.push echoes payload as executed, makes no network call, needs no provider', async () => {
+  let fetched = false;
+  const ctx = makeCtx({
+    fetch: async () => {
+      fetched = true;
+      return new Response('{}', { status: 200 });
+    },
+  });
+  const result = await executeTool(
+    'nudge.push',
+    { action_kind: 'mail_attention', target_id: 'thread-9', title: 'Vigtig mail', body: 'Din pakke er forsinket' },
+    ctx,
+  );
+  assertEquals(fetched, false);
+  assertEquals(result.mode, 'executed');
+  assertEquals(result.reversible, false);
+  assertEquals(result.reverseToken, null);
+  assertEquals(result.recordPayload, {
+    action_kind: 'mail_attention',
+    target_id: 'thread-9',
+    title: 'Vigtig mail',
+    body: 'Din pakke er forsinket',
+  });
+});
+
+Deno.test('executeTool: nudge.push throws when title missing', async () => {
+  await assertRejects(
+    () => executeTool('nudge.push', { action_kind: 'k', target_id: 't', body: 'b' }, makeCtx()),
+    Error,
+    'title',
+  );
+});

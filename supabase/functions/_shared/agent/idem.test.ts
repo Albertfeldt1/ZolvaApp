@@ -67,3 +67,20 @@ Deno.test('deriveIdemKey: cal.update_event keys on provider+event_id', () => {
   const key = deriveIdemKey('cal.update_event', { provider: 'microsoft', event_id: 'e1' });
   assertEquals(key, 'cal.update_event:microsoft:e1');
 });
+
+Deno.test('deriveIdemKey: nudge.push keys on action_kind+target_id+day (one push per topic per day)', () => {
+  const key = deriveIdemKey('nudge.push', {
+    action_kind: 'mail_attention',
+    target_id: 'thread-123',
+    day: '2026-05-31',
+  });
+  assertEquals(key, 'nudge.push:mail_attention:thread-123:2026-05-31');
+});
+
+Deno.test('deriveIdemKey: nudge.push throws on missing day', () => {
+  assertThrows(
+    () => deriveIdemKey('nudge.push', { action_kind: 'mail_attention', target_id: 't1' } as never),
+    Error,
+    'day',
+  );
+});

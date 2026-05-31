@@ -19,6 +19,7 @@ const TOOL_NAME_TO_ACTION: Record<string, ActionType> = {
   drive_search: 'drive.search',
   cal_create_event: 'cal.create_event',
   cal_update_event: 'cal.update_event',
+  nudge_push: 'nudge.push',
 };
 
 export function actionTypeFromToolName(name: string): ActionType | null {
@@ -169,6 +170,27 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
       required: ['event_id', 'provider'],
     },
   },
+  {
+    name: 'nudge_push',
+    description:
+      'Send the user a short push notification — use ONLY as a last resort for something genuinely time-sensitive they must see now and that no draft/reply can resolve (e.g. a flight cancelled, a bill due today, a meeting starting soon). Never use it to announce routine mail or as a substitute for drafting a reply — if a reply is appropriate, draft one instead. Rate-limited to one push per topic per day, so pick a stable action_kind + target_id. No provider needed.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        action_kind: {
+          type: 'string',
+          description: 'short category of the nudge, e.g. "deadline", "travel", "meeting_soon" — used with target_id for daily rate-limiting',
+        },
+        target_id: {
+          type: 'string',
+          description: 'the thing the nudge is about (e.g. the thread_id) — same kind+target only nudges once per day',
+        },
+        title: { type: 'string', description: 'Danish, ≤ 40 chars' },
+        body: { type: 'string', description: 'Danish, ≤ 140 chars' },
+      },
+      required: ['action_kind', 'target_id', 'title', 'body'],
+    },
+  },
 ];
 
 const SYSTEM_PROMPT = `Du er Zolva — en personlig assistent der triage'r brugerens indbakke i baggrunden. Du kan udføre handlinger på både Gmail og Outlook (Microsoft).
@@ -190,6 +212,7 @@ Regler:
 - event_id til cal_update_event SKAL komme fra cal_list_events — opfind ALDRIG et event_id. Brug UTC (Z-suffiks) for alle tider i kalenderhandlinger.
 - DATO: Brug 'Dags dato' fra brugerens besked til at udregne korrekt årstal og ugedag i ALLE kalenderhandlinger (cal_list_events, cal_create_event, cal_update_event). Gæt eller opfind ALDRIG et årstal. F.eks.: hvis dags dato er i 2026 og brevet siger "torsdag den 5. juni", så er året 2026 — ikke 2025.
 - Hvis en tråd ikke kræver et svar (ren bekræftelse, automatisk besked, nyhedsbrev), så gør ingenting på den tråd.
+- nudge_push er en SIDSTE udvej: brug den KUN til noget akut og tidskritisk som brugeren skal se nu, og som et udkast/svar ikke kan løse (f.eks. en aflyst flyrejse, en regning der forfalder i dag). Brug den ALDRIG til at annoncere almindelig mail eller i stedet for at udkaste et svar. Den er begrænset til én besked pr. emne pr. dag.
 - Vær konservativ ved tvivl om INDHOLDET — men når et menneske stiller et tydeligt spørgsmål du kan svare på, SKAL du udkaste OG foreslå et svar. Lad være med at gøre ingenting af forsigtighed alene.
 - Du kan kalde flere værktøjer i samme tur. Stop når listen er triageret.
 - Svar på dansk i den korte tekstkommentar efter værktøjskald.`;

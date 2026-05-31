@@ -107,6 +107,18 @@ export interface RunnerDeps {
   // Phase 4 trust-escalation: accepted per-recipient promotions.
   // Loaded once per run alongside loadUserPolicy.
   loadActivePromotions: (userId: string) => Promise<Array<{ action_type: string; recipient: string }>>;
+  // Phase 4 nudge.push: record the action (idem-gated) AND send the push in one
+  // atomic step. Returns { sent:false } when the agent_actions insert collided
+  // on the daily idem key — i.e. this topic was already nudged today — so the
+  // runner can tell Claude not to retry rather than double-notifying the user.
+  fireNudge: (args: {
+    user_id: string;
+    run_id: string;
+    payload: Record<string, unknown>;
+    title: string;
+    body: string;
+    data: Record<string, unknown>;
+  }) => Promise<{ sent: boolean }>;
 }
 
 export interface RunInput {
@@ -140,6 +152,7 @@ const SUPPORTED_ACTIONS = new Set<ActionType>([
   'drive.search',
   'cal.create_event',
   'cal.update_event',
+  'nudge.push',
 ]);
 // Read-only context tools (Phase 4a). These never produce an agent_actions
 // row — they exist purely to feed Claude richer context within the run, so
@@ -160,6 +173,9 @@ const NON_THREAD_ACTIONS = new Set<ActionType>([
   'drive.search',
   'cal.create_event',
   'cal.update_event',
+  // nudge.push carries no thread_id (it has action_kind + target_id). Running
+  // the thread guard on it would throw on the empty thread_id and kill the call.
+  'nudge.push',
 ]);
 
 export async function runAgent(input: RunInput): Promise<RunResult> {
@@ -414,6 +430,30 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
             });
             continue;
           }
+          // nudge.push: record-then-send, gated by the daily idem key. fireNudge
+          // inserts the agent_actions row first; only a fresh insert sends the
+          // push, so a topic already nudged today (idem collision) returns
+          // sent:false and we tell Claude to stop instead of double-notifying.
+          if (action === 'nudge.push') {
+            const day = copenhagenDay(new Date());
+            const idemKey = deriveIdemKey(action, { ...exec.recordPayload, day });
+            const actionKind = typeof exec.recordPayload.action_kind === 'string' ? exec.recordPayload.action_kind : '';
+            const targetId = typeof exec.recordPayload.target_id === 'string' ? exec.recordPayload.target_id : '';
+            const { sent } = await deps.fireNudge({
+              user_id: userId,
+              run_id: runId,
+              payload: { ...exec.recordPayload, day, idem_key: idemKey },
+              title: typeof exec.recordPayload.title === 'string' ? exec.recordPayload.title : '',
+              body: typeof exec.recordPayload.body === 'string' ? exec.recordPayload.body : '',
+              data: { type: 'nudge', action_kind: actionKind, target_id: targetId },
+            });
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: tu.id,
+              content: sent ? 'nudge_sent' : 'rate_limited: already nudged this topic today',
+            });
+            continue;
+          }
           // Execute path (unchanged from Phase 2)
           const idemKey = deriveIdemKey(action, exec.recordPayload);
           const payloadWithKey = { ...exec.recordPayload, idem_key: idemKey };
@@ -497,6 +537,18 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
     processed: events.length,
     status: runError ? 'error' : 'ok',
   };
+}
+
+// Europe/Copenhagen calendar day as YYYY-MM-DD. Used as the day component of
+// the nudge.push idem key so the daily rate limit rolls over at local midnight
+// (matching the user's sense of "today"), not UTC midnight.
+function copenhagenDay(now: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Copenhagen',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
 }
 
 export function buildProposalPreview(
