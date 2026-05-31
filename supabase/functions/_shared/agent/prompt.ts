@@ -15,6 +15,7 @@ const TOOL_NAME_TO_ACTION: Record<string, ActionType> = {
   mail_draft_reply: 'mail.draft_reply',
   mail_send_reply: 'mail.send_reply',
   mail_get_body: 'mail.get_body',
+  mail_search: 'mail.search',
   cal_list_events: 'cal.list_events',
   drive_search: 'drive.search',
   cal_create_event: 'cal.create_event',
@@ -192,6 +193,62 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
     },
   },
 ];
+
+const MAIL_SEARCH_TOOL = {
+  name: 'mail_search',
+  description:
+    'Search the user\'s mailbox for a thread related to an upcoming event — by an attendee\'s email address or by subject keywords. Returns recent matching threads (thread_id, from, subject, snippet, date). Use it before mail_get_body when you want context for a meeting. Include provider.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'attendee email and/or subject keywords' },
+      limit: { type: 'integer', minimum: 1, maximum: 10 },
+      provider: { type: 'string', enum: ['google', 'microsoft'] },
+    },
+    required: ['query', 'provider'],
+  },
+} as const;
+
+// mail_get_body and nudge_push tool defs already exist in MAIL_TRIAGE_TOOLS;
+// reference the same objects so there is one source of truth.
+const MAIL_GET_BODY_TOOL = MAIL_TRIAGE_TOOLS.find((t) => t.name === 'mail_get_body')!;
+const NUDGE_PUSH_TOOL = MAIL_TRIAGE_TOOLS.find((t) => t.name === 'nudge_push')!;
+
+export const REFLECT_TOOLS = [MAIL_SEARCH_TOOL, MAIL_GET_BODY_TOOL, NUDGE_PUSH_TOOL] as const;
+
+const REFLECT_SYSTEM_PROMPT = `Du er Zolva. Du forbereder brugeren på kommende kalenderbegivenheder.
+
+For hver begivenhed i brugerens besked:
+- Afgør om en kort heads-up reelt hjælper. Spring rutine-/gentagne møder over, og alt der ikke kræver forberedelse.
+- Hvis den hjælper, må du først kalde mail_search (på en deltagers e-mail eller emnet) for at finde en relateret tråd, og mail_get_body for at læse den. Du må KUN læse tråde som mail_search har returneret — opfind ALDRIG et thread_id.
+- Send derefter PRÆCIS én nudge_push: en kort dansk påmindelse der nævner begivenheden (tid, evt. sted) og eventuel relevant kontekst fra mailen. Maks. én nudge pr. begivenhed.
+
+Regler:
+- provider ('google'/'microsoft') står ved hver begivenhed; inkludér den i alle kald.
+- nudge_push: brug event_id som target_id, og en kort action_kind som 'meeting_prep'.
+- Vær konservativ: i tvivl, så gør ingenting for den begivenhed. Svar kort på dansk efter værktøjskald.`;
+
+export interface ReflectEvent {
+  event_id: string; provider: 'google' | 'microsoft'; title: string;
+  start: string; location?: string; attendees?: string[]; description?: string;
+}
+
+export function buildReflectPrompt(input: { events: ReflectEvent[]; nowIso?: string }): BuildMailTriagePromptResult {
+  const system: ClaudeSystemBlock[] = [
+    { type: 'text', text: REFLECT_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+  ];
+  const dateLine = input.nowIso
+    ? `Dags dato: ${formatDanishDate(input.nowIso)} (tidszone Europe/Copenhagen).`
+    : '';
+  const lines = input.events.map((e) =>
+    `- event_id=${e.event_id} | provider=${e.provider} | start=${e.start} | titel=${e.title}` +
+    `${e.location ? ` | sted=${e.location}` : ''}` +
+    `${e.attendees && e.attendees.length ? ` | deltagere=${e.attendees.join(', ')}` : ''}` +
+    `${e.description ? ` | note=${e.description.slice(0, 200)}` : ''}`,
+  );
+  const body = [...(dateLine ? [dateLine, ''] : []), 'Kommende begivenheder:', '', ...lines].join('\n');
+  return { system, messages: [{ role: 'user', content: body }] };
+}
 
 const SYSTEM_PROMPT = `Du er Zolva — en personlig assistent der triage'r brugerens indbakke i baggrunden. Du kan udføre handlinger på både Gmail og Outlook (Microsoft).
 

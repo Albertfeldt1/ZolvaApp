@@ -1,6 +1,6 @@
 // supabase/functions/_shared/agent/prompt.test.ts
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { actionTypeFromToolName, buildMailTriagePrompt, MAIL_TRIAGE_TOOLS } from './prompt.ts';
+import { actionTypeFromToolName, buildMailTriagePrompt, buildReflectPrompt, MAIL_TRIAGE_TOOLS, REFLECT_TOOLS } from './prompt.ts';
 
 Deno.test('MAIL_TRIAGE_TOOLS exposes nine tools (archive/label/flag retired — need gmail.modify)', () => {
   const names = MAIL_TRIAGE_TOOLS.map((t) => t.name).sort();
@@ -99,4 +99,24 @@ Deno.test('buildMailTriagePrompt: omits date line when nowIso absent', () => {
     threads: [{ thread_id: 't1', from: 'a@x.com', subject: 'Frokost', snippet: '' }],
   });
   assertEquals((messages[0].content as string).includes('Dags dato:'), false);
+});
+
+Deno.test('REFLECT_TOOLS is exactly mail_search, mail_get_body, nudge_push', () => {
+  assertEquals(REFLECT_TOOLS.map((t) => t.name).sort(), ['mail_get_body', 'mail_search', 'nudge_push']);
+});
+
+Deno.test('actionTypeFromToolName maps mail_search', () => {
+  assertEquals(actionTypeFromToolName('mail_search'), 'mail.search');
+});
+
+Deno.test('buildReflectPrompt lists events with time + attendees and injects Copenhagen date', () => {
+  const { system, messages } = buildReflectPrompt({
+    events: [{ event_id: 'e1', provider: 'google', title: 'Møde med Anders', start: '2026-06-01T12:00:00Z', location: 'Zoom', attendees: ['anders@x.dk'], description: '' }],
+    nowIso: '2026-06-01T08:00:00Z',
+  });
+  const txt = (messages[0].content as string);
+  assertEquals(txt.includes('Møde med Anders'), true);
+  assertEquals(txt.includes('anders@x.dk'), true);
+  assertEquals(txt.includes('Dags dato:'), true);
+  assertEquals(system[0].cache_control, { type: 'ephemeral' });
 });
