@@ -57,3 +57,34 @@ export function resolveDue(
   const offset = direction === 'you_owe' ? 2 * DAY_MS : 3 * DAY_MS;
   return { dueAt: new Date(anchor + offset).toISOString(), inferred: true };
 }
+
+// Europe/Copenhagen calendar day (YYYY-MM-DD) — matches the nudge.push idem
+// day component so "already nudged today" lines up with local midnight.
+function copenhagenDay(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Copenhagen', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+}
+
+const DUE_LEAD_MS = 24 * 60 * 60 * 1000;   // you_owe: nudge within 24h of due
+const SILENCE_MS = 3 * DAY_MS;             // owed_to_you: 3 days of silence
+
+export function selectDue(rows: CommitmentRow[], now: Date): CommitmentRow[] {
+  const nowMs = now.getTime();
+  const today = copenhagenDay(now);
+  return rows.filter((r) => {
+    if (r.status !== 'open') return false;
+    if (r.direction === 'you_owe') {
+      if (!r.due_at) return false;
+      const due = new Date(r.due_at).getTime();
+      if (Number.isNaN(due) || due > nowMs + DUE_LEAD_MS) return false;
+      // Once per day until resolved.
+      return !(r.nudged_at && copenhagenDay(new Date(r.nudged_at)) === today);
+    }
+    // owed_to_you: silent past the threshold, nudged at most once ever.
+    if (r.nudged_at) return false;
+    if (!r.last_message_at) return false;
+    const last = new Date(r.last_message_at).getTime();
+    return !Number.isNaN(last) && last <= nowMs - SILENCE_MS;
+  });
+}
