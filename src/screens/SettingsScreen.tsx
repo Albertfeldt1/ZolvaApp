@@ -50,7 +50,6 @@ import { BlurView } from 'expo-blur';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 import { makeRedirectUri } from 'expo-auth-session';
-import { LiquidToggle } from '../components/LiquidToggle';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { Stone } from '../components/Stone';
 import { TopRightActions } from '../components/TopRightActions';
@@ -2045,10 +2044,23 @@ export function SettingsScreen({
                 </Pressable>
               </SettingsSectionCard>
 
-              {/* Zolva-handlinger kill-switch */}
-              <ZolvaHandlingerSection />
-              <AgentActionPolicySection />
-              <TrustPromotionsSection />
+              {/* Zolva-handlinger kill-switch — on a white card so the rows
+                  and Auto/Spørg/Fra controls don't float on the halo. */}
+              <View
+                style={{
+                  marginHorizontal: spacing.screenPad,
+                  marginTop: spacing.lg,
+                  borderRadius: radius.card,
+                  backgroundColor: '#FFFFFF',
+                  borderWidth: 1,
+                  borderColor: t.line,
+                  overflow: 'hidden',
+                }}
+              >
+                <ZolvaHandlingerSection />
+                <AgentActionPolicySection />
+                <TrustPromotionsSection />
+              </View>
 
               {/* Privatliv - dark glass card */}
               <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
@@ -2742,17 +2754,7 @@ function ToggleRow({ label, on, onPress }: { label: string; on: boolean; onPress
   return (
     <View style={styles.toggleRow}>
       <Text style={styles.toggleLabel}>{label}</Text>
-      <LiquidToggle
-        value={on}
-        onChange={onPress}
-        width={38}
-        height={22}
-        padding={2}
-        // On-tint: vivid sage at high opacity. Lower opacity through the
-        // glass blur read as olive/grey; this stays readable as green.
-        tintOff="rgba(246,241,232,0.18)"
-        tintOn="rgba(115,170,95,0.92)"
-      />
+      <Switch value={on} onValueChange={() => onPress()} accessibilityLabel={label} />
     </View>
   );
 }
@@ -2774,15 +2776,7 @@ function NotificationToggleRow({
       accessibilityState={{ checked: value }}
     >
       <Text style={styles.ntLabel}>{label}</Text>
-      <LiquidToggle
-        value={value}
-        onChange={onChange}
-        width={46}
-        height={28}
-        padding={3}
-        tintOff="rgba(140,133,120,0.20)"
-        tintOn="rgba(115,170,95,0.92)"
-      />
+      <Switch value={value} onValueChange={onChange} accessibilityLabel={label} />
     </Pressable>
   );
 }

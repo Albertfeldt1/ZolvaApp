@@ -46,7 +46,7 @@ export function BriefBanner({ brief, onOpen, onDismiss }: Props) {
         {weatherLine && <Text style={styles.weather}>{weatherLine}</Text>}
         <View style={styles.cta}>
           <Text style={styles.ctaText}>Læs mere</Text>
-          <ChevronRight size={14} color={colors.sageDeep} strokeWidth={1.75} />
+          <ChevronRight size={14} color={colors.ink} strokeWidth={1.75} />
         </View>
       </View>
     </Pressable>
@@ -58,7 +58,9 @@ const styles = StyleSheet.create({
     margin: 16,
     padding: 16,
     borderRadius: 16,
-    backgroundColor: colors.sageSoft,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: colors.line,
     gap: 6,
   },
   cardPressed: { opacity: 0.82 },
@@ -72,7 +74,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 0.88,
     textTransform: 'uppercase',
-    color: colors.sageDeep,
+    color: colors.fg3,
   },
   headline: {
     fontFamily: fonts.displayItalic,
@@ -108,6 +110,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 0.6,
     textTransform: 'uppercase',
-    color: colors.sageDeep,
+    color: colors.ink,
   },
 });
