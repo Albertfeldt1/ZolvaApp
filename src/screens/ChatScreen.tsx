@@ -5,6 +5,7 @@ import {
   Animated,
   Easing,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -132,6 +133,26 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
   }, [messages, typing]);
 
+  // Reliable scroll-to-bottom that doesn't depend on rAF timing. Fires once
+  // the messages content is actually measured (initial open) and on every
+  // size change after. First landing is instant (jump to bottom on open);
+  // later ones animate so new messages glide in above the dock.
+  const didInitialScroll = useRef(false);
+  const onMessagesSizeChange = () => {
+    scrollRef.current?.scrollToEnd({ animated: didInitialScroll.current });
+    didInitialScroll.current = true;
+  };
+
+  // When the keyboard rises, bring the latest messages up with it so the dock
+  // never covers them (the ScrollView shrinks under KAV padding but keeps its
+  // offset otherwise).
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidShow', () => {
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    });
+    return () => sub.remove();
+  }, []);
+
   const submit = (text: string) => {
     // Hard gate: never fire a second send while the previous one is still
     // running. Prevents users from spam-tapping suggestion chips (or the
@@ -154,13 +175,17 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
     // can't leak through the KAV's padding region even if the outer
     // Animated.View's bg is momentarily inactive.
     <View style={{ flex: 1, backgroundColor: t.paper }}>
+      {/* Halo is a stable full-screen background BEHIND the
+          KeyboardAvoidingView. Previously it lived inside the KAV, so when the
+          keyboard added bottom padding the whole background compressed upward.
+          Out here it stays put; the keyboard only lifts the content + dock. */}
+      <GlassHaloLayer />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={0}
       >
         <View style={{ flex: 1, position: 'relative' }}>
-          <GlassHaloLayer />
 
         {/* Header - wrapped in a glass card so the back button + Stone +
             title sit on a backdrop instead of floating on the halo paper.
@@ -259,6 +284,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
           contentInsetAdjustmentBehavior="never"
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
+          onContentSizeChange={onMessagesSizeChange}
         >
           <Text
             style={{
