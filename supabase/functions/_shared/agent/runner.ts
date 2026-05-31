@@ -22,6 +22,34 @@ import { deriveIdemKey } from './idem.ts';
 import { resolvePolicy } from './policy.ts';
 import { shouldPushForProposal } from './push.ts';
 
+// A run strategy supplies the parts that differ between the mail-triage path
+// (agent-tick) and the reflect path (agent-reflect). Everything else — the
+// Claude loop, dispatch, idem, budget, trace — lives in executeRun and is shared.
+export interface AgentStrategy {
+  // Per-run system + user messages and the tool catalogue for this path.
+  buildContext: (
+    userId: string,
+    events: ClaimedEvent[],
+    deps: RunnerDeps,
+  ) => Promise<{
+    system: ClaudeSystemBlock[];
+    messages: ClaudeUserMessage[];
+    tools: ReadonlyArray<unknown>;
+    // Mail-triage carries the source-from/source-body resolvers + the body map
+    // (mutated by the mail.get_body context branch). Reflect omits these — the
+    // `?.` call sites then yield undefined, identical to today's "no source" path.
+    resolveSourceFrom?: (p: Record<string, unknown>) => string | undefined;
+    resolveSourceBody?: (p: Record<string, unknown>) => string | undefined;
+    _sourceBodyByThread?: Map<string, string>;
+  }>;
+  // Seed the readable-thread allowlist. mail-triage: the triggering threads.
+  // reflect: empty (grown by mail_search).
+  seedAllowlist: (events: ClaimedEvent[]) => Set<string>;
+  // After a context tool returns, thread_ids to add to the allowlist.
+  // reflect uses this for mail.search; mail-triage returns [].
+  extendAllowlist: (action: ActionType, recordPayload: Record<string, unknown>) => string[];
+}
+
 export interface ClaimedEvent {
   id: number;
   kind: AgentEventKind;
@@ -195,6 +223,20 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
     return { runId: null, processed: 0, status: 'ok' };
   }
 
+  return executeRun(userId, trigger, events, deps, mailTriageStrategy);
+}
+
+// Path-agnostic engine: openRun → context (via strategy) → Claude tool loop
+// (dispatch, idem, budget, trace) → finishRun. The only path-specific bits are
+// supplied by `strategy`: how context/prompt is built, which tools are offered,
+// and the readable-thread allowlist model.
+async function executeRun(
+  userId: string,
+  trigger: AgentRunTrigger,
+  events: ClaimedEvent[],
+  deps: RunnerDeps,
+  strategy: AgentStrategy,
+): Promise<RunResult> {
   const eventIds = events.map((e) => e.id);
   const runId = await deps.openRun(userId, trigger, eventIds);
 
@@ -203,38 +245,11 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
   const trace: RunTraceTurn[] = [];
 
   try {
-    const threads = await deps.loadThreadBriefs(userId, events);
-
-    // Sender of each triggering thread, surfaced on proposals as `source_from`
-    // so the approval UI can show who the proposal is about. Calendar proposals
-    // carry no thread_id, so fall back to the sole thread's sender when the run
-    // is about a single thread (the common case).
-    const senderByThread = new Map<string, string>();
-    for (const t of threads) {
-      if (t.from) senderByThread.set(t.thread_id, t.from);
-    }
-    const soleSender = threads.length === 1 ? (threads[0].from ?? undefined) : undefined;
-    const resolveSourceFrom = (payload: Record<string, unknown>): string | undefined => {
-      const tid = typeof payload.thread_id === 'string' ? payload.thread_id : '';
-      return (tid && senderByThread.get(tid)) || soleSender;
-    };
-
-    // Original incoming message body, captured from mail_get_body, keyed by
-    // thread_id. Surfaced on proposals as `source_body` so the approval UI can
-    // show what the user is replying to. Capped to bound payload size.
-    const sourceBodyByThread = new Map<string, string>();
-    const resolveSourceBody = (payload: Record<string, unknown>): string | undefined => {
-      const tid = typeof payload.thread_id === 'string' ? payload.thread_id : '';
-      if (tid && sourceBodyByThread.has(tid)) return sourceBodyByThread.get(tid);
-      // Non-thread proposals (e.g. cal.create_event) — fall back to the sole
-      // researched body when the run read exactly one thread.
-      return sourceBodyByThread.size === 1 ? [...sourceBodyByThread.values()][0] : undefined;
-    };
-
-    const allow = buildThreadAllowlist(events);
+    const allow = strategy.seedAllowlist(events);
     const userPolicy = await deps.loadUserPolicy(userId);
     const promotions = await deps.loadActivePromotions(userId);
-    const { system, messages } = buildMailTriagePrompt({ threads, nowIso: new Date().toISOString() });
+    const ctx = await strategy.buildContext(userId, events, deps);
+    const { system, messages, tools } = ctx;
     const conversation: ClaudeUserMessage[] = [...messages];
 
     // Per-run set of thread_ids the agent has opened with mail.get_body.
@@ -248,7 +263,7 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
     const draftDetail = new Map<string, { body_full?: string; subject?: string; in_reply_to_message_id?: string }>();
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const turn = await deps.callClaudeTurn(system, conversation, MAIL_TRIAGE_TOOLS);
+      const turn = await deps.callClaudeTurn(system, conversation, tools);
       usage = {
         input_tokens: usage.input_tokens + turn.usage.input_tokens,
         output_tokens: usage.output_tokens + turn.usage.output_tokens,
@@ -344,8 +359,8 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
         if (policy === 'propose' && defaultMode === 'auto') {
           try {
             const idemKey = deriveIdemKey(action, input);
-            const sourceFrom = resolveSourceFrom(input);
-            const sourceBody = resolveSourceBody(input);
+            const sourceFrom = ctx.resolveSourceFrom?.(input);
+            const sourceBody = ctx.resolveSourceBody?.(input);
             await writeProposalAndMaybePush(deps, {
               userId,
               runId,
@@ -397,8 +412,8 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
               action === 'mail.send_reply' && typeof exec.recordPayload.draft_id === 'string'
                 ? draftDetail.get(exec.recordPayload.draft_id)
                 : undefined;
-            const sourceFrom = resolveSourceFrom(exec.recordPayload);
-            const sourceBody = resolveSourceBody(exec.recordPayload);
+            const sourceFrom = ctx.resolveSourceFrom?.(exec.recordPayload);
+            const sourceBody = ctx.resolveSourceBody?.(exec.recordPayload);
             await writeProposalAndMaybePush(deps, {
               userId,
               runId,
@@ -420,7 +435,7 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
               if (tid) {
                 researchedThreads.add(tid);
                 const bodyText = typeof exec.recordPayload.body_text === 'string' ? exec.recordPayload.body_text : '';
-                if (bodyText) sourceBodyByThread.set(tid, bodyText.slice(0, 4000));
+                if (bodyText) ctx._sourceBodyByThread?.set(tid, bodyText.slice(0, 4000));
               }
             }
             toolResults.push({
@@ -428,6 +443,7 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
               tool_use_id: tu.id,
               content: JSON.stringify(exec.recordPayload),
             });
+            for (const tid of strategy.extendAllowlist(action, exec.recordPayload)) allow.add(tid);
             continue;
           }
           // nudge.push: record-then-send, gated by the daily idem key. fireNudge
@@ -538,6 +554,40 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
     status: runError ? 'error' : 'ok',
   };
 }
+
+// Mail-triage path (agent-tick): builds context from the triggering threads'
+// briefs, offers the full MAIL_TRIAGE_TOOLS catalogue, and seeds the allowlist
+// from the claimed mail.new events. The allowlist is fixed (no growth).
+export const mailTriageStrategy: AgentStrategy = {
+  async buildContext(userId, events, deps) {
+    const threads = await deps.loadThreadBriefs(userId, events);
+    // Sender of each triggering thread, surfaced on proposals as `source_from`
+    // so the approval UI can show who the proposal is about. Calendar proposals
+    // carry no thread_id, so fall back to the sole thread's sender when the run
+    // is about a single thread (the common case).
+    const senderByThread = new Map<string, string>();
+    for (const t of threads) if (t.from) senderByThread.set(t.thread_id, t.from);
+    const soleSender = threads.length === 1 ? (threads[0].from ?? undefined) : undefined;
+    // Original incoming message body, captured from mail_get_body, keyed by
+    // thread_id. Surfaced on proposals as `source_body`. Capped to bound size.
+    const sourceBodyByThread = new Map<string, string>(); // populated by mail.get_body in the loop
+    const resolveSourceFrom = (payload: Record<string, unknown>): string | undefined => {
+      const tid = typeof payload.thread_id === 'string' ? payload.thread_id : '';
+      return (tid && senderByThread.get(tid)) || soleSender;
+    };
+    const resolveSourceBody = (payload: Record<string, unknown>): string | undefined => {
+      const tid = typeof payload.thread_id === 'string' ? payload.thread_id : '';
+      if (tid && sourceBodyByThread.has(tid)) return sourceBodyByThread.get(tid);
+      // Non-thread proposals (e.g. cal.create_event) — fall back to the sole
+      // researched body when the run read exactly one thread.
+      return sourceBodyByThread.size === 1 ? [...sourceBodyByThread.values()][0] : undefined;
+    };
+    const { system, messages } = buildMailTriagePrompt({ threads, nowIso: new Date().toISOString() });
+    return { system, messages, tools: MAIL_TRIAGE_TOOLS, resolveSourceFrom, resolveSourceBody, _sourceBodyByThread: sourceBodyByThread };
+  },
+  seedAllowlist: (events) => buildThreadAllowlist(events),
+  extendAllowlist: () => [],
+};
 
 // Europe/Copenhagen calendar day as YYYY-MM-DD. Used as the day component of
 // the nudge.push idem key so the daily rate limit rolls over at local midnight
