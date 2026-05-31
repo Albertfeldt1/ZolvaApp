@@ -21,6 +21,7 @@ const TOOL_NAME_TO_ACTION: Record<string, ActionType> = {
   cal_create_event: 'cal.create_event',
   cal_update_event: 'cal.update_event',
   nudge_push: 'nudge.push',
+  commitment_record: 'commitment.record',
 };
 
 export function actionTypeFromToolName(name: string): ActionType | null {
@@ -215,6 +216,61 @@ const MAIL_GET_BODY_TOOL = MAIL_TRIAGE_TOOLS.find((t) => t.name === 'mail_get_bo
 const NUDGE_PUSH_TOOL = MAIL_TRIAGE_TOOLS.find((t) => t.name === 'nudge_push')!;
 
 export const REFLECT_TOOLS = [MAIL_SEARCH_TOOL, MAIL_GET_BODY_TOOL, NUDGE_PUSH_TOOL] as const;
+
+const COMMITMENT_RECORD_TOOL = {
+  name: 'commitment_record',
+  description:
+    'Record ONE open commitment found in the thread shown. Use only for a real, actionable obligation with a clear owner — a promise the user made ("jeg sender X på fredag") for direction="you_owe". Skip greetings, FYIs, newsletters, and anything vague. Provide due_at (UTC ISO-8601, ends with Z) only if the text names a concrete deadline; otherwise omit it and it will be inferred. summary is a short Danish phrase of the obligation (≤ 120 chars). source_excerpt is the exact sentence that shows the commitment.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      direction: { type: 'string', enum: ['you_owe', 'owed_to_you'] },
+      counterparty: { type: 'string', description: 'name or email of the other party' },
+      summary: { type: 'string', maxLength: 120 },
+      due_at: { type: 'string', description: 'UTC ISO-8601 ending in Z, only if explicitly stated' },
+      thread_id: { type: 'string' },
+      provider: { type: 'string', enum: ['google', 'microsoft'] },
+      source_excerpt: { type: 'string', maxLength: 300 },
+    },
+    required: ['direction', 'counterparty', 'summary', 'thread_id', 'provider', 'source_excerpt'],
+  },
+} as const;
+
+export const COMMITMENT_SCAN_TOOLS = [COMMITMENT_RECORD_TOOL] as const;
+
+const COMMITMENT_SCAN_SYSTEM_PROMPT = `Du er Zolva. Du gennemgår brugerens SENDTE mails og finder forpligtelser brugeren selv har lovet — ting brugeren skal følge op på.
+
+For hver tråd i brugerens besked:
+- Afgør om brugeren har givet et konkret løfte eller en aftale ("jeg sender X på fredag", "jeg vender tilbage mandag", "jeg ordner det inden ugen er omme").
+- Hvis ja, kald commitment_record med direction="you_owe", en kort dansk summary, modparten (counterparty), thread_id, provider og det præcise citat (source_excerpt). Angiv kun due_at hvis teksten nævner en konkret dato/deadline — ellers udelad den.
+- Ignorer høflighedsfraser, nyhedsbreve, automatiske beskeder og alt vagt. I tvivl: spring tråden over.
+
+Du må kun bruge thread_id'er fra listen i beskeden. Kald commitment_record én gang pr. reel forpligtelse. Svar kort på dansk når du er færdig.`;
+
+export interface ScanCandidate {
+  thread_id: string;
+  provider: 'google' | 'microsoft';
+  counterparty: string;
+  subject: string;
+  latest_text: string;
+  latest_from: 'user' | 'them';
+  latest_at: string;
+}
+
+export function buildCommitmentScanPrompt(input: { candidates: ScanCandidate[]; nowIso?: string }): BuildMailTriagePromptResult {
+  const system: ClaudeSystemBlock[] = [
+    { type: 'text', text: COMMITMENT_SCAN_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+  ];
+  const dateLine = input.nowIso
+    ? `Dags dato: ${formatDanishDate(input.nowIso)} (tidszone Europe/Copenhagen).`
+    : '';
+  const lines = input.candidates.map((c) =>
+    `- thread_id=${c.thread_id} | provider=${c.provider} | modpart=${c.counterparty} | emne=${c.subject}` +
+    ` | sendt=${c.latest_at} | tekst=${c.latest_text.slice(0, 500)}`,
+  );
+  const body = [...(dateLine ? [dateLine, ''] : []), 'Gennemgå disse sendte tråde:', '', ...lines].join('\n');
+  return { system, messages: [{ role: 'user', content: body }] };
+}
 
 const REFLECT_SYSTEM_PROMPT = `Du er Zolva. Du forbereder brugeren på kommende kalenderbegivenheder.
 
