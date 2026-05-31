@@ -20,6 +20,8 @@ import { useAuth } from '../lib/auth';
 import { loadCredential } from '../lib/icloud-credentials';
 import { TodayAgentFeed } from '../components/TodayAgentFeed';
 import { ProposalDetailModal } from '../components/ProposalDetailModal';
+import { OpenLoopsModal } from '../components/OpenLoopsModal';
+import { useOpenCommitments } from '../lib/agent-commitments';
 import type { ProposedActionRow } from '../lib/agent-proposals';
 import { BriefBanner } from '../components/BriefBanner';
 import { CountUp } from '../components/CountUp';
@@ -314,6 +316,8 @@ export function TodayScreen({
     pendingFacts.length + dedupedObservations.length > FEED_OBSERVATION_COUNT;
   const [observationsModalOpen, setObservationsModalOpen] = useState(false);
   const [selectedProposal, setSelectedProposal] = useState<ProposedActionRow | null>(null);
+  const [showOpenLoops, setShowOpenLoops] = useState(false);
+  const { rows: openLoops } = useOpenCommitments(userId || null);
 
   // Match the MemoryScreen filter: pending + dueAt within 5min past - so a
   // reminder that already fired and decayed stops counting toward the
@@ -676,6 +680,32 @@ export function TodayScreen({
 
         <TodayAgentFeed onSelectProposal={setSelectedProposal} />
 
+        {/* Open loops entry — only shown when the agent is tracking something.
+            Tapping opens the read-only OpenLoopsModal (mounted outside the
+            ScrollView below). */}
+        {openLoops.length > 0 && (
+          <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.md }}>
+            <Pressable
+              onPress={() => setShowOpenLoops(true)}
+              accessibilityLabel="Åbne loops"
+              accessibilityRole="button"
+            >
+              <GlassFrostedCard style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+                  <Stone mood="thinking" size={34} jumpOnTap={false} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ ...type.body, color: t.ink, fontWeight: '600' }}>Åbne loops</Text>
+                    <Text style={{ ...type.caption, color: t.ink3 }}>
+                      {openLoops.length === 1 ? '1 tråd jeg holder øje med' : `${openLoops.length} tråde jeg holder øje med`}
+                    </Text>
+                  </View>
+                  <Text style={{ ...type.body, color: t.ink3 }}>›</Text>
+                </View>
+              </GlassFrostedCard>
+            </Pressable>
+          </View>
+        )}
+
         {/* Brief history pills - wrapped in a single glass card so the
             three time-of-day shortcuts read as one element, not as
             three loose chips floating on the halo paper. */}
@@ -884,6 +914,10 @@ export function TodayScreen({
           row={selectedProposal}
           onClose={() => setSelectedProposal(null)}
         />
+      ) : null}
+
+      {showOpenLoops ? (
+        <OpenLoopsModal rows={openLoops} onClose={() => setShowOpenLoops(false)} />
       ) : null}
     </View>
   );
