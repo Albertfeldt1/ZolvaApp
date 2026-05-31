@@ -113,6 +113,9 @@ export async function insertPendingFact(
     // Optional decay timestamp. NULL means "permanent" - set this only for
     // action-y categories (commitment / other). The extractor decides.
     expiresAt?: Date | null;
+    // Optional follow-up moment — when the memory-followups sweep should surface
+    // this fact. NULL means no follow-up. Only set for dated actionable facts.
+    followUpAt?: Date | null;
   },
 ): Promise<Fact> {
   const normalized = normalizeFactText(input.text);
@@ -126,6 +129,7 @@ export async function insertPendingFact(
       status: 'pending',
       source: input.source,
       expires_at: input.expiresAt ? input.expiresAt.toISOString() : null,
+      follow_up_at: input.followUpAt ? input.followUpAt.toISOString() : null,
     })
     .select('*')
     .single();
