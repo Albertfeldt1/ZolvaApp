@@ -26,6 +26,7 @@ import * as Haptics from 'expo-haptics';
 import { Stone } from '../design/primitives/Stone';
 import { useTheme } from '../design/useTheme';
 import { DrivePickerModal } from '../components/DrivePickerModal';
+import { renderInlineMd } from '../components/inline-md';
 import {
   MessageActionMenu,
   type BubbleRect,
@@ -561,14 +562,8 @@ function DockRow(props: {
   );
 }
 
-function renderInlineMd(text: string, boldFamily: string): React.ReactNode[] {
-  const parts = text.split(/\*\*([\s\S]+?)\*\*/g);
-  return parts.map((part, i) =>
-    i % 2 === 1
-      ? <Text key={i} style={{ fontFamily: boldFamily }}>{part}</Text>
-      : part,
-  );
-}
+// renderInlineMd moved to ../components/inline-md (shared with the long-press
+// action menu so the lifted copy matches the original).
 
 // ─── Theme-prop types passed down to sub-components ────────────────────────
 
