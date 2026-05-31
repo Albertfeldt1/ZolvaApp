@@ -12,7 +12,8 @@ import { callClaude } from './claude.ts';
 import { recordAiUsage } from '../usage.ts';
 import { executeTool as dispatchTool } from './tools/dispatch.ts';
 import { resolveLabelId } from './tools/gmail.ts';
-import type { ThreadBrief } from './prompt.ts';
+import type { ThreadBrief, ScanCandidate } from './prompt.ts';
+import type { CommitmentRow } from './commitments.ts';
 import { loadRefreshToken, refreshAccessToken } from '../oauth.ts';
 import { dispatchExpoPush } from './expo-push.ts';
 import type { ExecuteContext, ExecuteOptions } from './tools/dispatch.ts';
@@ -373,4 +374,82 @@ export async function selectEligibleUserIds(
   return Array.from(
     new Set((data ?? []).map((r: { user_id: string }) => r.user_id)),
   );
+}
+
+// Fetch recent SENT threads as scan candidates. Gmail: in:sent newer_than:7d.
+// One representative message per thread (the user's own latest text in it).
+// Per-provider failures are swallowed (logged) so one bad provider can't blank
+// the scan — mirrors agent-reflect's readUpcoming. Outlook sent-items is a
+// Slice 2 follow-up; Gmail-only candidates here.
+export async function listSentCandidates(
+  client: SupabaseClient,
+  userId: string,
+): Promise<ScanCandidate[]> {
+  const out: ScanCandidate[] = [];
+  try {
+    const token = await loadGmailAccessToken(client, userId);
+    const listRes = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=25&q=${encodeURIComponent('in:sent newer_than:7d')}`,
+      { headers: { authorization: `Bearer ${token}` } },
+    );
+    if (listRes.ok) {
+      const list = await listRes.json() as { messages?: Array<{ id: string; threadId: string }> };
+      const seen = new Set<string>();
+      for (const m of list.messages ?? []) {
+        if (seen.has(m.threadId)) continue;
+        seen.add(m.threadId);
+        const getRes = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
+          { headers: { authorization: `Bearer ${token}` } },
+        );
+        if (!getRes.ok) continue;
+        const msg = await getRes.json() as { threadId: string; snippet?: string; payload?: { headers?: Array<{ name: string; value: string }> } };
+        const h = (n: string) => msg.payload?.headers?.find((x) => x.name.toLowerCase() === n)?.value ?? '';
+        const dateHeader = h('date');
+        out.push({
+          thread_id: msg.threadId,
+          provider: 'google',
+          counterparty: h('to'),
+          subject: h('subject'),
+          latest_text: msg.snippet ?? '',
+          latest_from: 'user',
+          latest_at: dateHeader ? new Date(dateHeader).toISOString() : new Date().toISOString(),
+        });
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes('no google refresh token')) console.warn('[agent-commitments] sent scan (google) failed for', userId, msg);
+  }
+  return out;
+}
+
+// Open commitments for reconcile + nudge.
+export async function selectOpenCommitments(
+  client: SupabaseClient,
+  userId: string,
+): Promise<CommitmentRow[]> {
+  const { data, error } = await client
+    .from('agent_commitments')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('status', 'open');
+  if (error) throw error;
+  return (data ?? []) as CommitmentRow[];
+}
+
+// Apply a status/nudge update to one commitment row.
+export async function updateCommitment(
+  client: SupabaseClient,
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  const { error } = await client.from('agent_commitments').update(patch).eq('id', id);
+  if (error) throw error;
+}
+
+// Stamp the per-user extraction watermark.
+export async function markScanned(client: SupabaseClient, userId: string, nowIso: string): Promise<void> {
+  const { error } = await client.from('user_profiles').update({ commitments_scanned_at: nowIso }).eq('user_id', userId);
+  if (error) throw error;
 }
