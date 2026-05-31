@@ -31,6 +31,9 @@ async function selectAgentEnabledUserIds(client: SupabaseClient): Promise<string
   return Array.from(new Set((data ?? []).map((r: { user_id: string }) => r.user_id as string)));
 }
 const CRON_SECRET = Deno.env.get('CRON_SHARED_SECRET');
+if (!CRON_SECRET) {
+  throw new Error('[agent-reflect] CRON_SHARED_SECRET is not set — refusing to start');
+}
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
@@ -82,7 +85,10 @@ async function readUpcoming(
     });
     for (const e of events) out.push(mapCalEvent(e, 'google'));
   } catch (err) {
-    console.warn('[agent-reflect] google calendar read failed for', userId, err);
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes('no google refresh token')) {
+      console.warn('[agent-reflect] google calendar read failed for', userId, err);
+    }
   }
 
   // Outlook — only if the user has a Microsoft refresh token.
@@ -152,10 +158,6 @@ serve(async (req) => {
 
       const deps = buildDeps(client, uid);
       await runReflect({ userId: uid, events: fresh, deps });
-      await client
-        .from('agent_events')
-        .update({ processed_at: new Date().toISOString() })
-        .in('id', fresh.map((e) => e.id));
       results.push({ userId: uid, ran: true });
     } catch (err) {
       const msg = err instanceof Error
