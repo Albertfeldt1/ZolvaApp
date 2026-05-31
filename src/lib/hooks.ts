@@ -5007,6 +5007,12 @@ export function useChat() {
       // "Vælg Drive-filer" chip to the assistant message. Closure-scoped so
       // it survives the multiple return points inside runTurn.
       let drivePickerSuggested = false;
+      // Set when add_reminder succeeds this turn. A reminder already captures
+      // the user's intent in the reminders table, so we must NOT also run it
+      // through the fact extractor - otherwise "påmind mig kl 20 om at ringe
+      // til Karl" gets surfaced again as "Skal jeg huske at du skal ringe til
+      // Karl kl 20?". Closure-scoped so it survives runTurn's return points.
+      let reminderCreatedThisTurn = false;
       const runTurn = async (): Promise<TurnResult> => {
         let pendingFinalizeJobId: string | null = null;
         const hasGoogle = !!googleAccessToken;
@@ -5191,6 +5197,7 @@ export function useChat() {
               result.toolUses.map(async (t) => {
                 const r = await runChatTool(t.name, t.input, toolCtx);
                 if (r.suggestPicker) drivePickerSuggested = true;
+                if (t.name === 'add_reminder' && !r.isError) reminderCreatedThisTurn = true;
                 return {
                   type: 'tool_result' as const,
                   tool_use_id: t.id,
@@ -5306,12 +5313,17 @@ export function useChat() {
           setMessages((cur) => [...cur, assistantMsg]);
           if (userId) {
             syncChatMessage(userId, assistantMsg);
-            runExtractor({
-              trigger: 'chat_turn',
-              userId,
-              text: `Bruger: ${trimmed}\nZolva: ${assistantMsg.text}`,
-              source: `chat:${assistantMsg.id}`,
-            });
+            // A reminder turn is already captured in the reminders table, so
+            // don't also mine it for a durable fact (avoids double-tracking
+            // "ring til Karl kl 20" as both a reminder and a "Skal jeg huske…?").
+            if (!reminderCreatedThisTurn) {
+              runExtractor({
+                trigger: 'chat_turn',
+                userId,
+                text: `Bruger: ${trimmed}\nZolva: ${assistantMsg.text}`,
+                source: `chat:${assistantMsg.id}`,
+              });
+            }
           }
           // Pass 1.5 finalize: if round 0 returned needs_tools and the
           // local tool loop produced a real answer, mark the chat_jobs

@@ -31,6 +31,10 @@ const EXTRACTOR_SYSTEM =
   'HVAD DU IKKE SKAL EKSTRAHERE (returnér candidate: null):\n' +
   '- Engangshandlinger: "du vil sende X til Y", "du klikkede på en mail", "du har lige sendt en mail" - ' +
   'det er forbigående, ikke et fakta om dig.\n' +
+  '- Påmindelser brugeren har bedt om: hvis teksten handler om at brugeren har sat (eller bedt om) en ' +
+  'påmindelse - fx "påmind mig kl 20 om at ringe til Karl" eller en bekræftelse som "Oprettet påmindelse … ' +
+  'til at ringe til Karl" - så returnér candidate: null. Påmindelsen er allerede gemt separat; den skal ' +
+  'IKKE også huskes som et fakta.\n' +
   '- Fortidshandlinger uden fremadrettet betydning: "du har ignoreret en mail", "du har læst X", ' +
   '"du har afvist Y". Ignorér også "har set", "har klikket", "har scrollet".\n' +
   '- Flygtige følelser/tilstande: humør, sult, frokost, vejret.\n' +
