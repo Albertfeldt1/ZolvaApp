@@ -24,6 +24,17 @@ type Candidate = {
   referentDate?: string | null;
 };
 
+// Returns the current calendar day in Europe/Copenhagen as 'YYYY-MM-DD'.
+// en-CA's date format is ISO-ordered, so this avoids manual zero-padding.
+export function todayInCopenhagen(now: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Copenhagen',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
 const EXTRACTOR_SYSTEM =
   'Du læser et kort uddrag af samtale eller mailbeslutning og vurderer om der er én ny ' +
   'oplysning om dig værd at huske (relation, rolle, præference, igangværende projekt, eller løfte/aftale). ' +
@@ -45,7 +56,12 @@ const EXTRACTOR_SYSTEM =
   '(brugeren skal selv håndtere det modstridende).\n' +
   '- Gentagelser af samme intention med andre ord. Hellere returnere null end at lave en næsten-dublet.\n\n' +
   'HVIS det nye fakta refererer til en konkret dato eller dag (fx "fredag", "i morgen", "27. april"), ' +
-  'så udfyld referentDate som en ISO-dato (YYYY-MM-DD). Ellers lad det være null.\n\n' +
+  'så udfyld referentDate som en ISO-dato (YYYY-MM-DD). Ellers lad det være null.\n' +
+  'Brugerbeskeden starter med en "Dags dato"-linje. Du SKAL regne relative danske datoer ' +
+  '("i morgen", "i juni", "til oktober", "om to uger", "næste fredag") om til en konkret ISO-dato i ' +
+  'referentDate ud fra netop den dags dato - gæt ALDRIG ud fra din egen træningsdato. Hvis en måned ' +
+  'nævnes uden en bestemt dag (fx "i juni", "til oktober"), så brug den 1. i måneden. Har fakta ingen ' +
+  'dato, så lad referentDate være null.\n\n' +
   'ADRESSERINGSKRAV (gælder text-feltet):\n' +
   '- Skriv ALTID direkte til personen med "du"/"dig"/"din"/"dit"/"dine".\n' +
   '- Brug ALDRIG ordene "bruger", "brugeren", "brugerens", "brugere".\n' +
@@ -141,7 +157,10 @@ async function runNow(payload: ExtractionPayload): Promise<void> {
     const existingBlock = existingTexts.length > 0
       ? `Eksisterende fakta om brugeren (returnér candidate: null hvis det nye uddrag er en omformulering af noget herfra):\n${existingTexts.map((t) => `- ${t}`).join('\n')}\n\n`
       : '';
-    const userMessage = `${existingBlock}Nyt uddrag:\n${payload.text}`;
+    // The date lives in the per-call user message (not the cached system block)
+    // because it changes daily; the system prompt stays static and cacheable.
+    const dateBlock = `Dags dato: ${todayInCopenhagen(new Date())} (Europe/Copenhagen).\n\n`;
+    const userMessage = `${dateBlock}${existingBlock}Nyt uddrag:\n${payload.text}`;
 
     const result = await completeJson<{ candidate: Candidate | null }>({
       system: EXTRACTOR_SYSTEM,
