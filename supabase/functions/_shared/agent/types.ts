@@ -30,6 +30,7 @@ export type ActionType =
   | 'mail.send_reply'
   | 'mail.send_new'
   | 'mail.get_body'
+  | 'mail.search'
   | 'cal.list_events'
   | 'drive.search'
   | 'cal.rsvp'
@@ -77,6 +78,7 @@ export const DEFAULT_POLICY: Record<ActionType, PolicyMode> = {
   'mail.send_reply': 'propose',
   'mail.send_new': 'propose',
   'mail.get_body': 'auto',
+  'mail.search': 'auto',
   'cal.list_events': 'auto',
   'drive.search': 'auto',
   'cal.rsvp': 'propose',
@@ -105,6 +107,7 @@ export const ACTION_DEFAULT_MODE: Record<ActionType, ActionMode> = {
   'mail.send_reply': 'propose',
   'mail.send_new': 'propose',
   'mail.get_body': 'auto',
+  'mail.search': 'auto',
   'cal.list_events': 'auto',
   'drive.search': 'auto',
   'cal.rsvp': 'propose',

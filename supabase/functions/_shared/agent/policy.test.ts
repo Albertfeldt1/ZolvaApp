@@ -54,3 +54,10 @@ Deno.test('resolvePolicy: empty promotions + no row falls back to DEFAULT_POLICY
     'propose',
   );
 });
+
+import { DEFAULT_POLICY, ACTION_DEFAULT_MODE } from './types.ts';
+
+Deno.test('mail.search defaults to auto in both policy maps', () => {
+  assertEquals(DEFAULT_POLICY['mail.search'], 'auto');
+  assertEquals(ACTION_DEFAULT_MODE['mail.search'], 'auto');
+});
