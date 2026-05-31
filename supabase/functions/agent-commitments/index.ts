@@ -12,6 +12,7 @@ import { runCommitmentScan } from '../_shared/agent/runner.ts';
 import {
   buildDeps,
   listSentCandidates,
+  listStaleSentThreads,
   selectOpenCommitments,
   updateCommitment,
   markScanned,
@@ -78,7 +79,13 @@ serve(async (req) => {
       let scanned = false;
       const stale = !scannedAt || (now.getTime() - new Date(scannedAt).getTime() > SCAN_STALE_MS);
       if (stale) {
-        const candidates = await listSentCandidates(client, uid);
+        // Two candidate streams, one scan: recent sent mail (→ you_owe promises)
+        // and stale threads the user spoke last in (→ owed_to_you, waiting).
+        const [recent, staleSent] = await Promise.all([
+          listSentCandidates(client, uid),
+          listStaleSentThreads(client, uid),
+        ]);
+        const candidates = [...recent, ...staleSent];
         if (candidates.length > 0) {
           await runCommitmentScan({ userId: uid, candidates, deps });
           scanned = true;

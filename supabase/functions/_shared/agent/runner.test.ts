@@ -1396,7 +1396,7 @@ Deno.test('runCommitmentScan records each commitment_record tool call', async ()
 
   const res = await runCommitmentScan({
     userId: 'u1',
-    candidates: [{ thread_id: 't1', provider: 'google', counterparty: 'Allan', subject: 'Q3', latest_text: 'jeg sender decket på fredag', latest_from: 'user', latest_at: '2026-06-01T10:00:00Z' }],
+    candidates: [{ thread_id: 't1', provider: 'google', counterparty: 'Allan', subject: 'Q3', latest_text: 'jeg sender decket på fredag', latest_from: 'user', latest_at: '2026-06-01T10:00:00Z', kind: 'sent_recent' }],
     deps,
   });
 
