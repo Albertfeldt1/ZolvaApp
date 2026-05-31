@@ -711,6 +711,7 @@ export async function runCommitmentScan(input: CommitmentScanInput): Promise<Run
             ...exec.recordPayload,
             due_at: dueAt,
             due_inferred: inferred,
+            last_message_at: anchor,
           });
           toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: outcome });
         } catch (e) {

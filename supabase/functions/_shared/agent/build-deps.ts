@@ -313,6 +313,7 @@ export function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
           thread_id: c.thread_id,
           provider: c.provider,
           source_excerpt: c.source_excerpt ?? '',
+          last_message_at: c.last_message_at ?? null,
         }, { onConflict: 'user_id,thread_id,direction', ignoreDuplicates: false });
       if (error) throw error;
       return 'inserted';

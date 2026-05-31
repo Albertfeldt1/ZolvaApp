@@ -1405,4 +1405,5 @@ Deno.test('runCommitmentScan records each commitment_record tool call', async ()
   assertEquals(recorded[0].thread_id, 't1');
   assertEquals(recorded[0].due_inferred, true);
   assertEquals(recorded[0].due_at, '2026-06-03T10:00:00.000Z');
+  assertEquals(recorded[0].last_message_at, '2026-06-01T10:00:00Z');
 });
