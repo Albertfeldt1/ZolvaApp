@@ -106,6 +106,70 @@ export async function searchFiles(query: string, limit = 10): Promise<DriveFile[
   });
 }
 
+// Return a Google access token guaranteed to work for Drive right now. The
+// Google Picker has no refresh path of its own, so we ping /about through
+// tryWithRefresh first - that forces a token refresh if the cached one has
+// aged out - and hand the Picker a token we just proved valid.
+export async function getValidatedGoogleToken(): Promise<string> {
+  return tryWithRefresh('google', async (accessToken) => {
+    const res = await fetchWithTimeout('google', `${BASE}/about?fields=user`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (res.status === 401 || res.status === 403) {
+      throw new ProviderAuthError('google', `Google Drive afvist (${res.status}).`);
+    }
+    if (!res.ok) {
+      throw new Error(`Google Drive about failed: ${res.status} ${await res.text()}`);
+    }
+    return accessToken;
+  });
+}
+
+// List the files Zolva has been granted access to. Under `drive.file` a
+// query-less files.list returns exactly the per-file grants (files the user
+// created with Zolva or picked via the Google Picker) - so this doubles as
+// "which files can Zolva see?" for the Settings management list. No local
+// persistence of picked IDs needed; Drive is the source of truth.
+export async function listAccessibleFiles(limit = 100): Promise<DriveFile[]> {
+  return tryWithRefresh('google', async (accessToken) => {
+    const params = new URLSearchParams({
+      q: 'trashed = false',
+      fields: SEARCH_FIELDS,
+      pageSize: String(Math.max(1, Math.min(limit, 100))),
+      orderBy: 'modifiedTime desc',
+    });
+    const res = await fetchWithTimeout('google', `${BASE}/files?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (res.status === 401 || res.status === 403) {
+      throw new ProviderAuthError('google', `Google Drive afvist (${res.status}).`);
+    }
+    if (!res.ok) {
+      throw new Error(`Google Drive list failed: ${res.status} ${await res.text()}`);
+    }
+    const json = (await res.json()) as {
+      files?: Array<{
+        id: string;
+        name: string;
+        mimeType: string;
+        modifiedTime: string;
+        webViewLink?: string;
+        owners?: Array<{ emailAddress?: string }>;
+        size?: string;
+      }>;
+    };
+    return (json.files ?? []).map((f) => ({
+      id: f.id,
+      name: f.name,
+      mimeType: f.mimeType,
+      modifiedTime: new Date(f.modifiedTime),
+      webViewLink: f.webViewLink ?? '',
+      ownerEmail: f.owners?.[0]?.emailAddress,
+      sizeBytes: f.size ? Number(f.size) : undefined,
+    }));
+  });
+}
+
 // List the direct children of a folder named by the caller. Two-step:
 // resolve the folder by name, then list `'<folderId>' in parents`. Returns
 // the folder's display name + matched files so the chat tool can show

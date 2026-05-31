@@ -445,18 +445,25 @@ export async function readMailBody(
 // Other MIME types are refused at read time so the model gets a clear
 // "can't extract" rather than a binary blob.
 
+// Drive tool returns carry an optional `suggestPicker`: under the drive.file
+// scope an empty result usually means the file exists but hasn't been granted
+// to Zolva, so the chat surfaces a "Vælg Drive-filer" chip to open the Picker.
 export async function searchDriveFilesTool(
   ctx: ChatCtx,
   query: string,
   limit: number,
-): Promise<{ text: string; isError: boolean }> {
+): Promise<{ text: string; isError: boolean; suggestPicker?: boolean }> {
   if (!ctx.googleDrive) return { text: 'Google Drive ikke forbundet.', isError: true };
   const trimmed = query.trim();
   if (!trimmed) return { text: 'Tom søgning. Angiv mindst ét søgeord.', isError: true };
   try {
     const hits = await searchDriveFiles(trimmed, limit);
     if (hits.length === 0) {
-      return { text: `Ingen filer matcher "${trimmed}" i Drive.`, isError: false };
+      return {
+        text: `Ingen filer matcher "${trimmed}" i Drive.`,
+        isError: false,
+        suggestPicker: true,
+      };
     }
     const lines = hits.map((f) => formatDriveHit(f));
     const header = `${hits.length} fil(er) matcher "${trimmed}":`;
@@ -470,14 +477,18 @@ export async function listDriveFolderTool(
   ctx: ChatCtx,
   folder: string,
   limit: number,
-): Promise<{ text: string; isError: boolean }> {
+): Promise<{ text: string; isError: boolean; suggestPicker?: boolean }> {
   if (!ctx.googleDrive) return { text: 'Google Drive ikke forbundet.', isError: true };
   const trimmed = folder.trim();
   if (!trimmed) return { text: 'Mangler mappe-navn.', isError: true };
   try {
     const r = await listDriveFolderContents(trimmed, limit);
     if (!r) {
-      return { text: `Fandt ingen mappe der matcher "${trimmed}" i Drive.`, isError: false };
+      return {
+        text: `Fandt ingen mappe der matcher "${trimmed}" i Drive.`,
+        isError: false,
+        suggestPicker: true,
+      };
     }
     if (r.files.length === 0) {
       return { text: `Mappen "${r.folderName}" er tom.`, isError: false };

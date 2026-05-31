@@ -4492,7 +4492,7 @@ async function runChatTool(
   name: string,
   input: Record<string, unknown>,
   ctx: ChatCtx,
-): Promise<{ content: string; isError: boolean }> {
+): Promise<{ content: string; isError: boolean; suggestPicker?: boolean }> {
   try {
     if (name === 'list_calendars') {
       const r = await listCalendarsAcrossProviders(ctx);
@@ -4551,14 +4551,14 @@ async function runChatTool(
       const rawLimit = typeof input.limit === 'number' ? input.limit : 10;
       const limit = Math.max(1, Math.min(Math.floor(rawLimit), 25));
       const r = await searchDriveFilesTool(ctx, query, limit);
-      return { content: r.text, isError: r.isError };
+      return { content: r.text, isError: r.isError, suggestPicker: r.suggestPicker };
     }
     if (name === 'list_drive_folder') {
       const folder = typeof input.folder === 'string' ? input.folder : '';
       const rawLimit = typeof input.limit === 'number' ? input.limit : 25;
       const limit = Math.max(1, Math.min(Math.floor(rawLimit), 50));
       const r = await listDriveFolderTool(ctx, folder, limit);
-      return { content: r.text, isError: r.isError };
+      return { content: r.text, isError: r.isError, suggestPicker: r.suggestPicker };
     }
     if (name === 'create_draft' || name === 'send_mail') {
       const r = await runMailComposeTool(name, input, ctx);
@@ -4971,6 +4971,11 @@ export function useChat() {
       // (this) closes that row out via chat-finalize so the push fires
       // and the foreground reconciler treats it as resolved.
       type TurnResult = { text: string; finalizeJobId: string | null };
+      // Set when any Drive tool comes back empty this turn (file not yet
+      // granted under drive.file). Read after runTurn resolves to attach a
+      // "Vælg Drive-filer" chip to the assistant message. Closure-scoped so
+      // it survives the multiple return points inside runTurn.
+      let drivePickerSuggested = false;
       const runTurn = async (): Promise<TurnResult> => {
         let pendingFinalizeJobId: string | null = null;
         const hasGoogle = !!googleAccessToken;
@@ -5154,6 +5159,7 @@ export function useChat() {
             const toolResults = await Promise.all(
               result.toolUses.map(async (t) => {
                 const r = await runChatTool(t.name, t.input, toolCtx);
+                if (r.suggestPicker) drivePickerSuggested = true;
                 return {
                   type: 'tool_result' as const,
                   tool_use_id: t.id,
@@ -5262,6 +5268,9 @@ export function useChat() {
             from: 'zolva',
             text: answer.length > 0 ? answer : CHAT_ERROR_TEXT,
             createdAt: new Date().toISOString(),
+            ...(drivePickerSuggested
+              ? { action: { kind: 'pick_drive_files' as const, label: 'Vælg Drive-filer' } }
+              : {}),
           };
           setMessages((cur) => [...cur, assistantMsg]);
           if (userId) {

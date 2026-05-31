@@ -122,6 +122,9 @@ import {
 } from '../lib/push';
 import { DeleteAccountScreen } from './DeleteAccountScreen';
 import { IcloudBriefSheet } from '../components/IcloudBriefSheet';
+import { DrivePickerModal } from '../components/DrivePickerModal';
+import { DriveFilesSection } from '../components/DriveFilesSection';
+import { ingestPickedDriveFiles } from '../lib/onboarding-backfill';
 import { ZolvaHandlingerSection } from '../components/ZolvaHandlingerSection';
 import { AgentActionPolicySection } from '../components/AgentActionPolicySection';
 import { TrustPromotionsSection } from '../components/TrustPromotionsSection';
@@ -1423,6 +1426,11 @@ export function SettingsScreen({
 
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  // Drive Picker overlay lives at the screen root (so it covers the full
+  // viewport); the Drive row just triggers it. driveRefreshKey bumps after a
+  // pick so the granted-files list refetches.
+  const [drivePickerVisible, setDrivePickerVisible] = useState(false);
+  const [driveRefreshKey, setDriveRefreshKey] = useState(0);
   const notificationSettings = useNotificationSettings();
   const permission = useNotificationPermission();
 
@@ -1850,8 +1858,8 @@ export function SettingsScreen({
                     : 'Adgangskoden er afvist af Apple. Slå til igen for at indtaste en ny.';
 
                   return (
+                    <React.Fragment key={c.id}>
                     <View
-                      key={c.id}
                       style={[
                         {
                           flexDirection: 'row',
@@ -1919,6 +1927,13 @@ export function SettingsScreen({
                         />
                       )}
                     </View>
+                    {c.id === 'google-drive' && isConnected && (
+                      <DriveFilesSection
+                        onOpenPicker={() => setDrivePickerVisible(true)}
+                        refreshKey={driveRefreshKey}
+                      />
+                    )}
+                    </React.Fragment>
                   );
                 })}
                 {/* Full-revoke escape hatches. Toggling individual switches
@@ -2227,6 +2242,19 @@ export function SettingsScreen({
           visible={briefSheetOpen}
           onClose={() => setBriefSheetOpen(false)}
           onConnectGmail={() => handleConnect('gmail')}
+        />
+
+        <DrivePickerModal
+          visible={drivePickerVisible}
+          onClose={() => setDrivePickerVisible(false)}
+          onPicked={(files) => {
+            if (files.length > 0) {
+              // Re-run the drive-only backfill so picked docs become facts,
+              // and refetch the granted-files list to show them immediately.
+              void ingestPickedDriveFiles();
+              setDriveRefreshKey((k) => k + 1);
+            }
+          }}
         />
       </View>
     </KeyboardAvoidingView>

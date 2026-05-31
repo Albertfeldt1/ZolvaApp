@@ -1,6 +1,6 @@
 # Google Drive file Picker — design
 
-**Status:** design approved 2026-05-31. Build paused pending a concurrent `agent-reflect` session to land (intermingled uncommitted edits in the shared working tree); build is also gated on a de-risking spike.
+**Status:** BUILT 2026-05-31 (uncommitted). Edge fn deployed + smoke-tested; both entry points wired; typechecks clean; 248 tests pass. Google Cloud setup done. Only remaining gate: the device spike (§7) — confirm the Picker renders + browses the full Drive inside the WebView. If it fails there, swap `DrivePickerModal`'s transport to `expo-web-browser` (the edge-fn HTML is reusable).
 
 **Scope:** Make the `drive.file` OAuth scope usable. On 2026-05-31 Drive was switched `drive.readonly` → `drive.file` to win fast Google verification (no restricted-scope CASA review for Drive). Under `drive.file` the app only sees files the user created with Zolva or explicitly granted via the Google Picker — so mailbox-wide search returns ~nothing until a Picker exists. This spec adds that Picker plus the wiring that makes picked files searchable, readable, and ingestible.
 

@@ -25,13 +25,27 @@ type StatusResponse = { jobs: Array<{
   started_at: string | null; finished_at: string | null; error: string | null;
 }> };
 
-export async function startBackfill(opts: { force?: boolean } = {}): Promise<StartResponse> {
+export async function startBackfill(
+  opts: { force?: boolean; kinds?: Array<BackfillJob['kind']> } = {},
+): Promise<StartResponse> {
+  const body: { force?: boolean; kinds?: Array<BackfillJob['kind']> } = {};
+  if (opts.force) body.force = true;
+  if (opts.kinds && opts.kinds.length > 0) body.kinds = opts.kinds;
   const { data, error } = await supabase.functions.invoke<StartResponse>(
     'onboarding-backfill-start',
-    { body: opts.force ? { force: true } : {} },
+    { body },
   );
   if (error) throw new Error(error.message);
   return data ?? { job_ids: [] };
+}
+
+// Ingest files just picked via the Google Picker. Under `drive.file` the
+// server backfill's files.list now returns the freshly-granted files; a
+// force drive-only re-run extracts facts from them. insertPendingFacts
+// dedups, so repeated picks never duplicate facts. Mail/calendar facts are
+// untouched (only the drive job runs).
+export async function ingestPickedDriveFiles(): Promise<StartResponse> {
+  return startBackfill({ force: true, kinds: ['drive'] });
 }
 
 // ─── Re-run trigger ──────────────────────────────────────────────────────

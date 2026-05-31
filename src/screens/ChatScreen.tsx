@@ -23,8 +23,10 @@ import { Icon as DesignIcon } from '../design/primitives/Icon';
 import { liquidGlassReady } from '../lib/liquid-glass';
 import { Stone } from '../design/primitives/Stone';
 import { useTheme } from '../design/useTheme';
+import { DrivePickerModal } from '../components/DrivePickerModal';
 import { formatClock, formatToday } from '../lib/date';
 import { useChat, useChatSuggestions } from '../lib/hooks';
+import { ingestPickedDriveFiles } from '../lib/onboarding-backfill';
 import type { ChatMessage } from '../lib/types';
 
 // Vertical space the floating chips + input dock occupy at rest. Used
@@ -78,6 +80,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
   };
   const { data: suggestions } = useChatSuggestions();
   const [input, setInput] = useState(initialDraft ?? '');
+  const [drivePickerVisible, setDrivePickerVisible] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   // Auto-send the seeded draft once on mount when callers (e.g. observation
@@ -259,7 +262,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
           )}
 
           {messages.map((m) => (
-            <Bubble key={m.id} msg={m} t={t} type={type} fonts={fonts} radius={radius} spacing={spacing} surface={surface} />
+            <Bubble key={m.id} msg={m} t={t} type={type} fonts={fonts} radius={radius} spacing={spacing} surface={surface} onPickDrive={() => setDrivePickerVisible(true)} />
           ))}
 
           {typing && <TypingIndicator t={t} spacing={spacing} radius={radius} />}
@@ -372,6 +375,16 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
         </View>
         </View>
       </KeyboardAvoidingView>
+
+      <DrivePickerModal
+        visible={drivePickerVisible}
+        onClose={() => setDrivePickerVisible(false)}
+        onPicked={(files) => {
+          // Ingest picked docs as facts; the user can re-ask now that the
+          // files are granted (drive_search will find them next turn).
+          if (files.length > 0) void ingestPickedDriveFiles();
+        }}
+      />
     </View>
   );
 }
@@ -539,7 +552,16 @@ type ThemeSlice = {
 
 // ─── Bubble ────────────────────────────────────────────────────────────────
 
-function Bubble({ msg, t, type, fonts, radius, spacing }: { msg: ChatMessage } & ThemeSlice) {
+function Bubble({
+  msg,
+  t,
+  type,
+  fonts,
+  radius,
+  spacing,
+  surface,
+  onPickDrive,
+}: { msg: ChatMessage; onPickDrive?: () => void } & ThemeSlice) {
   const isZ = msg.from === 'zolva';
   if (isZ) {
     return (
@@ -556,6 +578,26 @@ function Bubble({ msg, t, type, fonts, radius, spacing }: { msg: ChatMessage } &
           <Text style={{ ...type.body, color: t.ink }}>
             {renderInlineMd(msg.text, fonts.uiBold)}
           </Text>
+          {msg.action?.kind === 'pick_drive_files' && (
+            <Pressable
+              onPress={onPickDrive}
+              accessibilityRole="button"
+              accessibilityLabel={msg.action.label}
+              style={({ pressed }) => ({
+                alignSelf: 'flex-start',
+                marginTop: spacing.sm,
+                paddingVertical: spacing.xs,
+                paddingHorizontal: spacing.md,
+                borderRadius: radius.pill,
+                backgroundColor: surface.glassWeak,
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <Text style={{ fontFamily: fonts.uiBold, fontSize: 13, color: t.ink }}>
+                {msg.action.label}
+              </Text>
+            </Pressable>
+          )}
         </GlassFrostedCard>
       </View>
     );

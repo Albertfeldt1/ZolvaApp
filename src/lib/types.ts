@@ -125,6 +125,12 @@ export type CalendarSlot = {
   } | null;
 };
 
+// An optional actionable affordance the chat renders below an assistant
+// message. `pick_drive_files` opens the Google Drive Picker - surfaced when a
+// Drive tool came back empty under the `drive.file` scope (the file the user
+// asked about hasn't been granted to Zolva yet).
+export type ChatMessageAction = { kind: 'pick_drive_files'; label: string };
+
 export type ChatMessage = {
   id: string;
   from: 'zolva' | 'user';
@@ -134,6 +140,9 @@ export type ChatMessage = {
   // model interprets phrases like "i dag kl 17:30" relative to the current
   // turn, not when the message was originally written.
   createdAt?: string;
+  // Transient UI affordance (e.g. a "Vælg Drive-filer" chip). Not persisted
+  // to chat_messages - it's recomputed per turn, never part of AI memory.
+  action?: ChatMessageAction;
 };
 
 export type IntegrationKey =
