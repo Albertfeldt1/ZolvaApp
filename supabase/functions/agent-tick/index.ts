@@ -26,7 +26,7 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!;
 
-async function loadGmailAccessToken(client: SupabaseClient, userId: string): Promise<string> {
+export async function loadGmailAccessToken(client: SupabaseClient, userId: string): Promise<string> {
   const refreshToken = await loadRefreshToken(client, userId, 'google');
   if (!refreshToken) throw new Error('no google refresh token for user');
   const { accessToken } = await refreshAccessToken(client, userId, 'google', refreshToken);
@@ -65,7 +65,7 @@ async function loadThreadBriefs(
   return briefs;
 }
 
-async function loadOutlookAccessToken(
+export async function loadOutlookAccessToken(
   client: SupabaseClient,
   userId: string,
 ): Promise<string | null> {
@@ -90,7 +90,7 @@ async function loadPushTokens(
   return (data ?? []).map((r: { token: string }) => r.token);
 }
 
-function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
+export function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
   // accessToken is loaded lazily once per run when first needed.
   let cachedAccessToken: string | null = null;
   let cachedOutlookToken: string | null | undefined = undefined;
