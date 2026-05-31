@@ -23,15 +23,23 @@ const PICKER_ORIGIN = (() => {
     return '';
   }
 })();
+const PICKER_HOST = (() => {
+  try {
+    return new URL(PICKER_URL).hostname;
+  } catch {
+    return '';
+  }
+})();
 
 // The WebView carries a live Google OAuth token (injected into the main frame
 // only — see injectedJavaScriptBeforeContentLoadedForMainFrameOnly). To keep
 // that token from ever reaching an untrusted page, we lock navigation down to
-// our own picker origin plus the Google domains the Picker itself loads, and
-// reject anything else. https-only check; the Picker's own about:/data:/blob:
-// frames pass through.
+// our own picker origin (derived from EXPO_PUBLIC_SUPABASE_URL — may be a
+// custom domain like auth.zolva.io, NOT necessarily *.supabase.co) plus the
+// Google domains the Picker itself loads, and reject anything else. https-only
+// check; the Picker's own about:/data:/blob: frames pass through.
 const ALLOWED_ORIGIN_PATTERNS = [
-  'https://*.supabase.co',
+  PICKER_ORIGIN,
   'https://*.google.com',
   'https://*.gstatic.com',
   'https://*.googleapis.com',
@@ -41,7 +49,7 @@ function isAllowedHost(u: string): boolean {
   try {
     const h = new URL(u).hostname;
     return (
-      h.endsWith('.supabase.co') ||
+      h === PICKER_HOST ||
       h === 'google.com' ||
       h.endsWith('.google.com') ||
       h.endsWith('.googleapis.com') ||
