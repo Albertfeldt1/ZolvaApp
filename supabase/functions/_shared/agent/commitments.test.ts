@@ -67,3 +67,36 @@ Deno.test('selectDue ignores non-open rows', () => {
   const r = row({ status: 'resolved', due_at: '2026-06-03T20:00:00Z' });
   assertEquals(selectDue([r], now), []);
 });
+
+import { applyReconcile } from './commitments.ts';
+
+Deno.test('applyReconcile expires a you_owe past due_at + 7d with no movement', () => {
+  const now = new Date('2026-06-15T09:00:00Z');
+  const r = row({ direction: 'you_owe', due_at: '2026-06-03T09:00:00Z' });
+  assertEquals(applyReconcile(r, { lastMessageAt: null, lastDirection: null }, now),
+    { status: 'expired' });
+});
+
+Deno.test('applyReconcile resolves a you_owe when the user sent a newer message', () => {
+  const now = new Date('2026-06-04T09:00:00Z');
+  const r = row({ direction: 'you_owe', created_at: '2026-06-01T08:00:00Z', due_at: '2026-06-05T09:00:00Z' });
+  assertEquals(
+    applyReconcile(r, { lastMessageAt: '2026-06-03T12:00:00Z', lastDirection: 'outbound' }, now),
+    { status: 'resolved', resolved_at: now.toISOString() },
+  );
+});
+
+Deno.test('applyReconcile resolves an owed_to_you when an inbound reply arrives', () => {
+  const now = new Date('2026-06-04T09:00:00Z');
+  const r = row({ direction: 'owed_to_you', last_message_at: '2026-06-01T09:00:00Z' });
+  assertEquals(
+    applyReconcile(r, { lastMessageAt: '2026-06-03T10:00:00Z', lastDirection: 'inbound' }, now),
+    { status: 'resolved', resolved_at: now.toISOString() },
+  );
+});
+
+Deno.test('applyReconcile returns null when nothing changed', () => {
+  const now = new Date('2026-06-04T09:00:00Z');
+  const r = row({ direction: 'you_owe', created_at: '2026-06-01T08:00:00Z', due_at: '2026-06-10T09:00:00Z' });
+  assertEquals(applyReconcile(r, { lastMessageAt: null, lastDirection: null }, now), null);
+});

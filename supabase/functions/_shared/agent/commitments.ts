@@ -88,3 +88,44 @@ export function selectDue(rows: CommitmentRow[], now: Date): CommitmentRow[] {
     return !Number.isNaN(last) && last <= nowMs - SILENCE_MS;
   });
 }
+
+const EXPIRE_GRACE_MS = 7 * DAY_MS;
+
+export interface ThreadState {
+  // Newest message timestamp in the source thread (null when not fetched).
+  lastMessageAt: string | null;
+  // Who sent that newest message relative to the user.
+  lastDirection: 'inbound' | 'outbound' | null;
+}
+
+// Decide the next status for an open commitment given current thread state.
+// Returns the fields to update, or null when nothing changes. Order matters:
+// resolution (the loop is closed) wins over expiry (the loop went stale).
+export function applyReconcile(
+  row: CommitmentRow,
+  thread: ThreadState,
+  now: Date,
+): { status: 'resolved'; resolved_at: string } | { status: 'expired' } | null {
+  if (row.status !== 'open') return null;
+  const nowIso = now.toISOString();
+
+  if (thread.lastMessageAt && thread.lastDirection) {
+    const last = new Date(thread.lastMessageAt).getTime();
+    if (row.direction === 'owed_to_you' && thread.lastDirection === 'inbound') {
+      const prev = row.last_message_at ? new Date(row.last_message_at).getTime() : 0;
+      if (last > prev) return { status: 'resolved', resolved_at: nowIso };
+    }
+    if (row.direction === 'you_owe' && thread.lastDirection === 'outbound') {
+      const created = new Date(row.created_at).getTime();
+      if (last > created) return { status: 'resolved', resolved_at: nowIso };
+    }
+  }
+
+  if (row.due_at) {
+    const due = new Date(row.due_at).getTime();
+    if (!Number.isNaN(due) && now.getTime() > due + EXPIRE_GRACE_MS) {
+      return { status: 'expired' };
+    }
+  }
+  return null;
+}
