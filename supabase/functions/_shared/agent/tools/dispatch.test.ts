@@ -742,3 +742,17 @@ Deno.test('executeTool: nudge.push throws when title missing', async () => {
     'title',
   );
 });
+
+Deno.test('executeTool: mail.search (google) returns hits as context, no agent_actions semantics', async () => {
+  const ctx = makeCtx({
+    fetch: async (url: string) => {
+      if (url.includes('/messages?')) return new Response(JSON.stringify({ messages: [{ id: 'm1', threadId: 't1' }] }), { status: 200 });
+      return new Response(JSON.stringify({ threadId: 't1', snippet: 's', payload: { headers: [{ name: 'From', value: 'A <a@x>' }, { name: 'Subject', value: 'Sub' }, { name: 'Date', value: 'd' }] } }), { status: 200 });
+    },
+  });
+  const result = await executeTool('mail.search', { provider: 'google', query: 'a@x' }, ctx);
+  assertEquals(result.mode, 'executed');
+  assertEquals(result.reversible, false);
+  assertEquals(Array.isArray((result.recordPayload as { hits: unknown[] }).hits), true);
+  assertEquals(((result.recordPayload as { hits: Array<{ thread_id: string }> }).hits)[0].thread_id, 't1');
+});

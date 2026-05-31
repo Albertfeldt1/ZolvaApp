@@ -38,6 +38,7 @@ import {
   type GraphEventRestoreToken,
 } from './calendar-write.ts';
 import { driveSearchFiles } from './drive.ts';
+import { gmailSearch, outlookSearch } from './mail-search.ts';
 
 export interface ExecuteContext {
   fetch: GmailFetch & OutlookFetch;
@@ -315,6 +316,17 @@ export async function executeTool(
         recordPayload: { provider, start_iso: startIso, end_iso: endIso, events },
       };
     }
+    case 'mail.search': {
+      const query = mustString(payload, 'query');
+      const limit = typeof payload.limit === 'number' ? payload.limit : 10;
+      const hits = provider === 'google'
+        ? await gmailSearch({ fetch: ctx.fetch, accessToken: ctx.gmail.accessToken, query, limit })
+        : await (async () => {
+            if (!ctx.outlook) throw new Error('outlook mail.search requested but outlook context missing');
+            return outlookSearch({ fetch: ctx.fetch, accessToken: ctx.outlook.accessToken, query, limit });
+          })();
+      return { mode: 'executed', reversible: false, reverseToken: null, recordPayload: { provider, query, hits } };
+    }
     case 'drive.search': {
       // Google-only for Phase 4a. OneDrive search is Phase 4b.
       if (provider !== 'google') {
@@ -324,7 +336,7 @@ export async function executeTool(
       const limit = typeof payload.limit === 'number' ? payload.limit : 10;
       const files = await driveSearchFiles({
         fetch: ctx.fetch,
-        // Same Google access token covers drive.readonly via the OAuth grant
+        // Same Google access token covers drive.file via the OAuth grant
         // (src/lib/auth.ts).
         accessToken: ctx.gmail.accessToken,
         query,
