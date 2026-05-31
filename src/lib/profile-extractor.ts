@@ -181,9 +181,10 @@ async function runNow(payload: ExtractionPayload): Promise<void> {
     // can detect paraphrase duplicates ("du foretrækker iCloud" vs "du
     // sender helst via iCloud") and contradictions. Capped to keep token
     // costs predictable; most-recent-first under listFacts's order.
-    const [pending, confirmed] = await Promise.all([
+    const [pending, confirmed, rejected] = await Promise.all([
       listFacts(payload.userId, 'pending').catch(() => []),
       listFacts(payload.userId, 'confirmed').catch(() => []),
+      listFacts(payload.userId, 'rejected').catch(() => []),
     ]);
     const existingTexts = [...pending, ...confirmed]
       .map((f) => f.text.trim())
@@ -195,7 +196,22 @@ async function runNow(payload: ExtractionPayload): Promise<void> {
     // The date lives in the per-call user message (not the cached system block)
     // because it changes daily; the system prompt stays static and cacheable.
     const dateBlock = `Dags dato: ${todayInCopenhagen(new Date())} (Europe/Copenhagen).\n\n`;
-    const userMessage = `${dateBlock}${existingBlock}Nyt uddrag:\n${payload.text}`;
+    // Facts the user explicitly rejected and are still inside their 14-day
+    // suppression window. Without this the model never learns "Nej" happened,
+    // so it re-proposes a rejected fact the moment it's mentioned in slightly
+    // different words - the DB dedup only catches verbatim normalized matches,
+    // so any rephrase slips through and the fact pops back up. Feeding them to
+    // the model lets its paraphrase matching suppress the reword too.
+    const now = Date.now();
+    const rejectedTexts = rejected
+      .filter((f) => f.rejectionTtl != null && f.rejectionTtl.getTime() > now)
+      .map((f) => f.text.trim())
+      .filter(Boolean)
+      .slice(0, 30);
+    const rejectedBlock = rejectedTexts.length > 0
+      ? `Fakta brugeren ALLEREDE har afvist - foreslå dem ALDRIG igen. Returnér candidate: null hvis det nye uddrag svarer til eller er en omformulering af noget herfra:\n${rejectedTexts.map((t) => `- ${t}`).join('\n')}\n\n`
+      : '';
+    const userMessage = `${dateBlock}${existingBlock}${rejectedBlock}Nyt uddrag:\n${payload.text}`;
 
     const result = await completeJson<{ candidate: Candidate | null }>({
       system: EXTRACTOR_SYSTEM,
