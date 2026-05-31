@@ -66,7 +66,8 @@ export function copenhagenDay(d: Date): string {
   }).format(d);
 }
 
-const DUE_LEAD_MS = 24 * 60 * 60 * 1000;   // you_owe: nudge within 24h of due
+const DUE_LEAD_MS = 12 * 60 * 60 * 1000;   // you_owe: nudge within 12h of due (deadline-proximate)
+const MIN_AGE_MS = 4 * 60 * 60 * 1000;     // you_owe: never nudge a promise younger than this
 const SILENCE_MS = 3 * DAY_MS;             // owed_to_you: 3 days of silence
 
 export function selectDue(rows: CommitmentRow[], now: Date): CommitmentRow[] {
@@ -76,6 +77,15 @@ export function selectDue(rows: CommitmentRow[], now: Date): CommitmentRow[] {
     if (r.status !== 'open') return false;
     if (r.direction === 'you_owe') {
       if (!r.due_at) return false;
+      // Min-age floor: don't nudge a promise the user just made — a reminder is
+      // useless seconds after you said "I'll send it". Combined with the 12h
+      // lead and the quiet-hours gate, a daytime deadline first nudges the
+      // morning of (overnight-eligible nudges are held to the 07:00 sweep), and
+      // a vague/inferred deadline (sits at send-time +2d) won't fire until the
+      // promise has aged ~1.5 days. True "already handled it?" suppression is
+      // the thread-reconciliation path (Slice 3), not this.
+      const created = new Date(r.created_at).getTime();
+      if (Number.isNaN(created) || created > nowMs - MIN_AGE_MS) return false;
       const due = new Date(r.due_at).getTime();
       if (Number.isNaN(due) || due > nowMs + DUE_LEAD_MS) return false;
       // Once per day until resolved.

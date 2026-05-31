@@ -32,7 +32,7 @@ Deno.test('resolveDue with no explicit date and no anchor yields null', () => {
   assertEquals(r, { dueAt: null, inferred: false });
 });
 
-Deno.test('selectDue picks a you_owe due within 24h not yet nudged today', () => {
+Deno.test('selectDue picks an aged you_owe due within the lead window, not yet nudged today', () => {
   const now = new Date('2026-06-03T09:00:00Z');
   const r = row({ direction: 'you_owe', due_at: '2026-06-03T20:00:00Z' });
   assertEquals(selectDue([r], now).map((c) => c.id), ['c1']);
@@ -118,12 +118,43 @@ Deno.test('buildCommitmentNudge clamps body to 140 chars', () => {
   assertEquals(n.body.length <= 140, true);
 });
 
-Deno.test('selectDue you_owe boundary: due exactly now+24h included, +1ms excluded', () => {
+Deno.test('selectDue you_owe boundary: due exactly now+12h included, +1ms excluded', () => {
   const now = new Date('2026-06-03T09:00:00Z');
-  const at = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
-  const past = new Date(now.getTime() + 24 * 60 * 60 * 1000 + 1).toISOString();
+  const at = new Date(now.getTime() + 12 * 60 * 60 * 1000).toISOString();
+  const past = new Date(now.getTime() + 12 * 60 * 60 * 1000 + 1).toISOString();
   assertEquals(selectDue([row({ direction: 'you_owe', due_at: at })], now).length, 1);
   assertEquals(selectDue([row({ direction: 'you_owe', due_at: past })], now).length, 0);
+});
+
+Deno.test('selectDue does NOT nudge a fresh you_owe even when due is near (min-age floor)', () => {
+  const now = new Date('2026-06-03T09:00:00Z');
+  // Promise made 1h ago, due in 3h — deadline is near, but you just said it.
+  const r = row({
+    direction: 'you_owe',
+    created_at: new Date(now.getTime() - 1 * 60 * 60 * 1000).toISOString(),
+    due_at: new Date(now.getTime() + 3 * 60 * 60 * 1000).toISOString(),
+  });
+  assertEquals(selectDue([r], now), []);
+});
+
+Deno.test('selectDue nudges an aged you_owe with a near deadline', () => {
+  const now = new Date('2026-06-03T09:00:00Z');
+  // Promise made 5h ago (past the 4h floor), due in 3h.
+  const r = row({
+    direction: 'you_owe',
+    created_at: new Date(now.getTime() - 5 * 60 * 60 * 1000).toISOString(),
+    due_at: new Date(now.getTime() + 3 * 60 * 60 * 1000).toISOString(),
+  });
+  assertEquals(selectDue([r], now).map((c) => c.id), ['c1']);
+});
+
+Deno.test('selectDue you_owe min-age boundary: created exactly 4h ago included, just under excluded', () => {
+  const now = new Date('2026-06-03T09:00:00Z');
+  const dueSoon = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString();
+  const aged = new Date(now.getTime() - 4 * 60 * 60 * 1000).toISOString();        // exactly 4h old → included
+  const tooFresh = new Date(now.getTime() - 4 * 60 * 60 * 1000 + 1).toISOString(); // 4h minus 1ms → excluded
+  assertEquals(selectDue([row({ direction: 'you_owe', created_at: aged, due_at: dueSoon })], now).length, 1);
+  assertEquals(selectDue([row({ direction: 'you_owe', created_at: tooFresh, due_at: dueSoon })], now).length, 0);
 });
 
 Deno.test('selectDue owed_to_you boundary: silent exactly 3d included, under 3d excluded', () => {
