@@ -296,6 +296,27 @@ export function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
       }
       return { sent: true };
     },
+    async recordCommitment(uid, _runId, c) {
+      // Upsert on the (user_id, thread_id, direction) unique key. onConflict
+      // refreshes the mutable fields so a re-scan updates rather than dupes,
+      // but never touches `status` — a resolved/dismissed loop stays closed.
+      const { error } = await client
+        .from('agent_commitments')
+        .upsert({
+          user_id: uid,
+          direction: c.direction,
+          counterparty: c.counterparty ?? '',
+          summary: c.summary,
+          due_at: c.due_at ?? null,
+          due_inferred: c.due_inferred ?? false,
+          thread_id: c.thread_id,
+          provider: c.provider,
+          source_excerpt: c.source_excerpt ?? '',
+        }, { onConflict: 'user_id,thread_id,direction', ignoreDuplicates: false })
+        .select('id');
+      if (error) throw error;
+      return 'inserted';
+    },
     async isUserIdle(uid, now) {
       const { data, error } = await client
         .from('user_presence')

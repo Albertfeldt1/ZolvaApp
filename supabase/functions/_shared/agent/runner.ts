@@ -16,7 +16,9 @@ import type { CallClaudeResult, ClaudeSystemBlock, ClaudeUserMessage } from './c
 import type { ExecuteOptions, ExecuteReverseToken } from './tools/dispatch.ts';
 import type { ThreadBrief } from './prompt.ts';
 
-import { actionTypeFromToolName, buildMailTriagePrompt, MAIL_TRIAGE_TOOLS, REFLECT_TOOLS, buildReflectPrompt } from './prompt.ts';
+import { actionTypeFromToolName, buildMailTriagePrompt, MAIL_TRIAGE_TOOLS, REFLECT_TOOLS, buildReflectPrompt, buildCommitmentScanPrompt, COMMITMENT_SCAN_TOOLS } from './prompt.ts';
+import type { ScanCandidate } from './prompt.ts';
+import { resolveDue } from './commitments.ts';
 import { buildThreadAllowlist, verifyThreadId } from './verify.ts';
 import { deriveIdemKey } from './idem.ts';
 import { resolvePolicy } from './policy.ts';
@@ -147,6 +149,14 @@ export interface RunnerDeps {
     body: string;
     data: Record<string, unknown>;
   }) => Promise<{ sent: boolean }>;
+  // Commitment tracking: upsert one extracted commitment into agent_commitments
+  // on the (user_id, thread_id, direction) dedup key. Returns whether the row
+  // was newly inserted or an existing one updated (for trace/metrics only).
+  recordCommitment: (
+    userId: string,
+    runId: string,
+    commitment: Record<string, unknown>,
+  ) => Promise<'inserted' | 'updated'>;
 }
 
 export interface RunInput {
@@ -182,6 +192,7 @@ const SUPPORTED_ACTIONS = new Set<ActionType>([
   'cal.create_event',
   'cal.update_event',
   'nudge.push',
+  'commitment.record',
 ]);
 // Read-only context tools (Phase 4a). These never produce an agent_actions
 // row — they exist purely to feed Claude richer context within the run, so
@@ -207,6 +218,9 @@ const NON_THREAD_ACTIONS = new Set<ActionType>([
   // nudge.push carries no thread_id (it has action_kind + target_id). Running
   // the thread guard on it would throw on the empty thread_id and kill the call.
   'nudge.push',
+  // commitment.record carries thread_id as data, not as a read target — it must
+  // skip the thread hallucination guard.
+  'commitment.record',
 ]);
 
 export async function runAgent(input: RunInput): Promise<RunResult> {
@@ -636,6 +650,86 @@ export async function runReflect(input: RunReflectInput): Promise<RunResult> {
   if (budget.exceeded) return { runId: null, processed: 0, status: 'budget_exceeded' };
   if (events.length === 0) return { runId: null, processed: 0, status: 'ok' };
   return executeRun(userId, 'reflect.sweep', events, deps, reflectStrategy);
+}
+
+export interface CommitmentScanInput {
+  userId: string;
+  candidates: ScanCandidate[];
+  deps: RunnerDeps;
+}
+
+const SCAN_MAX_ROUNDS = 3;
+
+// Extraction loop: prompt Claude with the candidate sent-threads, execute each
+// commitment_record tool call by shaping it (dispatch) + upserting it
+// (deps.recordCommitment). No idem-as-action, no allowlist — the only tool is a
+// write to our own table, keyed by its own (user,thread,direction) uniqueness.
+export async function runCommitmentScan(input: CommitmentScanInput): Promise<RunResult> {
+  const { userId, candidates, deps } = input;
+  const budget = await deps.checkBudget(userId);
+  if (budget.exceeded) return { runId: null, processed: 0, status: 'budget_exceeded' };
+  if (candidates.length === 0) return { runId: null, processed: 0, status: 'ok' };
+
+  const runId = await deps.openRun(userId, 'commitments.scan', []);
+  let usage = { input_tokens: 0, output_tokens: 0 };
+  let runError: string | undefined;
+  const trace: RunTraceTurn[] = [];
+
+  try {
+    const { system, messages } = buildCommitmentScanPrompt({ candidates, nowIso: new Date().toISOString() });
+    const conversation: ClaudeUserMessage[] = [...messages];
+
+    for (let round = 0; round < SCAN_MAX_ROUNDS; round++) {
+      const turn = await deps.callClaudeTurn(system, conversation, COMMITMENT_SCAN_TOOLS);
+      usage = {
+        input_tokens: usage.input_tokens + turn.usage.input_tokens,
+        output_tokens: usage.output_tokens + turn.usage.output_tokens,
+      };
+      const toolUses = turn.content.filter((b) => b.type === 'tool_use') as Array<{ type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }>;
+      conversation.push({ role: 'assistant', content: turn.content });
+      trace.push({ round, stop_reason: turn.stop_reason, text: '', tools: toolUses.map((t) => ({ name: t.name, thread_id: typeof t.input?.thread_id === 'string' ? t.input.thread_id : null })) });
+      if (toolUses.length === 0) break;
+
+      const toolResults: Array<Record<string, unknown>> = [];
+      for (const tu of toolUses) {
+        const action = actionTypeFromToolName(tu.name);
+        if (action !== 'commitment.record') {
+          toolResults.push({ type: 'tool_result', tool_use_id: tu.id, is_error: true, content: `unsupported ${tu.name}` });
+          continue;
+        }
+        try {
+          const exec = await deps.executeTool('commitment.record', tu.input ?? {});
+          const anchor = typeof tu.input?.latest_at === 'string' ? tu.input.latest_at as string : new Date().toISOString();
+          const { dueAt, inferred } = resolveDue(
+            exec.recordPayload.direction as 'you_owe' | 'owed_to_you',
+            typeof exec.recordPayload.due_at === 'string' ? exec.recordPayload.due_at : null,
+            anchor,
+          );
+          const outcome = await deps.recordCommitment(userId, runId, {
+            ...exec.recordPayload,
+            due_at: dueAt,
+            due_inferred: inferred,
+          });
+          toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: outcome });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          toolResults.push({ type: 'tool_result', tool_use_id: tu.id, is_error: true, content: msg });
+        }
+      }
+      conversation.push({ role: 'user', content: toolResults });
+      if (turn.stop_reason !== 'tool_use') break;
+    }
+  } catch (e) {
+    runError = e instanceof Error ? e.message : String(e);
+  }
+
+  try { await deps.incrementBudget(userId, usage); } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    runError = runError ? `${runError}; budget: ${msg}` : `budget: ${msg}`;
+  } finally {
+    await deps.finishRun(runId, runError ? 'error' : 'ok', usage, runError, trace);
+  }
+  return { runId, processed: candidates.length, status: runError ? 'error' : 'ok' };
 }
 
 // Europe/Copenhagen calendar day as YYYY-MM-DD. Used as the day component of

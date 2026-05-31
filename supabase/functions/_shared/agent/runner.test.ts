@@ -1,6 +1,6 @@
 // supabase/functions/_shared/agent/runner.test.ts
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { runAgent, RunnerDeps } from './runner.ts';
+import { runAgent, RunnerDeps, runCommitmentScan } from './runner.ts';
 import { runReflect, reflectStrategy } from './runner.ts';
 
 function makeDeps(): { deps: RunnerDeps; log: string[] } {
@@ -57,6 +57,8 @@ function makeDeps(): { deps: RunnerDeps; log: string[] } {
       loadActivePromotions: async () => [],
       // Phase 4 nudge.push: default reports the push as sent.
       fireNudge: async () => ({ sent: true }),
+      // Commitment tracking: no-op by default.
+      recordCommitment: async () => 'inserted' as const,
     },
   };
 }
@@ -1362,4 +1364,43 @@ Deno.test('runReflect: mail_get_body on an un-searched thread is rejected by the
   await runReflect({ userId: 'u-1', events, deps });
   const r = traceCaptured?.[0]?.results?.find((x) => x.name === 'mail_get_body');
   assertEquals(r?.is_error, true);
+});
+
+Deno.test('runCommitmentScan records each commitment_record tool call', async () => {
+  const recorded: Array<Record<string, unknown>> = [];
+  let turn = 0;
+  const { deps: baseDeps } = makeDeps();
+  const deps = {
+    ...baseDeps,
+    checkBudget: async () => ({ exceeded: false }),
+    openRun: async () => 'run-1',
+    incrementBudget: async () => {},
+    finishRun: async () => {},
+    executeTool: async (_a: unknown, payload: Record<string, unknown>) => Promise.resolve({ mode: 'executed' as const, reversible: false, reverseToken: null, recordPayload: payload }),
+    recordCommitment: async (_uid: string, _run: string, c: Record<string, unknown>) => { recorded.push(c); return 'inserted' as const; },
+    callClaudeTurn: async () => {
+      turn++;
+      if (turn === 1) {
+        return Promise.resolve({
+          stop_reason: 'tool_use',
+          usage: { input_tokens: 10, output_tokens: 5 },
+          content: [{ type: 'tool_use' as const, id: 'tu1', name: 'commitment_record', input: {
+            direction: 'you_owe', counterparty: 'Allan', summary: 'send decket',
+            thread_id: 't1', provider: 'google', source_excerpt: 'x',
+          } }],
+        });
+      }
+      return Promise.resolve({ stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 }, content: [{ type: 'text' as const, text: 'færdig' }] });
+    },
+  } as unknown as Parameters<typeof runCommitmentScan>[0]['deps'];
+
+  const res = await runCommitmentScan({
+    userId: 'u1',
+    candidates: [{ thread_id: 't1', provider: 'google', counterparty: 'Allan', subject: 'Q3', latest_text: 'jeg sender decket på fredag', latest_from: 'user', latest_at: '2026-06-01T10:00:00Z' }],
+    deps,
+  });
+
+  assertEquals(res.status, 'ok');
+  assertEquals(recorded.length, 1);
+  assertEquals(recorded[0].thread_id, 't1');
 });
