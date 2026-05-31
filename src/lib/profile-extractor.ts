@@ -118,6 +118,15 @@ export function computeFollowUpAt(
 }
 
 const CONFIDENCE_THRESHOLD = 0.6;
+
+export const AUTO_CONFIRM_THRESHOLD = 0.85;
+// High-confidence extracted facts auto-confirm so they enter the agent's
+// memory-followups sweep without a manual review step. Auto-confirmed facts
+// appear in MemoryScreen (confirmed tab) and are user-deletable.
+export function shouldAutoConfirm(confidence: number): boolean {
+  return confidence >= AUTO_CONFIRM_THRESHOLD;
+}
+
 const DEBOUNCE_MS = 2000;
 
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -176,12 +185,14 @@ async function runNow(payload: ExtractionPayload): Promise<void> {
     if (!normalized) return;
     const duplicate = await findDuplicateFact(payload.userId, normalized);
     if (duplicate) return;
+    const autoConfirm = shouldAutoConfirm(c.confidence);
     await insertPendingFact(payload.userId, {
       text: c.text.trim(),
       category: c.category,
       source: payload.source,
       expiresAt: computeExpiresAt(c.category, c.referentDate ?? null),
       followUpAt: computeFollowUpAt(c.category, c.referentDate ?? null),
+      confirmed: autoConfirm,
     });
     invalidatePreamble(payload.userId);
   } catch (err) {

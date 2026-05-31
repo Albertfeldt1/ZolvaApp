@@ -116,6 +116,10 @@ export async function insertPendingFact(
     // Optional follow-up moment — when the memory-followups sweep should surface
     // this fact. NULL means no follow-up. Only set for dated actionable facts.
     followUpAt?: Date | null;
+    // When true, insert as 'confirmed' (with confirmed_at) instead of 'pending'.
+    // High-confidence chat-extracted facts auto-confirm so they enter the
+    // memory-followups sweep without a manual review step. Defaults to pending.
+    confirmed?: boolean;
   },
 ): Promise<Fact> {
   const normalized = normalizeFactText(input.text);
@@ -126,7 +130,10 @@ export async function insertPendingFact(
       text: input.text,
       normalized_text: normalized,
       category: input.category,
-      status: 'pending',
+      status: input.confirmed ? 'confirmed' : 'pending',
+      // Confirmed rows MUST carry confirmed_at (matches confirmFact /
+      // bulkUpdatePendingFacts). Pending rows leave it null.
+      confirmed_at: input.confirmed ? new Date().toISOString() : null,
       source: input.source,
       expires_at: input.expiresAt ? input.expiresAt.toISOString() : null,
       follow_up_at: input.followUpAt ? input.followUpAt.toISOString() : null,
