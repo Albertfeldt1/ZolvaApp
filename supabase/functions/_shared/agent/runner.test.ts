@@ -2,6 +2,25 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { runAgent, RunnerDeps, runCommitmentScan } from './runner.ts';
 import { runReflect, reflectStrategy } from './runner.ts';
+import { SUPPORTED_ACTIONS } from './runner.ts';
+import { actionTypeFromToolName, MAIL_TRIAGE_TOOLS, REFLECT_TOOLS } from './prompt.ts';
+
+// Regression guard: a tool added to a catalogue but NOT wired into the runner's
+// SUPPORTED_ACTIONS is silently rejected at runtime (it once shipped that way for
+// cal_find_free_slots — the tool, dispatch, and policy maps were all present but
+// the runner returned "unsupported action", making the feature dead code). Every
+// catalogue tool's mapped action must be supported by the runner.
+Deno.test('every triage/reflect tool maps to a runner-supported action', () => {
+  for (const tool of [...MAIL_TRIAGE_TOOLS, ...REFLECT_TOOLS]) {
+    const action = actionTypeFromToolName(tool.name);
+    assertEquals(action !== null, true, `no action mapping for tool ${tool.name}`);
+    assertEquals(
+      SUPPORTED_ACTIONS.has(action!),
+      true,
+      `tool ${tool.name} -> ${action} missing from SUPPORTED_ACTIONS`,
+    );
+  }
+});
 
 function makeDeps(): { deps: RunnerDeps; log: string[] } {
   const log: string[] = [];

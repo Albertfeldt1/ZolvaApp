@@ -178,7 +178,7 @@ const CLAIM_BATCH = 50;
 // propose, so a drafted reply never surfaced as an approve-card. 6 leaves
 // headroom for one research detour without unbounded looping.
 const MAX_TOOL_ROUNDS = 6;
-const SUPPORTED_ACTIONS = new Set<ActionType>([
+export const SUPPORTED_ACTIONS = new Set<ActionType>([
   'mail.label',
   'mail.archive',
   'mail.flag_important',
@@ -188,6 +188,7 @@ const SUPPORTED_ACTIONS = new Set<ActionType>([
   'mail.get_body',
   'mail.search',
   'cal.list_events',
+  'cal.find_free_slots',
   'drive.search',
   'cal.create_event',
   'cal.update_event',
@@ -198,10 +199,11 @@ const SUPPORTED_ACTIONS = new Set<ActionType>([
 // row — they exist purely to feed Claude richer context within the run, so
 // idem/recordAction don't apply. The dispatcher still returns recordPayload
 // (used as the tool_result content sent back to Claude).
-const CONTEXT_ONLY_ACTIONS = new Set<ActionType>([
+export const CONTEXT_ONLY_ACTIONS = new Set<ActionType>([
   'mail.get_body',
   'mail.search',
   'cal.list_events',
+  'cal.find_free_slots',
   'drive.search',
 ]);
 // Context tools that are NOT thread-scoped — their inputs carry no thread_id
@@ -209,9 +211,10 @@ const CONTEXT_ONLY_ACTIONS = new Set<ActionType>([
 // hallucination-guard must be skipped for them, or it throws on the empty
 // thread_id and the call dies before it runs. (mail.get_body IS thread-scoped
 // and still goes through the guard.)
-const NON_THREAD_ACTIONS = new Set<ActionType>([
+export const NON_THREAD_ACTIONS = new Set<ActionType>([
   'mail.search',
   'cal.list_events',
+  'cal.find_free_slots',
   'drive.search',
   'cal.create_event',
   'cal.update_event',
