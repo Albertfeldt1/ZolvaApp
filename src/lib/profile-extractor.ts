@@ -100,19 +100,45 @@ function computeExpiresAt(category: FactCategory, referentDate: string | null | 
 // A memory follow-up only makes sense for a thing-to-do, not a preference/role.
 const FOLLOWUP_CATEGORIES: ReadonlySet<FactCategory> = DECAY_CATEGORIES;
 
+// Heads-up window for renewal/expiry-style facts: nudge two weeks BEFORE the date.
+const DEADLINE_LEAD_MS = 14 * 24 * 60 * 60 * 1000;
+
+// Danish deadline keywords. Multi-char terms (forny, udløb, …) are matched as a
+// plain case-insensitive substring so inflections fall through (udløb → udløber/
+// udløbet). The short word "syn" is the one collision risk (synes, synlig, …), so
+// it gets a word-boundary guard; \b is fine here because the surrounding chars in
+// those false positives are ASCII letters. "bilsyn" is a compound, so it's caught
+// by the \bsyn\b alternation OR — Danish writes it as one word — by a dedicated
+// "bilsyn" substring; we include both to be safe.
+const DEADLINE_RE = /forny|fornyelse|udløb|bilsyn|\bsyn\b|forsikring|abonnement|frist|deadline/i;
+
+function isDeadlineLike(text: string | null | undefined): boolean {
+  return !!text && DEADLINE_RE.test(text);
+}
+
 // follow_up_at = the referent day at 00:00 UTC (~02:00 Copenhagen). The sweep is
 // quiet-hours gated, so an overnight-due fact actually surfaces the first sweep
 // after quiet hours that morning. Null when the fact is not a dated actionable
-// item — those never enter the follow-up sweep. v1 surfaces ON the day; a smarter
-// lead (e.g. two weeks before an expiry) is a future refinement.
+// item — those never enter the follow-up sweep.
+//
+// For deadline-like facts (renewals/expiries — see DEADLINE_RE) we subtract a
+// 14-day lead so the heads-up arrives ~two weeks before the date instead of on
+// it. We deliberately do NOT clamp the result to "not in the past": this function
+// stays pure (no Date.now()), and the sweep already selects follow_up_at <= now,
+// so a renewal whose lead has already elapsed simply fires on the next sweep
+// (i.e. immediately) — which is exactly what we want for an imminent renewal.
 export function computeFollowUpAt(
   category: FactCategory,
   referentDate: string | null | undefined,
+  text?: string | null,
 ): Date | null {
   if (!FOLLOWUP_CATEGORIES.has(category)) return null;
   if (referentDate && /^\d{4}-\d{2}-\d{2}$/.test(referentDate)) {
     const base = Date.parse(`${referentDate}T00:00:00Z`);
-    if (Number.isFinite(base)) return new Date(base);
+    if (Number.isFinite(base)) {
+      const lead = isDeadlineLike(text) ? DEADLINE_LEAD_MS : 0;
+      return new Date(base - lead);
+    }
   }
   return null;
 }
@@ -191,7 +217,7 @@ async function runNow(payload: ExtractionPayload): Promise<void> {
       category: c.category,
       source: payload.source,
       expiresAt: computeExpiresAt(c.category, c.referentDate ?? null),
-      followUpAt: computeFollowUpAt(c.category, c.referentDate ?? null),
+      followUpAt: computeFollowUpAt(c.category, c.referentDate ?? null, c.text),
       confirmed: autoConfirm,
     });
     invalidatePreamble(payload.userId);
