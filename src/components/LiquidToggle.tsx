@@ -72,29 +72,25 @@ export function LiquidToggle({
     overflow: 'hidden' as const,
   };
 
-  const trackChildren = (
-    <>
-      <Animated.View
-        style={[StyleSheet.absoluteFill, { borderRadius: radius }, tintStyle]}
-        pointerEvents="none"
-      />
-      <Animated.View
-        style={[
-          {
-            width: thumbSize,
-            height: thumbSize,
-            borderRadius: thumbSize / 2,
-            backgroundColor: thumbColor,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.18,
-            shadowRadius: 3,
-            elevation: 2,
-          },
-          thumbStyle,
-        ]}
-      />
-    </>
+  // Clean white knob with a soft shadow - matches Apple's switch thumb and
+  // reads crisply against the tinted glass track.
+  const thumb = (
+    <Animated.View
+      style={[
+        {
+          width: thumbSize,
+          height: thumbSize,
+          borderRadius: thumbSize / 2,
+          backgroundColor: thumbColor,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.22,
+          shadowRadius: 2.5,
+          elevation: 2,
+        },
+        thumbStyle,
+      ]}
+    />
   );
 
   return (
@@ -106,15 +102,28 @@ export function LiquidToggle({
       style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
     >
       {liquidGlassReady ? (
+        // Tint the glass itself so it stays translucent and refractive (true
+        // Liquid Glass) instead of painting an opaque pill over the blur. When
+        // off, no tint - the bare glass picks up the surface behind it.
         <GlassView
           glassEffectStyle="regular"
           colorScheme="auto"
-          style={trackBase}
+          isInteractive
+          tintColor={value ? tintOn : undefined}
+          style={[trackBase, { borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.22)' }]}
         >
-          {trackChildren}
+          {thumb}
         </GlassView>
       ) : (
-        <View style={trackBase}>{trackChildren}</View>
+        // Non-glass fallback (iOS < 26 / Reduce Transparency forced off): a
+        // solid animated capsule. Opaque tints are correct here.
+        <View style={trackBase}>
+          <Animated.View
+            style={[StyleSheet.absoluteFill, { borderRadius: radius }, tintStyle]}
+            pointerEvents="none"
+          />
+          {thumb}
+        </View>
       )}
     </Pressable>
   );
