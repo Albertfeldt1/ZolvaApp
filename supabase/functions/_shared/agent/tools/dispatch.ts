@@ -112,6 +112,28 @@ export async function executeTool(
     };
   }
 
+  // commitment.record writes to our own agent_commitments table — no provider
+  // API call. Like nudge.push, the dispatcher only validates + shapes; the
+  // runner performs the upsert via deps.recordCommitment. Handled before
+  // mustProvider so the (present) provider field is validated by mustString,
+  // not the generic provider guard.
+  if (action === 'commitment.record') {
+    const direction = mustString(payload, 'direction');
+    if (direction !== 'you_owe' && direction !== 'owed_to_you') {
+      throw new Error(`commitment.record invalid direction ${direction}`);
+    }
+    const rec: Record<string, unknown> = {
+      direction,
+      counterparty: mustString(payload, 'counterparty'),
+      summary: mustString(payload, 'summary'),
+      thread_id: mustString(payload, 'thread_id'),
+      provider: mustString(payload, 'provider'),
+      source_excerpt: mustString(payload, 'source_excerpt'),
+    };
+    if (typeof payload.due_at === 'string' && payload.due_at) rec.due_at = payload.due_at;
+    return { mode: 'executed', reversible: false, reverseToken: null, recordPayload: rec };
+  }
+
   const provider = mustProvider(payload);
 
   switch (action) {
