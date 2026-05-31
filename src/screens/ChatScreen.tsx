@@ -21,6 +21,8 @@ import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { Icon as DesignIcon } from '../design/primitives/Icon';
 import { liquidGlassReady } from '../lib/liquid-glass';
+import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 import { Stone } from '../design/primitives/Stone';
 import { useTheme } from '../design/useTheme';
 import { DrivePickerModal } from '../components/DrivePickerModal';
@@ -81,7 +83,21 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
   const { data: suggestions } = useChatSuggestions();
   const [input, setInput] = useState(initialDraft ?? '');
   const [drivePickerVisible, setDrivePickerVisible] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+
+  // Long-press a chat bubble to copy its text. Brief haptic + "Kopieret"
+  // confirmation that clears itself.
+  const handleCopyMessage = async (m: ChatMessage) => {
+    try {
+      await Clipboard.setStringAsync(m.text);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setCopiedId(m.id);
+      setTimeout(() => setCopiedId((c) => (c === m.id ? null : c)), 1400);
+    } catch {
+      // Clipboard can reject if the app is backgrounded; nothing to recover.
+    }
+  };
 
   // Auto-send the seeded draft once on mount when callers (e.g. observation
   // CTAs from the Today screen) want the chat to act, not just open with
@@ -262,7 +278,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
           )}
 
           {messages.map((m) => (
-            <Bubble key={m.id} msg={m} t={t} type={type} fonts={fonts} radius={radius} spacing={spacing} surface={surface} onPickDrive={() => setDrivePickerVisible(true)} />
+            <Bubble key={m.id} msg={m} t={t} type={type} fonts={fonts} radius={radius} spacing={spacing} surface={surface} onPickDrive={() => setDrivePickerVisible(true)} onCopy={() => handleCopyMessage(m)} copied={copiedId === m.id} />
           ))}
 
           {typing && <TypingIndicator t={t} spacing={spacing} radius={radius} />}
@@ -561,18 +577,30 @@ function Bubble({
   spacing,
   surface,
   onPickDrive,
-}: { msg: ChatMessage; onPickDrive?: () => void } & ThemeSlice) {
+  onCopy,
+  copied,
+}: {
+  msg: ChatMessage;
+  onPickDrive?: () => void;
+  onCopy?: () => void;
+  copied?: boolean;
+} & ThemeSlice) {
   const isZ = msg.from === 'zolva';
+  // Long-press a bubble to copy its text (handled by the parent via onCopy).
+  const copiedPill = copied ? (
+    <Text style={{ ...type.caption, color: t.ink3, marginTop: 2 }}>Kopieret</Text>
+  ) : null;
   if (isZ) {
     return (
       <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-end' }}>
         <Stone size={28} jumpOnTap={false} />
+        <View style={{ maxWidth: '82%' }}>
+        <Pressable onLongPress={onCopy} delayLongPress={300}>
         <GlassFrostedCard
           radius={18}
           style={{
             paddingVertical: spacing.md,
             paddingHorizontal: spacing.cardPad,
-            maxWidth: '82%',
           }}
         >
           <Text style={{ ...type.body, color: t.ink }}>
@@ -599,14 +627,18 @@ function Bubble({
             </Pressable>
           )}
         </GlassFrostedCard>
+        </Pressable>
+        {copiedPill}
+        </View>
       </View>
     );
   }
   return (
     <View style={{ flexDirection: 'row-reverse' }}>
+      <View style={{ maxWidth: '75%', alignItems: 'flex-end' }}>
+      <Pressable onLongPress={onCopy} delayLongPress={300}>
       <View
         style={{
-          maxWidth: '75%',
           paddingVertical: spacing.md,
           paddingHorizontal: spacing.cardPad,
           backgroundColor: t.ink,
@@ -617,6 +649,9 @@ function Bubble({
         <Text style={{ ...type.body, color: '#fff' }}>
           {renderInlineMd(msg.text, fonts.uiBold)}
         </Text>
+      </View>
+      </Pressable>
+      {copiedPill}
       </View>
     </View>
   );
