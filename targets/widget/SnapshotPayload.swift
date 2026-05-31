@@ -39,7 +39,7 @@ struct SnapshotPayload: Codable {
   let chatPrompt: String
   // Additive: schema stays at 1. JSONDecoder tolerates a missing key for an
   // optional, so this binary decodes both old (no key) and new snapshots.
-  let pendingTrustOffer: PendingTrustOffer?
+  var pendingTrustOffer: PendingTrustOffer? = nil
 }
 
 func decodeSnapshot(_ data: Data) -> SnapshotPayload? {
