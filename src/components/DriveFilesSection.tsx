@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronRight } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { useTheme } from '../design/useTheme';
@@ -23,6 +24,9 @@ export function DriveFilesSection({ onOpenPicker, refreshKey }: Props) {
   const [files, setFiles] = useState<DriveFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  // The granted-files list collapses so it doesn't clutter Settings - the
+  // header always shows the count, tap to expand. Default collapsed.
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,16 +81,43 @@ export function DriveFilesSection({ onOpenPicker, refreshKey }: Props) {
           Ingen filer valgt endnu. Vælg filer, så Zolva kan læse dem.
         </Text>
       ) : (
-        <View style={{ gap: 2 }}>
-          {files.map((f) => (
-            <Text
-              key={f.id}
-              numberOfLines={1}
-              style={{ ...type.caption, color: t.ink2 }}
-            >
-              · {f.name}
+        <View style={{ gap: spacing.xs }}>
+          <Pressable
+            onPress={() => setExpanded((e) => !e)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded }}
+            accessibilityLabel={`${files.length} filer Zolva kan se`}
+            hitSlop={6}
+            style={({ pressed }) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing.xs,
+              alignSelf: 'flex-start',
+              opacity: pressed ? 0.6 : 1,
+            })}
+          >
+            {expanded ? (
+              <ChevronDown size={16} color={t.ink3} strokeWidth={2.2} />
+            ) : (
+              <ChevronRight size={16} color={t.ink3} strokeWidth={2.2} />
+            )}
+            <Text style={{ ...type.caption, color: t.ink2, fontFamily: fonts.uiBold }}>
+              {files.length} {files.length === 1 ? 'fil' : 'filer'} Zolva kan se
             </Text>
-          ))}
+          </Pressable>
+          {expanded && (
+            <View style={{ gap: 2, paddingLeft: spacing.lg }}>
+              {files.map((f) => (
+                <Text
+                  key={f.id}
+                  numberOfLines={1}
+                  style={{ ...type.caption, color: t.ink2 }}
+                >
+                  · {f.name}
+                </Text>
+              ))}
+            </View>
+          )}
         </View>
       )}
     </View>
