@@ -19,16 +19,27 @@ import {
   toUpcomingPayload,
   type RawCalEvent,
 } from '../_shared/agent/reflect-events.ts';
+import { isQuietHours } from '../_shared/agent/quiet-hours.ts';
 
 const LEAD_MINUTES = 120;
 
-async function selectAgentEnabledUserIds(client: SupabaseClient): Promise<string[]> {
+async function selectAgentEnabledUsers(
+  client: SupabaseClient,
+): Promise<Array<{ userId: string; timezone: string }>> {
   const { data, error } = await client
     .from('user_profiles')
-    .select('user_id')
+    .select('user_id, timezone')
     .eq('agent_enabled', true);
   if (error) throw error;
-  return Array.from(new Set((data ?? []).map((r: { user_id: string }) => r.user_id as string)));
+  const seen = new Set<string>();
+  const out: Array<{ userId: string; timezone: string }> = [];
+  for (const r of (data ?? []) as Array<{ user_id: string; timezone: string | null }>) {
+    if (seen.has(r.user_id)) continue;
+    seen.add(r.user_id);
+    // Null/empty timezone → default to the app's primary locale.
+    out.push({ userId: r.user_id, timezone: r.timezone || 'Europe/Copenhagen' });
+  }
+  return out;
 }
 const CRON_SECRET = Deno.env.get('CRON_SHARED_SECRET');
 if (!CRON_SECRET) {
@@ -122,11 +133,18 @@ serve(async (req) => {
   const now = new Date();
   const day = copenhagenDay(now);
 
-  const userIds = await selectAgentEnabledUserIds(client);
+  const users = await selectAgentEnabledUsers(client);
 
-  const results: Array<{ userId: string; ran: boolean; error?: string }> = [];
-  for (const uid of userIds) {
+  const results: Array<{ userId: string; ran: boolean; reason?: string; error?: string }> = [];
+  for (const { userId: uid, timezone } of users) {
     try {
+      // Quiet hours: skip the WHOLE run (not just the push send) so the
+      // calendar.upcoming dedup isn't consumed during the user's sleep window —
+      // the nudge then fires at the first sweep after quiet hours end.
+      if (isQuietHours(now, timezone)) {
+        results.push({ userId: uid, ran: false, reason: 'quiet_hours' });
+        continue;
+      }
       const raw = await readUpcoming(client, uid, now);
       const picked = filterUpcomingEvents(raw, now, LEAD_MINUTES);
       if (picked.length === 0) {
