@@ -676,6 +676,7 @@ export async function runCommitmentScan(input: CommitmentScanInput): Promise<Run
   const trace: RunTraceTurn[] = [];
 
   try {
+    const candidateByThread = new Map(candidates.map((c) => [c.thread_id, c]));
     const { system, messages } = buildCommitmentScanPrompt({ candidates, nowIso: new Date().toISOString() });
     const conversation: ClaudeUserMessage[] = [...messages];
 
@@ -699,7 +700,8 @@ export async function runCommitmentScan(input: CommitmentScanInput): Promise<Run
         }
         try {
           const exec = await deps.executeTool('commitment.record', tu.input ?? {});
-          const anchor = typeof tu.input?.latest_at === 'string' ? tu.input.latest_at as string : new Date().toISOString();
+          const threadId = typeof exec.recordPayload.thread_id === 'string' ? exec.recordPayload.thread_id : '';
+          const anchor = candidateByThread.get(threadId)?.latest_at ?? new Date().toISOString();
           const { dueAt, inferred } = resolveDue(
             exec.recordPayload.direction as 'you_owe' | 'owed_to_you',
             typeof exec.recordPayload.due_at === 'string' ? exec.recordPayload.due_at : null,
