@@ -129,3 +129,28 @@ export function applyReconcile(
   }
   return null;
 }
+
+export interface CommitmentNudge {
+  action_kind: string;   // always 'commitment' — the rate-limit category
+  target_id: string;     // thread_id — one nudge per loop per day
+  title: string;         // Danish, <= 40 chars
+  body: string;          // Danish, <= 140 chars
+}
+
+function clamp(s: string, max: number): string {
+  return s.length <= max ? s : s.slice(0, max - 1) + '…';
+}
+
+export function buildCommitmentNudge(row: CommitmentRow): CommitmentNudge {
+  const who = row.counterparty || 'nogen';
+  const title = row.direction === 'you_owe' ? 'Du skylder et svar' : 'Du venter på svar';
+  const body = row.direction === 'you_owe'
+    ? `Du lovede ${who}: ${row.summary}`
+    : `Du venter stadig på svar fra ${who}: ${row.summary}`;
+  return {
+    action_kind: 'commitment',
+    target_id: row.thread_id,
+    title: clamp(title, 40),
+    body: clamp(body, 140),
+  };
+}

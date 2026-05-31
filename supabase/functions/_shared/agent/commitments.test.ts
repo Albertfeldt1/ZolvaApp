@@ -100,3 +100,24 @@ Deno.test('applyReconcile returns null when nothing changed', () => {
   const r = row({ direction: 'you_owe', created_at: '2026-06-01T08:00:00Z', due_at: '2026-06-10T09:00:00Z' });
   assertEquals(applyReconcile(r, { lastMessageAt: null, lastDirection: null }, now), null);
 });
+
+import { buildCommitmentNudge } from './commitments.ts';
+
+Deno.test('buildCommitmentNudge for you_owe names the counterparty and summary', () => {
+  const n = buildCommitmentNudge(row({ direction: 'you_owe', counterparty: 'Allan', summary: 'send Q3-decket' }));
+  assertEquals(n.action_kind, 'commitment');
+  assertEquals(n.target_id, 't1');
+  assertEquals(n.body.includes('Allan'), true);
+  assertEquals(n.body.includes('send Q3-decket'), true);
+});
+
+Deno.test('buildCommitmentNudge for owed_to_you phrases it as waiting', () => {
+  const n = buildCommitmentNudge(row({ direction: 'owed_to_you', counterparty: 'Mette', summary: 'svar om mødet' }));
+  assertEquals(n.body.toLowerCase().includes('venter'), true);
+  assertEquals(n.body.includes('Mette'), true);
+});
+
+Deno.test('buildCommitmentNudge clamps body to 140 chars', () => {
+  const n = buildCommitmentNudge(row({ summary: 'x'.repeat(300) }));
+  assertEquals(n.body.length <= 140, true);
+});
