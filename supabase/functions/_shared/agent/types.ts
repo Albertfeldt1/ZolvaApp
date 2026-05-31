@@ -19,7 +19,9 @@ export type AgentRunTrigger =
   | 'reflect.morning'
   | 'reflect.midday'
   | 'reflect.evening'
-  | 'reflect.sweep';
+  | 'reflect.sweep'
+  | 'commitments.scan'
+  | 'commitments.nudge';
 
 export type ActionType =
   | 'mail.label'
@@ -40,7 +42,8 @@ export type ActionType =
   | 'brief.compose'
   | 'nudge.push'
   | 'memory.followup_draft'
-  | 'standing_task.create';
+  | 'standing_task.create'
+  | 'commitment.record';
 
 export type PolicyMode = 'auto' | 'propose' | 'off';
 
@@ -89,6 +92,7 @@ export const DEFAULT_POLICY: Record<ActionType, PolicyMode> = {
   'nudge.push': 'auto',
   'memory.followup_draft': 'auto',
   'standing_task.create': 'propose',
+  'commitment.record': 'auto',
 };
 
 // Same shape as DEFAULT_POLICY but narrowed to the auto|propose pair the
@@ -118,4 +122,5 @@ export const ACTION_DEFAULT_MODE: Record<ActionType, ActionMode> = {
   'nudge.push': 'auto',
   'memory.followup_draft': 'auto',
   'standing_task.create': 'propose',
+  'commitment.record': 'auto',
 };

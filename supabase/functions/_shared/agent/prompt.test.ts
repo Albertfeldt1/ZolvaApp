@@ -1,6 +1,7 @@
 // supabase/functions/_shared/agent/prompt.test.ts
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { actionTypeFromToolName, buildMailTriagePrompt, buildReflectPrompt, MAIL_TRIAGE_TOOLS, REFLECT_TOOLS } from './prompt.ts';
+import { COMMITMENT_SCAN_TOOLS, buildCommitmentScanPrompt } from './prompt.ts';
 
 Deno.test('MAIL_TRIAGE_TOOLS exposes nine tools (archive/label/flag retired — need gmail.modify)', () => {
   const names = MAIL_TRIAGE_TOOLS.map((t) => t.name).sort();
@@ -119,4 +120,25 @@ Deno.test('buildReflectPrompt lists events with time + attendees and injects Cop
   assertEquals(txt.includes('anders@x.dk'), true);
   assertEquals(txt.includes('Dags dato:'), true);
   assertEquals(system[0].cache_control, { type: 'ephemeral' });
+});
+
+Deno.test('commitment_record maps to commitment.record action', () => {
+  assertEquals(actionTypeFromToolName('commitment_record'), 'commitment.record');
+});
+
+Deno.test('COMMITMENT_SCAN_TOOLS offers only commitment_record', () => {
+  assertEquals(COMMITMENT_SCAN_TOOLS.map((t) => t.name), ['commitment_record']);
+});
+
+Deno.test('buildCommitmentScanPrompt lists candidate threads', () => {
+  const { system, messages } = buildCommitmentScanPrompt({
+    candidates: [{
+      thread_id: 't1', provider: 'google', counterparty: 'Allan',
+      subject: 'Q3', latest_text: 'Jeg sender decket på fredag', latest_from: 'user',
+      latest_at: '2026-06-01T10:00:00Z',
+    }],
+    nowIso: '2026-06-01T12:00:00Z',
+  });
+  assertEquals(system.length, 1);
+  assertEquals(String(messages[0].content).includes('t1'), true);
 });

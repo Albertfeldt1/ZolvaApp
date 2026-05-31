@@ -756,3 +756,23 @@ Deno.test('executeTool: mail.search (google) returns hits as context, no agent_a
   assertEquals(Array.isArray((result.recordPayload as { hits: unknown[] }).hits), true);
   assertEquals(((result.recordPayload as { hits: Array<{ thread_id: string }> }).hits)[0].thread_id, 't1');
 });
+
+Deno.test('commitment.record shapes its payload without touching providers', async () => {
+  const res = await executeTool('commitment.record', {
+    direction: 'you_owe', counterparty: 'Allan', summary: 'send decket',
+    thread_id: 't1', provider: 'google', source_excerpt: 'jeg sender decket på fredag',
+    due_at: '2026-06-05T09:00:00Z',
+  }, {} as never);
+  assertEquals(res.mode, 'executed');
+  assertEquals(res.recordPayload.direction, 'you_owe');
+  assertEquals(res.recordPayload.thread_id, 't1');
+  assertEquals(res.recordPayload.due_at, '2026-06-05T09:00:00Z');
+});
+
+Deno.test('commitment.record omits due_at when not provided', async () => {
+  const res = await executeTool('commitment.record', {
+    direction: 'you_owe', counterparty: 'Allan', summary: 's',
+    thread_id: 't1', provider: 'google', source_excerpt: 'x',
+  }, {} as never);
+  assertEquals('due_at' in res.recordPayload, false);
+});
