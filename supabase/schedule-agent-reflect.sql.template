@@ -1,0 +1,14 @@
+-- agent-reflect sweep — every 30 minutes. Manual apply (pg_cron templates are
+-- NOT auto-applied). Replace PASTE_CRON_SECRET / PASTE_SERVICE_ROLE_KEY with the
+-- real values (service role = sb_secret_… ; see project memory) before running.
+select cron.schedule(
+  'agent-reflect-sweep',
+  '*/30 * * * *',
+  $$
+  select net.http_post(
+    url := 'https://sjkhfkatmeqtsrysixop.supabase.co/functions/v1/agent-reflect',
+    headers := jsonb_build_object('x-cron-secret', 'PASTE_CRON_SECRET', 'Authorization', 'Bearer PASTE_SERVICE_ROLE_KEY'),
+    body := '{}'::jsonb
+  );
+  $$
+);
