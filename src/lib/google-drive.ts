@@ -1,6 +1,8 @@
 // Minimal Google Drive client. Searches and reads files using the OAuth
 // provider_token returned by Supabase after signing in with Google
-// (scope: drive.readonly). Read-only by design - no create/update/delete.
+// (scope: drive.file). Read-only by design - no create/update/delete. With
+// drive.file the app only sees files the user created or explicitly opened
+// with Zolva (e.g. via the Google Picker), not the whole Drive.
 
 import { ProviderAuthError, tryWithRefresh } from './auth';
 import { fetchWithTimeout } from './network-errors';

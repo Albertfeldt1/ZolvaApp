@@ -68,7 +68,7 @@ const GOOGLE_SCOPES = [
   // calendar.events grants per-event read/write across ALL calendars the
   // user has access to, but NOT the right to enumerate them.
   'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
-  'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.compose',
 ].join(' ');

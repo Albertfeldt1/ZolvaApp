@@ -438,7 +438,8 @@ export async function readMailBody(
 
 // ─── Drive ────────────────────────────────────────────────────────────────
 //
-// Google Drive search + read. Read-only: scope is drive.readonly. Search
+// Google Drive search + read. Read-only: scope is drive.file (the app only
+// sees files the user created or opened with Zolva, not the whole Drive). Search
 // matches both file content (fullText) and filenames; read returns the
 // extracted text body for Google Docs/Sheets/Slides and plain-text files.
 // Other MIME types are refused at read time so the model gets a clear

@@ -3,7 +3,7 @@
 // Metadata-only Drive backfill. Lists recent Google-native docs (Docs,
 // Sheets, Slides) the user has touched, returns metadata-shaped candidates
 // for the same Claude pipeline mail/calendar use. We never fetch file
-// bodies here - the broader chat-tool already has drive.readonly for
+// bodies here - the broader chat-tool already has drive.file for
 // explicit user-initiated reads; the backfill stays metadata-level so
 // onboarding doesn't sweep document content into the prompt.
 //
