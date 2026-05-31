@@ -11,7 +11,7 @@ import {
   buildDeps,
   loadGmailAccessToken,
   loadOutlookAccessToken,
-} from '../agent-tick/index.ts';
+} from '../_shared/agent/build-deps.ts';
 import { googleListEvents, outlookListEvents } from '../_shared/agent/tools/calendar.ts';
 import type { CalEvent } from '../_shared/agent/tools/calendar.ts';
 import {
