@@ -518,24 +518,12 @@ export async function readDriveFile(
   }
 }
 
+// Present only the file name + last-changed date to the user; the [drive:ID]
+// prefix is a machine reference the model uses to call read_drive_file (it
+// isn't surfaced in the reply). No link, owner, or file-type label.
 function formatDriveHit(f: DriveFile): string {
-  const kind = mimeLabel(f.mimeType);
   const modified = shortDate(f.modifiedTime);
-  const owner = f.ownerEmail ? ` - ejer: ${f.ownerEmail}` : '';
-  return `[drive:${f.id}] ${kind} - "${f.name}" - ændret ${modified}${owner} - ${f.webViewLink}`;
-}
-
-function mimeLabel(mime: string): string {
-  if (mime === 'application/vnd.google-apps.document') return 'Doc';
-  if (mime === 'application/vnd.google-apps.spreadsheet') return 'Sheet';
-  if (mime === 'application/vnd.google-apps.presentation') return 'Slides';
-  if (mime === 'application/pdf') return 'PDF';
-  if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'Word';
-  if (mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') return 'Excel';
-  if (mime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') return 'PowerPoint';
-  if (mime.startsWith('text/')) return mime.slice(5);
-  if (mime === 'application/json') return 'JSON';
-  return mime;
+  return `[drive:${f.id}] "${f.name}" - ændret ${modified}`;
 }
 
 // ─── OneDrive ─────────────────────────────────────────────────────────────
@@ -583,10 +571,8 @@ export async function readOnedriveFile(
 }
 
 function formatOnedriveHit(f: OnedriveFile): string {
-  const kind = mimeLabel(f.mimeType);
   const modified = shortDate(f.modifiedTime);
-  const owner = f.ownerEmail ? ` - ejer: ${f.ownerEmail}` : '';
-  return `[onedrive:${f.id}] ${kind} - "${f.name}" - ændret ${modified}${owner} - ${f.webUrl}`;
+  return `[onedrive:${f.id}] "${f.name}" - ændret ${modified}`;
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────
