@@ -134,6 +134,17 @@ Deno.test('buildReflectPrompt lists events with time + attendees and injects Cop
   assertEquals(system[0].cache_control, { type: 'ephemeral' });
 });
 
+Deno.test('REFLECT system prompt instructs searching an attendee by default', () => {
+  const { system } = buildReflectPrompt({ events: [], nowIso: '2026-06-01T08:00:00Z' });
+  const text = system[0].type === 'text' ? system[0].text : '';
+  // The brief must prefer searching, not merely allow it.
+  assertEquals(text.includes('mail_search'), true);
+  assertEquals(text.includes('som udgangspunkt'), true);
+  // Guardrails still present.
+  assertEquals(text.includes('rutine'), true);
+  assertEquals(text.includes('meeting_prep'), true);
+});
+
 Deno.test('commitment_record maps to commitment.record action', () => {
   assertEquals(actionTypeFromToolName('commitment_record'), 'commitment.record');
 });
