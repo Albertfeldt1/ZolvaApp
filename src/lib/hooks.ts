@@ -842,6 +842,19 @@ const RIBBON_PALETTE = [
   '#E67C73', // Flamingo
 ];
 
+// Module-level refresh signal, mirroring mailRefreshTick: a calendar write
+// from the chat tool loop (create/update/delete event) hits the provider API
+// directly and never touches useCalendarItems' state, so the Today/upcoming
+// view kept showing the stale list until a cold app remount. Bumping the tick
+// flips a useEffect dep across every useCalendarItems consumer, retriggering
+// the fetch so the new event shows up immediately.
+let calendarRefreshTick = 0;
+const calendarRefreshListeners = new Set<(tick: number) => void>();
+export function refreshCalendarNow(): void {
+  calendarRefreshTick += 1;
+  calendarRefreshListeners.forEach((l) => l(calendarRefreshTick));
+}
+
 function useCalendarItems(
   rangeStartMs?: number,
   rangeEndMs?: number,
@@ -869,6 +882,17 @@ function useCalendarItems(
   // Stable string snapshot of the visibility map so the effect only refires
   // when the actual hidden set changes (objects compare by reference).
   const visibilitySig = JSON.stringify(visibility);
+
+  // Subscribe to the module-level calendar refresh signal (see
+  // refreshCalendarNow) so a chat-triggered calendar write retriggers the
+  // fetch below in lockstep across every consumer.
+  const [calRefreshTick, setCalRefreshTick] = useState(calendarRefreshTick);
+  useEffect(() => {
+    calendarRefreshListeners.add(setCalRefreshTick);
+    return () => {
+      calendarRefreshListeners.delete(setCalRefreshTick);
+    };
+  }, []);
 
   useEffect(() => {
     if (!user || (!googleAccessToken && !microsoftAccessToken && !icloudConnected)) {
@@ -1039,6 +1063,8 @@ function useCalendarItems(
     respectVisibility,
     visibilityHydrated,
     visibilitySig,
+    // Retrigger after a chat-driven calendar write (refreshCalendarNow).
+    calRefreshTick,
     // Refetch when the user toggles a calendar integration on/off so the
     // ribbon/day view updates without needing a navigation roundtrip.
     integrationFlagsForCal['google-calendar'],
@@ -4530,6 +4556,9 @@ async function runChatTool(
       const provider = typeof input.provider === 'string' ? input.provider : '';
       if (!provider) return { content: '`provider` mangler. Brug "microsoft" eller "icloud".', isError: true };
       const r = await createCalendarEvent(ctx, provider, parsed.data);
+      // Wake every useCalendarItems consumer so the new event shows up in the
+      // Today/upcoming view without a cold app remount.
+      if (!r.isError) refreshCalendarNow();
       return { content: r.text, isError: r.isError };
     }
     if (name === 'update_calendar_event') {
@@ -4538,12 +4567,14 @@ async function runChatTool(
       const patch = parseWritePatch(input);
       if (!patch.ok) return { content: patch.reason, isError: true };
       const r = await updateCalendarEvent(ctx, id, patch.data);
+      if (!r.isError) refreshCalendarNow();
       return { content: r.text, isError: r.isError };
     }
     if (name === 'delete_calendar_event') {
       const id = typeof input.id === 'string' ? input.id : '';
       if (!id) return { content: 'Mangler `id`.', isError: true };
       const r = await deleteCalendarEvent(ctx, id);
+      if (!r.isError) refreshCalendarNow();
       return { content: r.text, isError: r.isError };
     }
     if (name === 'search_drive_files') {
