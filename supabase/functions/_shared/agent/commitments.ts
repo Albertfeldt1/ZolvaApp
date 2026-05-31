@@ -121,6 +121,10 @@ export function applyReconcile(
     }
   }
 
+  // Expiry is direction-agnostic: any open row whose due_at has passed by the
+  // grace period is expired, including an owed_to_you with an inferred due date
+  // that lapsed. An owed_to_you with no due_at at all is intentionally closed
+  // only via reconciliation/dismiss in v1, not auto-expiry.
   if (row.due_at) {
     const due = new Date(row.due_at).getTime();
     if (!Number.isNaN(due) && now.getTime() > due + EXPIRE_GRACE_MS) {
@@ -131,7 +135,7 @@ export function applyReconcile(
 }
 
 export interface CommitmentNudge {
-  action_kind: string;   // always 'commitment' — the rate-limit category
+  action_kind: 'commitment';   // always 'commitment' — the rate-limit category
   target_id: string;     // thread_id — one nudge per loop per day
   title: string;         // Danish, <= 40 chars
   body: string;          // Danish, <= 140 chars

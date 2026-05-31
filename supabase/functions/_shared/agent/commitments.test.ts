@@ -1,5 +1,5 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { resolveDue, selectDue } from './commitments.ts';
+import { applyReconcile, buildCommitmentNudge, resolveDue, selectDue } from './commitments.ts';
 import type { CommitmentRow } from './commitments.ts';
 
 function row(over: Partial<CommitmentRow>): CommitmentRow {
@@ -68,8 +68,6 @@ Deno.test('selectDue ignores non-open rows', () => {
   assertEquals(selectDue([r], now), []);
 });
 
-import { applyReconcile } from './commitments.ts';
-
 Deno.test('applyReconcile expires a you_owe past due_at + 7d with no movement', () => {
   const now = new Date('2026-06-15T09:00:00Z');
   const r = row({ direction: 'you_owe', due_at: '2026-06-03T09:00:00Z' });
@@ -101,8 +99,6 @@ Deno.test('applyReconcile returns null when nothing changed', () => {
   assertEquals(applyReconcile(r, { lastMessageAt: null, lastDirection: null }, now), null);
 });
 
-import { buildCommitmentNudge } from './commitments.ts';
-
 Deno.test('buildCommitmentNudge for you_owe names the counterparty and summary', () => {
   const n = buildCommitmentNudge(row({ direction: 'you_owe', counterparty: 'Allan', summary: 'send Q3-decket' }));
   assertEquals(n.action_kind, 'commitment');
@@ -120,4 +116,20 @@ Deno.test('buildCommitmentNudge for owed_to_you phrases it as waiting', () => {
 Deno.test('buildCommitmentNudge clamps body to 140 chars', () => {
   const n = buildCommitmentNudge(row({ summary: 'x'.repeat(300) }));
   assertEquals(n.body.length <= 140, true);
+});
+
+Deno.test('selectDue you_owe boundary: due exactly now+24h included, +1ms excluded', () => {
+  const now = new Date('2026-06-03T09:00:00Z');
+  const at = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+  const past = new Date(now.getTime() + 24 * 60 * 60 * 1000 + 1).toISOString();
+  assertEquals(selectDue([row({ direction: 'you_owe', due_at: at })], now).length, 1);
+  assertEquals(selectDue([row({ direction: 'you_owe', due_at: past })], now).length, 0);
+});
+
+Deno.test('selectDue owed_to_you boundary: silent exactly 3d included, under 3d excluded', () => {
+  const now = new Date('2026-06-05T09:00:00Z');
+  const at = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString();
+  const under = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000 + 1).toISOString();
+  assertEquals(selectDue([row({ direction: 'owed_to_you', last_message_at: at })], now).length, 1);
+  assertEquals(selectDue([row({ direction: 'owed_to_you', last_message_at: under })], now).length, 0);
 });
