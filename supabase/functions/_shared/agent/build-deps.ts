@@ -13,8 +13,8 @@ import { recordAiUsage } from '../usage.ts';
 import { executeTool as dispatchTool } from './tools/dispatch.ts';
 import { resolveLabelId } from './tools/gmail.ts';
 import type { ThreadBrief, ScanCandidate } from './prompt.ts';
-import { parseGmailThreadState } from './commitments.ts';
-import type { CommitmentRow, GmailThreadMeta, ThreadState } from './commitments.ts';
+import { parseGmailThreadState, parseGraphThreadState } from './commitments.ts';
+import type { CommitmentRow, GmailThreadMeta, GraphMessageLite, ThreadState } from './commitments.ts';
 import { loadRefreshToken, refreshAccessToken } from '../oauth.ts';
 import { dispatchExpoPush } from './expo-push.ts';
 import type { ExecuteContext, ExecuteOptions } from './tools/dispatch.ts';
@@ -29,10 +29,69 @@ export async function loadGmailAccessToken(client: SupabaseClient, userId: strin
   return accessToken;
 }
 
+async function loadGmailBrief(accessToken: string, threadId: string): Promise<ThreadBrief | null> {
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`,
+    { headers: { authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok) return null;
+  const j = (await res.json()) as {
+    messages?: Array<{ payload?: { headers?: Array<{ name: string; value: string }> }; snippet?: string }>;
+  };
+  const msg = j.messages?.[0];
+  const headers = msg?.payload?.headers ?? [];
+  return {
+    thread_id: threadId,
+    from: headers.find((h) => h.name === 'From')?.value ?? '',
+    subject: headers.find((h) => h.name === 'Subject')?.value ?? '(uden emne)',
+    snippet: msg?.snippet ?? '',
+    provider: 'google',
+  };
+}
+
+// Outlook brief: the newest message in the conversation, via Graph. conversationId
+// is Outlook's thread key (carried as thread_id in the mail.new event).
+async function loadOutlookBrief(accessToken: string, conversationId: string): Promise<ThreadBrief | null> {
+  const url =
+    `https://graph.microsoft.com/v1.0/me/messages?$filter=conversationId eq '${conversationId}'` +
+    `&$orderby=sentDateTime desc&$top=1&$select=subject,from,bodyPreview`;
+  const res = await fetch(url, { headers: { authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return null;
+  const j = (await res.json()) as {
+    value?: Array<{ subject?: string; bodyPreview?: string; from?: { emailAddress?: { name?: string; address?: string } } }>;
+  };
+  const msg = j.value?.[0];
+  if (!msg) return null;
+  const fromAddr = msg.from?.emailAddress;
+  return {
+    thread_id: conversationId,
+    from: fromAddr ? `${fromAddr.name ?? ''} <${fromAddr.address ?? ''}>`.trim() : '',
+    subject: msg.subject || '(uden emne)',
+    snippet: msg.bodyPreview ?? '',
+    provider: 'microsoft',
+  };
+}
+
+// Build a brief per claimed mail.new thread, routed by provider. Each provider's
+// token is resolved at most once and only if it has an event — so an Outlook-only
+// user (no Google grant) never triggers the Gmail token load, which throws. A
+// token failure disables that provider's briefs rather than the whole run.
 async function loadThreadBriefs(
-  accessToken: string,
   events: ClaimedEvent[],
+  getGoogleToken: () => Promise<string>,
+  getOutlookToken: () => Promise<string | null>,
 ): Promise<ThreadBrief[]> {
+  let googleTok: string | null | undefined;
+  let outlookTok: string | null | undefined;
+  const google = async (): Promise<string | null> => {
+    if (googleTok === undefined) { try { googleTok = await getGoogleToken(); } catch { googleTok = null; } }
+    return googleTok;
+  };
+  const outlook = async (): Promise<string | null> => {
+    if (outlookTok === undefined) { try { outlookTok = await getOutlookToken(); } catch { outlookTok = null; } }
+    return outlookTok;
+  };
+
   const seen = new Set<string>();
   const briefs: ThreadBrief[] = [];
   for (const ev of events) {
@@ -40,23 +99,15 @@ async function loadThreadBriefs(
     const threadId = typeof ev.payload.thread_id === 'string' ? ev.payload.thread_id : '';
     if (!threadId || seen.has(threadId)) continue;
     seen.add(threadId);
-    const res = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`,
-      { headers: { authorization: `Bearer ${accessToken}` } },
-    );
-    if (!res.ok) continue;
-    const j = (await res.json()) as {
-      messages?: Array<{ payload?: { headers?: Array<{ name: string; value: string }> }; snippet?: string }>;
-    };
-    const msg = j.messages?.[0];
-    const headers = msg?.payload?.headers ?? [];
-    briefs.push({
-      thread_id: threadId,
-      from: headers.find((h) => h.name === 'From')?.value ?? '',
-      subject: headers.find((h) => h.name === 'Subject')?.value ?? '(uden emne)',
-      snippet: msg?.snippet ?? '',
-      provider: ev.payload.provider === 'microsoft' ? 'microsoft' : 'google',
-    });
+    if (ev.payload.provider === 'microsoft') {
+      const tok = await outlook();
+      const brief = tok ? await loadOutlookBrief(tok, threadId) : null;
+      if (brief) briefs.push(brief);
+    } else {
+      const tok = await google();
+      const brief = tok ? await loadGmailBrief(tok, threadId) : null;
+      if (brief) briefs.push(brief);
+    }
   }
   return briefs;
 }
@@ -64,11 +115,28 @@ async function loadThreadBriefs(
 export async function loadOutlookAccessToken(
   client: SupabaseClient,
   userId: string,
+  microsoftScope?: string,
 ): Promise<string | null> {
   const refresh = await loadRefreshToken(client, userId, 'microsoft');
   if (!refresh) return null;
-  const { accessToken } = await refreshAccessToken(client, userId, 'microsoft', refresh);
+  // Microsoft scopes tokens per-refresh: the default grant is mail-only, so a
+  // calendar write needs Calendars.ReadWrite requested explicitly or Graph 403s.
+  const { accessToken } = await refreshAccessToken(
+    client, userId, 'microsoft', refresh,
+    microsoftScope ? { microsoftScope } : {},
+  );
   return accessToken;
+}
+
+// Mailbox owner address (for outbound/inbound direction in commitment reconcile).
+export async function loadOutlookUserAddress(token: string): Promise<string | null> {
+  const res = await fetch(
+    'https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName',
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) return null;
+  const j = (await res.json()) as { mail?: string | null; userPrincipalName?: string | null };
+  return j.mail || j.userPrincipalName || null;
 }
 
 async function loadPushTokens(
@@ -89,16 +157,25 @@ async function loadPushTokens(
 export function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
   // accessToken is loaded lazily once per run when first needed.
   let cachedAccessToken: string | null = null;
-  let cachedOutlookToken: string | null | undefined = undefined;
+  let cachedOutlookMailToken: string | null | undefined = undefined;
+  let cachedOutlookCalToken: string | null | undefined = undefined;
   const accessToken = async (): Promise<string> => {
     if (!cachedAccessToken) cachedAccessToken = await loadGmailAccessToken(client, userId);
     return cachedAccessToken;
   };
+  // Default Outlook token is mail-scoped; calendar writes need a separately
+  // refreshed Calendars.ReadWrite token (Microsoft scopes per-refresh).
   const outlookToken = async (): Promise<string | null> => {
-    if (cachedOutlookToken === undefined) {
-      cachedOutlookToken = await loadOutlookAccessToken(client, userId);
+    if (cachedOutlookMailToken === undefined) {
+      cachedOutlookMailToken = await loadOutlookAccessToken(client, userId);
     }
-    return cachedOutlookToken;
+    return cachedOutlookMailToken;
+  };
+  const outlookCalToken = async (): Promise<string | null> => {
+    if (cachedOutlookCalToken === undefined) {
+      cachedOutlookCalToken = await loadOutlookAccessToken(client, userId, 'offline_access Calendars.ReadWrite');
+    }
+    return cachedOutlookCalToken;
   };
 
   return {
@@ -150,7 +227,7 @@ export function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
     },
     async loadThreadBriefs(_uid, events) {
       if (events.length === 0) return [];
-      return loadThreadBriefs(await accessToken(), events);
+      return loadThreadBriefs(events, accessToken, outlookToken);
     },
     async callClaudeTurn(system, messages, tools) {
       const out = await callClaude({
@@ -164,8 +241,15 @@ export function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
       return out;
     },
     async executeTool(action: ActionType, payload, opts?: ExecuteOptions) {
-      const gmailTok = await accessToken();
-      const outlookTok = await outlookToken();
+      // Resolve the Gmail token defensively: an Outlook-only user has no Google
+      // grant, and loadGmailAccessToken throws. A google-branch tool would then
+      // 401 (surfaced as is_error per tool) instead of crashing the whole run;
+      // microsoft + provider-less actions don't touch ctx.gmail at all.
+      let gmailTok = '';
+      try { gmailTok = await accessToken(); } catch { /* no google grant; google tools will 401 */ }
+      // Calendar actions need the Calendars.ReadWrite-scoped Outlook token; mail
+      // actions use the default mail-scoped one. Requesting the wrong scope 403s.
+      const outlookTok = action.startsWith('cal.') ? await outlookCalToken() : await outlookToken();
       const ctx: ExecuteContext = {
         fetch: fetch as never,
         gmail: {
@@ -507,6 +591,130 @@ export async function readThreadState(
     console.warn('[agent-commitments] thread-state read failed for', threadId, msg);
     return { lastMessageAt: null, lastDirection: null };
   }
+}
+
+// --- Outlook / Graph commitment readers (provider parity with the Gmail ones) ---
+
+const COMMIT_DAY_MS = 24 * 60 * 60 * 1000;
+
+// Graph OData $filter on DateTimeOffset wants no fractional seconds.
+function graphFilterTime(ms: number): string {
+  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+interface GraphSentMsg {
+  conversationId?: string;
+  subject?: string;
+  bodyPreview?: string;
+  sentDateTime?: string;
+  toRecipients?: Array<{ emailAddress?: { name?: string; address?: string } }>;
+}
+
+function graphSentToCandidate(m: GraphSentMsg, kind: 'sent_recent' | 'stale_sent'): ScanCandidate {
+  const to = m.toRecipients?.[0]?.emailAddress;
+  return {
+    thread_id: m.conversationId ?? '',
+    provider: 'microsoft',
+    counterparty: to ? (to.name || to.address || '') : '',
+    subject: m.subject ?? '',
+    latest_text: m.bodyPreview ?? '',
+    latest_from: 'user',
+    latest_at: m.sentDateTime ?? new Date().toISOString(),
+    kind,
+  };
+}
+
+// Newest message in an Outlook conversation → ThreadState, for Phase 2 reconcile.
+export async function readOutlookThreadState(
+  token: string,
+  conversationId: string,
+  ownerAddress: string,
+): Promise<ThreadState> {
+  try {
+    const url =
+      `https://graph.microsoft.com/v1.0/me/messages?$filter=conversationId eq '${conversationId}'` +
+      `&$orderby=sentDateTime desc&$top=1&$select=from,sentDateTime`;
+    const res = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    if (!res.ok) return { lastMessageAt: null, lastDirection: null };
+    const j = (await res.json()) as { value?: GraphMessageLite[] };
+    return parseGraphThreadState(j.value?.[0], ownerAddress);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn('[agent-commitments] outlook thread-state read failed for', conversationId, msg);
+    return { lastMessageAt: null, lastDirection: null };
+  }
+}
+
+// Recent Outlook sent mail (→ you_owe promises). Graph Sent Items, last 7d, one
+// candidate per conversation. Mirrors listSentCandidates; degrades to [] when
+// the user has no Microsoft grant.
+export async function listOutlookSentCandidates(
+  client: SupabaseClient,
+  userId: string,
+): Promise<ScanCandidate[]> {
+  const out: ScanCandidate[] = [];
+  try {
+    const token = await loadOutlookAccessToken(client, userId);
+    if (!token) return out;
+    const since = graphFilterTime(Date.now() - 7 * COMMIT_DAY_MS);
+    const url =
+      `https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages?$top=25` +
+      `&$orderby=sentDateTime desc&$filter=${encodeURIComponent(`sentDateTime ge ${since}`)}` +
+      `&$select=conversationId,toRecipients,subject,bodyPreview,sentDateTime`;
+    const res = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    if (!res.ok) return out;
+    const j = (await res.json()) as { value?: GraphSentMsg[] };
+    const seen = new Set<string>();
+    for (const m of j.value ?? []) {
+      const conv = m.conversationId ?? '';
+      if (!conv || seen.has(conv)) continue;
+      seen.add(conv);
+      out.push(graphSentToCandidate(m, 'sent_recent'));
+    }
+  } catch (err) {
+    console.warn('[agent-commitments] sent scan (outlook) failed for', userId, err instanceof Error ? err.message : String(err));
+  }
+  return out;
+}
+
+// Stale "waiting on a reply" Outlook threads (→ owed_to_you). Sent 3–30d ago,
+// kept only when the conversation's LATEST message is still the user's own (they
+// haven't replied). Mirrors listStaleSentThreads; the SENT-label check becomes a
+// from==owner check via readOutlookThreadState.
+export async function listOutlookStaleSentThreads(
+  client: SupabaseClient,
+  userId: string,
+): Promise<ScanCandidate[]> {
+  const out: ScanCandidate[] = [];
+  try {
+    const token = await loadOutlookAccessToken(client, userId);
+    if (!token) return out;
+    const owner = await loadOutlookUserAddress(token);
+    if (!owner) return out; // can't tell who spoke last → skip rather than guess
+    const now = Date.now();
+    const newerThan = graphFilterTime(now - 30 * COMMIT_DAY_MS);
+    const olderThan = graphFilterTime(now - 3 * COMMIT_DAY_MS);
+    const url =
+      `https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages?$top=25` +
+      `&$orderby=sentDateTime desc` +
+      `&$filter=${encodeURIComponent(`sentDateTime ge ${newerThan} and sentDateTime le ${olderThan}`)}` +
+      `&$select=conversationId,toRecipients,subject,bodyPreview,sentDateTime`;
+    const res = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    if (!res.ok) return out;
+    const j = (await res.json()) as { value?: GraphSentMsg[] };
+    const seen = new Set<string>();
+    for (const m of j.value ?? []) {
+      const conv = m.conversationId ?? '';
+      if (!conv || seen.has(conv)) continue;
+      seen.add(conv);
+      const state = await readOutlookThreadState(token, conv, owner);
+      if (state.lastDirection !== 'outbound') continue; // someone replied → not waiting
+      out.push(graphSentToCandidate(m, 'stale_sent'));
+    }
+  } catch (err) {
+    console.warn('[agent-commitments] stale-sent scan (outlook) failed for', userId, err instanceof Error ? err.message : String(err));
+  }
+  return out;
 }
 
 // Open commitments for reconcile + nudge.

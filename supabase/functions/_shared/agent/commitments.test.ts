@@ -1,5 +1,5 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { applyReconcile, buildCommitmentNudge, parseGmailThreadState, resolveDue, selectDue } from './commitments.ts';
+import { applyReconcile, buildCommitmentNudge, parseGmailThreadState, parseGraphThreadState, resolveDue, selectDue } from './commitments.ts';
 import type { CommitmentRow } from './commitments.ts';
 
 function row(over: Partial<CommitmentRow>): CommitmentRow {
@@ -211,4 +211,39 @@ Deno.test('parseGmailThreadState: missing/invalid internalDate yields null times
     { lastMessageAt: null, lastDirection: 'outbound' });
   assertEquals(parseGmailThreadState({ messages: [{ labelIds: ['INBOX'], internalDate: 'nope' }] }),
     { lastMessageAt: null, lastDirection: 'inbound' });
+});
+
+// --- parseGraphThreadState (Outlook reconcile signal, provider parity) ---
+
+Deno.test('parseGraphThreadState: sender == owner (case-insensitive) => outbound', () => {
+  const r = parseGraphThreadState(
+    { from: { emailAddress: { address: 'Me@Contoso.com' } }, sentDateTime: '2026-06-03T09:00:00Z' },
+    'me@contoso.com',
+  );
+  assertEquals(r, { lastMessageAt: '2026-06-03T09:00:00.000Z', lastDirection: 'outbound' });
+});
+
+Deno.test('parseGraphThreadState: sender != owner => inbound', () => {
+  const r = parseGraphThreadState(
+    { from: { emailAddress: { address: 'allan@elsewhere.dk' } }, sentDateTime: '2026-06-03T10:00:00Z' },
+    'me@contoso.com',
+  );
+  assertEquals(r.lastDirection, 'inbound');
+  assertEquals(r.lastMessageAt, '2026-06-03T10:00:00.000Z');
+});
+
+Deno.test('parseGraphThreadState: no message => no state', () => {
+  assertEquals(parseGraphThreadState(undefined, 'me@contoso.com'),
+    { lastMessageAt: null, lastDirection: null });
+});
+
+Deno.test('parseGraphThreadState: unknown sender or owner leaves direction null (no guess)', () => {
+  assertEquals(
+    parseGraphThreadState({ sentDateTime: '2026-06-03T10:00:00Z' }, 'me@contoso.com').lastDirection,
+    null,
+  );
+  assertEquals(
+    parseGraphThreadState({ from: { emailAddress: { address: 'x@y.com' } }, sentDateTime: '2026-06-03T10:00:00Z' }, '').lastDirection,
+    null,
+  );
 });

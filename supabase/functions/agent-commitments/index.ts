@@ -13,11 +13,16 @@ import {
   buildDeps,
   listSentCandidates,
   listStaleSentThreads,
+  listOutlookSentCandidates,
+  listOutlookStaleSentThreads,
   selectOpenCommitments,
   updateCommitment,
   markScanned,
   loadGmailAccessToken,
+  loadOutlookAccessToken,
+  loadOutlookUserAddress,
   readThreadState,
+  readOutlookThreadState,
 } from '../_shared/agent/build-deps.ts';
 import { applyReconcile, selectDue, buildCommitmentNudge, copenhagenDay } from '../_shared/agent/commitments.ts';
 import type { CommitmentRow, ThreadState } from '../_shared/agent/commitments.ts';
@@ -82,11 +87,15 @@ serve(async (req) => {
       let scanned = false;
       const stale = !scannedAt || (now.getTime() - new Date(scannedAt).getTime() > SCAN_STALE_MS);
       if (stale) {
-        // Two candidate streams, one scan: recent sent mail (→ you_owe promises)
-        // and stale threads the user spoke last in (→ owed_to_you, waiting).
-        const [recent, staleSent] = await Promise.all([
+        // Candidate streams across both providers: recent sent mail (→ you_owe
+        // promises) and stale threads the user spoke last in (→ owed_to_you).
+        // Gmail + Outlook each contribute both streams; per-provider failures are
+        // swallowed inside the readers so one bad provider can't blank the scan.
+        const [recent, staleSent, recentO, staleO] = await Promise.all([
           listSentCandidates(client, uid),
           listStaleSentThreads(client, uid),
+          listOutlookSentCandidates(client, uid),
+          listOutlookStaleSentThreads(client, uid),
         ]);
         // Dedup by thread_id: the 3–7d windows overlap, and showing one thread
         // under both labels lets Claude record BOTH a you_owe and an owed_to_you
@@ -94,8 +103,12 @@ serve(async (req) => {
         // zombie. Prefer the recent (you_owe) view: promises are time-sensitive,
         // and a thread that's only "waiting" ages out of the 7d recent window and
         // is then seen solely as stale → owed_to_you.
+        // Dedup by thread_id, preferring the recent (you_owe) view. IDs are
+        // provider-scoped (Gmail threadId vs Graph conversationId) so they never
+        // collide across providers — the dedup only fuses the 3–7d window overlap
+        // within a provider.
         const byThread = new Map<string, ScanCandidate>();
-        for (const c of [...recent, ...staleSent]) {
+        for (const c of [...recent, ...staleSent, ...recentO, ...staleO]) {
           if (!byThread.has(c.thread_id) || c.kind === 'sent_recent') byThread.set(c.thread_id, c);
         }
         const candidates = [...byThread.values()];
@@ -112,9 +125,9 @@ serve(async (req) => {
       // owed_to_you. This is the "stop nudging me about things I've already
       // done" path — it runs before selectDue so a resolved loop never nudges.
       const open = await selectOpenCommitments(client, uid);
-      // Load the Gmail token once, only if a google row needs reconciling. A
-      // token-load failure degrades to expire-only (readThreadState is skipped),
-      // matching Slice 1 behaviour rather than crashing the user's sweep.
+      // Load each provider's token once, only if a row of that provider needs
+      // reconciling. A token-load failure degrades to expire-only (the reader is
+      // skipped), matching Slice 1 behaviour rather than crashing the sweep.
       let gmailToken: string | null = null;
       if (open.some((r) => r.provider === 'google')) {
         try {
@@ -123,11 +136,23 @@ serve(async (req) => {
           console.warn('[agent-commitments] gmail token for reconcile failed for', uid, err instanceof Error ? err.message : String(err));
         }
       }
+      let outlookToken: string | null = null;
+      let outlookOwner: string | null = null;
+      if (open.some((r) => r.provider === 'microsoft')) {
+        try {
+          outlookToken = await loadOutlookAccessToken(client, uid);
+          if (outlookToken) outlookOwner = await loadOutlookUserAddress(outlookToken);
+        } catch (err) {
+          console.warn('[agent-commitments] outlook token for reconcile failed for', uid, err instanceof Error ? err.message : String(err));
+        }
+      }
       const stillOpen: CommitmentRow[] = [];
       for (const row of open) {
         let thread: ThreadState = { lastMessageAt: null, lastDirection: null };
         if (row.provider === 'google' && gmailToken) {
           thread = await readThreadState(gmailToken, row.thread_id);
+        } else if (row.provider === 'microsoft' && outlookToken && outlookOwner) {
+          thread = await readOutlookThreadState(outlookToken, row.thread_id, outlookOwner);
         }
         const change = applyReconcile(row, thread, now);
         if (change) {

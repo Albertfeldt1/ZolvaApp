@@ -165,6 +165,33 @@ export function parseGmailThreadState(thread: GmailThreadMeta): ThreadState {
   return { lastMessageAt, lastDirection };
 }
 
+// Minimal shape of one Outlook message as Graph returns it for thread-state.
+export interface GraphMessageLite {
+  from?: { emailAddress?: { address?: string } };
+  sentDateTime?: string;
+}
+
+// Derive ThreadState from the NEWEST message in an Outlook conversation. Graph
+// is queried with $orderby=sentDateTime desc & $top=1, so the caller passes that
+// single newest message. Direction is outbound when the sender address matches
+// the mailbox owner (case-insensitive) — the Graph analogue of Gmail's SENT
+// label. When sender or owner is unknown the direction is left null, which
+// reconcile reads as "no movement" (safe: it won't resolve on a guess).
+export function parseGraphThreadState(
+  newest: GraphMessageLite | undefined,
+  ownerAddress: string,
+): ThreadState {
+  if (!newest) return { lastMessageAt: null, lastDirection: null };
+  const at = newest.sentDateTime ?? null;
+  const ms = at ? new Date(at).getTime() : NaN;
+  const lastMessageAt = Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+  const from = (newest.from?.emailAddress?.address ?? '').toLowerCase();
+  const owner = (ownerAddress ?? '').toLowerCase();
+  const lastDirection: 'inbound' | 'outbound' | null =
+    from && owner ? (from === owner ? 'outbound' : 'inbound') : null;
+  return { lastMessageAt, lastDirection };
+}
+
 export interface CommitmentNudge {
   action_kind: 'commitment';   // always 'commitment' — the rate-limit category
   target_id: string;     // thread_id — one nudge per loop per day
