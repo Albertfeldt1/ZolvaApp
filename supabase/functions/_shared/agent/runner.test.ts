@@ -1312,9 +1312,14 @@ Deno.test('runAgent: a rate-limited nudge reports back to the model so it stops 
   assertEquals(nudgeResult!.content.includes('rate'), true);
 });
 
-// Keep reflectStrategy import referenced so unused-import lint stays quiet —
-// the runReflect tests below exercise it transitively.
-void reflectStrategy;
+Deno.test('reflectStrategy.extendAllowlist: returns mail.search hit thread_ids, ignores malformed, [] for other actions', () => {
+  assertEquals(
+    reflectStrategy.extendAllowlist('mail.search', { hits: [{ thread_id: 't1' }, { thread_id: 't2' }, { nope: 1 }, null] }),
+    ['t1', 't2'],
+  );
+  assertEquals(reflectStrategy.extendAllowlist('mail.get_body', { hits: [{ thread_id: 't1' }] }), []);
+  assertEquals(reflectStrategy.extendAllowlist('mail.search', {}), []);
+});
 
 Deno.test('runReflect: mail_get_body is allowed only on a thread mail_search returned', async () => {
   const { deps } = makeDeps();

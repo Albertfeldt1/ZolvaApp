@@ -617,6 +617,12 @@ export const reflectStrategy: AgentStrategy = {
     return { system, messages, tools: REFLECT_TOOLS };
   },
   seedAllowlist: () => new Set<string>(),
+  // A legitimate mail_get_body has a hard data dependency on a prior mail_search:
+  // Claude cannot know a real thread_id until the search result returns (a later
+  // round). So if mail_get_body is ever batched in the SAME round as the search
+  // that would "discover" the thread, the id was necessarily guessed — and the
+  // empty-seed allowlist correctly rejects it. The grow-from-search model is
+  // therefore safe by data dependency, not just by ordering luck.
   extendAllowlist: (action, recordPayload) => {
     if (action !== 'mail.search') return [];
     const hits = Array.isArray(recordPayload.hits) ? recordPayload.hits : [];
