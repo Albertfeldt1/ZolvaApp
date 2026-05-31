@@ -85,6 +85,17 @@ Deno.test('MAIL_TRIAGE_TOOLS: includes calendar-write tools', () => {
   assertEquals(names.includes('cal_update_event'), true);
 });
 
+Deno.test('buildMailTriagePrompt: offers free slots when no concrete time is proposed', () => {
+  const { system } = buildMailTriagePrompt({ threads: [], nowIso: '2026-06-01T08:00:00Z' });
+  const txt = system[0].text;
+  const lower = txt.toLowerCase();
+  // Names the free-slots tool for the no-time branch.
+  assertEquals(lower.includes('cal_find_free_slots'), true);
+  // Conveys the "no concrete time -> offer slots" directive in Danish.
+  assertEquals(lower.includes('ledige tidspunkter'), true);
+  assertEquals(lower.includes('foreslår') || lower.includes('foreslå') || lower.includes('tilbyder'), true);
+});
+
 Deno.test('buildMailTriagePrompt: injects Danish current date when nowIso given', () => {
   const { messages } = buildMailTriagePrompt({
     threads: [{ thread_id: 't1', from: 'a@x.com', subject: 'Frokost', snippet: '' }],
