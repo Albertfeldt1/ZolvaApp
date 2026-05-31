@@ -1,6 +1,7 @@
 // supabase/functions/_shared/agent/runner.test.ts
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { runAgent, RunnerDeps } from './runner.ts';
+import { runReflect, reflectStrategy } from './runner.ts';
 
 function makeDeps(): { deps: RunnerDeps; log: string[] } {
   const log: string[] = [];
@@ -1309,4 +1310,51 @@ Deno.test('runAgent: a rate-limited nudge reports back to the model so it stops 
   const nudgeResult = traceCaptured?.[0]?.results?.find((r) => r.name === 'nudge_push');
   assertEquals(!!nudgeResult, true);
   assertEquals(nudgeResult!.content.includes('rate'), true);
+});
+
+// Keep reflectStrategy import referenced so unused-import lint stays quiet —
+// the runReflect tests below exercise it transitively.
+void reflectStrategy;
+
+Deno.test('runReflect: mail_get_body is allowed only on a thread mail_search returned', async () => {
+  const { deps } = makeDeps();
+  const events = [{ id: 10, kind: 'calendar.upcoming' as const, payload: { event_id: 'e1', provider: 'google', title: 'Møde', start: '2026-06-01T12:00:00Z' } }];
+  let bodyReadThread: string | null = null;
+  let nudged = false;
+  let turn = 0;
+  deps.callClaudeTurn = async () => {
+    turn++;
+    if (turn === 1) return { content: [{ type: 'tool_use', id: 's', name: 'mail_search', input: { query: 'anders@x.dk', provider: 'google' } }], usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: 'tool_use' };
+    if (turn === 2) return { content: [{ type: 'tool_use', id: 'b', name: 'mail_get_body', input: { thread_id: 't1', provider: 'google' } }], usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: 'tool_use' };
+    if (turn === 3) return { content: [{ type: 'tool_use', id: 'n', name: 'nudge_push', input: { action_kind: 'meeting_prep', target_id: 'e1', title: 'Møde om 2t', body: 'Anders sender tallene' } }], usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: 'tool_use' };
+    return { content: [{ type: 'text', text: 'done' }], usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: 'end_turn' };
+  };
+  deps.executeTool = async (action, payload) => {
+    if (action === 'mail.search') return { mode: 'executed' as const, reversible: false, reverseToken: null, recordPayload: { hits: [{ thread_id: 't1', from: 'A', subject: 'S', snippet: 's', date: 'd' }] } };
+    if (action === 'mail.get_body') { bodyReadThread = String(payload.thread_id); return { mode: 'executed' as const, reversible: false, reverseToken: null, recordPayload: { body_text: 'Anders sender tallene' } }; }
+    return { mode: 'executed' as const, reversible: false, reverseToken: null, recordPayload: { ...payload } };
+  };
+  deps.fireNudge = async () => { nudged = true; return { sent: true }; };
+
+  const result = await runReflect({ userId: 'u-1', events, deps });
+  assertEquals(result.status, 'ok');
+  assertEquals(bodyReadThread, 't1');
+  assertEquals(nudged, true);
+});
+
+Deno.test('runReflect: mail_get_body on an un-searched thread is rejected by the guard', async () => {
+  const { deps } = makeDeps();
+  const events = [{ id: 11, kind: 'calendar.upcoming' as const, payload: { event_id: 'e1', provider: 'google', title: 'Møde', start: '2026-06-01T12:00:00Z' } }];
+  let traceCaptured: Array<{ results?: Array<{ name: string | null; is_error: boolean; content: string }> }> | undefined;
+  let turn = 0;
+  deps.callClaudeTurn = async () => {
+    turn++;
+    if (turn === 1) return { content: [{ type: 'tool_use', id: 'b', name: 'mail_get_body', input: { thread_id: 't-evil', provider: 'google' } }], usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: 'tool_use' };
+    return { content: [{ type: 'text', text: 'done' }], usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: 'end_turn' };
+  };
+  deps.executeTool = async () => { throw new Error('should not execute'); };
+  deps.finishRun = async (_r, _s, _u, _e, trace) => { traceCaptured = trace; };
+  await runReflect({ userId: 'u-1', events, deps });
+  const r = traceCaptured?.[0]?.results?.find((x) => x.name === 'mail_get_body');
+  assertEquals(r?.is_error, true);
 });

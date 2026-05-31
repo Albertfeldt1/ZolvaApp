@@ -16,7 +16,7 @@ import type { CallClaudeResult, ClaudeSystemBlock, ClaudeUserMessage } from './c
 import type { ExecuteOptions, ExecuteReverseToken } from './tools/dispatch.ts';
 import type { ThreadBrief } from './prompt.ts';
 
-import { actionTypeFromToolName, buildMailTriagePrompt, MAIL_TRIAGE_TOOLS } from './prompt.ts';
+import { actionTypeFromToolName, buildMailTriagePrompt, MAIL_TRIAGE_TOOLS, REFLECT_TOOLS, buildReflectPrompt } from './prompt.ts';
 import { buildThreadAllowlist, verifyThreadId } from './verify.ts';
 import { deriveIdemKey } from './idem.ts';
 import { resolvePolicy } from './policy.ts';
@@ -176,6 +176,7 @@ const SUPPORTED_ACTIONS = new Set<ActionType>([
   'mail.draft_reply',
   'mail.send_reply',
   'mail.get_body',
+  'mail.search',
   'cal.list_events',
   'drive.search',
   'cal.create_event',
@@ -188,6 +189,7 @@ const SUPPORTED_ACTIONS = new Set<ActionType>([
 // (used as the tool_result content sent back to Claude).
 const CONTEXT_ONLY_ACTIONS = new Set<ActionType>([
   'mail.get_body',
+  'mail.search',
   'cal.list_events',
   'drive.search',
 ]);
@@ -197,6 +199,7 @@ const CONTEXT_ONLY_ACTIONS = new Set<ActionType>([
 // thread_id and the call dies before it runs. (mail.get_body IS thread-scoped
 // and still goes through the guard.)
 const NON_THREAD_ACTIONS = new Set<ActionType>([
+  'mail.search',
   'cal.list_events',
   'drive.search',
   'cal.create_event',
@@ -588,6 +591,46 @@ export const mailTriageStrategy: AgentStrategy = {
   seedAllowlist: (events) => buildThreadAllowlist(events),
   extendAllowlist: () => [],
 };
+
+export interface RunReflectInput {
+  userId: string;
+  events: ClaimedEvent[]; // already-claimed calendar.upcoming rows
+  deps: RunnerDeps;
+}
+
+// Reflect path (agent-reflect): builds context from upcoming calendar events,
+// offers only the read+nudge catalogue (REFLECT_TOOLS), and seeds an EMPTY
+// thread allowlist — the agent may only read threads that mail_search returned
+// this run (extendAllowlist grows the set from each mail.search result).
+export const reflectStrategy: AgentStrategy = {
+  async buildContext(_userId, events, _deps) {
+    const reflectEvents = events.map((e) => ({
+      event_id: String(e.payload.event_id ?? ''),
+      provider: (e.payload.provider === 'microsoft' ? 'microsoft' : 'google') as 'google' | 'microsoft',
+      title: String(e.payload.title ?? ''),
+      start: String(e.payload.start ?? ''),
+      location: typeof e.payload.location === 'string' ? e.payload.location : undefined,
+      attendees: Array.isArray(e.payload.attendees) ? (e.payload.attendees as unknown[]).filter((a): a is string => typeof a === 'string') : undefined,
+      description: typeof e.payload.description === 'string' ? e.payload.description : undefined,
+    }));
+    const { system, messages } = buildReflectPrompt({ events: reflectEvents, nowIso: new Date().toISOString() });
+    return { system, messages, tools: REFLECT_TOOLS };
+  },
+  seedAllowlist: () => new Set<string>(),
+  extendAllowlist: (action, recordPayload) => {
+    if (action !== 'mail.search') return [];
+    const hits = Array.isArray(recordPayload.hits) ? recordPayload.hits : [];
+    return hits.map((h) => (h && typeof h === 'object' ? String((h as { thread_id?: unknown }).thread_id ?? '') : '')).filter(Boolean);
+  },
+};
+
+export async function runReflect(input: RunReflectInput): Promise<RunResult> {
+  const { userId, events, deps } = input;
+  const budget = await deps.checkBudget(userId);
+  if (budget.exceeded) return { runId: null, processed: 0, status: 'budget_exceeded' };
+  if (events.length === 0) return { runId: null, processed: 0, status: 'ok' };
+  return executeRun(userId, 'reflect.sweep', events, deps, reflectStrategy);
+}
 
 // Europe/Copenhagen calendar day as YYYY-MM-DD. Used as the day component of
 // the nudge.push idem key so the daily rate limit rolls over at local midnight
