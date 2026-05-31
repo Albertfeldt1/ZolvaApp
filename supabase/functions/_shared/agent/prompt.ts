@@ -238,12 +238,13 @@ const COMMITMENT_RECORD_TOOL = {
 
 export const COMMITMENT_SCAN_TOOLS = [COMMITMENT_RECORD_TOOL] as const;
 
-const COMMITMENT_SCAN_SYSTEM_PROMPT = `Du er Zolva. Du gennemgår brugerens SENDTE mails og finder forpligtelser brugeren selv har lovet — ting brugeren skal følge op på.
+const COMMITMENT_SCAN_SYSTEM_PROMPT = `Du er Zolva. Du gennemgår brugerens mailtråde og registrerer åbne forpligtelser ("open loops") i to retninger. Hver tråd er mærket [nyligt-sendt] eller [afventer].
 
-For hver tråd i brugerens besked:
-- Afgør om brugeren har givet et konkret løfte eller en aftale ("jeg sender X på fredag", "jeg vender tilbage mandag", "jeg ordner det inden ugen er omme").
-- Hvis ja, kald commitment_record med direction="you_owe", en kort dansk summary, modparten (counterparty), thread_id, provider og det præcise citat (source_excerpt). Angiv kun due_at hvis teksten nævner en konkret dato/deadline — ellers udelad den.
-- Ignorer høflighedsfraser, nyhedsbreve, automatiske beskeder og alt vagt. I tvivl: spring tråden over.
+[nyligt-sendt] — en mail brugeren NETOP har SENDT. Hvis brugeren har givet et konkret løfte eller en aftale ("jeg sender X på fredag", "jeg vender tilbage mandag", "jeg ordner det inden ugen er omme"), kald commitment_record med direction="you_owe". Angiv kun due_at hvis teksten nævner en konkret dato/deadline.
+
+[afventer] — en tråd hvor brugeren sendte den SENESTE besked for over 3 dage siden og IKKE har fået svar. Hvis brugerens besked reelt forventer et svar (et spørgsmål, en forespørgsel, en bold der ligger hos modparten), kald commitment_record med direction="owed_to_you" — brugeren venter på svar fra modparten. Spring over hvis beskeden ikke kræver svar (ren info, "tak", bekræftelse). Angiv ikke due_at for [afventer] medmindre brugeren bad om svar inden en bestemt dato.
+
+For begge: angiv en kort dansk summary, modparten (counterparty), thread_id, provider og det præcise citat (source_excerpt). Ignorer høflighedsfraser, nyhedsbreve, automatiske beskeder og alt vagt. I tvivl: spring tråden over.
 
 Du må kun bruge thread_id'er fra listen i beskeden. Kald commitment_record én gang pr. reel forpligtelse. Svar kort på dansk når du er færdig.`;
 
@@ -255,7 +256,17 @@ export interface ScanCandidate {
   latest_text: string;
   latest_from: 'user' | 'them';
   latest_at: string;
+  // Which candidate stream this came from, so the scan prompt knows which
+  // direction to look for: 'sent_recent' (a promise you made → you_owe) vs
+  // 'stale_sent' (you spoke last >3d ago, no reply → owed_to_you).
+  kind: 'sent_recent' | 'stale_sent';
 }
+
+// Danish label shown to the model per candidate, derived from `kind`.
+const SCAN_KIND_LABEL: Record<ScanCandidate['kind'], string> = {
+  sent_recent: 'nyligt-sendt',
+  stale_sent: 'afventer',
+};
 
 export function buildCommitmentScanPrompt(input: { candidates: ScanCandidate[]; nowIso?: string }): BuildMailTriagePromptResult {
   const system: ClaudeSystemBlock[] = [
@@ -265,10 +276,10 @@ export function buildCommitmentScanPrompt(input: { candidates: ScanCandidate[]; 
     ? `Dags dato: ${formatDanishDate(input.nowIso)} (tidszone Europe/Copenhagen).`
     : '';
   const lines = input.candidates.map((c) =>
-    `- thread_id=${c.thread_id} | provider=${c.provider} | modpart=${c.counterparty} | emne=${c.subject}` +
+    `- [${SCAN_KIND_LABEL[c.kind]}] thread_id=${c.thread_id} | provider=${c.provider} | modpart=${c.counterparty} | emne=${c.subject}` +
     ` | sendt=${c.latest_at} | tekst=${c.latest_text.slice(0, 500)}`,
   );
-  const body = [...(dateLine ? [dateLine, ''] : []), 'Gennemgå disse sendte tråde:', '', ...lines].join('\n');
+  const body = [...(dateLine ? [dateLine, ''] : []), 'Gennemgå disse tråde:', '', ...lines].join('\n');
   return { system, messages: [{ role: 'user', content: body }] };
 }
 

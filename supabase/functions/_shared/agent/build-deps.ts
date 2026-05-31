@@ -415,12 +415,71 @@ export async function listSentCandidates(
           latest_text: msg.snippet ?? '',
           latest_from: 'user',
           latest_at: dateHeader ? new Date(dateHeader).toISOString() : new Date().toISOString(),
+          kind: 'sent_recent',
         });
       }
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (!msg.includes('no google refresh token')) console.warn('[agent-commitments] sent scan (google) failed for', userId, msg);
+  }
+  return out;
+}
+
+// Stale "waiting on a reply" candidates (Slice 2 → owed_to_you). Find sent
+// messages 3–30 days old, then keep only threads whose LATEST message is still
+// the user's own (label SENT) — i.e. nobody replied, so the ball is in the other
+// party's court. The scan's Claude pass decides whether the user's message
+// actually expected a reply. Gmail-only for now (mirrors listSentCandidates);
+// Outlook is a later follow-up.
+export async function listStaleSentThreads(
+  client: SupabaseClient,
+  userId: string,
+): Promise<ScanCandidate[]> {
+  const out: ScanCandidate[] = [];
+  try {
+    const token = await loadGmailAccessToken(client, userId);
+    const listRes = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=25&q=${encodeURIComponent('in:sent older_than:3d newer_than:30d')}`,
+      { headers: { authorization: `Bearer ${token}` } },
+    );
+    if (listRes.ok) {
+      const list = await listRes.json() as { messages?: Array<{ id: string; threadId: string }> };
+      const seen = new Set<string>();
+      for (const m of list.messages ?? []) {
+        if (seen.has(m.threadId)) continue;
+        seen.add(m.threadId);
+        const thRes = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/threads/${m.threadId}?format=metadata&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
+          { headers: { authorization: `Bearer ${token}` } },
+        );
+        if (!thRes.ok) continue;
+        const th = await thRes.json() as {
+          messages?: Array<{ labelIds?: string[]; snippet?: string; payload?: { headers?: Array<{ name: string; value: string }> } }>;
+        };
+        const msgs = th.messages ?? [];
+        if (msgs.length === 0) continue;
+        const last = msgs[msgs.length - 1];                  // Gmail returns messages oldest-first
+        // Keep only threads where the USER spoke last — a reply would have
+        // landed an inbound (non-SENT) message after theirs.
+        if (!(last.labelIds ?? []).includes('SENT')) continue;
+        const h = (n: string) => last.payload?.headers?.find((x) => x.name.toLowerCase() === n)?.value ?? '';
+        const dateHeader = h('date');
+        out.push({
+          thread_id: m.threadId,
+          provider: 'google',
+          counterparty: h('to'),
+          subject: h('subject'),
+          latest_text: last.snippet ?? '',
+          latest_from: 'user',
+          latest_at: dateHeader ? new Date(dateHeader).toISOString() : new Date().toISOString(),
+          kind: 'stale_sent',
+        });
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes('no google refresh token')) console.warn('[agent-commitments] stale-sent scan (google) failed for', userId, msg);
   }
   return out;
 }

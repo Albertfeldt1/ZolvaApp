@@ -1396,7 +1396,7 @@ Deno.test('runCommitmentScan records each commitment_record tool call', async ()
 
   const res = await runCommitmentScan({
     userId: 'u1',
-    candidates: [{ thread_id: 't1', provider: 'google', counterparty: 'Allan', subject: 'Q3', latest_text: 'jeg sender decket på fredag', latest_from: 'user', latest_at: '2026-06-01T10:00:00Z' }],
+    candidates: [{ thread_id: 't1', provider: 'google', counterparty: 'Allan', subject: 'Q3', latest_text: 'jeg sender decket på fredag', latest_from: 'user', latest_at: '2026-06-01T10:00:00Z', kind: 'sent_recent' }],
     deps,
   });
 
@@ -1406,4 +1406,46 @@ Deno.test('runCommitmentScan records each commitment_record tool call', async ()
   assertEquals(recorded[0].due_inferred, true);
   assertEquals(recorded[0].due_at, '2026-06-03T10:00:00.000Z');
   assertEquals(recorded[0].last_message_at, '2026-06-01T10:00:00Z');
+});
+
+Deno.test('runCommitmentScan records an owed_to_you from a stale candidate (anchor +3d)', async () => {
+  const recorded: Array<Record<string, unknown>> = [];
+  let turn = 0;
+  const { deps: baseDeps } = makeDeps();
+  const deps = {
+    ...baseDeps,
+    checkBudget: async () => ({ exceeded: false }),
+    openRun: async () => 'run-1',
+    incrementBudget: async () => {},
+    finishRun: async () => {},
+    executeTool: async (_a: unknown, payload: Record<string, unknown>) => Promise.resolve({ mode: 'executed' as const, reversible: false, reverseToken: null, recordPayload: payload }),
+    recordCommitment: async (_uid: string, _run: string, c: Record<string, unknown>) => { recorded.push(c); return 'inserted' as const; },
+    callClaudeTurn: async () => {
+      turn++;
+      if (turn === 1) {
+        return Promise.resolve({
+          stop_reason: 'tool_use',
+          usage: { input_tokens: 10, output_tokens: 5 },
+          content: [{ type: 'tool_use' as const, id: 'tu1', name: 'commitment_record', input: {
+            direction: 'owed_to_you', counterparty: 'Mette', summary: 'afventer svar om mødetid',
+            thread_id: 't9', provider: 'google', source_excerpt: 'kan du fredag?',
+          } }],
+        });
+      }
+      return Promise.resolve({ stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 }, content: [{ type: 'text' as const, text: 'færdig' }] });
+    },
+  } as unknown as Parameters<typeof runCommitmentScan>[0]['deps'];
+
+  const res = await runCommitmentScan({
+    userId: 'u1',
+    candidates: [{ thread_id: 't9', provider: 'google', counterparty: 'Mette', subject: 'Mødetid?', latest_text: 'kan du fredag?', latest_from: 'user', latest_at: '2026-05-25T09:00:00Z', kind: 'stale_sent' }],
+    deps,
+  });
+
+  assertEquals(res.status, 'ok');
+  assertEquals(recorded.length, 1);
+  assertEquals(recorded[0].direction, 'owed_to_you');
+  assertEquals(recorded[0].last_message_at, '2026-05-25T09:00:00Z');
+  // owed_to_you inferred due = anchor (last sent) + 3 days.
+  assertEquals(recorded[0].due_at, '2026-05-28T09:00:00.000Z');
 });

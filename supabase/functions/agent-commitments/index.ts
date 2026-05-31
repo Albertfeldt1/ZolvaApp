@@ -12,12 +12,14 @@ import { runCommitmentScan } from '../_shared/agent/runner.ts';
 import {
   buildDeps,
   listSentCandidates,
+  listStaleSentThreads,
   selectOpenCommitments,
   updateCommitment,
   markScanned,
 } from '../_shared/agent/build-deps.ts';
 import { applyReconcile, selectDue, buildCommitmentNudge, copenhagenDay } from '../_shared/agent/commitments.ts';
 import type { CommitmentRow } from '../_shared/agent/commitments.ts';
+import type { ScanCandidate } from '../_shared/agent/prompt.ts';
 import { isQuietHours } from '../_shared/agent/quiet-hours.ts';
 import { deriveIdemKey } from '../_shared/agent/idem.ts';
 
@@ -78,7 +80,23 @@ serve(async (req) => {
       let scanned = false;
       const stale = !scannedAt || (now.getTime() - new Date(scannedAt).getTime() > SCAN_STALE_MS);
       if (stale) {
-        const candidates = await listSentCandidates(client, uid);
+        // Two candidate streams, one scan: recent sent mail (→ you_owe promises)
+        // and stale threads the user spoke last in (→ owed_to_you, waiting).
+        const [recent, staleSent] = await Promise.all([
+          listSentCandidates(client, uid),
+          listStaleSentThreads(client, uid),
+        ]);
+        // Dedup by thread_id: the 3–7d windows overlap, and showing one thread
+        // under both labels lets Claude record BOTH a you_owe and an owed_to_you
+        // row for it — the direction-agnostic nudge idem then strands one as a
+        // zombie. Prefer the recent (you_owe) view: promises are time-sensitive,
+        // and a thread that's only "waiting" ages out of the 7d recent window and
+        // is then seen solely as stale → owed_to_you.
+        const byThread = new Map<string, ScanCandidate>();
+        for (const c of [...recent, ...staleSent]) {
+          if (!byThread.has(c.thread_id) || c.kind === 'sent_recent') byThread.set(c.thread_id, c);
+        }
+        const candidates = [...byThread.values()];
         if (candidates.length > 0) {
           await runCommitmentScan({ userId: uid, candidates, deps });
           scanned = true;

@@ -130,15 +130,32 @@ Deno.test('COMMITMENT_SCAN_TOOLS offers only commitment_record', () => {
   assertEquals(COMMITMENT_SCAN_TOOLS.map((t) => t.name), ['commitment_record']);
 });
 
-Deno.test('buildCommitmentScanPrompt lists candidate threads', () => {
+Deno.test('buildCommitmentScanPrompt lists candidate threads with their kind label', () => {
   const { system, messages } = buildCommitmentScanPrompt({
-    candidates: [{
-      thread_id: 't1', provider: 'google', counterparty: 'Allan',
-      subject: 'Q3', latest_text: 'Jeg sender decket på fredag', latest_from: 'user',
-      latest_at: '2026-06-01T10:00:00Z',
-    }],
+    candidates: [
+      {
+        thread_id: 't1', provider: 'google', counterparty: 'Allan',
+        subject: 'Q3', latest_text: 'Jeg sender decket på fredag', latest_from: 'user',
+        latest_at: '2026-06-01T10:00:00Z', kind: 'sent_recent',
+      },
+      {
+        thread_id: 't2', provider: 'google', counterparty: 'Mette',
+        subject: 'Mødetid?', latest_text: 'Kan du fredag?', latest_from: 'user',
+        latest_at: '2026-05-25T10:00:00Z', kind: 'stale_sent',
+      },
+    ],
     nowIso: '2026-06-01T12:00:00Z',
   });
   assertEquals(system.length, 1);
-  assertEquals(String(messages[0].content).includes('t1'), true);
+  const body = String(messages[0].content);
+  assertEquals(body.includes('t1') && body.includes('t2'), true);
+  // Each candidate carries its Danish kind label so the model knows the direction.
+  assertEquals(body.includes('[nyligt-sendt]') && body.includes('[afventer]'), true);
+});
+
+Deno.test('commitment scan prompt covers both directions (you_owe + owed_to_you)', () => {
+  const { system } = buildCommitmentScanPrompt({ candidates: [], nowIso: '2026-06-01T12:00:00Z' });
+  const text = system[0].type === 'text' ? system[0].text : '';
+  assertEquals(text.includes('you_owe') && text.includes('owed_to_you'), true);
+  assertEquals(text.includes('afventer'), true);
 });
