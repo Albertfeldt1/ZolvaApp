@@ -26,6 +26,7 @@ import {
 } from './outlook.ts';
 import { gmailGetBody, outlookGetBody } from './mail-body.ts';
 import { googleListEvents, outlookListEvents } from './calendar.ts';
+import { computeFreeSlots, type BusyInterval } from '../free-slots.ts';
 import {
   googleCreateEvent,
   outlookCreateEvent,
@@ -336,6 +337,54 @@ export async function executeTool(
         reversible: false,
         reverseToken: null,
         recordPayload: { provider, start_iso: startIso, end_iso: endIso, events },
+      };
+    }
+    case 'cal.find_free_slots': {
+      // Context-only, like cal.list_events: read busy events in the window,
+      // then compute free slots deterministically. No agent_actions row.
+      const durationMinutes = typeof payload.duration_minutes === 'number'
+        ? payload.duration_minutes
+        : 30;
+      const daysAhead = typeof payload.days_ahead === 'number' ? payload.days_ahead : 7;
+      const now = new Date();
+      const fromIso = now.toISOString();
+      const toIso = new Date(now.getTime() + daysAhead * 86_400_000).toISOString();
+
+      let events: Awaited<ReturnType<typeof googleListEvents>>;
+      if (provider === 'google') {
+        events = await googleListEvents({
+          fetch: ctx.fetch,
+          accessToken: ctx.gmail.accessToken,
+          startIso: fromIso,
+          endIso: toIso,
+        });
+      } else {
+        if (!ctx.outlook) {
+          throw new Error('outlook cal_find_free_slots requested but outlook context missing');
+        }
+        events = await outlookListEvents({
+          fetch: ctx.fetch,
+          accessToken: ctx.outlook.accessToken,
+          startIso: fromIso,
+          endIso: toIso,
+        });
+      }
+
+      const busy: BusyInterval[] = events.map((e) => ({ start: e.start, end: e.end }));
+      const slots = computeFreeSlots(busy, {
+        fromIso,
+        toIso,
+        tz: 'Europe/Copenhagen',
+        workdayStartHour: 9,
+        workdayEndHour: 17,
+        slotMinutes: durationMinutes,
+        maxSlots: 3,
+      });
+      return {
+        mode: 'executed',
+        reversible: false,
+        reverseToken: null,
+        recordPayload: { provider, slots },
       };
     }
     case 'mail.search': {

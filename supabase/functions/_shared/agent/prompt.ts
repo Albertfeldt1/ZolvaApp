@@ -17,6 +17,7 @@ const TOOL_NAME_TO_ACTION: Record<string, ActionType> = {
   mail_get_body: 'mail.get_body',
   mail_search: 'mail.search',
   cal_list_events: 'cal.list_events',
+  cal_find_free_slots: 'cal.find_free_slots',
   drive_search: 'drive.search',
   cal_create_event: 'cal.create_event',
   cal_update_event: 'cal.update_event',
@@ -122,6 +123,23 @@ export const MAIL_TRIAGE_TOOLS: ReadonlyArray<{
         provider: { type: 'string', enum: ['google', 'microsoft'] },
       },
       required: ['start_iso', 'end_iso', 'provider'],
+    },
+  },
+  {
+    name: 'cal_find_free_slots',
+    description:
+      'Find open meeting slots in the user calendar over the coming work days, '
+      + 'respecting working hours (09–17 Europe/Copenhagen) and existing events. Use this '
+      + 'when a human asks to meet but proposes NO concrete time, then offer ~3 of the '
+      + 'returned slots in a drafted reply. Returns { slots: [{ start_iso, end_iso }] } in UTC.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        provider: { type: 'string', enum: ['google', 'microsoft'] },
+        duration_minutes: { type: 'integer', minimum: 15, maximum: 240 },
+        days_ahead: { type: 'integer', minimum: 1, maximum: 14 },
+      },
+      required: ['provider'],
     },
   },
   {

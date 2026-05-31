@@ -3,10 +3,11 @@ import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { actionTypeFromToolName, buildMailTriagePrompt, buildReflectPrompt, MAIL_TRIAGE_TOOLS, REFLECT_TOOLS } from './prompt.ts';
 import { COMMITMENT_SCAN_TOOLS, buildCommitmentScanPrompt } from './prompt.ts';
 
-Deno.test('MAIL_TRIAGE_TOOLS exposes nine tools (archive/label/flag retired — need gmail.modify)', () => {
+Deno.test('MAIL_TRIAGE_TOOLS exposes ten tools (archive/label/flag retired — need gmail.modify)', () => {
   const names = MAIL_TRIAGE_TOOLS.map((t) => t.name).sort();
   assertEquals(names, [
     'cal_create_event',
+    'cal_find_free_slots',
     'cal_list_events',
     'cal_update_event',
     'drive_search',

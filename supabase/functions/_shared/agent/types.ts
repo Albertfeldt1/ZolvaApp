@@ -35,6 +35,7 @@ export type ActionType =
   | 'mail.get_body'
   | 'mail.search'
   | 'cal.list_events'
+  | 'cal.find_free_slots'
   | 'drive.search'
   | 'cal.rsvp'
   | 'cal.create_event'
@@ -84,6 +85,7 @@ export const DEFAULT_POLICY: Record<ActionType, PolicyMode> = {
   'mail.get_body': 'auto',
   'mail.search': 'auto',
   'cal.list_events': 'auto',
+  'cal.find_free_slots': 'auto',
   'drive.search': 'auto',
   'cal.rsvp': 'propose',
   'cal.create_event': 'propose',
@@ -114,6 +116,7 @@ export const ACTION_DEFAULT_MODE: Record<ActionType, ActionMode> = {
   'mail.get_body': 'auto',
   'mail.search': 'auto',
   'cal.list_events': 'auto',
+  'cal.find_free_slots': 'auto',
   'drive.search': 'auto',
   'cal.rsvp': 'propose',
   'cal.create_event': 'propose',
