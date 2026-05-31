@@ -1,0 +1,15 @@
+-- agent-memory-followups sweep — a few times across the day (quiet-hours gating
+-- is in-function). Manual apply (pg_cron templates are NOT auto-applied). Replace
+-- PASTE_CRON_SECRET / PASTE_SERVICE_ROLE_KEY with the real values (service role =
+-- sb_secret_… ; see project memory) before running.
+select cron.schedule(
+  'agent-memory-followups-sweep',
+  '0 7-21/3 * * *',
+  $$
+  select net.http_post(
+    url := 'https://sjkhfkatmeqtsrysixop.supabase.co/functions/v1/agent-memory-followups',
+    headers := jsonb_build_object('x-cron-secret', 'PASTE_CRON_SECRET', 'Authorization', 'Bearer PASTE_SERVICE_ROLE_KEY'),
+    body := '{}'::jsonb
+  );
+  $$
+);
