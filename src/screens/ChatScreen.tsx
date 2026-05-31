@@ -26,6 +26,11 @@ import * as Haptics from 'expo-haptics';
 import { Stone } from '../design/primitives/Stone';
 import { useTheme } from '../design/useTheme';
 import { DrivePickerModal } from '../components/DrivePickerModal';
+import {
+  MessageActionMenu,
+  type BubbleRect,
+  type MessageActionTarget,
+} from '../components/MessageActionMenu';
 import { formatClock, formatToday } from '../lib/date';
 import { useChat, useChatSuggestions } from '../lib/hooks';
 import { ingestPickedDriveFiles } from '../lib/onboarding-backfill';
@@ -83,20 +88,24 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
   const { data: suggestions } = useChatSuggestions();
   const [input, setInput] = useState(initialDraft ?? '');
   const [drivePickerVisible, setDrivePickerVisible] = useState(false);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [actionMenu, setActionMenu] = useState<MessageActionTarget | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
-  // Long-press a chat bubble to copy its text. Brief haptic + "Kopieret"
-  // confirmation that clears itself.
-  const handleCopyMessage = async (m: ChatMessage) => {
+  // Long-press a chat bubble → iMessage-style pop + copy menu. The pop haptic
+  // fires when the menu opens; the success haptic on copy.
+  const openActionMenu = (m: ChatMessage, rect: BubbleRect) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setActionMenu({ id: m.id, text: m.text, rect, isUser: m.from === 'user' });
+  };
+  const copyFromMenu = async () => {
+    if (!actionMenu) return;
     try {
-      await Clipboard.setStringAsync(m.text);
+      await Clipboard.setStringAsync(actionMenu.text);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setCopiedId(m.id);
-      setTimeout(() => setCopiedId((c) => (c === m.id ? null : c)), 1400);
     } catch {
       // Clipboard can reject if the app is backgrounded; nothing to recover.
     }
+    setActionMenu(null);
   };
 
   // Auto-send the seeded draft once on mount when callers (e.g. observation
@@ -278,7 +287,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
           )}
 
           {messages.map((m) => (
-            <Bubble key={m.id} msg={m} t={t} type={type} fonts={fonts} radius={radius} spacing={spacing} surface={surface} onPickDrive={() => setDrivePickerVisible(true)} onCopy={() => handleCopyMessage(m)} copied={copiedId === m.id} />
+            <Bubble key={m.id} msg={m} t={t} type={type} fonts={fonts} radius={radius} spacing={spacing} surface={surface} onPickDrive={() => setDrivePickerVisible(true)} onLongPress={(rect) => openActionMenu(m, rect)} hidden={actionMenu?.id === m.id} />
           ))}
 
           {typing && <TypingIndicator t={t} spacing={spacing} radius={radius} />}
@@ -391,6 +400,12 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
         </View>
         </View>
       </KeyboardAvoidingView>
+
+      <MessageActionMenu
+        target={actionMenu}
+        onCopy={copyFromMenu}
+        onClose={() => setActionMenu(null)}
+      />
 
       <DrivePickerModal
         visible={drivePickerVisible}
@@ -577,25 +592,31 @@ function Bubble({
   spacing,
   surface,
   onPickDrive,
-  onCopy,
-  copied,
+  onLongPress,
+  hidden,
 }: {
   msg: ChatMessage;
   onPickDrive?: () => void;
-  onCopy?: () => void;
-  copied?: boolean;
+  onLongPress?: (rect: BubbleRect) => void;
+  // Hidden (kept in layout) while its long-press menu is open, so only the
+  // lifted copy in the overlay is visible — no doubled bubble.
+  hidden?: boolean;
 } & ThemeSlice) {
   const isZ = msg.from === 'zolva';
-  // Long-press a bubble to copy its text (handled by the parent via onCopy).
-  const copiedPill = copied ? (
-    <Text style={{ ...type.caption, color: t.ink3, marginTop: 2 }}>Kopieret</Text>
-  ) : null;
+  const pressRef = useRef<View>(null);
+  // Measure the bubble's window position so the long-press menu can pin its
+  // enlarged copy exactly over the original.
+  const measureAndOpen = () => {
+    pressRef.current?.measureInWindow((x, y, w, h) => {
+      if (w > 0 && h > 0) onLongPress?.({ x, y, w, h });
+    });
+  };
   if (isZ) {
     return (
       <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-end' }}>
         <Stone size={28} jumpOnTap={false} />
-        <View style={{ maxWidth: '82%' }}>
-        <Pressable onLongPress={onCopy} delayLongPress={300}>
+        <View style={{ maxWidth: '82%', opacity: hidden ? 0 : 1 }}>
+        <Pressable ref={pressRef} onLongPress={measureAndOpen} delayLongPress={300}>
         <GlassFrostedCard
           radius={18}
           style={{
@@ -628,15 +649,14 @@ function Bubble({
           )}
         </GlassFrostedCard>
         </Pressable>
-        {copiedPill}
         </View>
       </View>
     );
   }
   return (
     <View style={{ flexDirection: 'row-reverse' }}>
-      <View style={{ maxWidth: '75%', alignItems: 'flex-end' }}>
-      <Pressable onLongPress={onCopy} delayLongPress={300}>
+      <View style={{ maxWidth: '75%', alignItems: 'flex-end', opacity: hidden ? 0 : 1 }}>
+      <Pressable ref={pressRef} onLongPress={measureAndOpen} delayLongPress={300}>
       <View
         style={{
           paddingVertical: spacing.md,
@@ -651,7 +671,6 @@ function Bubble({
         </Text>
       </View>
       </Pressable>
-      {copiedPill}
       </View>
     </View>
   );
