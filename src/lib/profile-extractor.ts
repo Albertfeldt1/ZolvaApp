@@ -76,6 +76,27 @@ function computeExpiresAt(category: FactCategory, referentDate: string | null | 
   return new Date(Date.now() + DEFAULT_DECAY_MS);
 }
 
+// Follow-up-eligible categories are the actionable ones (same set that decays).
+// A memory follow-up only makes sense for a thing-to-do, not a preference/role.
+const FOLLOWUP_CATEGORIES: ReadonlySet<FactCategory> = DECAY_CATEGORIES;
+
+// follow_up_at = the referent day at 00:00 UTC (~02:00 Copenhagen). The sweep is
+// quiet-hours gated, so an overnight-due fact actually surfaces the first sweep
+// after quiet hours that morning. Null when the fact is not a dated actionable
+// item — those never enter the follow-up sweep. v1 surfaces ON the day; a smarter
+// lead (e.g. two weeks before an expiry) is a future refinement.
+export function computeFollowUpAt(
+  category: FactCategory,
+  referentDate: string | null | undefined,
+): Date | null {
+  if (!FOLLOWUP_CATEGORIES.has(category)) return null;
+  if (referentDate && /^\d{4}-\d{2}-\d{2}$/.test(referentDate)) {
+    const base = Date.parse(`${referentDate}T00:00:00Z`);
+    if (Number.isFinite(base)) return new Date(base);
+  }
+  return null;
+}
+
 const CONFIDENCE_THRESHOLD = 0.6;
 const DEBOUNCE_MS = 2000;
 
@@ -137,6 +158,7 @@ async function runNow(payload: ExtractionPayload): Promise<void> {
       category: c.category,
       source: payload.source,
       expiresAt: computeExpiresAt(c.category, c.referentDate ?? null),
+      followUpAt: computeFollowUpAt(c.category, c.referentDate ?? null),
     });
     invalidatePreamble(payload.userId);
   } catch (err) {
