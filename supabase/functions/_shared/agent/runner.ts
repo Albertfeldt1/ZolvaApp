@@ -16,7 +16,7 @@ import type { CallClaudeResult, ClaudeSystemBlock, ClaudeUserMessage } from './c
 import type { ExecuteOptions, ExecuteReverseToken } from './tools/dispatch.ts';
 import type { ThreadBrief } from './prompt.ts';
 
-import { actionTypeFromToolName, buildMailTriagePrompt, MAIL_TRIAGE_TOOLS, REFLECT_TOOLS, buildReflectPrompt, buildCommitmentScanPrompt, COMMITMENT_SCAN_TOOLS } from './prompt.ts';
+import { actionTypeFromToolName, buildMailTriagePrompt, MAIL_TRIAGE_TOOLS, REFLECT_TOOLS, buildReflectPrompt, buildCommitmentScanPrompt, COMMITMENT_SCAN_TOOLS, buildMemoryFollowupPrompt, MEMORY_FOLLOWUP_TOOLS } from './prompt.ts';
 import type { ScanCandidate } from './prompt.ts';
 import { resolveDue } from './commitments.ts';
 import { buildThreadAllowlist, verifyThreadId } from './verify.ts';
@@ -650,6 +650,42 @@ export async function runReflect(input: RunReflectInput): Promise<RunResult> {
   if (budget.exceeded) return { runId: null, processed: 0, status: 'budget_exceeded' };
   if (events.length === 0) return { runId: null, processed: 0, status: 'ok' };
   return executeRun(userId, 'reflect.sweep', events, deps, reflectStrategy);
+}
+
+// Memory-followups path (agent-memory-followups): context is the due facts,
+// carried on fact.due event payloads. Same read+nudge+draft tools as triage,
+// EMPTY allowlist (the agent may only read threads mail_search returned this run
+// — identical safety model to reflect).
+export const memoryFollowupStrategy: AgentStrategy = {
+  async buildContext(_userId, events, _deps) {
+    const facts = events.map((e) => ({
+      fact_id: String(e.payload.fact_id ?? ''),
+      text: String(e.payload.text ?? ''),
+      follow_up_at: String(e.payload.follow_up_at ?? ''),
+    }));
+    const { system, messages } = buildMemoryFollowupPrompt({ facts, nowIso: new Date().toISOString() });
+    return { system, messages, tools: MEMORY_FOLLOWUP_TOOLS };
+  },
+  seedAllowlist: () => new Set<string>(),
+  extendAllowlist: (action, recordPayload) => {
+    if (action !== 'mail.search') return [];
+    const hits = Array.isArray(recordPayload.hits) ? recordPayload.hits : [];
+    return hits.map((h) => (h && typeof h === 'object' ? String((h as { thread_id?: unknown }).thread_id ?? '') : '')).filter(Boolean);
+  },
+};
+
+export interface RunMemoryFollowupInput {
+  userId: string;
+  events: ClaimedEvent[]; // already-claimed fact.due rows
+  deps: RunnerDeps;
+}
+
+export async function runMemoryFollowup(input: RunMemoryFollowupInput): Promise<RunResult> {
+  const { userId, events, deps } = input;
+  const budget = await deps.checkBudget(userId);
+  if (budget.exceeded) return { runId: null, processed: 0, status: 'budget_exceeded' };
+  if (events.length === 0) return { runId: null, processed: 0, status: 'ok' };
+  return executeRun(userId, 'memory.followup', events, deps, memoryFollowupStrategy);
 }
 
 export interface CommitmentScanInput {

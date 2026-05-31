@@ -21,7 +21,8 @@ export type AgentRunTrigger =
   | 'reflect.evening'
   | 'reflect.sweep'
   | 'commitments.scan'
-  | 'commitments.nudge';
+  | 'commitments.nudge'
+  | 'memory.followup';
 
 export type ActionType =
   | 'mail.label'
