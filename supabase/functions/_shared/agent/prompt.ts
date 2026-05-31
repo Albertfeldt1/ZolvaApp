@@ -317,6 +317,45 @@ export function buildReflectPrompt(input: { events: ReflectEvent[]; nowIso?: str
   return { system, messages: [{ role: 'user', content: body }] };
 }
 
+const MAIL_DRAFT_REPLY_TOOL = MAIL_TRIAGE_TOOLS.find((t) => t.name === 'mail_draft_reply')!;
+const MAIL_SEND_REPLY_TOOL = MAIL_TRIAGE_TOOLS.find((t) => t.name === 'mail_send_reply')!;
+
+export const MEMORY_FOLLOWUP_TOOLS = [
+  NUDGE_PUSH_TOOL,
+  MAIL_SEARCH_TOOL,
+  MAIL_GET_BODY_TOOL,
+  MAIL_DRAFT_REPLY_TOOL,
+  MAIL_SEND_REPLY_TOOL,
+] as const;
+
+const MEMORY_FOLLOWUP_SYSTEM_PROMPT = `Du er Zolva. Brugeren har gemt nogle fakta med en dato, og den dato er nu kommet.
+
+For hvert faktum i brugerens besked:
+- Afgør om en kort heads-up reelt hjælper brugeren i dag. I tvivl: gør ingenting for det faktum.
+- Hvis det handler om at kontakte en bestemt person, må du først kalde mail_search (på personens navn eller emne) for at finde en relateret tråd, og mail_get_body for at læse den. Du må KUN læse tråde som mail_search har returneret — opfind ALDRIG et thread_id. Derefter må du udkaste et svar (mail_draft_reply) og foreslå det (mail_send_reply i SAMME tur, med præcis det draft_id og draft_hash som mail_draft_reply returnerede).
+- Ellers send PRÆCIS én nudge_push: en kort dansk påmindelse der nævner fakta-teksten. Maks. én nudge pr. faktum. Brug fact_id som target_id og 'memory_followup' som action_kind.
+
+Regler:
+- Svar kort på dansk efter værktøjskald. Vær konservativ: en påmindelse er bedre end en upassende mail.`;
+
+export interface FollowupFact {
+  fact_id: string;
+  text: string;
+  follow_up_at: string;
+}
+
+export function buildMemoryFollowupPrompt(input: { facts: FollowupFact[]; nowIso?: string }): BuildMailTriagePromptResult {
+  const system: ClaudeSystemBlock[] = [
+    { type: 'text', text: MEMORY_FOLLOWUP_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+  ];
+  const dateLine = input.nowIso
+    ? `Dags dato: ${formatDanishDate(input.nowIso)} (tidszone Europe/Copenhagen).`
+    : '';
+  const lines = input.facts.map((f) => `- fact_id=${f.fact_id} | tekst=${f.text}`);
+  const body = [...(dateLine ? [dateLine, ''] : []), 'Følg op på disse:', '', ...lines].join('\n');
+  return { system, messages: [{ role: 'user', content: body }] };
+}
+
 const SYSTEM_PROMPT = `Du er Zolva — en personlig assistent der triage'r brugerens indbakke i baggrunden. Du kan udføre handlinger på både Gmail og Outlook (Microsoft).
 
 Tilladte handlinger:
