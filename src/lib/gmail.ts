@@ -419,6 +419,29 @@ export async function createDraft(input: GmailComposeInput): Promise<{ id: strin
   });
 }
 
+// Sends an existing draft by id (POST /drafts/send). Gmail moves the message
+// out of Drafts and delivers it, so nothing is left behind - unlike re-sending
+// the body, which would orphan the original draft. The draft already carries
+// the appended signature and threading headers from createDraft.
+export async function sendDraft(draftId: string): Promise<void> {
+  return tryWithRefresh('google', async (accessToken) => {
+    const res = await fetchWithTimeout('google', `${BASE}/drafts/send`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ id: draftId }),
+    });
+    if (res.status === 401 || res.status === 403) {
+      throw new ProviderAuthError('google', `Gmail afvist (${res.status}).`);
+    }
+    if (!res.ok) {
+      throw new Error(`Gmail draft send failed: ${res.status} ${await res.text()}`);
+    }
+  });
+}
+
 // Sends a fresh email (not a reply to an existing thread). For replies, use
 // sendReply so threading headers are set correctly.
 export async function sendMail(input: GmailComposeInput): Promise<void> {

@@ -418,6 +418,16 @@ export async function createDraft(input: GraphComposeInput): Promise<{ id: strin
   });
 }
 
+// Sends an existing draft message by id (POST /messages/{id}/send). Outlook
+// delivers the draft and removes it from the Drafts folder - so a chat draft
+// the user confirms is sent in place, not duplicated. The draft already holds
+// the body, signature and (for replies) the threaded quoted history.
+export async function sendDraftById(id: string): Promise<void> {
+  return tryWithRefresh('microsoft', async (token) => {
+    await graphFetch<void>(token, `/me/messages/${id}/send`, { method: 'POST' });
+  });
+}
+
 export async function sendMail(input: GraphComposeInput): Promise<void> {
   if (input.replyToId) {
     // Defensive: route to replyToMessage so the rich-signature reply

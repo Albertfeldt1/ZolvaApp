@@ -128,8 +128,37 @@ export type CalendarSlot = {
 // An optional actionable affordance the chat renders below an assistant
 // message. `pick_drive_files` opens the Google Drive Picker - surfaced when a
 // Drive tool came back empty under the `drive.file` scope (the file the user
-// asked about hasn't been granted to Zolva yet).
-export type ChatMessageAction = { kind: 'pick_drive_files'; label: string };
+// asked about hasn't been granted to Zolva yet). `send_draft` carries the
+// draft the agent just created via create_draft, so the chat can offer a
+// one-tap "Send svar" (with a confirm guard) + a "Se udkast" preview without
+// the user leaving the app to open their mail client.
+export type SendDraftAction = {
+  kind: 'send_draft';
+  label: string;
+  provider: 'google' | 'microsoft' | 'icloud';
+  // Provider draft id, so Gmail/Outlook can send the exact draft (no leftover
+  // in the Drafts folder). null for iCloud - its append-draft API returns no
+  // id, so send re-posts the body via SMTP (the appended draft stays).
+  draftId: string | null;
+  to: string[];
+  cc?: string[];
+  subject: string;
+  // Raw body as the agent wrote it (no signature - that's appended at send).
+  body: string;
+  // Original mail's unified id when this is a reply (drives recordSentMail +
+  // the local "replied" dismiss). undefined for fresh mails.
+  replyToUnifiedId?: string;
+  // iCloud reply UID (numeric) for threaded SMTP sends.
+  replyToUid?: number;
+  // Gmail threading headers, kept so a body re-send fallback still threads.
+  threadId?: string;
+  inReplyTo?: string;
+  references?: string;
+};
+
+export type ChatMessageAction =
+  | { kind: 'pick_drive_files'; label: string }
+  | SendDraftAction;
 
 export type ChatMessage = {
   id: string;

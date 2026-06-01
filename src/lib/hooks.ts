@@ -66,6 +66,7 @@ import { listAllCalendars } from './calendar-providers';
 import { useCalendarVisibility } from './calendar-visibility';
 import {
   createDraft as gmailCreateDraft,
+  sendDraft as gmailSendDraft,
   getMessageBody as gmailGetMessageBody,
   initialsOf,
   listInboxMessages as listGmailMessages,
@@ -77,6 +78,7 @@ import {
 import {
   archiveMessage as graphArchiveMessage,
   createDraft as graphCreateDraft,
+  sendDraftById as graphSendDraftById,
   getMessageBody as graphGetMessageBody,
   listCalendarEvents as listGraphEvents,
   listCalendarEventsForCalendars as listGraphEventsForCalendars,
@@ -138,6 +140,7 @@ import {
 import type {
   CalendarSlot,
   ChatMessage,
+  ChatMessageAction,
   Connection,
   DoneMail,
   EventAttendee,
@@ -153,6 +156,7 @@ import type {
   Reminder,
   ReplyContext,
   Result,
+  SendDraftAction,
   Subscription,
   UpcomingEvent,
   UserProfile,
@@ -4370,7 +4374,7 @@ async function runMailComposeTool(
   name: 'create_draft' | 'send_mail',
   input: Record<string, unknown>,
   ctx: ChatCtx,
-): Promise<{ text: string; isError: boolean }> {
+): Promise<{ text: string; isError: boolean; draft?: SendDraftAction }> {
   const parsed = parseMailComposeInput(input);
   if (!parsed.ok) return { text: parsed.reason, isError: true };
   const { provider, to, cc, subject, body, replyToUnifiedId } = parsed.data;
@@ -4446,7 +4450,24 @@ async function runMailComposeTool(
 
       if (name === 'create_draft') {
         const r = await gmailCreateDraft({ to, cc, subject, body, ...threadHeaders });
-        return { text: `Udkast oprettet i Gmail (id: ${r.id || 'ukendt'}).`, isError: false };
+        return {
+          text: `Udkast oprettet i Gmail (id: ${r.id || 'ukendt'}).`,
+          isError: false,
+          draft: {
+            kind: 'send_draft',
+            label: 'Send svar',
+            provider: 'google',
+            draftId: r.id || null,
+            to,
+            cc,
+            subject,
+            body,
+            replyToUnifiedId,
+            threadId: threadHeaders.threadId,
+            inReplyTo: threadHeaders.inReplyTo,
+            references: threadHeaders.references,
+          },
+        };
       }
       await gmailSendMail({ to, cc, subject, body, ...threadHeaders });
       void recordSentMailSafe(ctx.userId, { provider: 'google', to, cc, subject, body, replyToId: replyToUnifiedId });
@@ -4469,7 +4490,23 @@ async function runMailComposeTool(
           replyToUid: providerReplyIdNum,
         });
         if (!r.ok) return { text: mapIcloudComposeError(r.error), isError: true };
-        return { text: 'Udkast oprettet i iCloud.', isError: false };
+        return {
+          text: 'Udkast oprettet i iCloud.',
+          isError: false,
+          draft: {
+            kind: 'send_draft',
+            label: 'Send svar',
+            provider: 'icloud',
+            // iCloud's append-draft returns no id, so send re-posts the body.
+            draftId: null,
+            to,
+            cc,
+            subject,
+            body,
+            replyToUnifiedId,
+            replyToUid: providerReplyIdNum,
+          },
+        };
       }
       const r = await icloudSendMail(ctx.userId, {
         to,
@@ -4492,7 +4529,21 @@ async function runMailComposeTool(
     // Microsoft
     if (name === 'create_draft') {
       const r = await graphCreateDraft({ to, cc, subject, body, replyToId: providerReplyId });
-      return { text: `Udkast oprettet i Outlook (id: ${r.id || 'ukendt'}).`, isError: false };
+      return {
+        text: `Udkast oprettet i Outlook (id: ${r.id || 'ukendt'}).`,
+        isError: false,
+        draft: {
+          kind: 'send_draft',
+          label: 'Send svar',
+          provider: 'microsoft',
+          draftId: r.id || null,
+          to,
+          cc,
+          subject,
+          body,
+          replyToUnifiedId,
+        },
+      };
     }
     if (providerReplyId) {
       // Use the existing reply endpoint for sends so threading is preserved
@@ -4514,11 +4565,63 @@ async function runMailComposeTool(
   }
 }
 
+// Sends a draft the chat agent created via create_draft, driven by the in-chat
+// "Send svar" button. Gmail/Outlook send the exact draft by id so nothing is
+// left in the Drafts folder; iCloud has no draft id, so it re-posts the body
+// via SMTP (the appended draft stays - accepted tradeoff). On success we mirror
+// the compose-tool UX: log the sent mail and dismiss the original from the
+// inbox so it exits "Venter på dig".
+export async function sendChatDraft(
+  action: SendDraftAction,
+  userId: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  const { provider, draftId, to, cc, subject, body, replyToUnifiedId } = action;
+  try {
+    if (provider === 'google') {
+      if (draftId) {
+        await gmailSendDraft(draftId);
+      } else {
+        await gmailSendMail({
+          to,
+          cc,
+          subject,
+          body,
+          threadId: action.threadId,
+          inReplyTo: action.inReplyTo,
+          references: action.references,
+        });
+      }
+    } else if (provider === 'microsoft') {
+      if (draftId) {
+        await graphSendDraftById(draftId);
+      } else {
+        await graphSendMail({ to, cc, subject, body });
+      }
+    } else {
+      if (!userId) return { ok: false, error: 'Ingen bruger-session.' };
+      const r = await icloudSendMail(userId, {
+        to,
+        cc,
+        subject,
+        body,
+        replyToUid: action.replyToUid,
+      });
+      if (!r.ok) return { ok: false, error: mapIcloudComposeError(r.error) };
+    }
+    void recordSentMailSafe(userId, { provider, to, cc, subject, body, replyToId: replyToUnifiedId });
+    if (replyToUnifiedId) markMailReplied(replyToUnifiedId);
+    return { ok: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg };
+  }
+}
+
 async function runChatTool(
   name: string,
   input: Record<string, unknown>,
   ctx: ChatCtx,
-): Promise<{ content: string; isError: boolean; suggestPicker?: boolean }> {
+): Promise<{ content: string; isError: boolean; suggestPicker?: boolean; draft?: SendDraftAction }> {
   try {
     if (name === 'list_calendars') {
       const r = await listCalendarsAcrossProviders(ctx);
@@ -4593,7 +4696,7 @@ async function runChatTool(
     }
     if (name === 'create_draft' || name === 'send_mail') {
       const r = await runMailComposeTool(name, input, ctx);
-      return { content: r.text, isError: r.isError };
+      return { content: r.text, isError: r.isError, draft: r.draft };
     }
     if (name === 'read_drive_file') {
       const id = typeof input.id === 'string' ? input.id : '';
@@ -4885,7 +4988,13 @@ export function useChat() {
       AsyncStorage.removeItem(key).catch(() => {});
       return;
     }
-    const capped = messages.slice(-CHAT_HISTORY_LIMIT);
+    // Strip send_draft actions before they hit disk: they carry the draft
+    // body and a one-tap send, so restoring the button after a reload would
+    // both write outgoing mail to local storage and risk a double-send of a
+    // draft that's usually already gone out. Keep them session-only.
+    const capped = messages
+      .slice(-CHAT_HISTORY_LIMIT)
+      .map((m) => (m.action?.kind === 'send_draft' ? { ...m, action: undefined } : m));
     AsyncStorage.setItem(key, JSON.stringify(capped)).catch(() => {});
   }, [messages, hydrated, userId]);
 
@@ -5007,6 +5116,11 @@ export function useChat() {
       // "Vælg Drive-filer" chip to the assistant message. Closure-scoped so
       // it survives the multiple return points inside runTurn.
       let drivePickerSuggested = false;
+      // Set when create_draft runs this turn. Read after runTurn resolves to
+      // attach a "Send svar" button (+ "Se udkast" preview) to the assistant
+      // message, carrying everything sendChatDraft needs to send the draft.
+      // Closure-scoped so it survives runTurn's multiple return points.
+      let draftCreatedThisTurn: SendDraftAction | null = null;
       // Set when add_reminder succeeds this turn. A reminder already captures
       // the user's intent in the reminders table, so we must NOT also run it
       // through the fact extractor - otherwise "påmind mig kl 20 om at ringe
@@ -5197,6 +5311,7 @@ export function useChat() {
               result.toolUses.map(async (t) => {
                 const r = await runChatTool(t.name, t.input, toolCtx);
                 if (r.suggestPicker) drivePickerSuggested = true;
+                if (r.draft) draftCreatedThisTurn = r.draft;
                 if (t.name === 'add_reminder' && !r.isError) reminderCreatedThisTurn = true;
                 return {
                   type: 'tool_result' as const,
@@ -5306,9 +5421,13 @@ export function useChat() {
             from: 'zolva',
             text: answer.length > 0 ? answer : CHAT_ERROR_TEXT,
             createdAt: new Date().toISOString(),
-            ...(drivePickerSuggested
-              ? { action: { kind: 'pick_drive_files' as const, label: 'Vælg Drive-filer' } }
-              : {}),
+            // A fresh draft's "Send svar" button takes precedence over the
+            // Drive picker chip (they don't co-occur in practice).
+            ...(draftCreatedThisTurn
+              ? { action: draftCreatedThisTurn as ChatMessageAction }
+              : drivePickerSuggested
+                ? { action: { kind: 'pick_drive_files' as const, label: 'Vælg Drive-filer' } }
+                : {}),
           };
           setMessages((cur) => [...cur, assistantMsg]);
           if (userId) {
@@ -5366,7 +5485,15 @@ export function useChat() {
     }
   }, [userId, demo]);
 
-  return { data: messages, typing, loading: false, error: null as Error | null, send, clear };
+  // Sends a draft the agent created in this chat (the "Send svar" button).
+  // The screen owns the per-message "Sender…/Sendt" visual state; the action
+  // is dropped from disk on persist, so a reload won't re-show the button.
+  const sendDraft = useCallback(
+    (action: SendDraftAction) => sendChatDraft(action, userId ?? null),
+    [userId],
+  );
+
+  return { data: messages, typing, loading: false, error: null as Error | null, send, clear, sendDraft };
 }
 
 export function usePendingFacts(): Result<Fact[]> & {
