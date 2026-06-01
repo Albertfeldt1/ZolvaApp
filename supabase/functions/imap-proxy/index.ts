@@ -36,6 +36,26 @@ async function getImapFlow(): Promise<typeof ImapFlow> {
   return _ImapFlowCtor;
 }
 
+// imapflow@1.3.2 has a failure mode where an unexpectedly-dropped TLS socket
+// (e.g. Apple throttling the edge egress IP mid-operation) makes its own
+// socket-close handler call ImapFlow.close(), which throws "Connection not
+// available" as an UNCAUGHT exception inside an event callback — killing the
+// whole isolate before any try/catch or wall-clock deadline can run (audit row
+// stuck at success=NULL, client gets no response at all). Swallow these at the
+// global level so the in-flight request survives: the orphaned operation promise
+// then trips its withDeadline and the handler returns a clean, retryable error
+// that actually gets recorded, instead of the function dying silently.
+globalThis.addEventListener('unhandledrejection', (e) => {
+  const ev = e as PromiseRejectionEvent;
+  console.warn('[imap-proxy] swallowed unhandledrejection:', ev.reason instanceof Error ? ev.reason.message : String(ev.reason));
+  ev.preventDefault();
+});
+globalThis.addEventListener('error', (e) => {
+  const ev = e as ErrorEvent;
+  console.warn('[imap-proxy] swallowed uncaught error:', ev.message);
+  ev.preventDefault();
+});
+
 // SMTP target. We speak the protocol directly rather than pulling a
 // denomailer / nodemailer dependency. Apple supports both 587 (STARTTLS)
 // and 465 (implicit TLS); we use 465 because Supabase Edge appears to
@@ -428,7 +448,7 @@ async function handleValidate(
 
 async function newImapClient(email: string, password: string): Promise<ImapFlow> {
   const Ctor = await getImapFlow();
-  return new Ctor({
+  const client = new Ctor({
     host: IMAP_HOST,
     port: IMAP_PORT,
     secure: true,
@@ -437,6 +457,13 @@ async function newImapClient(email: string, password: string): Promise<ImapFlow>
     socketTimeout: COMMAND_TIMEOUT_MS,
     greetingTimeout: CONNECT_TIMEOUT_MS,
   });
+  // Without an 'error' listener, imapflow's EventEmitter rethrows socket errors
+  // as uncaught exceptions. Attach one so a dropped connection surfaces as a
+  // rejected operation (caught by mapImapError) rather than crashing the isolate.
+  client.on('error', (err: unknown) => {
+    console.warn('[imap-proxy] imap client error event:', err instanceof Error ? err.message : String(err));
+  });
+  return client;
 }
 
 function normalizePassword(input: string): string {
