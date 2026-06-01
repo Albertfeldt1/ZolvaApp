@@ -54,6 +54,13 @@ const IMAP_HOST = 'imap.mail.me.com';
 const IMAP_PORT = 993;
 const CONNECT_TIMEOUT_MS = 5_000;
 const COMMAND_TIMEOUT_MS = 10_000;
+// Hard wall-clock deadlines for append-draft. imapflow's socketTimeout measures
+// socket INACTIVITY, so an APPEND that stalls mid-literal (socket still moving
+// bytes) can outlive it and hang the whole invocation until the edge runtime
+// kills it — leaving the audit row stuck at success=NULL with no response. These
+// guarantee the handler always returns a mapped error instead of dying silently.
+const APPEND_IMAP_DEADLINE_MS = 14_000;
+const THREADING_FETCH_DEADLINE_MS = 6_000;
 const RATE_LIMIT_VALIDATE = 10;       // per hour per user
 const RATE_LIMIT_LIST_INBOX = 60;     // per hour per user
 const RATE_LIMIT_GET_BODY = 120;      // per hour per user (one fetch per opened mail)
@@ -436,7 +443,43 @@ function normalizePassword(input: string): string {
   return input.replace(/[\s-]/g, '');
 }
 
+// Rejects with StepTimeoutError if `p` doesn't settle within `ms`. Unlike
+// imapflow's inactivity-based socketTimeout, this wall-clock deadline fires
+// even when a command is slowly progressing or stuck in a literal/continuation.
+class StepTimeoutError extends Error {
+  constructor(public step: string, ms: number) {
+    super(`append-draft step '${step}' timed out after ${ms}ms`);
+    this.name = 'StepTimeoutError';
+  }
+}
+class DraftsFolderError extends Error {
+  constructor() {
+    super('drafts-folder-not-found');
+    this.name = 'DraftsFolderError';
+  }
+}
+function withDeadline<T>(p: Promise<T>, ms: number, step: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new StepTimeoutError(step, ms)), ms);
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 function mapImapError(caughtErr: unknown): Response {
+  // Drafts folder genuinely not found — distinct, non-transient.
+  if (caughtErr instanceof DraftsFolderError) {
+    return err('protocol', 502, 'drafts-folder-not-found');
+  }
+  // A step blew its wall-clock deadline. Log WHICH step so the failing IMAP
+  // operation is identifiable from the function logs, then surface a retryable
+  // timeout to the client.
+  if (caughtErr instanceof StepTimeoutError) {
+    console.warn(`[imap-proxy] ${caughtErr.message}`);
+    return err('timeout', 504);
+  }
   const msg = caughtErr instanceof Error ? caughtErr.message : String(caughtErr);
   // imapflow throws structured errors with serverResponseCode
   const code =
@@ -1523,8 +1566,15 @@ async function handleAppendDraft(
   let threading: ThreadingHeaders = {};
   if (typeof body.reply_to_uid === 'number' && Number.isFinite(body.reply_to_uid)) {
     try {
-      threading = await fetchThreadingHeaders(email, password, body.reply_to_uid);
+      console.warn('[imap-proxy] append-draft: step=threading-fetch start');
+      threading = await withDeadline(
+        fetchThreadingHeaders(email, password, body.reply_to_uid),
+        THREADING_FETCH_DEADLINE_MS,
+        'threading-fetch',
+      );
+      console.warn('[imap-proxy] append-draft: step=threading-fetch ok');
     } catch (e) {
+      // Non-fatal: a draft without threading headers is still a valid draft.
       console.warn('[imap-proxy] append-draft threading-header fetch failed:', e instanceof Error ? e.message : String(e));
     }
   }
@@ -1543,32 +1593,44 @@ async function handleAppendDraft(
 
   let client: ImapFlow | null = null;
   try {
-    client = await newImapClient(email, password);
-    await client.connect();
-    // Resolve Drafts folder. iCloud's standard is 'Drafts'.
-    let draftsPath: string | null = null;
-    try {
-      await client.status('Drafts', { messages: true });
-      draftsPath = 'Drafts';
-    } catch { /* not present, try special-use */ }
-    if (!draftsPath) {
-      const list = await client.list();
-      for (const f of list) {
-        const flags = (f as { specialUse?: string }).specialUse;
-        if (flags === '\\Drafts') { draftsPath = f.path; break; }
+    // The whole connect→resolve→append→logout sequence runs under one hard
+    // wall-clock deadline. Each step logs before it runs, so if the deadline
+    // fires the LAST logged step is the one that stalled.
+    await withDeadline((async () => {
+      console.warn('[imap-proxy] append-draft: step=connect start');
+      const c = await newImapClient(email, password);
+      client = c;
+      await c.connect();
+      console.warn('[imap-proxy] append-draft: step=connect ok; resolving Drafts');
+      // Resolve Drafts folder. iCloud's standard is 'Drafts'.
+      let draftsPath: string | null = null;
+      try {
+        await c.status('Drafts', { messages: true });
+        draftsPath = 'Drafts';
+      } catch { /* not present, try special-use */ }
+      if (!draftsPath) {
+        console.warn('[imap-proxy] append-draft: step=list-folders (Drafts STATUS missed)');
+        const list = await c.list();
+        for (const f of list) {
+          const flags = (f as { specialUse?: string }).specialUse;
+          if (flags === '\\Drafts') { draftsPath = f.path; break; }
+        }
       }
-    }
-    if (!draftsPath) {
-      return err('protocol', 502, 'drafts-folder-not-found');
-    }
-    await client.append(draftsPath, raw, ['\\Draft']);
-    await client.logout();
+      if (!draftsPath) {
+        throw new DraftsFolderError();
+      }
+      console.warn(`[imap-proxy] append-draft: step=append start (${raw.length} bytes -> '${draftsPath}')`);
+      await c.append(draftsPath, raw, ['\\Draft']);
+      console.warn('[imap-proxy] append-draft: step=append ok; logging out');
+      await c.logout();
+      console.warn('[imap-proxy] append-draft: step=done');
+    })(), APPEND_IMAP_DEADLINE_MS, 'append-imap');
     return Response.json({ ok: true });
   } catch (caughtErr) {
     return mapImapError(caughtErr);
   } finally {
-    if (client && client.usable) {
-      try { await client.close(); } catch { /* ignore */ }
+    if (client && (client as ImapFlow).usable) {
+      try { await (client as ImapFlow).close(); } catch { /* ignore */ }
     }
   }
 }
