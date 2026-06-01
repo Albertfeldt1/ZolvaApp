@@ -21,6 +21,7 @@
 // JWT required for all calls. Per-user rate limits enforced server-side.
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { Buffer } from 'node:buffer';
 // Lazy-loaded inside IMAP code paths so cold-start of the worker doesn't pay
 // the npm:imapflow eval cost (~5-10s on a fresh worker, was triggering
 // gateway 502s on validate). Non-IMAP ops (ping, clear-binding) never load
@@ -1629,6 +1630,11 @@ async function handleAppendDraft(
     threading,
     date: new Date(),
   });
+  // imapflow's append() frames the IMAP literal from a string or a Node Buffer.
+  // A plain Uint8Array is neither, so it mis-computes the {N} literal length and
+  // iCloud waits forever for bytes that never arrive (10s socket timeout, the
+  // observed hang). Wrap the bytes in a Buffer so the literal is framed right.
+  const rawBuf = Buffer.from(raw);
 
   let client: ImapFlow | null = null;
   try {
@@ -1645,9 +1651,9 @@ async function handleAppendDraft(
       // the 10s socket timeout fired, and the dead connection then failed every
       // subsequent command. APPEND needs no SELECT and no pre-probe; if the
       // folder name is wrong it rejects cleanly and we fall back to a LIST.
-      console.warn(`[imap-proxy] append-draft: step=append start (${raw.length} bytes -> 'Drafts')`);
+      console.warn(`[imap-proxy] append-draft: step=append start (${rawBuf.length} bytes -> 'Drafts')`);
       try {
-        await c.append('Drafts', raw, ['\\Draft']);
+        await c.append('Drafts', rawBuf, ['\\Draft']);
       } catch (appendErr) {
         // Folder may not be named 'Drafts' on this account — find the
         // special-use \Drafts folder via LIST and retry the append once.
@@ -1662,7 +1668,7 @@ async function handleAppendDraft(
           throw new DraftsFolderError();
         }
         console.warn(`[imap-proxy] append-draft: step=append retry -> '${draftsPath}'`);
-        await c.append(draftsPath, raw, ['\\Draft']);
+        await c.append(draftsPath, rawBuf, ['\\Draft']);
       }
       console.warn('[imap-proxy] append-draft: step=append ok; logging out');
       await c.logout();
