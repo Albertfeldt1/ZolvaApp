@@ -139,7 +139,6 @@ function getPrivacyPolicyUrl(): string | null {
   return raw;
 }
 
-const ROW_TRANSITION = LinearTransition.duration(220);
 const OPTIONS_ENTER = FadeIn.duration(180);
 const OPTIONS_EXIT = FadeOut.duration(140);
 const COLLAPSE_EASING = Easing.bezier(0.22, 1, 0.36, 1);
@@ -1123,9 +1122,7 @@ function MailSignatureSection() {
   />;
 
   return (
-    <Animated.View layout={ROW_TRANSITION} style={[styles.section, { paddingTop: 28 }]}>
-      <Text style={styles.sectionTitle}>Mail-signatur</Text>
-      <View style={styles.inkRule} />
+    <CollapsibleSection title="Mail-signatur" paddingTop={16}>
       <Text style={styles.signatureBody}>
         Bruges ved mails sendt fra Outlook (og iCloud, når mail-afsendelse fra Zolva er tilføjet senere).
         Gmail bruger den signatur, du allerede har sat op i Gmail-indstillingerne.
@@ -1267,7 +1264,7 @@ function MailSignatureSection() {
           </Pressable>
         </View>
       )}
-    </Animated.View>
+    </CollapsibleSection>
   );
 }
 
@@ -2133,11 +2130,23 @@ export function SettingsScreen({
                 />
               </SettingsSectionCard>
 
-              {/* Mail-signatur - wrapped in glass card from outside */}
+              {/* Mail-signatur — solid (fully opaque) card. The shared bone
+                  overlay is only 95% opaque, so the pink halo bled through at
+                  the top of the scroll; a flat fill keeps it clean and the
+                  text readable. The section itself folds away behind its title. */}
               <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
-                <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.lg }}>
+                <View
+                  style={{
+                    borderRadius: 20,
+                    backgroundColor: '#FCFBF8',
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: colors.line,
+                    overflow: 'hidden',
+                    paddingBottom: spacing.md,
+                  }}
+                >
                   <MailSignatureSection />
-                </GlassFrostedCard>
+                </View>
               </View>
 
               {/* T4: the privacy copy + export-button live above in the dark
@@ -3384,7 +3393,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.ui,
     fontSize: 13,
     lineHeight: 18,
-    color: colors.fg3,
+    color: colors.ink,
     marginTop: 12,
   },
   loginError: {
