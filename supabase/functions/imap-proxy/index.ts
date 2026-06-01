@@ -566,6 +566,18 @@ function mapImapError(caughtErr: unknown): Response {
     return err('temporarily-unavailable', 503);
   }
 
+  // A command got no response and hit the inactivity socketTimeout, or a prior
+  // timeout already tore the connection down. imapflow surfaces these as
+  // `NoConnection` / "Connection not available" / "Socket timeout". They're
+  // transient (iCloud not answering a command), NOT a protocol bug — mapping
+  // them to 'protocol' wrongly told the user to re-check their iCloud settings.
+  if (
+    errObj?.code === 'NoConnection' ||
+    /Connection not available|Socket timeout/i.test(msg)
+  ) {
+    return err('temporarily-unavailable', 503);
+  }
+
   // Capture as much context as ImapFlow exposes so the next 'protocol' error
   // is diagnosable from the function logs without repro on the client.
   const ctx = JSON.stringify({
@@ -1628,26 +1640,30 @@ async function handleAppendDraft(
       const c = await newImapClient(email, password);
       client = c;
       await c.connect();
-      console.warn('[imap-proxy] append-draft: step=connect ok; resolving Drafts');
-      // Resolve Drafts folder. iCloud's standard is 'Drafts'.
-      let draftsPath: string | null = null;
+      // Append straight to 'Drafts' (iCloud's standard name). The previous
+      // STATUS "Drafts" existence-probe was the hang: iCloud never answered it,
+      // the 10s socket timeout fired, and the dead connection then failed every
+      // subsequent command. APPEND needs no SELECT and no pre-probe; if the
+      // folder name is wrong it rejects cleanly and we fall back to a LIST.
+      console.warn(`[imap-proxy] append-draft: step=append start (${raw.length} bytes -> 'Drafts')`);
       try {
-        await c.status('Drafts', { messages: true });
-        draftsPath = 'Drafts';
-      } catch { /* not present, try special-use */ }
-      if (!draftsPath) {
-        console.warn('[imap-proxy] append-draft: step=list-folders (Drafts STATUS missed)');
+        await c.append('Drafts', raw, ['\\Draft']);
+      } catch (appendErr) {
+        // Folder may not be named 'Drafts' on this account — find the
+        // special-use \Drafts folder via LIST and retry the append once.
+        console.warn('[imap-proxy] append-draft: direct Drafts append failed, listing folders:', appendErr instanceof Error ? appendErr.message : String(appendErr));
         const list = await c.list();
+        let draftsPath: string | null = null;
         for (const f of list) {
           const flags = (f as { specialUse?: string }).specialUse;
           if (flags === '\\Drafts') { draftsPath = f.path; break; }
         }
+        if (!draftsPath) {
+          throw new DraftsFolderError();
+        }
+        console.warn(`[imap-proxy] append-draft: step=append retry -> '${draftsPath}'`);
+        await c.append(draftsPath, raw, ['\\Draft']);
       }
-      if (!draftsPath) {
-        throw new DraftsFolderError();
-      }
-      console.warn(`[imap-proxy] append-draft: step=append start (${raw.length} bytes -> '${draftsPath}')`);
-      await c.append(draftsPath, raw, ['\\Draft']);
       console.warn('[imap-proxy] append-draft: step=append ok; logging out');
       await c.logout();
       console.warn('[imap-proxy] append-draft: step=done');
