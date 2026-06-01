@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, View, Text, StyleSheet } from 'react-native';
-import { useAgentActions } from '../lib/agent-feed';
+import { useAgentActions, type AgentActionRow } from '../lib/agent-feed';
 import { useProposedActions, type ProposedActionRow } from '../lib/agent-proposals';
 import { useTrustOffers } from '../lib/trust-offers';
 import { useAuth } from '../lib/auth';
@@ -20,6 +20,12 @@ type Props = {
    */
   onSelectProposal: (row: ProposedActionRow) => void;
   /**
+   * Called when the user taps an executed action card to open its read-only
+   * detail modal. As with proposals, the parent holds the selected-row state
+   * and mounts AgentActionDetailModal outside the ScrollView.
+   */
+  onSelectAction?: (row: AgentActionRow) => void;
+  /**
    * Reports whether the feed currently has nothing to show (loading or no
    * pending offers/proposals and no visible executed actions). TodayScreen
    * uses this to drive the unified quiet-state card layout.
@@ -32,7 +38,7 @@ type Props = {
   embedded?: boolean;
 };
 
-export function TodayAgentFeed({ onSelectProposal, onEmpty, embedded = false }: Props) {
+export function TodayAgentFeed({ onSelectProposal, onSelectAction, onEmpty, embedded = false }: Props) {
   const { user } = useAuth();
   const { rows: actions, loading: actionsLoading } = useAgentActions(user?.id);
   const { rows: proposals, loading: proposalsLoading } = useProposedActions(user?.id);
@@ -108,7 +114,7 @@ export function TodayAgentFeed({ onSelectProposal, onEmpty, embedded = false }: 
         </View>
       )}
       {visibleActions.map((r) => (
-        <AgentActionCard key={r.id} row={r} embedded={embedded} />
+        <AgentActionCard key={r.id} row={r} embedded={embedded} onOpenDetail={onSelectAction} />
       ))}
     </View>
   );

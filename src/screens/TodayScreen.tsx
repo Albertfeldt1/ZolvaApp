@@ -20,9 +20,11 @@ import { useAuth } from '../lib/auth';
 import { loadCredential } from '../lib/icloud-credentials';
 import { TodayAgentFeed } from '../components/TodayAgentFeed';
 import { ProposalDetailModal } from '../components/ProposalDetailModal';
+import { AgentActionDetailModal } from '../components/AgentActionDetailModal';
 import { OpenLoopsModal } from '../components/OpenLoopsModal';
 import { useOpenCommitments } from '../lib/agent-commitments';
 import type { ProposedActionRow } from '../lib/agent-proposals';
+import type { AgentActionRow } from '../lib/agent-feed';
 import { BriefBanner } from '../components/BriefBanner';
 import { CountUp } from '../components/CountUp';
 import { DayRibbon } from '../components/DayRibbon';
@@ -316,6 +318,7 @@ export function TodayScreen({
     pendingFacts.length + dedupedObservations.length > FEED_OBSERVATION_COUNT;
   const [observationsModalOpen, setObservationsModalOpen] = useState(false);
   const [selectedProposal, setSelectedProposal] = useState<ProposedActionRow | null>(null);
+  const [selectedAction, setSelectedAction] = useState<AgentActionRow | null>(null);
   const [showOpenLoops, setShowOpenLoops] = useState(false);
   // True when the agent feed has nothing to show. Drives the unified
   // quiet-state card (Næste + agent-empty + time-of-day as one card).
@@ -757,6 +760,7 @@ export function TodayScreen({
               embedded
               onEmpty={setAgentEmpty}
               onSelectProposal={setSelectedProposal}
+              onSelectAction={setSelectedAction}
             />
             {sectionDivider}
             {timeOfDaySection}
@@ -937,6 +941,13 @@ export function TodayScreen({
         <ProposalDetailModal
           row={selectedProposal}
           onClose={() => setSelectedProposal(null)}
+        />
+      ) : null}
+
+      {selectedAction ? (
+        <AgentActionDetailModal
+          row={selectedAction}
+          onClose={() => setSelectedAction(null)}
         />
       ) : null}
 

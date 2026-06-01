@@ -4,7 +4,7 @@ import { revertAgentAction, type AgentActionRow } from '../lib/agent-feed';
 import { useTheme } from '../design/useTheme';
 import { colors } from '../theme';
 
-const TITLES: Record<string, string> = {
+export const TITLES: Record<string, string> = {
   'mail.archive': 'Arkiveret',
   'mail.label': 'Mærket',
   'mail.flag_important': 'Markeret som vigtig',
@@ -14,6 +14,7 @@ const TITLES: Record<string, string> = {
   'mail.send_new': 'Mail sendt',
   'cal.create_event': 'Begivenhed oprettet',
   'cal.update_event': 'Begivenhed opdateret',
+  'nudge.push': 'Påmindelse sendt',
 };
 
 function str(v: unknown): string {
@@ -56,7 +57,15 @@ function detailFor(row: AgentActionRow): string {
   }
 }
 
-export function AgentActionCard({ row, embedded = false }: { row: AgentActionRow; embedded?: boolean }) {
+export function AgentActionCard({
+  row,
+  embedded = false,
+  onOpenDetail,
+}: {
+  row: AgentActionRow;
+  embedded?: boolean;
+  onOpenDetail?: (row: AgentActionRow) => void;
+}) {
   const { surface, shadows, t } = useTheme();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,11 +89,17 @@ export function AgentActionCard({ row, embedded = false }: { row: AgentActionRow
       ]}
       accessibilityLabel={`agent-action-${row.action_type}`}
     >
-      <View style={styles.row}>
-        <Text style={styles.badge}>✓ Udført</Text>
-        <Text style={styles.title}>{TITLES[row.action_type] ?? 'Handling udført'}</Text>
-      </View>
-      {detailFor(row) ? <Text style={styles.detail}>{detailFor(row)}</Text> : null}
+      <Pressable
+        onPress={() => onOpenDetail?.(row)}
+        accessibilityLabel="Åbn handlingsdetaljer"
+        accessibilityRole="button"
+      >
+        <View style={styles.row}>
+          <Text style={styles.badge}>✓ Udført</Text>
+          <Text style={styles.title}>{TITLES[row.action_type] ?? 'Handling udført'}</Text>
+        </View>
+        {detailFor(row) ? <Text style={styles.detail}>{detailFor(row)}</Text> : null}
+      </Pressable>
       <View style={styles.actions}>
         {row.reversible && !isReverted ? (
           <Pressable onPress={onUndo} disabled={pending} accessibilityLabel="undo">
