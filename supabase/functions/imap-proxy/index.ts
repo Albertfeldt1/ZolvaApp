@@ -81,7 +81,6 @@ const COMMAND_TIMEOUT_MS = 10_000;
 // kills it — leaving the audit row stuck at success=NULL with no response. These
 // guarantee the handler always returns a mapped error instead of dying silently.
 const APPEND_IMAP_DEADLINE_MS = 14_000;
-const THREADING_FETCH_DEADLINE_MS = 6_000;
 const RATE_LIMIT_VALIDATE = 10;       // per hour per user
 const RATE_LIMIT_LIST_INBOX = 60;     // per hour per user
 const RATE_LIMIT_GET_BODY = 120;      // per hour per user (one fetch per opened mail)
@@ -1247,6 +1246,41 @@ type ThreadingHeaders = {
   references?: string;
 };
 
+// Fetch In-Reply-To / References for `uid` from INBOX on an ALREADY-CONNECTED
+// client, so the caller can reuse its connection instead of opening a second
+// one. `found` is false when the message is no longer in INBOX (it moved
+// between list-inbox and reply); reply_to_uid is always an INBOX UID — the
+// client only ever gets UIDs from list-inbox, and UIDs are mailbox-scoped, so
+// INBOX is the only mailbox we can resolve it in.
+async function fetchThreadingHeadersOn(
+  client: ImapFlow,
+  uid: number,
+): Promise<{ threading: ThreadingHeaders; found: boolean }> {
+  const lock = await client.getMailboxLock('INBOX', { readOnly: true });
+  try {
+    const meta = await client.fetchOne(
+      String(uid),
+      { envelope: true, headers: ['references'] },
+      { uid: true },
+    );
+    if (!meta) return { threading: {}, found: false };
+    const messageId = (meta.envelope as { messageId?: string } | undefined)?.messageId ?? '';
+    // imapflow returns headers as a Map<string, string[]> when requested by name.
+    const refsHeader = meta.headers
+      ? (meta.headers as Map<string, string[]>).get('references')?.join(' ').trim() ?? ''
+      : '';
+    const inReplyTo = messageId || undefined;
+    const references = refsHeader
+      ? `${refsHeader}${messageId ? ' ' + messageId : ''}`.trim()
+      : (messageId || undefined);
+    return { threading: { inReplyTo, references }, found: Boolean(inReplyTo || references) };
+  } finally {
+    try { lock.release(); } catch { /* secondary */ }
+  }
+}
+
+// Standalone wrapper for callers without a live client (send-mail). Opens its
+// own connection; append-draft uses fetchThreadingHeadersOn on its connection.
 async function fetchThreadingHeaders(
   email: string,
   password: string,
@@ -1256,26 +1290,8 @@ async function fetchThreadingHeaders(
   try {
     client = await newImapClient(email, password);
     await client.connect();
-    const lock = await client.getMailboxLock('INBOX', { readOnly: true });
-    try {
-      const meta = await client.fetchOne(
-        String(uid),
-        { envelope: true, headers: ['references'] },
-        { uid: true },
-      );
-      const messageId = (meta?.envelope as { messageId?: string } | undefined)?.messageId ?? '';
-      // imapflow returns headers as a Map<string, string[]> when requested by name.
-      const refsHeader = meta?.headers
-        ? (meta.headers as Map<string, string[]>).get('references')?.join(' ').trim() ?? ''
-        : '';
-      const inReplyTo = messageId || undefined;
-      const references = refsHeader
-        ? `${refsHeader}${messageId ? ' ' + messageId : ''}`.trim()
-        : (messageId || undefined);
-      return { inReplyTo, references };
-    } finally {
-      try { lock.release(); } catch { /* secondary */ }
-    }
+    const { threading } = await fetchThreadingHeadersOn(client, uid);
+    return threading;
   } finally {
     if (client) {
       try { await client.logout(); } catch { /* ignore */ }
@@ -1603,49 +1619,63 @@ async function handleAppendDraft(
     return err('bad-request', 400, e instanceof Error ? e.message : String(e));
   }
 
-  let threading: ThreadingHeaders = {};
-  if (typeof body.reply_to_uid === 'number' && Number.isFinite(body.reply_to_uid)) {
-    try {
-      console.warn('[imap-proxy] append-draft: step=threading-fetch start');
-      threading = await withDeadline(
-        fetchThreadingHeaders(email, password, body.reply_to_uid),
-        THREADING_FETCH_DEADLINE_MS,
-        'threading-fetch',
-      );
-      console.warn('[imap-proxy] append-draft: step=threading-fetch ok');
-    } catch (e) {
-      // Non-fatal: a draft without threading headers is still a valid draft.
-      console.warn('[imap-proxy] append-draft threading-header fetch failed:', e instanceof Error ? e.message : String(e));
-    }
-  }
+  const replyUid =
+    typeof body.reply_to_uid === 'number' && Number.isFinite(body.reply_to_uid)
+      ? body.reply_to_uid
+      : undefined;
 
-  const raw = buildRfc5322({
-    from: email,
-    to: body.to,
-    cc: body.cc,
-    subject: body.subject,
-    contentType: body.content_type,
-    content: body.content,
-    attachments,
-    threading,
-    date: new Date(),
-  });
-  // imapflow's append() frames the IMAP literal from a string or a Node Buffer.
-  // A plain Uint8Array is neither, so it mis-computes the {N} literal length and
-  // iCloud waits forever for bytes that never arrive (10s socket timeout, the
-  // observed hang). Wrap the bytes in a Buffer so the literal is framed right.
-  const rawBuf = Buffer.from(raw);
-
+  let threaded = false;
   let client: ImapFlow | null = null;
   try {
-    // The whole connect→resolve→append→logout sequence runs under one hard
-    // wall-clock deadline. Each step logs before it runs, so if the deadline
-    // fires the LAST logged step is the one that stalled.
+    // Threading-header fetch AND the Drafts APPEND share ONE connection under
+    // one hard wall-clock deadline. The fetch used to open its own
+    // connect→logout cycle before a second connect→append cycle — that extra
+    // connection was a flaky first-try transient against iCloud. Each step logs
+    // before it runs, so if the deadline fires the LAST logged step stalled.
     await withDeadline((async () => {
       console.warn('[imap-proxy] append-draft: step=connect start');
       const c = await newImapClient(email, password);
       client = c;
       await c.connect();
+
+      let threading: ThreadingHeaders = {};
+      if (replyUid !== undefined) {
+        try {
+          console.warn('[imap-proxy] append-draft: step=threading-fetch start');
+          const res = await fetchThreadingHeadersOn(c, replyUid);
+          threading = res.threading;
+          threaded = res.found;
+          if (res.found) {
+            console.warn('[imap-proxy] append-draft: step=threading-fetch ok');
+          } else {
+            // Original left INBOX between list-inbox and reply. UIDs are
+            // INBOX-scoped so we can't resolve it elsewhere — save un-threaded.
+            console.warn(`[imap-proxy] append-draft: threading-fetch: uid ${replyUid} not in INBOX, saving un-threaded`);
+          }
+        } catch (e) {
+          // Non-fatal: a draft without threading headers is still a valid draft.
+          console.warn('[imap-proxy] append-draft threading-header fetch failed:', e instanceof Error ? e.message : String(e));
+        }
+      }
+
+      const raw = buildRfc5322({
+        from: email,
+        to: body.to,
+        cc: body.cc,
+        subject: body.subject,
+        contentType: body.content_type,
+        content: body.content,
+        attachments,
+        threading,
+        date: new Date(),
+      });
+      // imapflow's append() frames the IMAP literal from a string or a Node
+      // Buffer. A plain Uint8Array is neither, so it mis-computes the {N}
+      // literal length and iCloud waits forever for bytes that never arrive
+      // (10s socket timeout, the observed hang). Wrap in a Buffer so the
+      // literal is framed right.
+      const rawBuf = Buffer.from(raw);
+
       // Append straight to 'Drafts' (iCloud's standard name). The previous
       // STATUS "Drafts" existence-probe was the hang: iCloud never answered it,
       // the 10s socket timeout fired, and the dead connection then failed every
@@ -1674,7 +1704,7 @@ async function handleAppendDraft(
       await c.logout();
       console.warn('[imap-proxy] append-draft: step=done');
     })(), APPEND_IMAP_DEADLINE_MS, 'append-imap');
-    return Response.json({ ok: true });
+    return Response.json({ ok: true, threaded });
   } catch (caughtErr) {
     return mapImapError(caughtErr);
   } finally {
