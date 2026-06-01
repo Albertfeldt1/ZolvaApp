@@ -19,9 +19,20 @@ type Props = {
    * Animated.View overlay is never clipped by the scroll container.
    */
   onSelectProposal: (row: ProposedActionRow) => void;
+  /**
+   * Reports whether the feed currently has nothing to show (loading or no
+   * pending offers/proposals and no visible executed actions). TodayScreen
+   * uses this to drive the unified quiet-state card layout.
+   */
+  onEmpty?: (empty: boolean) => void;
+  /**
+   * When true, the feed renders flush inside a parent card: the empty state is
+   * inline and the interactive cards drop their own surface/shadow/margins.
+   */
+  embedded?: boolean;
 };
 
-export function TodayAgentFeed({ onSelectProposal }: Props) {
+export function TodayAgentFeed({ onSelectProposal, onEmpty, embedded = false }: Props) {
   const { user } = useAuth();
   const { rows: actions, loading: actionsLoading } = useAgentActions(user?.id);
   const { rows: proposals, loading: proposalsLoading } = useProposedActions(user?.id);
@@ -61,29 +72,35 @@ export function TodayAgentFeed({ onSelectProposal }: Props) {
     ]);
   };
 
-  if (
+  const isEmpty =
     loading ||
-    (pendingOffers.length === 0 && pending.length === 0 && visibleActions.length === 0)
-  ) {
-    return <AgentEmptyState />;
+    (pendingOffers.length === 0 && pending.length === 0 && visibleActions.length === 0);
+
+  useEffect(() => {
+    onEmpty?.(isEmpty);
+  }, [isEmpty]);
+
+  if (isEmpty) {
+    return <AgentEmptyState embedded={embedded} />;
   }
   return (
     <View>
-      <Text style={styles.header}>
+      <Text style={[styles.header, embedded && styles.embeddedRow]}>
         {pending.length} venter · {visibleActions.length} udført
       </Text>
       {pendingOffers.map((o) => (
-        <TrustOfferCard key={o.id} row={o} />
+        <TrustOfferCard key={o.id} row={o} embedded={embedded} />
       ))}
       {pending.map((p) => (
         <ProposedActionCard
           key={p.id}
           row={p}
           onOpenDetail={() => onSelectProposal(p)}
+          embedded={embedded}
         />
       ))}
       {visibleActions.length > 0 && (
-        <View style={styles.clearRow}>
+        <View style={[styles.clearRow, embedded && styles.embeddedRow]}>
           <Text style={styles.clearLabel}>Udført af Zolva</Text>
           <Pressable onPress={clearAll} hitSlop={8} accessibilityRole="button" accessibilityLabel="Ryd alle">
             <Text style={styles.clearBtn}>Ryd alle</Text>
@@ -91,7 +108,7 @@ export function TodayAgentFeed({ onSelectProposal }: Props) {
         </View>
       )}
       {visibleActions.map((r) => (
-        <AgentActionCard key={r.id} row={r} />
+        <AgentActionCard key={r.id} row={r} embedded={embedded} />
       ))}
     </View>
   );
@@ -128,4 +145,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  // Flush horizontal alignment when the feed lives inside the unified card,
+  // which already supplies its own horizontal padding.
+  embeddedRow: { paddingHorizontal: 0 },
 });

@@ -317,6 +317,9 @@ export function TodayScreen({
   const [observationsModalOpen, setObservationsModalOpen] = useState(false);
   const [selectedProposal, setSelectedProposal] = useState<ProposedActionRow | null>(null);
   const [showOpenLoops, setShowOpenLoops] = useState(false);
+  // True when the agent feed has nothing to show. Drives the unified
+  // quiet-state card (Næste + agent-empty + time-of-day as one card).
+  const [agentEmpty, setAgentEmpty] = useState(true);
   const { rows: openLoops } = useOpenCommitments(userId || null);
 
   // Match the MemoryScreen filter: pending + dueAt within 5min past - so a
@@ -398,6 +401,132 @@ export function TodayScreen({
     }
   }, [isActive, onOverDarkChange]);
 
+  // "Næste" section content (header + events list / empty state). Factored out
+  // so it can live either in its own card or inside the unified quiet-state card.
+  const naesteSection = (
+    <>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          paddingBottom: spacing.md,
+        }}
+      >
+        <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>Næste</Text>
+        <Text style={{ ...type.eyebrow, color: t.ink3 }}>
+          {upcoming.length > 0 ? (<><CountUp to={upcoming.length} /> i dag</>) : '-'}
+        </Text>
+      </View>
+
+      {upcoming.length === 0 ? (
+        upcomingLoading && hasProvider && !upcomingError ? (
+          <View>
+            <SkeletonRow />
+            <SkeletonRow />
+            <SkeletonRow />
+          </View>
+        ) : hasProvider ? (
+          (() => {
+            const err = upcomingError ? translateProviderError(upcomingError) : null;
+            const isAuth = err?.kind === 'auth';
+            return (
+              <EmptyState
+                mood="calm"
+                title={
+                  err
+                    ? err.kind === 'network'
+                      ? 'Ingen forbindelse'
+                      : 'Kunne ikke hente kalender'
+                    : 'Ingen aftaler i dag'
+                }
+                body={err ? err.message : 'Du har en rolig dag foran dig.'}
+                ctaLabel={isAuth ? 'Gå til indstillinger' : undefined}
+                onCta={isAuth ? onGoToSettings : undefined}
+              />
+            );
+          })()
+        ) : (
+          <EmptyState
+            mood="calm"
+            title="Ingen aftaler i dag"
+            body="Forbind din kalender, så samler jeg dagens møder her."
+            ctaLabel="Forbind kalender"
+            onCta={onGoToSettings}
+          />
+        )
+      ) : (
+        <View style={{ gap: spacing.md - 2 }}>
+          {upcoming.slice(0, 5).map((e, i) => (
+            <TouchableOpacity
+              key={e.id}
+              activeOpacity={0.55}
+              onPress={() => {
+                Haptics.selectionAsync().catch(() => {});
+                onGoToCalendar();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`${e.title}, ${e.time} - åbn kalender`}
+              hitSlop={{ top: 4, bottom: 4, left: 8, right: 8 }}
+              style={[
+                { flexDirection: 'row', alignItems: 'center', gap: spacing.cardPad, paddingVertical: spacing.md },
+                i > 0 && { borderTopWidth: 1, borderTopColor: t.line },
+              ]}
+            >
+              <View
+                pointerEvents="none"
+                style={{ width: 6, alignSelf: 'stretch', borderRadius: radius.pill, backgroundColor: toneColor(e.tone) }}
+              />
+              <View pointerEvents="none" style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
+                  <Text style={{ fontFamily: fonts.display, fontSize: type.title.fontSize - 2, fontWeight: '600', letterSpacing: -0.3, color: t.ink }}>{e.time}</Text>
+                  <Text style={{ fontFamily: fonts.uiBold, fontSize: type.bodySm.fontSize, color: t.ink, flexShrink: 1 }} numberOfLines={1}>{e.title}</Text>
+                </View>
+                <Text style={{ ...type.caption, color: t.ink3, marginTop: 1 }} numberOfLines={1}>{e.sub}</Text>
+              </View>
+              <View pointerEvents="none">
+                <DesignIcon.chev size={SMALL_GLYPH} color={t.ink4} />
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+    </>
+  );
+
+  // Morgen / Middag / Aften brief-history shortcuts row.
+  const timeOfDaySection = (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center' }}>
+      {(['morning', 'midday', 'evening'] as const).map((kind) => {
+        const I = kind === 'morning' ? Sunrise : kind === 'midday' ? Sun : Moon;
+        const label = kind === 'morning' ? 'Morgen' : kind === 'midday' ? 'Middag' : 'Aften';
+        return (
+          <Pressable
+            key={kind}
+            onPress={() => setHistoryKind(kind)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`Tidligere ${label.toLowerCase()}briefs`}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing.sm - 2,
+              paddingVertical: spacing.sm - 2,
+              paddingHorizontal: spacing.md,
+            }}
+          >
+            <I size={SMALL_GLYPH} color={t.ink2} strokeWidth={1.75} />
+            <Text style={{ ...type.caption, color: t.ink2, fontWeight: '600' }}>{label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+
+  // Divider between sections inside the unified quiet-state card.
+  const sectionDivider = (
+    <View style={{ height: 1, backgroundColor: t.line, marginVertical: spacing.md }} />
+  );
 
   return (
     <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
@@ -572,102 +701,7 @@ export function TodayScreen({
 
         {/* "Næste" section - bone-white backdrop card hosting the
             section header + the events list (or empty state). */}
-        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
-          <GlassFrostedCard
-            radius={radius.card}
-            overlay={surface.bone}
-            style={{ paddingVertical: spacing.lg, paddingHorizontal: spacing.lg }}
-          >
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'baseline',
-                justifyContent: 'space-between',
-                paddingBottom: spacing.md,
-              }}
-            >
-              <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>Næste</Text>
-              <Text style={{ ...type.eyebrow, color: t.ink3 }}>
-                {upcoming.length > 0 ? (<><CountUp to={upcoming.length} /> i dag</>) : '-'}
-              </Text>
-            </View>
-
-            {upcoming.length === 0 ? (
-              upcomingLoading && hasProvider && !upcomingError ? (
-                <View>
-                  <SkeletonRow />
-                  <SkeletonRow />
-                  <SkeletonRow />
-                </View>
-              ) : hasProvider ? (
-                (() => {
-                  const err = upcomingError ? translateProviderError(upcomingError) : null;
-                  const isAuth = err?.kind === 'auth';
-                  return (
-                    <EmptyState
-                      mood="calm"
-                      title={
-                        err
-                          ? err.kind === 'network'
-                            ? 'Ingen forbindelse'
-                            : 'Kunne ikke hente kalender'
-                          : 'Ingen aftaler i dag'
-                      }
-                      body={err ? err.message : 'Du har en rolig dag foran dig.'}
-                      ctaLabel={isAuth ? 'Gå til indstillinger' : undefined}
-                      onCta={isAuth ? onGoToSettings : undefined}
-                    />
-                  );
-                })()
-              ) : (
-                <EmptyState
-                  mood="calm"
-                  title="Ingen aftaler i dag"
-                  body="Forbind din kalender, så samler jeg dagens møder her."
-                  ctaLabel="Forbind kalender"
-                  onCta={onGoToSettings}
-                />
-              )
-            ) : (
-              <View style={{ gap: spacing.md - 2 }}>
-                {upcoming.slice(0, 5).map((e, i) => (
-                  <TouchableOpacity
-                    key={e.id}
-                    activeOpacity={0.55}
-                    onPress={() => {
-                      Haptics.selectionAsync().catch(() => {});
-                      onGoToCalendar();
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${e.title}, ${e.time} - åbn kalender`}
-                    hitSlop={{ top: 4, bottom: 4, left: 8, right: 8 }}
-                    style={[
-                      { flexDirection: 'row', alignItems: 'center', gap: spacing.cardPad, paddingVertical: spacing.md },
-                      i > 0 && { borderTopWidth: 1, borderTopColor: t.line },
-                    ]}
-                  >
-                    <View
-                      pointerEvents="none"
-                      style={{ width: 6, alignSelf: 'stretch', borderRadius: radius.pill, backgroundColor: toneColor(e.tone) }}
-                    />
-                    <View pointerEvents="none" style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
-                        <Text style={{ fontFamily: fonts.display, fontSize: type.title.fontSize - 2, fontWeight: '600', letterSpacing: -0.3, color: t.ink }}>{e.time}</Text>
-                        <Text style={{ fontFamily: fonts.uiBold, fontSize: type.bodySm.fontSize, color: t.ink, flexShrink: 1 }} numberOfLines={1}>{e.title}</Text>
-                      </View>
-                      <Text style={{ ...type.caption, color: t.ink3, marginTop: 1 }} numberOfLines={1}>{e.sub}</Text>
-                    </View>
-                    <View pointerEvents="none">
-                      <DesignIcon.chev size={SMALL_GLYPH} color={t.ink4} />
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-          </GlassFrostedCard>
-        </View>
-
-        {/* BriefBanner */}
+        {/* BriefBanner — transient, kept above the unified quiet-state card. */}
         {brief && !brief.readAt && (
           <BriefBanner
             brief={brief}
@@ -678,11 +712,9 @@ export function TodayScreen({
           />
         )}
 
-        <TodayAgentFeed onSelectProposal={setSelectedProposal} />
-
         {/* Open loops entry — only shown when the agent is tracking something.
-            Tapping opens the read-only OpenLoopsModal (mounted outside the
-            ScrollView below). */}
+            Kept as its own card above the unified card. Tapping opens the
+            read-only OpenLoopsModal (mounted outside the ScrollView below). */}
         {openLoops.length > 0 && (
           <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.md }}>
             <Pressable
@@ -706,36 +738,28 @@ export function TodayScreen({
           </View>
         )}
 
-        {/* Brief history pills - wrapped in a single glass card so the
-            three time-of-day shortcuts read as one element, not as
-            three loose chips floating on the halo paper. */}
-        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}>
-          <GlassFrostedCard style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center' }}>
-              {(['morning', 'midday', 'evening'] as const).map((kind) => {
-                const I = kind === 'morning' ? Sunrise : kind === 'midday' ? Sun : Moon;
-                const label = kind === 'morning' ? 'Morgen' : kind === 'midday' ? 'Middag' : 'Aften';
-                return (
-                  <Pressable
-                    key={kind}
-                    onPress={() => setHistoryKind(kind)}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Tidligere ${label.toLowerCase()}briefs`}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: spacing.sm - 2,
-                      paddingVertical: spacing.sm - 2,
-                      paddingHorizontal: spacing.md,
-                    }}
-                  >
-                    <I size={SMALL_GLYPH} color={t.ink2} strokeWidth={1.75} />
-                    <Text style={{ ...type.caption, color: t.ink2, fontWeight: '600' }}>{label}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+        {/* Unified quiet-state card: Næste + agent feed (inline) + the
+            Morgen/Middag/Aften row read as ONE card. The agent feed reports
+            its empty state via onEmpty; whether empty or full it renders flush
+            inside this single card. */}
+        <View
+          style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.heroPad }}
+          accessibilityLabel={agentEmpty ? 'today-quiet-card' : 'today-active-card'}
+        >
+          <GlassFrostedCard
+            radius={radius.card}
+            overlay={surface.bone}
+            style={{ paddingVertical: spacing.lg, paddingHorizontal: spacing.lg }}
+          >
+            {naesteSection}
+            {sectionDivider}
+            <TodayAgentFeed
+              embedded
+              onEmpty={setAgentEmpty}
+              onSelectProposal={setSelectedProposal}
+            />
+            {sectionDivider}
+            {timeOfDaySection}
           </GlassFrostedCard>
         </View>
 

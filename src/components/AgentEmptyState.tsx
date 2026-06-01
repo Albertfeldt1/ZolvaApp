@@ -1,10 +1,23 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useTheme } from '../design/useTheme';
 import { colors } from '../theme';
 
-export function AgentEmptyState() {
+/**
+ * "Zolva er klar" empty state.
+ *
+ * - Standalone (default): its own bone-white card matching the rest of the feed.
+ * - `embedded`: renders flush/transparent so it can sit inside a parent card
+ *   (used by the unified Today quiet-state card). No background, no margins,
+ *   no radius — just vertical padding.
+ */
+export function AgentEmptyState({ embedded = false }: { embedded?: boolean }) {
+  const { surface } = useTheme();
   return (
-    <View style={styles.card} accessibilityLabel="agent-empty-state">
+    <View
+      style={[embedded ? styles.embedded : [styles.card, { backgroundColor: surface.bone }]]}
+      accessibilityLabel="agent-empty-state"
+    >
       <Text style={styles.title}>Zolva er klar</Text>
       <Text style={styles.body}>
         Når Zolva har handlet for dig eller har noget at foreslå, vises det her.
@@ -15,11 +28,14 @@ export function AgentEmptyState() {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.paperDeep,
     borderRadius: 14,
     padding: 16,
     marginHorizontal: 16,
     marginTop: 12,
+    gap: 4,
+  },
+  embedded: {
+    paddingVertical: 4,
     gap: 4,
   },
   title: { color: colors.ink, fontSize: 16, fontWeight: '600' },

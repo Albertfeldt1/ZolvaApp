@@ -29,10 +29,15 @@ type Props = {
   row: ProposedActionRow;
   /** Called when the user taps the title/body area to open the detail modal. */
   onOpenDetail: () => void;
+  /**
+   * When true, the card renders flush inside a parent card: no horizontal
+   * margin, no own surface/shadow, and a hairline top divider instead.
+   */
+  embedded?: boolean;
 };
 
-export function ProposedActionCard({ row, onOpenDetail }: Props) {
-  const { surface, shadows } = useTheme();
+export function ProposedActionCard({ row, onOpenDetail, embedded = false }: Props) {
+  const { surface, shadows, t } = useTheme();
   const [pending, setPending] = useState<'send' | 'skip' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,7 +60,12 @@ export function ProposedActionCard({ row, onOpenDetail }: Props) {
 
   return (
     <View
-      style={[styles.card, { backgroundColor: surface.bone, borderColor: surface.glassRim, ...shadows.softCard }]}
+      style={[
+        styles.card,
+        embedded
+          ? { marginHorizontal: 0, borderWidth: 0, borderTopWidth: 1, borderTopColor: t.line, borderRadius: 0 }
+          : { backgroundColor: surface.bone, borderColor: surface.glassRim, ...shadows.softCard },
+      ]}
       accessibilityLabel={`proposed-${row.action_type}`}
     >
       {/* Tappable title+body area — opens the full detail modal */}

@@ -5,9 +5,9 @@ import { decideTrustOffer, type TrustOfferRow } from '../lib/trust-offers';
 import { useTheme } from '../design/useTheme';
 import { colors } from '../theme';
 
-export function TrustOfferCard({ row }: { row: TrustOfferRow }) {
+export function TrustOfferCard({ row, embedded = false }: { row: TrustOfferRow; embedded?: boolean }) {
   const { user } = useAuth();
-  const { surface, shadows } = useTheme();
+  const { surface, shadows, t } = useTheme();
   const [pending, setPending] = useState<'yes' | 'no' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,7 +22,12 @@ export function TrustOfferCard({ row }: { row: TrustOfferRow }) {
 
   return (
     <View
-      style={[styles.card, { backgroundColor: surface.bone, borderColor: surface.glassRim, ...shadows.softCard }]}
+      style={[
+        styles.card,
+        embedded
+          ? { marginHorizontal: 0, borderWidth: 0, borderTopWidth: 1, borderTopColor: t.line, borderRadius: 0 }
+          : { backgroundColor: surface.bone, borderColor: surface.glassRim, ...shadows.softCard },
+      ]}
       accessibilityLabel={`trust-offer-${row.id}`}
     >
       <Text style={styles.title}>Sende automatisk fremover?</Text>

@@ -56,8 +56,8 @@ function detailFor(row: AgentActionRow): string {
   }
 }
 
-export function AgentActionCard({ row }: { row: AgentActionRow }) {
-  const { surface, shadows } = useTheme();
+export function AgentActionCard({ row, embedded = false }: { row: AgentActionRow; embedded?: boolean }) {
+  const { surface, shadows, t } = useTheme();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isReverted = !!row.reversed_at;
@@ -72,7 +72,12 @@ export function AgentActionCard({ row }: { row: AgentActionRow }) {
 
   return (
     <View
-      style={[styles.card, { backgroundColor: surface.bone, borderColor: surface.glassRim, ...shadows.softCard }]}
+      style={[
+        styles.card,
+        embedded
+          ? { marginHorizontal: 0, borderWidth: 0, borderTopWidth: 1, borderTopColor: t.line, borderRadius: 0 }
+          : { backgroundColor: surface.bone, borderColor: surface.glassRim, ...shadows.softCard },
+      ]}
       accessibilityLabel={`agent-action-${row.action_type}`}
     >
       <View style={styles.row}>
