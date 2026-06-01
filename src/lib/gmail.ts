@@ -3,24 +3,60 @@
 import { ProviderAuthError, subscribeUserId, tryWithRefresh } from './auth';
 import { fetchWithTimeout, NetworkTimeoutError } from './network-errors';
 
-// One retry on transient failures (timeout, 5xx) before giving up. Mirrors
-// iCloud's first-retry delay (1.5s). Without this, a brief network blip
-// during the list fetch took Gmail offline until the user pulled to refresh.
-async function fetchListWithRetry(url: string, init: RequestInit): Promise<Response> {
-  try {
-    const res = await fetchWithTimeout('google', url, init);
-    if (res.status >= 500 && res.status < 600) {
-      await new Promise((r) => setTimeout(r, 1500));
-      return await fetchWithTimeout('google', url, init);
+// 429 (rate-limited) and 5xx are transient — worth a retry, not a silent drop.
+// Listing the inbox returns ~50 ids, then EACH needs its own metadata GET;
+// firing them all at once routinely trips Gmail's per-user rate limit, so a
+// handful 429 on every refresh. Dropping those made the inbox count fluctuate
+// between refreshes (same mailbox, a different number of mails shown each
+// time). Retrying keeps the returned set complete and the count stable.
+export function isTransientStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status < 600);
+}
+
+const TRANSIENT_RETRIES = 2;
+const RETRY_BACKOFF_MS = 1500;
+
+// Fetch wrapper that retries transient failures (429 / 5xx / timeout) with
+// linear backoff. `fetcher`/`sleep`/`backoffMs`/`retries` are injectable so the
+// retry loop is unit-testable without real timers or network (see
+// gmail-retry.test.ts). Auth (401/403) and other 4xx are returned as-is for the
+// caller to handle — they are not transient and must not be retried.
+export async function fetchGoogleWithRetry(
+  url: string,
+  init: RequestInit,
+  opts: {
+    retries?: number;
+    backoffMs?: number;
+    fetcher?: typeof fetchWithTimeout;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<Response> {
+  const retries = opts.retries ?? TRANSIENT_RETRIES;
+  const backoffMs = opts.backoffMs ?? RETRY_BACKOFF_MS;
+  const doFetch = opts.fetcher ?? fetchWithTimeout;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await doFetch('google', url, init);
+      if (isTransientStatus(res.status) && attempt < retries) {
+        await sleep(backoffMs * (attempt + 1));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      if (err instanceof NetworkTimeoutError && attempt < retries) {
+        await sleep(backoffMs * (attempt + 1));
+        continue;
+      }
+      throw err;
     }
-    return res;
-  } catch (err) {
-    if (err instanceof NetworkTimeoutError) {
-      await new Promise((r) => setTimeout(r, 1500));
-      return await fetchWithTimeout('google', url, init);
-    }
-    throw err;
   }
+}
+
+// The list / labels / count callers want a single retry. fetchGoogleWithRetry
+// now also extends that to 429 (previously only 5xx + timeout).
+function fetchListWithRetry(url: string, init: RequestInit): Promise<Response> {
+  return fetchGoogleWithRetry(url, init, { retries: 1 });
 }
 
 // Reset the per-session signature cache when the active user changes - the
@@ -221,7 +257,10 @@ async function fetchMessageMeta(
   id: string,
 ): Promise<GmailMessage | null> {
   const url = `${BASE}/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`;
-  const res = await fetchWithTimeout('google', url, {
+  // Retry transient failures (429 from the concurrent-fetch burst, 5xx,
+  // timeout) instead of dropping the message — silent drops here made the
+  // inbox count fluctuate between refreshes.
+  const res = await fetchGoogleWithRetry(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (res.status === 401 || res.status === 403) {
