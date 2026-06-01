@@ -229,6 +229,16 @@ export async function saveCredential(
     await clearDiscoveryCacheFor(userId);
     throw e;
   }
+
+  // A prior connect (or test churn) can leave a persisted EMPTY inbox in the
+  // SWR cache; without clearing it here, connecting serves that stale empty
+  // list instead of fetching live, and the user sees calendar events but no
+  // mail until they fully disconnect/reconnect. Mirrors clearCredential's
+  // clearInboxCache call (dynamic import to avoid a static cycle with
+  // icloud-mail).
+  const { clearInboxCache } = await import('./icloud-mail');
+  await clearInboxCache(userId);
+
   notifyCredsChanged();
 }
 
