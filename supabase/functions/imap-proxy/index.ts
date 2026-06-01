@@ -1252,6 +1252,33 @@ type ThreadingHeaders = {
 // between list-inbox and reply); reply_to_uid is always an INBOX UID — the
 // client only ever gets UIDs from list-inbox, and UIDs are mailbox-scoped, so
 // INBOX is the only mailbox we can resolve it in.
+// Pull one header's value out of imapflow's `headers` result. When fetched by
+// name (headers: ['references']) imapflow returns a RAW Buffer of the header
+// block — NOT a Map — so calling .get() on it throws "meta.headers.get is not a
+// function" and the whole threading fetch dies. Decode the bytes and parse the
+// line ourselves, staying tolerant of Buffer / string / Map shapes so an
+// imapflow version bump can't silently regress threading again.
+function extractHeaderValue(raw: unknown, name: string): string {
+  if (!raw) return '';
+  if (raw instanceof Map) {
+    return (raw as Map<string, unknown>).get(name.toLowerCase())?.toString().trim() ?? '';
+  }
+  let text: string;
+  if (raw instanceof Uint8Array) text = new TextDecoder().decode(raw);
+  else if (typeof raw === 'string') text = raw;
+  else return '';
+  // Unfold RFC 5322 continuation lines (a line starting with WSP continues the
+  // previous one) before matching the header name.
+  const unfolded = text.replace(/\r?\n[ \t]+/g, ' ');
+  const prefix = name.toLowerCase() + ':';
+  for (const line of unfolded.split(/\r?\n/)) {
+    if (line.toLowerCase().startsWith(prefix)) {
+      return line.slice(line.indexOf(':') + 1).trim();
+    }
+  }
+  return '';
+}
+
 async function fetchThreadingHeadersOn(
   client: ImapFlow,
   uid: number,
@@ -1265,10 +1292,7 @@ async function fetchThreadingHeadersOn(
     );
     if (!meta) return { threading: {}, found: false };
     const messageId = (meta.envelope as { messageId?: string } | undefined)?.messageId ?? '';
-    // imapflow returns headers as a Map<string, string[]> when requested by name.
-    const refsHeader = meta.headers
-      ? (meta.headers as Map<string, string[]>).get('references')?.join(' ').trim() ?? ''
-      : '';
+    const refsHeader = extractHeaderValue(meta.headers, 'references');
     const inReplyTo = messageId || undefined;
     const references = refsHeader
       ? `${refsHeader}${messageId ? ' ' + messageId : ''}`.trim()
