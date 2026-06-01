@@ -19,7 +19,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { revertAgentAction, type AgentActionRow } from '../lib/agent-feed';
 import { TITLES } from './AgentActionCard';
 import { useTheme } from '../design/useTheme';
@@ -158,13 +158,15 @@ export function AgentActionDetailModal({ row, onClose }: Props) {
     <Animated.View
       style={styles.overlay}
       entering={FadeIn.duration(180)}
-      exiting={FadeOut.duration(150)}
+      exiting={FadeOut.duration(240)}
     >
       {/* Dimmed backdrop — tap outside sheet to close */}
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Luk" />
 
       <View style={styles.safeArea} pointerEvents="box-none">
-        <View
+        <Animated.View
+          entering={SlideInDown.duration(260)}
+          exiting={SlideOutDown.duration(220)}
           style={[
             styles.sheet,
             {
@@ -323,7 +325,7 @@ export function AgentActionDetailModal({ row, onClose }: Props) {
               <Text style={styles.secondary}>Luk</Text>
             </Pressable>
           </View>
-        </View>
+        </Animated.View>
       </View>
     </Animated.View>
   );
@@ -352,6 +354,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(11,11,12,0.45)',
   },
   safeArea: {
+    // Fill the overlay so the sheet's percentage maxHeight resolves against a
+    // definite (full-screen) height. Without this the parent is content-sized,
+    // the cap can't resolve, and the flexShrink ScrollView mis-sizes — opening
+    // pre-scrolled even when short content would fit with no scroll at all.
+    flex: 1,
     justifyContent: 'flex-end',
   },
   sheet: {

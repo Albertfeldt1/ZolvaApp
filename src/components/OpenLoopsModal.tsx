@@ -11,11 +11,11 @@
  */
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { useTheme } from '../design/useTheme';
 import { useChromeInsets } from './PhoneChrome';
 import { Stone } from './Stone';
-import { colors } from '../theme';
+import { colors, spacing } from '../theme';
 import type { CommitmentRow } from '../lib/agent-commitments';
 
 export type Props = {
@@ -74,15 +74,27 @@ export function OpenLoopsModal({ rows, onClose }: Props) {
     <Animated.View
       style={styles.overlay}
       entering={FadeIn.duration(180)}
-      exiting={FadeOut.duration(150)}
+      exiting={FadeOut.duration(240)}
     >
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Luk" />
 
       <View style={styles.safeArea} pointerEvents="box-none">
-        <View
+        <Animated.View
+          entering={SlideInDown.duration(260)}
+          exiting={SlideOutDown.duration(220)}
           style={[
             styles.sheet,
-            { backgroundColor: surface.bone, borderColor: surface.glassRim, ...shadows.softCard },
+            {
+              backgroundColor: surface.bone,
+              borderColor: surface.glassRim,
+              ...shadows.softCard,
+              // Pad the sheet (not the scroll content) so the ScrollView ends
+              // above the floating tab bar — otherwise the list scrolls behind
+              // the translucent nav bar and the last card looks clipped. The
+              // extra s7 buffer covers the pill's own bottom margin, which the
+              // measured chrome inset doesn't fully account for.
+              paddingBottom: Math.max(8, chromeBottom) + spacing.s7,
+            },
           ]}
         >
           <View style={styles.header}>
@@ -94,7 +106,7 @@ export function OpenLoopsModal({ rows, onClose }: Props) {
 
           <ScrollView
             style={styles.contentScroll}
-            contentContainerStyle={[styles.contentContainer, { paddingBottom: Math.max(16, chromeBottom) }]}
+            contentContainerStyle={styles.contentContainer}
             showsVerticalScrollIndicator={false}
           >
             {isEmpty ? (
@@ -126,7 +138,7 @@ export function OpenLoopsModal({ rows, onClose }: Props) {
               </>
             )}
           </ScrollView>
-        </View>
+        </Animated.View>
       </View>
     </Animated.View>
   );
@@ -151,6 +163,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(11,11,12,0.45)',
   },
   safeArea: {
+    // Fill the overlay so the sheet's percentage maxHeight resolves against
+    // the full screen height. Without this the parent is content-sized, the
+    // cap misbehaves, and the ScrollView shrinks below its content — forcing
+    // a needless scroll even for a single short card.
+    flex: 1,
     justifyContent: 'flex-end',
   },
   sheet: {
@@ -158,7 +175,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     borderWidth: 1,
     paddingTop: 16,
-    paddingBottom: 8,
     maxHeight: '85%',
   },
   header: {
@@ -187,6 +203,7 @@ const styles = StyleSheet.create({
   contentContainer: {
     paddingHorizontal: 16,
     paddingTop: 12,
+    paddingBottom: 16,
     gap: 8,
   },
   groupHeading: {
