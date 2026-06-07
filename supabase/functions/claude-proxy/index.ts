@@ -16,6 +16,7 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { recordAiUsage } from '../_shared/usage.ts';
+import { clampMaxTokens, isAllowedModel } from '../_shared/model-guard.ts';
 
 type ContentBlock =
   | { type: 'text'; text: string }
@@ -134,7 +135,10 @@ serve(async (req) => {
   }
 
   const model = body.model ?? DEFAULT_MODEL;
-  const maxTokens = body.max_tokens ?? DEFAULT_MAX_TOKENS;
+  if (!isAllowedModel(model)) {
+    return json({ error: 'model_not_allowed' }, 400);
+  }
+  const maxTokens = clampMaxTokens(body.max_tokens, DEFAULT_MAX_TOKENS);
 
   const anthropicBody: Record<string, unknown> = {
     model,
