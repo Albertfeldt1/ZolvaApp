@@ -17,6 +17,8 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { recordAiUsage } from '../_shared/usage.ts';
 import { clampMaxTokens, isAllowedModel } from '../_shared/model-guard.ts';
+import { getEntitlement } from '../_shared/entitlement-read.ts';
+import { dailyRequestCapForTier } from '../_shared/abuse-limits.ts';
 
 type ContentBlock =
   | { type: 'text'; text: string }
@@ -61,7 +63,7 @@ const DEFAULT_MAX_TOKENS = 1024;
 // Tuning these requires re-deploying the function; see migration
 // 20260421300000_claude_rate_limit.sql for the enforcement logic.
 const RPM_LIMIT = 60;
-const DAILY_LIMIT = 500;
+// Daily ceiling is tier-aware now — see dailyRequestCapForTier (abuse-limits.ts).
 
 serve(async (req) => {
   if (req.method !== 'POST') {
@@ -92,12 +94,15 @@ serve(async (req) => {
   }
   const userId = userData.user.id;
 
+  // Tier-aware daily ceiling: free users get a tighter cap so a leaked token /
+  // scripted client / weekly-cap bypass can't run up the shared key as far.
+  const ent = await getEntitlement(authClient, userId);
   const { data: limitRows, error: limitErr } = await authClient.rpc(
     'check_and_incr_claude_usage',
     {
       p_user_id: userId,
       p_rpm_limit: RPM_LIMIT,
-      p_daily_limit: DAILY_LIMIT,
+      p_daily_limit: dailyRequestCapForTier(ent.tier),
     },
   );
   if (limitErr) {

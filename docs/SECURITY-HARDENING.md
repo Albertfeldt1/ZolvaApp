@@ -77,6 +77,10 @@ create policy "<table>_owner_all" on public.<table>
 
 ### 2.2 🟠 P1 — Confirm the old service-role key is dead
 
+> ✅ VERIFIED DEAD 2026-06-07: the curl test below returned 401 — the legacy
+> HS256 secret was rotated at the ES256 migration, so the old token is inert.
+> No action needed.
+
 There's a legacy HS256 `service_role` JWT (valid until 2036) in your local
 `supabase/schedule-poll-mail.sql` (not in git, but on disk). The project migrated
 to `sb_secret_…` / ES256 keys. If the **legacy JWT secret was never rotated**,
@@ -106,10 +110,25 @@ Drive picker). Public is fine **only if they're restricted**. In
 
 **a) Firebase Android key** (`AIzaSyBeTotvivoHuSFG6Km8d7U4kcKwkKAQoB0`, in
 `google-services.json`):
+- ✅ VERIFIED 2026-06-07: already restricted in project `zolva-ab77b` —
+  "Android apps, 2 APIs". No action needed. (A separate "Browser key (auto
+  created by Firebase)" in the same project has 25 APIs + no app restriction, but
+  it is NOT shipped in the app bundle so it isn't publicly exposed — optional to
+  tighten, low priority.)
+- Original steps (for reference, already done):
+- ⚠️ This key lives in a **separate GCP project from the Picker key**: project
+  **`zolva-ab77b`** (project number `81826511119`). In the GCP console top-bar
+  project dropdown, switch to `zolva-ab77b` first — otherwise Credentials only
+  shows the Drive/OAuth project's keys. (Firebase Console never edits key
+  restrictions; it links out to GCP.)
 - Application restrictions → **Android apps** → add package `com.zolva.app` + its
-  SHA-1 signing cert.
+  SHA-1 signing cert (get it via `eas credentials` → Android → production, or
+  `keytool -list -v -keystore <path-to>.jks | grep SHA1`).
 - API restrictions → **Restrict key** → only the APIs you use (Firebase Cloud
-  Messaging, etc.).
+  Messaging, etc.). The API restriction alone is the higher-value half if the
+  SHA-1 step is inconvenient.
+- Low priority: this key is public by design (ships in every Android build) and
+  `zolva-ab77b` is a dedicated Firebase project, so the blast radius is small.
 
 **b) Drive Picker key** (`GOOGLE_PICKER_API_KEY`, served by the `drive-picker`
 function to any caller):
@@ -143,7 +162,13 @@ grant select on public.user_oauth_tokens to authenticated;
 
 ---
 
-### 2.5 🟡 P2 — Move the Android keystore out of the repo
+### 2.5 ✅ DONE 2026-06-07 — Android keystore moved out of the repo
+
+Moved to `~/.android/keystores/@albertfeldt1__zolva-app.jks` (nothing referenced
+the old path; EAS manages signing remotely, this was just an export). Original
+section kept below for reference.
+
+#### (was) P2 — Move the Android keystore out of the repo
 
 `@albertfeldt1__zolva-app.jks` sits in the repo root. It's gitignored, but one
 stray `git add -A` and your app-signing key is public (an attacker could ship a

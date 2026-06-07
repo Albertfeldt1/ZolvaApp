@@ -22,6 +22,7 @@ import { recordAiUsage } from '../_shared/usage.ts';
 import { getEntitlement } from '../_shared/entitlement-read.ts';
 import { chatLimitForTier } from '../_shared/chat-limits.ts';
 import { clampMaxTokens, isAllowedModel } from '../_shared/model-guard.ts';
+import { dailyRequestCapForTier } from '../_shared/abuse-limits.ts';
 
 type ContentBlock =
   | { type: 'text'; text: string }
@@ -69,7 +70,7 @@ const DEFAULT_MAX_TOKENS = 1024;
 // shape of the same Anthropic call so it shares the budget; checked via the
 // same RPC so RPM/daily are enforced across both.
 const RPM_LIMIT = 60;
-const DAILY_LIMIT = 500;
+// Daily ceiling is tier-aware now — see dailyRequestCapForTier (abuse-limits.ts).
 
 serve(async (req) => {
   if (req.method !== 'POST') {
@@ -101,11 +102,15 @@ serve(async (req) => {
   }
   const userId = userData.user.id;
 
+  // Read tier once — reused for the tier-aware abuse ceiling AND the chat cap.
+  const ent = await getEntitlement(authClient, userId);
+
   // Rate limit before any DB writes - same RPC as claude-proxy so the two
-  // paths share one budget per user.
+  // paths share one budget per user. Daily ceiling is tier-aware (free is
+  // tighter) to bound a leaked token / scripted client.
   const { data: limitRows, error: limitErr } = await authClient.rpc(
     'check_and_incr_claude_usage',
-    { p_user_id: userId, p_rpm_limit: RPM_LIMIT, p_daily_limit: DAILY_LIMIT },
+    { p_user_id: userId, p_rpm_limit: RPM_LIMIT, p_daily_limit: dailyRequestCapForTier(ent.tier) },
   );
   if (limitErr) {
     console.error(`[chat-run] rate_limit_check_failed user=${userId} err=${limitErr.message}`);
@@ -127,7 +132,6 @@ serve(async (req) => {
   // Tier message cap (sub-project #2). The abuse limiter above protects the
   // shared API key; this protects the business model. Counts user messages
   // (round-0 only), so claude-proxy tool rounds are NOT charged. Pro skips it.
-  const ent = await getEntitlement(authClient, userId);
   const chatLimit = chatLimitForTier(ent.tier);
   if (chatLimit !== null) {
     const { data: quotaRows, error: quotaErr } = await authClient.rpc(
