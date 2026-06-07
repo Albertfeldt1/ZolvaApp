@@ -12,6 +12,7 @@ import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
 import { WebView } from 'react-native-webview';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import Purchases from 'react-native-purchases';
 import {
   ActivityIndicator,
   Alert,
@@ -2208,6 +2209,31 @@ export function SettingsScreen({
                   style={{ padding: 16, backgroundColor: '#333', borderRadius: 8, marginTop: 12, marginHorizontal: spacing.screenPad }}
                 >
                   <Text style={{ color: '#fff' }}>Test admin consent screen (dev)</Text>
+                </Pressable>
+              )}
+
+              {/* Exercises the full sandbox -> webhook -> user_entitlements loop.
+                  The real paywall is billing sub-project #3. */}
+              {__DEV__ && user?.email === 'albertfeldt1@gmail.com' && (
+                <Pressable
+                  onPress={async () => {
+                    try {
+                      const offerings = await Purchases.getOfferings();
+                      const pkg = offerings.current?.availablePackages?.[0];
+                      if (!pkg) {
+                        Alert.alert('No offering', 'No RevenueCat packages available.');
+                        return;
+                      }
+                      const { customerInfo } = await Purchases.purchasePackage(pkg);
+                      const active = Object.keys(customerInfo.entitlements.active);
+                      Alert.alert('Purchase OK', `Active entitlements: ${active.join(', ') || 'none'}`);
+                    } catch (e) {
+                      Alert.alert('Purchase failed', String((e as Error)?.message ?? e));
+                    }
+                  }}
+                  style={{ padding: 16, backgroundColor: '#333', borderRadius: 8, marginTop: 12, marginHorizontal: spacing.screenPad }}
+                >
+                  <Text style={{ color: '#fff' }}>[DEV] Trigger RevenueCat purchase</Text>
                 </Pressable>
               )}
 
