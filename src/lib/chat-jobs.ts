@@ -17,6 +17,7 @@
 
 import { supabase } from './supabase';
 import {
+  ChatQuotaError,
   ClaudeConfigError,
   ClaudeRateLimitError,
   type ClaudeContentBlock,
@@ -102,6 +103,19 @@ export async function submitChatJob(opts: ChatJobSubmitOptions): Promise<ChatJob
     },
     body: JSON.stringify(payload),
   });
+
+  if (res.status === 402) {
+    let resetsAt: string | null = null;
+    let tier = 'free';
+    try {
+      const b = (await res.json()) as { resets_at?: string | null; tier?: string };
+      resetsAt = b.resets_at ?? null;
+      tier = b.tier ?? 'free';
+    } catch {
+      // fall through with defaults
+    }
+    throw new ChatQuotaError(resetsAt, tier);
+  }
 
   if (res.status === 429) {
     const retryAfter = parseInt(res.headers.get('retry-after') ?? '60', 10);

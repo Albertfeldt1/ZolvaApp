@@ -39,6 +39,20 @@ export class ClaudeRateLimitError extends Error {
   }
 }
 
+// Thrown when the user hit their tier's weekly chat cap (server returns 402
+// with error:'chat_quota'). Distinct from ClaudeRateLimitError (transient
+// abuse limiter) — this one drives the upgrade paywall, not a retry message.
+export class ChatQuotaError extends Error {
+  readonly resetsAt: string | null;
+  readonly tier: string;
+  constructor(resetsAt: string | null, tier: string) {
+    super('chat_quota');
+    this.name = 'ChatQuotaError';
+    this.resetsAt = resetsAt;
+    this.tier = tier;
+  }
+}
+
 // The key lives in the edge function now, so there's no local key check.
 // Keep this export for callers that used it as a feature gate; the real
 // authorization check happens server-side when the proxy is invoked.
