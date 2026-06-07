@@ -282,8 +282,15 @@ async function parseTokenResponse(
 // grant_type=refresh_token. Returns the same MintedToken shape so callers can
 // pull access_token + the freshly issued refresh_token uniformly.
 //
-// Microsoft requires both client_secret AND code_verifier on confidential
-// clients - PKCE is layered on top of the secret, not a replacement.
+// This is a PUBLIC client exchange: the app's redirect URI
+// (zolva://oauth/microsoft/callback) is registered under Azure's "Mobile and
+// desktop applications" platform, so Microsoft treats the authorization_code
+// grant as a public client and HARD-REJECTS any client_secret with
+// `AADSTS700025: Client is public so neither 'client_assertion' nor
+// 'client_secret' should be presented`. PKCE (code_verifier) is the proof of
+// possession here - the secret must NOT be sent. (The refresh_token grant in
+// mintAccessToken still sends the secret; Microsoft accepts it there because
+// that grant carries no redirect_uri / public-client context.)
 export async function exchangeAuthorizationCode(
   provider: Provider,
   code: string,
@@ -294,12 +301,10 @@ export async function exchangeAuthorizationCode(
     throw new Error(`exchangeAuthorizationCode: provider ${provider} not implemented`);
   }
   const clientId = Deno.env.get('MICROSOFT_OAUTH_CLIENT_ID');
-  const clientSecret = Deno.env.get('MICROSOFT_OAUTH_CLIENT_SECRET');
   const tenant = Deno.env.get('MICROSOFT_OAUTH_TENANT') ?? 'common';
-  if (!clientId || !clientSecret) throw new Error('microsoft oauth env missing');
+  if (!clientId) throw new Error('microsoft oauth env missing');
   const body = new URLSearchParams({
     client_id: clientId,
-    client_secret: clientSecret,
     code,
     code_verifier: codeVerifier,
     redirect_uri: redirectUri,

@@ -41,7 +41,10 @@ Deno.test('exchangeAuthorizationCode posts correct body and returns tokens', asy
     assertEquals(result.expiresIn, 3600);
     const params = new URLSearchParams(capturedBody);
     assertEquals(params.get('client_id'), 'test-client-id');
-    assertEquals(params.get('client_secret'), 'test-secret');
+    // Public client (mobile PKCE redirect): Microsoft rejects a client_secret on
+    // the authorization_code grant with AADSTS700025. The code_verifier is the
+    // proof; the secret must NOT be sent here.
+    assertEquals(params.get('client_secret'), null);
     assertEquals(params.get('code'), 'authcode-1');
     assertEquals(params.get('code_verifier'), 'verifier-2');
     assertEquals(params.get('redirect_uri'), 'zolva://oauth/microsoft/callback');
