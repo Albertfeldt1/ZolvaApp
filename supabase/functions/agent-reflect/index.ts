@@ -20,6 +20,7 @@ import {
   type RawCalEvent,
 } from '../_shared/agent/reflect-events.ts';
 import { isQuietHours } from '../_shared/agent/quiet-hours.ts';
+import { keepProUsers, proUserIdSet } from '../_shared/entitlement-pro.ts';
 
 const LEAD_MINUTES = 120;
 
@@ -39,7 +40,10 @@ async function selectAgentEnabledUsers(
     // Null/empty timezone → default to the app's primary locale.
     out.push({ userId: r.user_id, timezone: r.timezone || 'Europe/Copenhagen' });
   }
-  return out;
+  // Proactive behaviours are Pro-only (sub-project #2). Drop non-pro users
+  // before any deps build / Claude call.
+  const pro = await proUserIdSet(client, out.map((u) => u.userId));
+  return keepProUsers(out, pro);
 }
 const CRON_SECRET = Deno.env.get('CRON_SHARED_SECRET');
 if (!CRON_SECRET) {
