@@ -10,6 +10,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { runAgent } from '../_shared/agent/runner.ts';
 import type { AgentRunTrigger } from '../_shared/agent/types.ts';
 import { buildDeps, selectEligibleUserIds } from '../_shared/agent/build-deps.ts';
+import { getEntitlement } from '../_shared/entitlement-read.ts';
 
 const CRON_SECRET = Deno.env.get('CRON_SHARED_SECRET');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -48,8 +49,16 @@ serve(async (req) => {
   const results = [];
   for (const uid of userIds) {
     try {
+      // Tier gate (sub-project #2): free users never run the agent — even
+      // Haiku triage costs money. lite/pro run; the runner clamps lite's
+      // write actions to propose/off (see tier-policy.ts).
+      const ent = await getEntitlement(serviceClient, uid);
+      if (ent.tier === 'free') {
+        results.push({ userId: uid, skipped: true, reason: 'tier_free' });
+        continue;
+      }
       const deps = buildDeps(serviceClient, uid);
-      const r = await runAgent({ userId: uid, trigger, deps });
+      const r = await runAgent({ userId: uid, trigger, deps, tier: ent.tier });
       results.push({ userId: uid, ...r });
     } catch (err) {
       const msg = err instanceof Error
