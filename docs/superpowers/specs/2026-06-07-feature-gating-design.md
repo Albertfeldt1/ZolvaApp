@@ -65,8 +65,9 @@ RPC (~line 103):
 2. `if (ent.tier === 'pro')` → skip the quota check (unlimited).
 3. Else `limit = ent.tier === 'lite' ? 300 : 50`; call
    `check_and_incr_chat_quota(userId, limit)`.
-4. If `!allowed` → respond `429` with body
-   `{ error: 'chat_quota', tier, used, limit, resets_at }`.
+4. If `!allowed` → respond `402` with body
+   `{ error: 'chat_quota', tier, used, limit, resets_at }`. (402, not 429, so the
+   client distinguishes the upgrade-paywall path from the transient abuse limiter.)
 
 Limits live in one shared constant module so client + server agree:
 `CHAT_WEEKLY_LIMITS = { free: 50, lite: 300 }` (pro = unlimited / omitted).
