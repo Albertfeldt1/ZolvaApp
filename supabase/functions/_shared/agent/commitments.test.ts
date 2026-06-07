@@ -50,6 +50,28 @@ Deno.test('selectDue skips a you_owe already nudged today (Copenhagen day)', () 
   assertEquals(selectDue([r], now), []);
 });
 
+Deno.test('selectDue stops nudging a you_owe well past its deadline (overdue cap)', () => {
+  // due Tuesday, now Friday — the "still nagging 3 days after" report. The row
+  // stays open for the in-app list / expiry, but must not keep notifying.
+  const now = new Date('2026-06-05T09:00:00Z');
+  const r = row({ direction: 'you_owe', created_at: '2026-06-01T08:00:00Z', due_at: '2026-06-02T17:00:00Z' });
+  assertEquals(selectDue([r], now), []);
+});
+
+Deno.test('selectDue still nudges a you_owe just past its deadline (within overdue cap)', () => {
+  const now = new Date('2026-06-03T09:00:00Z');
+  const r = row({ direction: 'you_owe', created_at: '2026-06-01T08:00:00Z', due_at: '2026-06-03T00:00:00Z' });
+  assertEquals(selectDue([r], now).map((c) => c.id), ['c1']);
+});
+
+Deno.test('selectDue you_owe overdue boundary: due exactly now-24h included, just under excluded', () => {
+  const now = new Date('2026-06-05T12:00:00Z');
+  const atCap = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();     // exactly 1d overdue
+  const past = new Date(now.getTime() - 24 * 60 * 60 * 1000 - 1).toISOString();  // 1ms past the cap
+  assertEquals(selectDue([row({ direction: 'you_owe', due_at: atCap })], now).length, 1);
+  assertEquals(selectDue([row({ direction: 'you_owe', due_at: past })], now).length, 0);
+});
+
 Deno.test('selectDue picks an owed_to_you silent >3d and never nudged', () => {
   const now = new Date('2026-06-05T09:00:00Z');
   const r = row({ direction: 'owed_to_you', last_message_at: '2026-06-01T09:00:00Z', nudged_at: null });

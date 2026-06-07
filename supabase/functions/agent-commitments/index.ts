@@ -4,7 +4,8 @@
 //   Phase 1 (watermark-gated): scan recent sent mail → extract you_owe commitments.
 //   Phase 2 (every run): reconcile (expire-only in Slice 1), then fire one
 //   templated nudge per due loop. A nudged loop stays status='open' — only
-//   nudged_at is stamped — so you_owe re-nudges daily until resolved/expired
+//   nudged_at is stamped — so you_owe re-nudges daily (within a bounded window
+//   around its deadline; see selectDue's overdue cap) until resolved/expired,
 //   and the row stays visible to reconcile. (Do NOT set status='nudged'.)
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';

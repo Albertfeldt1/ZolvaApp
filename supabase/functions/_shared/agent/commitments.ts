@@ -68,6 +68,7 @@ export function copenhagenDay(d: Date): string {
 
 const DUE_LEAD_MS = 12 * 60 * 60 * 1000;   // you_owe: nudge within 12h of due (deadline-proximate)
 const MIN_AGE_MS = 4 * 60 * 60 * 1000;     // you_owe: never nudge a promise younger than this
+const OVERDUE_NUDGE_MS = DAY_MS;           // you_owe: stop nudging >1d past the deadline (nagging a missed deadline is noise)
 const SILENCE_MS = 3 * DAY_MS;             // owed_to_you: 3 days of silence
 
 export function selectDue(rows: CommitmentRow[], now: Date): CommitmentRow[] {
@@ -87,7 +88,14 @@ export function selectDue(rows: CommitmentRow[], now: Date): CommitmentRow[] {
       const created = new Date(r.created_at).getTime();
       if (Number.isNaN(created) || created > nowMs - MIN_AGE_MS) return false;
       const due = new Date(r.due_at).getTime();
-      if (Number.isNaN(due) || due > nowMs + DUE_LEAD_MS) return false;
+      if (Number.isNaN(due)) return false;
+      // Bounded window around the deadline: too far in the future (lead) OR too
+      // far past it (overdue cap). The overdue cap is the fix for "still nagging
+      // me 3 days after a Tuesday deadline" — a missed-deadline reminder is noise
+      // past a day. The row stays open for the in-app list and ages out via
+      // expiry (due + 7d) / reconcile; it just stops *notifying*.
+      if (due > nowMs + DUE_LEAD_MS) return false;
+      if (due < nowMs - OVERDUE_NUDGE_MS) return false;
       // Once per day until resolved.
       return !(r.nudged_at && copenhagenDay(new Date(r.nudged_at)) === today);
     }
