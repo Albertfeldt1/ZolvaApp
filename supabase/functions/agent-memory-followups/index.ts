@@ -11,6 +11,7 @@ import type { ClaimedEvent } from '../_shared/agent/runner.ts';
 import { buildDeps, selectDueFollowupFacts, markFactsFollowedUp } from '../_shared/agent/build-deps.ts';
 import { selectDueFollowups, toFactDuePayload } from '../_shared/agent/followup-facts.ts';
 import { isQuietHours } from '../_shared/agent/quiet-hours.ts';
+import { keepProUsers, proUserIdSet } from '../_shared/entitlement-pro.ts';
 
 const CRON_SECRET = Deno.env.get('CRON_SHARED_SECRET');
 if (!CRON_SECRET) {
@@ -40,7 +41,10 @@ async function selectAgentEnabledUsers(
     seen.add(r.user_id);
     out.push({ userId: r.user_id, timezone: r.timezone || 'Europe/Copenhagen' });
   }
-  return out;
+  // Proactive behaviours are Pro-only (sub-project #2). Drop non-pro users
+  // before any deps build / Claude call.
+  const pro = await proUserIdSet(client, out.map((u) => u.userId));
+  return keepProUsers(out, pro);
 }
 
 serve(async (req) => {

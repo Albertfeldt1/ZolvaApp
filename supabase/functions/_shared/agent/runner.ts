@@ -22,6 +22,8 @@ import { resolveDue } from './commitments.ts';
 import { buildThreadAllowlist, verifyThreadId } from './verify.ts';
 import { deriveIdemKey } from './idem.ts';
 import { resolvePolicy } from './policy.ts';
+import { clampModeForTier } from './tier-policy.ts';
+import type { Tier } from '../entitlement.ts';
 import { shouldPushForProposal } from './push.ts';
 
 // A run strategy supplies the parts that differ between the mail-triage path
@@ -163,6 +165,10 @@ export interface RunInput {
   userId: string;
   trigger: AgentRunTrigger;
   deps: RunnerDeps;
+  // Subscription tier. Defaults to 'pro' downstream so proactive callers
+  // (reflect/commitments/memory-followups), which are already Pro-gated at
+  // selection, need no change. agent-tick passes the real tier.
+  tier?: Tier;
 }
 
 export interface RunResult {
@@ -243,7 +249,7 @@ export async function runAgent(input: RunInput): Promise<RunResult> {
     return { runId: null, processed: 0, status: 'ok' };
   }
 
-  return executeRun(userId, trigger, events, deps, mailTriageStrategy);
+  return executeRun(userId, trigger, events, deps, mailTriageStrategy, input.tier ?? 'pro');
 }
 
 // Path-agnostic engine: openRun → context (via strategy) → Claude tool loop
@@ -256,6 +262,7 @@ async function executeRun(
   events: ClaimedEvent[],
   deps: RunnerDeps,
   strategy: AgentStrategy,
+  tier: Tier = 'pro',
 ): Promise<RunResult> {
   const eventIds = events.map((e) => e.id);
   const runId = await deps.openRun(userId, trigger, eventIds);
@@ -358,10 +365,11 @@ async function executeRun(
           action === 'mail.send_reply' && typeof input.to === 'string'
             ? input.to
             : undefined;
-        const policy = resolvePolicy(action, userPolicy, {
-          recipient,
-          promotions,
-        });
+        const policy = clampModeForTier(
+          tier,
+          action,
+          resolvePolicy(action, userPolicy, { recipient, promotions }),
+        );
         if (policy === 'off') {
           toolResults.push({
             type: 'tool_result',

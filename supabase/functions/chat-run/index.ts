@@ -19,6 +19,8 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { recordAiUsage } from '../_shared/usage.ts';
+import { getEntitlement } from '../_shared/entitlement-read.ts';
+import { chatLimitForTier } from '../_shared/chat-limits.ts';
 
 type ContentBlock =
   | { type: 'text'; text: string }
@@ -119,6 +121,38 @@ serve(async (req) => {
         headers: { 'content-type': 'application/json', 'retry-after': String(retryAfter) },
       },
     );
+  }
+
+  // Tier message cap (sub-project #2). The abuse limiter above protects the
+  // shared API key; this protects the business model. Counts user messages
+  // (round-0 only), so claude-proxy tool rounds are NOT charged. Pro skips it.
+  const ent = await getEntitlement(authClient, userId);
+  const chatLimit = chatLimitForTier(ent.tier);
+  if (chatLimit !== null) {
+    const { data: quotaRows, error: quotaErr } = await authClient.rpc(
+      'check_and_incr_chat_quota',
+      { p_user_id: userId, p_limit: chatLimit },
+    );
+    if (quotaErr) {
+      console.error(`[chat-run] chat_quota_check_failed user=${userId} err=${quotaErr.message}`);
+      return json({ error: 'chat quota check failed' }, 500);
+    }
+    const quota = Array.isArray(quotaRows) ? quotaRows[0] : quotaRows;
+    if (!quota?.allowed) {
+      // 402 (not 429) so the client distinguishes "upgrade to continue" from
+      // the transient abuse limiter — the 429 path shows a retry message, this
+      // path shows the paywall.
+      return new Response(
+        JSON.stringify({
+          error: 'chat_quota',
+          tier: ent.tier,
+          used: Number(quota?.used ?? chatLimit),
+          limit: chatLimit,
+          resets_at: quota?.resets_at ?? null,
+        }),
+        { status: 402, headers: { 'content-type': 'application/json' } },
+      );
+    }
   }
 
   let body: ChatRunRequest;
