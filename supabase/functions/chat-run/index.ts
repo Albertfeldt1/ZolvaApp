@@ -21,6 +21,7 @@ import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-
 import { recordAiUsage } from '../_shared/usage.ts';
 import { getEntitlement } from '../_shared/entitlement-read.ts';
 import { chatLimitForTier } from '../_shared/chat-limits.ts';
+import { clampMaxTokens, isAllowedModel } from '../_shared/model-guard.ts';
 
 type ContentBlock =
   | { type: 'text'; text: string }
@@ -169,7 +170,10 @@ serve(async (req) => {
   }
 
   const model = body.model ?? DEFAULT_MODEL;
-  const maxTokens = body.max_tokens ?? DEFAULT_MAX_TOKENS;
+  if (!isAllowedModel(model)) {
+    return json({ error: 'model_not_allowed' }, 400);
+  }
+  const maxTokens = clampMaxTokens(body.max_tokens, DEFAULT_MAX_TOKENS);
 
   const service = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
