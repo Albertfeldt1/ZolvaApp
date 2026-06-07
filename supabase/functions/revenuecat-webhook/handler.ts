@@ -1,5 +1,6 @@
 // supabase/functions/revenuecat-webhook/handler.ts
 import { eventToOutcome, type EntitlementState, type RcEvent } from '../_shared/entitlement.ts';
+import { timingSafeEqual } from 'https://deno.land/std@0.224.0/crypto/timing_safe_equal.ts';
 
 export type WebhookDeps = {
   secret: string;
@@ -9,12 +10,20 @@ export type WebhookDeps = {
 
 export type WebhookResult = { status: number; body: { ok: boolean; reason?: string } };
 
+function secretMatches(provided: string | null, expected: string): boolean {
+  if (!provided || !expected) return false;
+  const a = new TextEncoder().encode(provided);
+  const b = new TextEncoder().encode(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
 export async function handleWebhook(
   authHeader: string | null,
   payload: { event?: RcEvent } | null,
   deps: WebhookDeps,
 ): Promise<WebhookResult> {
-  if (!authHeader || authHeader !== deps.secret) {
+  if (!secretMatches(authHeader, deps.secret)) {
     return { status: 401, body: { ok: false, reason: 'bad auth' } };
   }
   const event = payload?.event;

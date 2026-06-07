@@ -30,6 +30,10 @@ Deno.test('upserts on a purchase event', async () => {
   assertEquals(res.status, 200);
   assertEquals(deps.upserts.length, 1);
   assertEquals(deps.expires.length, 0);
+  const captured = deps.upserts[0] as { userId: string; state: { tier: string; is_trial: boolean } };
+  assertEquals(captured.userId, UID);
+  assertEquals(captured.state.tier, 'pro');
+  assertEquals(captured.state.is_trial, true);
 });
 
 Deno.test('expires on EXPIRATION', async () => {
