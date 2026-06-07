@@ -38,6 +38,7 @@ import {
 import { formatClock, formatToday } from '../lib/date';
 import { useChat, useChatSuggestions } from '../lib/hooks';
 import { ingestPickedDriveFiles } from '../lib/onboarding-backfill';
+import { presentPaywallIfNeeded } from '../lib/paywall';
 import type { ChatMessage, SendDraftAction } from '../lib/types';
 
 // Vertical space the floating chips + input dock occupy at rest. Used
@@ -61,7 +62,21 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
 
   const { t, type, fonts, radius, spacing, surface, shadows } = useTheme();
 
-  const { data: messages, typing, send, clear, sendDraft } = useChat();
+  const { data: messages, typing, send, clear, sendDraft, chatCap, clearChatCap } = useChat();
+  const capped = React.useMemo(() => {
+    if (!chatCap) return false;
+    if (!chatCap.resetsAt) return true;
+    return Date.now() < new Date(chatCap.resetsAt).getTime();
+  }, [chatCap]);
+
+  // Auto-clear the cap once the reset time passes while the screen is open.
+  React.useEffect(() => {
+    if (!chatCap?.resetsAt) return;
+    const ms = new Date(chatCap.resetsAt).getTime() - Date.now();
+    if (ms <= 0) { clearChatCap(); return; }
+    const id = setTimeout(() => clearChatCap(), Math.min(ms, 2_147_483_000));
+    return () => clearTimeout(id);
+  }, [chatCap, clearChatCap]);
 
   // Composer focus is deferred so the keyboard doesn't race the chat
   // overlay's slide-in animation. SlideInDown runs ~320ms; we focus
@@ -426,6 +441,40 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
               paddingHorizontal: spacing.xxl,
             }}
           >
+            {capped ? (
+              <View
+                style={{
+                  marginBottom: spacing.sm,
+                  padding: spacing.md,
+                  borderRadius: radius.card,
+                  backgroundColor: t.line,
+                  gap: spacing.xs,
+                }}
+              >
+                <Text style={{ ...type.body, color: t.ink, fontFamily: fonts.uiBold }}>
+                  Du har brugt dine beskeder i denne uge
+                </Text>
+                <Text style={{ ...type.bodySm, color: t.ink3 }}>
+                  Opgrader til Pro for ubegrænset chat.
+                </Text>
+                <Pressable
+                  onPress={() => { void presentPaywallIfNeeded('pro').then((ok) => { if (ok) clearChatCap(); }); }}
+                  style={({ pressed }) => ({
+                    alignSelf: 'flex-start',
+                    marginTop: spacing.xs,
+                    paddingHorizontal: spacing.lg,
+                    paddingVertical: spacing.sm,
+                    borderRadius: radius.pill,
+                    backgroundColor: t.ink,
+                    opacity: pressed ? 0.75 : 1,
+                  })}
+                >
+                  <Text style={{ ...type.body, color: '#FFFFFF', fontFamily: fonts.uiBold }}>
+                    Opgrader til Pro
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
             {liquidGlassReady ? (
               <GlassView
                 glassEffectStyle="regular"
@@ -443,6 +492,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
                   typing={typing}
                   submit={submit}
                   inputRef={inputRef}
+                  capped={capped}
                 />
               </GlassView>
             ) : (
@@ -465,6 +515,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
                   typing={typing}
                   submit={submit}
                   inputRef={inputRef}
+                  capped={capped}
                 />
               </View>
             )}
@@ -672,8 +723,9 @@ function DockRow(props: {
   typing: boolean;
   submit: (text: string) => void;
   inputRef: React.RefObject<TextInput | null>;
+  capped?: boolean;
 }) {
-  const { fonts, type, t, spacing, input, setInput, typing, submit, inputRef } = props;
+  const { fonts, type, t, spacing, input, setInput, typing, submit, inputRef, capped } = props;
   return (
     <View
       style={{
@@ -722,7 +774,8 @@ function DockRow(props: {
         }}
         onSubmitEditing={() => !typing && input.trim() && submit(input.trim())}
         returnKeyType="send"
-        editable={true}
+        accessibilityLabel="chat-input"
+        editable={!capped}
       />
     </View>
   );
