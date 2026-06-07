@@ -17,6 +17,24 @@ export function translateProviderError(error: unknown): TranslatedError {
     return { message: 'Noget gik galt. Prøv igen.', kind: 'unknown' };
   }
 
+  // An AADSTS code (Azure AD) is the single most actionable signal, so surface
+  // it BEFORE any of the naive substring buckets below. Those buckets would
+  // otherwise hide it: the `401/invalid_grant` branch masks a redirect-mismatch
+  // (AADSTS50011 comes back as invalid_grant) behind the generic "udløbet" copy,
+  // and the 5xx branch false-matches the digits inside the code itself (e.g.
+  // "AADSTS65001" contains "500"). Microsoft connect failures bounce back from
+  // login.microsoftonline.com without ever touching our server, so this dialog
+  // is the only place the code is visible - it must not be swallowed.
+  const aadStsTop = rawOriginal.match(/AADSTS\d+/i);
+  if (aadStsTop) {
+    return {
+      message:
+        `Microsoft afviste forbindelsen (${aadStsTop[0].toUpperCase()}). ` +
+        'Vis denne besked til support, hvis det bliver ved.',
+      kind: 'auth',
+    };
+  }
+
   if (
     raw.includes('network request failed') ||
     raw.includes('network error') ||
@@ -107,21 +125,8 @@ export function translateProviderError(error: unknown): TranslatedError {
   // Fallthrough — surface a sanitized snippet of the raw error so a
   // user's support screenshot tells us what actually failed instead
   // of the same opaque "Noget gik galt." for every wrapped wrapper.
-  // Priority order:
-  //   1. AADSTS code (Azure AD) — most actionable, shown verbatim.
-  //   2. Any visible OAuth / provider error indicator → snippet up to
-  //      ~120 chars of the raw message, single-line.
-  //   3. Otherwise, generic copy (no diagnostic value to surface).
-  const aadStsMatch = rawOriginal.match(/AADSTS\d+/i);
-  if (aadStsMatch) {
-    return {
-      message:
-        `Microsoft afviste forbindelsen (${aadStsMatch[0].toUpperCase()}). ` +
-        'Vis denne besked til support, hvis det bliver ved.',
-      kind: 'auth',
-    };
-  }
-
+  // (AADSTS codes are handled at the top of this function so the naive
+  // buckets above can't swallow them.)
   const looksDiagnostic =
     raw.includes('oauth') ||
     raw.includes('error_description') ||
