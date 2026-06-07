@@ -57,6 +57,7 @@
   },
   "devDependencies": {
     "@expo/prebuild-config": "^54.0.8",
+    "@testing-library/react-native": "^14.0.0",
     "@types/jest": "^29.0.0",
     "@types/react": "~19.1.0",
     "babel-preset-expo": "~54.0.10",
