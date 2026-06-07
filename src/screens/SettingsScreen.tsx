@@ -13,7 +13,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { WebView } from 'react-native-webview';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Purchases from 'react-native-purchases';
-import { presentPaywall, presentCustomerCenter } from '../lib/paywall';
+import { presentPaywall, presentPaywallIfNeeded, presentCustomerCenter } from '../lib/paywall';
 import {
   ActivityIndicator,
   Alert,
@@ -249,6 +249,32 @@ function SettingsSectionCard({
       <GlassFrostedCard overlay={surface.bone} style={[{ padding: spacing.lg, gap: spacing.md - 2 }, style]}>
         {children}
       </GlassFrostedCard>
+    </View>
+  );
+}
+
+// Inline upsell block rendered inside the agent-actions card when the user
+// is on free or lite tier. Uses useTheme() for the same token access as the
+// surrounding SettingsSectionCard. `type.bodySm` (not `type.small`) per the
+// project theme — there is no `small` scale token.
+function ProUpsellRow({ label }: { label: string }) {
+  const { t, type, fonts, radius, spacing } = useTheme();
+  return (
+    <View style={{ paddingHorizontal: 20, paddingVertical: 16, gap: 8 }}>
+      <Text style={{ ...type.body, color: t.ink, fontFamily: fonts.uiBold }}>{label}</Text>
+      <Text style={{ ...type.bodySm, color: t.ink3 }}>
+        Autonome handlinger kræver Pro.
+      </Text>
+      <Pressable
+        onPress={() => { void presentPaywallIfNeeded('pro'); }}
+        style={({ pressed }) => ({
+          alignSelf: 'flex-start', marginTop: 4,
+          paddingHorizontal: spacing.lg, paddingVertical: spacing.sm,
+          borderRadius: radius.pill, backgroundColor: t.ink, opacity: pressed ? 0.75 : 1,
+        })}
+      >
+        <Text style={{ ...type.body, color: '#FFFFFF', fontFamily: fonts.uiBold }}>Opgrader til Pro</Text>
+      </Pressable>
     </View>
   );
 }
@@ -2077,9 +2103,23 @@ export function SettingsScreen({
                   overflow: 'hidden',
                 }}
               >
-                <ZolvaHandlingerSection />
-                <AgentActionPolicySection />
-                <TrustPromotionsSection />
+                {entitlementLoading ? null : entitlement.tier === 'free' ? (
+                  // Free: the agent never runs — upsell the whole card.
+                  <ProUpsellRow label="Zolva-handlinger" />
+                ) : entitlement.tier === 'lite' ? (
+                  // Lite: triage on/off is available; autonomous policy is Pro-only.
+                  <>
+                    <ZolvaHandlingerSection />
+                    <ProUpsellRow label="Autonome handlinger" />
+                  </>
+                ) : (
+                  // Pro: everything.
+                  <>
+                    <ZolvaHandlingerSection />
+                    <AgentActionPolicySection />
+                    <TrustPromotionsSection />
+                  </>
+                )}
               </View>
 
               {/* Privatliv - dark glass card */}
