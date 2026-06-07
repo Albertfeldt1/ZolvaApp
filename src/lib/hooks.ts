@@ -5007,6 +5007,7 @@ export function useChat() {
   // chat_quota; the screen disables input + shows the upgrade banner until
   // resetsAt. `null` = not capped.
   const [chatCap, setChatCap] = useState<{ resetsAt: string | null } | null>(null);
+  const clearChatCap = useCallback(() => setChatCap(null), []);
   const [typing, setTyping] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const { data: profile } = useUser();
@@ -5611,7 +5612,7 @@ export function useChat() {
     clear,
     sendDraft,
     chatCap,
-    clearChatCap: () => setChatCap(null),
+    clearChatCap,
   };
 }
 

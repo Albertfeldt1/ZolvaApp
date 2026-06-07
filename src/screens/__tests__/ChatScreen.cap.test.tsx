@@ -22,6 +22,19 @@ jest.mock('lucide-react-native', () => ({
 }));
 jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn() }));
 jest.mock('expo-haptics', () => ({ impactAsync: jest.fn(), ImpactFeedbackStyle: {} }));
+jest.mock('expo-notifications', () => ({
+  setNotificationHandler: jest.fn(),
+  setNotificationChannelAsync: jest.fn(),
+  getPermissionsAsync: jest.fn().mockResolvedValue({ status: 'undetermined', canAskAgain: true }),
+  requestPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
+  addNotificationResponseReceivedListener: jest.fn().mockReturnValue({ remove: jest.fn() }),
+  getLastNotificationResponseAsync: jest.fn().mockResolvedValue(null),
+  getAllScheduledNotificationsAsync: jest.fn().mockResolvedValue([]),
+  cancelScheduledNotificationAsync: jest.fn(),
+  scheduleNotificationAsync: jest.fn(),
+  AndroidImportance: { DEFAULT: 3 },
+  PermissionStatus: { GRANTED: 'granted', DENIED: 'denied', UNDETERMINED: 'undetermined' },
+}));
 
 // ── Design / primitive stubs ─────────────────────────────────────────────────
 jest.mock('../../design/primitives/GlassFrostedCard', () => ({
@@ -144,23 +157,41 @@ beforeEach(() => {
 
 it('shows the upgrade banner and disables input when capped', async () => {
   mockChat({ chatCap: { resetsAt: new Date(Date.now() + 86_400_000).toISOString() } });
-  const { getByText, getByLabelText } = await render(<ChatScreen onBack={onBack} />);
-  // Banner button text is exact; description text contains "Opgrader til Pro for…"
-  expect(getByText('Opgrader til Pro')).toBeTruthy();
+  const { getAllByText, getByLabelText } = await render(<ChatScreen onBack={onBack} />);
+  // Two nodes contain "Opgrader til Pro": the description text and the button.
+  const matches = getAllByText(/Opgrader til Pro/i);
+  expect(matches.length).toBeGreaterThanOrEqual(1);
   expect(getByLabelText('chat-input').props.editable).toBe(false);
 });
 
 it('opens the paywall when the upgrade button is tapped', async () => {
   const spy = jest.spyOn(paywall, 'presentPaywallIfNeeded').mockResolvedValue(false);
   mockChat({ chatCap: { resetsAt: new Date(Date.now() + 86_400_000).toISOString() } });
-  const { getByText } = await render(<ChatScreen onBack={onBack} />);
-  fireEvent.press(getByText('Opgrader til Pro'));
+  const { getAllByText } = await render(<ChatScreen onBack={onBack} />);
+  // Press the button — it's the last (shortest) match: "Opgrader til Pro" (no trailing text).
+  const buttons = getAllByText(/^Opgrader til Pro$/i);
+  fireEvent.press(buttons[0]);
   expect(spy).toHaveBeenCalledWith('pro');
 });
 
 it('is not capped when chatCap is null', async () => {
   mockChat({ chatCap: null });
   const { queryByText, getByLabelText } = await render(<ChatScreen onBack={onBack} />);
-  expect(queryByText('Opgrader til Pro')).toBeNull();
+  expect(queryByText(/Opgrader til Pro/i)).toBeNull();
   expect(getByLabelText('chat-input').props.editable).not.toBe(false);
+});
+
+it('calls clearChatCap when presentPaywallIfNeeded resolves true', async () => {
+  jest.spyOn(paywall, 'presentPaywallIfNeeded').mockResolvedValue(true);
+  const clearChatCap = jest.fn();
+  mockChat({
+    chatCap: { resetsAt: new Date(Date.now() + 86_400_000).toISOString() },
+    clearChatCap,
+  });
+  const { getAllByText } = await render(<ChatScreen onBack={onBack} />);
+  const buttons = getAllByText(/^Opgrader til Pro$/i);
+  fireEvent.press(buttons[0]);
+  // Wait for the promise chain (.then) to flush
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  expect(clearChatCap).toHaveBeenCalledTimes(1);
 });

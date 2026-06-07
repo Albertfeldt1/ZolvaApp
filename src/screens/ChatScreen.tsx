@@ -414,7 +414,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
               <SuggestionsCarousel
                 suggestions={suggestions}
                 onSelect={submit}
-                disabled={typing}
+                disabled={typing || capped}
                 chipStyle={{
                   paddingVertical: spacing.sm,
                   paddingHorizontal: spacing.md,
