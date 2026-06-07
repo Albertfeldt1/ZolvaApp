@@ -22,6 +22,7 @@ import { formatMailWhen } from './mail-when';
 import {
   listCalendarEvents as listGraphEvents,
   listInboxMessages as listGraphMessages,
+  searchInboxMessages as searchGraphMessages,
   getMessageBody as getGraphMessageBody,
   createCalendarEvent as createGraphEvent,
   updateCalendarEvent as updateGraphEvent,
@@ -57,6 +58,7 @@ import {
 } from './icloud-calendar';
 import {
   listInbox as listIcloudInbox,
+  searchInbox as searchIcloudInbox,
   getMessageBody as getIcloudMessageBody,
   type IcloudMessage,
 } from './icloud-mail';
@@ -363,6 +365,77 @@ export async function listRecentMailAcrossProviders(
     `[${r.source}:${r.id}] ${formatMailWhen(r.receivedAt, now)} - ${r.from} - "${r.subject}" - ${truncate(r.snippet, 120)}`,
   );
   const header = `${trimmed.length} af de nyeste mails:`;
+  const footer = formatOutcomesFooter(outcomes);
+  return { text: [header, '', ...lines, footer].filter(Boolean).join('\n'), isError: false };
+}
+
+// Full-text search across every connected mailbox. Unlike
+// listRecentMailAcrossProviders (newest N, no query), each provider runs a
+// real server-side search so a mail outside the newest window - or one where
+// the sender address only appears in Reply-To / the body (e.g. a contact-form
+// submission) - is still found. Same row shape + formatting as the list tool.
+export async function searchMailAcrossProviders(
+  ctx: ChatCtx,
+  query: string,
+  limit: number,
+): Promise<{ text: string; isError: boolean }> {
+  const term = query.trim();
+  if (!term) return { text: 'Tom søgning - angiv et navn, en e-mailadresse eller et emne.', isError: true };
+  const perProvider = Math.max(1, Math.min(limit, MAIL_PER_PROVIDER_MAX));
+  type Row = { source: CalendarSource; id: string; from: string; subject: string; receivedAt: Date; snippet: string };
+  const rows: Row[] = [];
+  const outcomes: SourceOutcome[] = [];
+
+  if (ctx.gmail) {
+    try {
+      // A bare term in Gmail `q` searches ALL mail (Inbox + Archive), matching
+      // sender, subject and body - exactly the breadth we want for "find the
+      // mail from X". groupByThread so a multi-message thread is one hit.
+      const ms = await listGmailMessages(perProvider, { query: term, groupByThread: true });
+      ms.forEach((m) => rows.push(toGmailRow(m)));
+      outcomes.push({ source: 'google', ok: true });
+    } catch (err) {
+      outcomes.push({ source: 'google', ok: false, reason: short(err) });
+    }
+  }
+  if (ctx.outlookMail) {
+    try {
+      const ms = await searchGraphMessages(term, perProvider);
+      ms.forEach((m) => rows.push(toGraphRow(m)));
+      outcomes.push({ source: 'microsoft', ok: true });
+    } catch (err) {
+      outcomes.push({ source: 'microsoft', ok: false, reason: short(err) });
+    }
+  }
+  if (ctx.userId && ctx.icloud) {
+    const r = await searchIcloudInbox(ctx.userId, term, perProvider);
+    if (r.ok) {
+      r.data.forEach((m) => rows.push(toIcloudRow(m)));
+      outcomes.push({ source: 'icloud', ok: true });
+    } else if (r.error !== 'not-connected') {
+      outcomes.push({ source: 'icloud', ok: false, reason: r.error });
+    }
+  }
+
+  rows.sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime());
+  const trimmed = rows.slice(0, limit);
+
+  if (trimmed.length === 0) {
+    const skipped = outcomes.filter((o) => !o.ok);
+    if (skipped.length > 0) {
+      return {
+        text: `Ingen mails matchede "${term}". Mislykkedes: ${skipped.map((o) => `${o.source}=${o.reason ?? 'fejl'}`).join(', ')}.`,
+        isError: false,
+      };
+    }
+    return { text: `Ingen mails matchede "${term}" i nogen postkasse.`, isError: false };
+  }
+
+  const now = new Date();
+  const lines = trimmed.map((r) =>
+    `[${r.source}:${r.id}] ${formatMailWhen(r.receivedAt, now)} - ${r.from} - "${r.subject}" - ${truncate(r.snippet, 120)}`,
+  );
+  const header = `${trimmed.length} mail(s) der matcher "${term}":`;
   const footer = formatOutcomesFooter(outcomes);
   return { text: [header, '', ...lines, footer].filter(Boolean).join('\n'), isError: false };
 }

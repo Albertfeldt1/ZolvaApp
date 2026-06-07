@@ -273,6 +273,36 @@ export async function listInboxMessages(top = 12): Promise<GraphMessage[]> {
   });
 }
 
+// Full-text mail search across the whole mailbox (not just Inbox). Graph
+// `$search` matches from, subject, body and more, so a sender address that
+// only appears in Reply-To or the body still hits. `$search` can't be combined
+// with `$orderby` (Graph returns by relevance), so results come back
+// relevance-ranked; the caller sorts by date across providers afterward.
+export async function searchInboxMessages(
+  query: string,
+  top = 12,
+): Promise<GraphMessage[]> {
+  // $search requires the term wrapped in double quotes, then URL-encoded.
+  const searchParam = encodeURIComponent(`"${query.replace(/"/g, '')}"`);
+  return tryWithRefresh('microsoft', async (token) => {
+    const data = await listFetchWithRetry<{ value: RawMessage[] }>(
+      token,
+      `/me/messages?$search=${searchParam}&$top=${top}&$select=id,from,subject,bodyPreview,receivedDateTime,isRead`,
+    );
+    return (data.value ?? []).map((m) => ({
+      id: m.id,
+      from:
+        m.from?.emailAddress?.name ??
+        m.from?.emailAddress?.address ??
+        '(ukendt afsender)',
+      subject: m.subject || '(intet emne)',
+      receivedAt: new Date(m.receivedDateTime),
+      preview: m.bodyPreview ?? '',
+      isRead: m.isRead ?? false,
+    }));
+  });
+}
+
 // Pull a small batch of recent sent mails - body text only - for the
 // style-summary analyzer. Same shape/intent as gmail.listSentSamples.
 // Skips empty / near-empty bodies that add no style signal.

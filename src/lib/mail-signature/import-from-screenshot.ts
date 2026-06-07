@@ -515,7 +515,7 @@ export async function pickAndImportSignature(): Promise<ImportResult> {
   let toolInput: unknown;
   try {
     toolInput = await completeWithTool<unknown>({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-haiku-4-5-20251001',
       maxTokens: 2000,
       system: SIGNATURE_IMPORT_SYSTEM_PROMPT,
       messages: [

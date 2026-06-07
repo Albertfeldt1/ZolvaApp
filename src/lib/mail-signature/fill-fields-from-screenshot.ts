@@ -199,7 +199,7 @@ export async function pickAndFillFields(): Promise<FillResult> {
   let toolInput: unknown;
   try {
     toolInput = await completeWithTool<unknown>({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-haiku-4-5-20251001',
       maxTokens: 1200,
       system: FILL_FIELDS_SYSTEM_PROMPT,
       messages: [

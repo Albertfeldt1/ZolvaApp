@@ -11,6 +11,7 @@ export type ChatToolName =
   | 'delete_calendar_event'
   | 'list_calendar_events'
   | 'list_recent_mail'
+  | 'search_mail'
   | 'read_mail_thread'
   | 'list_reminders'
   | 'list_notes'
@@ -40,6 +41,7 @@ const VALID_TOOLS: ReadonlySet<ChatToolName> = new Set([
   'delete_calendar_event',
   'list_calendar_events',
   'list_recent_mail',
+  'search_mail',
   'read_mail_thread',
   'list_reminders',
   'list_notes',

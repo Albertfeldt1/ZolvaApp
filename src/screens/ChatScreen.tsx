@@ -94,9 +94,12 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
   const [drivePickerVisible, setDrivePickerVisible] = useState(false);
   const [actionMenu, setActionMenu] = useState<MessageActionTarget | null>(null);
   // In-chat draft send ("Send svar" button). draftPreview drives the "Se
-  // udkast" sheet; sendingId is the message whose send is in flight; sentIds
+  // udkast" sheet; sendingId is the draft whose send is in flight; sentIds
   // remembers which drafts went out this session so the button stays "Sendt".
-  const [draftPreview, setDraftPreview] = useState<{ messageId: string; action: SendDraftAction } | null>(null);
+  // A single turn can carry several drafts, so these are keyed per draft
+  // (`${messageId}#${index}`), not per message - otherwise sending one draft
+  // would flip every draft on the message to "Sendt".
+  const [draftPreview, setDraftPreview] = useState<{ draftKey: string; action: SendDraftAction } | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [sentIds, setSentIds] = useState<Set<string>>(() => new Set());
   const scrollRef = useRef<ScrollView>(null);
@@ -104,8 +107,8 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
   // Tap "Send svar" → native confirm (guards against a mis-tap sending real
   // mail) → send the draft. On success flip the button to "✓ Sendt"; on
   // failure surface why so the user can retry.
-  const confirmAndSendDraft = (messageId: string, action: SendDraftAction) => {
-    if (sendingId === messageId || sentIds.has(messageId)) return;
+  const confirmAndSendDraft = (draftKey: string, action: SendDraftAction) => {
+    if (sendingId === draftKey || sentIds.has(draftKey)) return;
     const recipient = action.to[0] ?? 'modtageren';
     Alert.alert(
       'Send svar?',
@@ -115,18 +118,18 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
         {
           text: 'Send',
           onPress: async () => {
-            setSendingId(messageId);
+            setSendingId(draftKey);
             try {
               const res = await sendDraft(action);
               if (res.ok) {
                 void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                setSentIds((cur) => new Set(cur).add(messageId));
-                setDraftPreview((cur) => (cur?.messageId === messageId ? null : cur));
+                setSentIds((cur) => new Set(cur).add(draftKey));
+                setDraftPreview((cur) => (cur?.draftKey === draftKey ? null : cur));
               } else {
                 Alert.alert('Kunne ikke sende', res.error ?? 'Prøv igen om lidt.');
               }
             } finally {
-              setSendingId((cur) => (cur === messageId ? null : cur));
+              setSendingId((cur) => (cur === draftKey ? null : cur));
             }
           },
         },
@@ -356,7 +359,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
           )}
 
           {messages.map((m) => (
-            <Bubble key={m.id} msg={m} t={t} type={type} fonts={fonts} radius={radius} spacing={spacing} surface={surface} onPickDrive={() => setDrivePickerVisible(true)} onSendDraft={(a) => confirmAndSendDraft(m.id, a)} onPreviewDraft={(a) => setDraftPreview({ messageId: m.id, action: a })} draftSending={sendingId === m.id} draftSent={sentIds.has(m.id)} onLongPress={(rect) => openActionMenu(m, rect)} hidden={actionMenu?.id === m.id} />
+            <Bubble key={m.id} msg={m} t={t} type={type} fonts={fonts} radius={radius} spacing={spacing} surface={surface} onPickDrive={() => setDrivePickerVisible(true)} onSendDraft={(a, key) => confirmAndSendDraft(key, a)} onPreviewDraft={(a, key) => setDraftPreview({ draftKey: key, action: a })} isDraftSending={(key) => sendingId === key} isDraftSent={(key) => sentIds.has(key)} onLongPress={(rect) => openActionMenu(m, rect)} hidden={actionMenu?.id === m.id} />
           ))}
 
           {typing && <TypingIndicator t={t} spacing={spacing} radius={radius} />}
@@ -541,10 +544,10 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.lg }}>
               <Pressable
                 onPress={() => {
-                  if (sendingId === draftPreview.messageId || sentIds.has(draftPreview.messageId)) return;
-                  confirmAndSendDraft(draftPreview.messageId, draftPreview.action);
+                  if (sendingId === draftPreview.draftKey || sentIds.has(draftPreview.draftKey)) return;
+                  confirmAndSendDraft(draftPreview.draftKey, draftPreview.action);
                 }}
-                disabled={sendingId === draftPreview.messageId || sentIds.has(draftPreview.messageId)}
+                disabled={sendingId === draftPreview.draftKey || sentIds.has(draftPreview.draftKey)}
                 accessibilityRole="button"
                 accessibilityLabel="Send svar"
                 style={({ pressed }) => ({
@@ -554,21 +557,21 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
                   paddingVertical: spacing.sm,
                   paddingHorizontal: spacing.lg,
                   borderRadius: radius.pill,
-                  backgroundColor: sentIds.has(draftPreview.messageId) ? surface.glassWeak : t.ink,
+                  backgroundColor: sentIds.has(draftPreview.draftKey) ? surface.glassWeak : t.ink,
                   opacity: pressed ? 0.7 : 1,
                 })}
               >
-                {sendingId === draftPreview.messageId && <ActivityIndicator size="small" color="#fff" />}
+                {sendingId === draftPreview.draftKey && <ActivityIndicator size="small" color="#fff" />}
                 <Text
                   style={{
                     fontFamily: fonts.uiBold,
                     fontSize: 14,
-                    color: sentIds.has(draftPreview.messageId) ? t.ink : '#fff',
+                    color: sentIds.has(draftPreview.draftKey) ? t.ink : '#fff',
                   }}
                 >
-                  {sentIds.has(draftPreview.messageId)
+                  {sentIds.has(draftPreview.draftKey)
                     ? '✓ Sendt'
-                    : sendingId === draftPreview.messageId
+                    : sendingId === draftPreview.draftKey
                       ? 'Sender…'
                       : 'Send svar'}
                 </Text>
@@ -752,17 +755,17 @@ function Bubble({
   onPickDrive,
   onSendDraft,
   onPreviewDraft,
-  draftSending,
-  draftSent,
+  isDraftSending,
+  isDraftSent,
   onLongPress,
   hidden,
 }: {
   msg: ChatMessage;
   onPickDrive?: () => void;
-  onSendDraft?: (action: SendDraftAction) => void;
-  onPreviewDraft?: (action: SendDraftAction) => void;
-  draftSending?: boolean;
-  draftSent?: boolean;
+  onSendDraft?: (action: SendDraftAction, draftKey: string) => void;
+  onPreviewDraft?: (action: SendDraftAction, draftKey: string) => void;
+  isDraftSending?: (draftKey: string) => boolean;
+  isDraftSent?: (draftKey: string) => boolean;
   onLongPress?: (rect: BubbleRect) => void;
   // Hidden (kept in layout) while its long-press menu is open, so only the
   // lifted copy in the overlay is visible — no doubled bubble.
@@ -813,65 +816,95 @@ function Bubble({
               </Text>
             </Pressable>
           )}
-          {msg.action?.kind === 'send_draft' && (
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: spacing.md,
-                marginTop: spacing.sm,
-              }}
-            >
-              <Pressable
-                onPress={() => {
-                  if (draftSending || draftSent) return;
-                  onSendDraft?.(msg.action as SendDraftAction);
-                }}
-                disabled={draftSending || draftSent}
-                accessibilityRole="button"
-                accessibilityLabel={draftSent ? 'Svar sendt' : 'Send svar'}
-                style={({ pressed }) => ({
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 6,
-                  paddingVertical: spacing.xs + 2,
-                  paddingHorizontal: spacing.md,
-                  borderRadius: radius.pill,
-                  backgroundColor: draftSent ? surface.glassWeak : t.ink,
-                  opacity: pressed ? 0.7 : 1,
-                })}
-              >
-                {draftSending && <ActivityIndicator size="small" color="#fff" />}
-                <Text
-                  style={{
-                    fontFamily: fonts.uiBold,
-                    fontSize: 13,
-                    color: draftSent ? t.ink : '#fff',
-                  }}
-                >
-                  {draftSent ? '✓ Sendt' : draftSending ? 'Sender…' : 'Send svar'}
-                </Text>
-              </Pressable>
-              {!draftSent && !draftSending && (
-                <Pressable
-                  onPress={() => onPreviewDraft?.(msg.action as SendDraftAction)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Se udkast"
-                >
-                  <Text
+          {/* A turn can carry several drafts (agent replied to multiple
+              mails). Render a "Send svar" / "Se udkast" pair per draft, keyed
+              per draft so each tracks its own sending/sent state. Falls back to
+              the legacy single `action` send_draft for any pre-existing msg. */}
+          {(() => {
+            const drafts =
+              msg.drafts ?? (msg.action?.kind === 'send_draft' ? [msg.action] : []);
+            if (drafts.length === 0) return null;
+            const multiple = drafts.length > 1;
+            return drafts.map((draft, idx) => {
+              const draftKey = `${msg.id}#${idx}`;
+              const sending = isDraftSending?.(draftKey) ?? false;
+              const sent = isDraftSent?.(draftKey) ?? false;
+              return (
+                <View key={draftKey} style={{ marginTop: spacing.sm }}>
+                  {multiple && (
+                    <Text
+                      numberOfLines={1}
+                      style={{
+                        fontFamily: fonts.uiBold,
+                        fontSize: 12,
+                        color: t.ink2,
+                        marginBottom: spacing.xs,
+                      }}
+                    >
+                      {draft.to[0] ?? 'modtager'}
+                      {draft.subject ? ` · ${draft.subject}` : ''}
+                    </Text>
+                  )}
+                  <View
                     style={{
-                      fontFamily: fonts.uiBold,
-                      fontSize: 13,
-                      color: t.ink2,
-                      textDecorationLine: 'underline',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: spacing.md,
                     }}
                   >
-                    Se udkast
-                  </Text>
-                </Pressable>
-              )}
-            </View>
-          )}
+                    <Pressable
+                      onPress={() => {
+                        if (sending || sent) return;
+                        onSendDraft?.(draft, draftKey);
+                      }}
+                      disabled={sending || sent}
+                      accessibilityRole="button"
+                      accessibilityLabel={sent ? 'Svar sendt' : 'Send svar'}
+                      style={({ pressed }) => ({
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                        paddingVertical: spacing.xs + 2,
+                        paddingHorizontal: spacing.md,
+                        borderRadius: radius.pill,
+                        backgroundColor: sent ? surface.glassWeak : t.ink,
+                        opacity: pressed ? 0.7 : 1,
+                      })}
+                    >
+                      {sending && <ActivityIndicator size="small" color="#fff" />}
+                      <Text
+                        style={{
+                          fontFamily: fonts.uiBold,
+                          fontSize: 13,
+                          color: sent ? t.ink : '#fff',
+                        }}
+                      >
+                        {sent ? '✓ Sendt' : sending ? 'Sender…' : 'Send svar'}
+                      </Text>
+                    </Pressable>
+                    {!sent && !sending && (
+                      <Pressable
+                        onPress={() => onPreviewDraft?.(draft, draftKey)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Se udkast"
+                      >
+                        <Text
+                          style={{
+                            fontFamily: fonts.uiBold,
+                            fontSize: 13,
+                            color: t.ink2,
+                            textDecorationLine: 'underline',
+                          }}
+                        >
+                          Se udkast
+                        </Text>
+                      </Pressable>
+                    )}
+                  </View>
+                </View>
+              );
+            });
+          })()}
         </GlassFrostedCard>
         </Pressable>
         </View>

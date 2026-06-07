@@ -39,6 +39,10 @@ const PROXY_URL = `${SUPABASE_URL}/functions/v1/imap-proxy`;
 
 const VALIDATE_TIMEOUT_MS = 30_000;
 const LIST_INBOX_TIMEOUT_MS = 25_000;
+// Search runs SEARCH TEXT over the whole mailbox (slower than list-inbox) and
+// the server may reconnect-retry once on a cold-connection close, so give it
+// extra headroom over list-inbox before the client aborts.
+const SEARCH_TIMEOUT_MS = 40_000;
 const GET_BODY_TIMEOUT_MS = 25_000;
 const SEND_MAIL_TIMEOUT_MS = 35_000;     // SMTP connect+send + IMAP APPEND headroom
 const APPEND_DRAFT_TIMEOUT_MS = 25_000;
@@ -363,6 +367,48 @@ async function listInboxImpl(
   };
 }
 
+// Full-text INBOX search (IMAP SEARCH TEXT - matches all headers incl.
+// Reply-To AND the body). One-shot, not SWR-cached: search results are
+// query-specific and short-lived, so caching them per (user, query) would
+// bloat storage for little benefit. Used by the chat `search_mail` tool to
+// find a mail the newest-N list-inbox window misses.
+export async function searchInbox(
+  userId: string,
+  query: string,
+  limit = 12,
+): Promise<IcloudResult<IcloudMessage[]>> {
+  const cred = await loadCredential(userId);
+  if (cred.kind === 'absent') {
+    return { ok: false, error: 'not-connected' };
+  }
+  if (cred.kind === 'invalid') {
+    return { ok: false, error: 'credential-rejected' };
+  }
+  const res = await call<{ messages: RawMessage[] }>('search', {
+    email: cred.credential.email,
+    password: cred.credential.password,
+    query,
+    limit,
+  });
+  if (!res.ok) {
+    if (res.error === 'auth-failed') {
+      await markInvalid(userId, 'imap-rejected');
+    }
+    return res;
+  }
+  return {
+    ok: true,
+    data: res.data.messages.map((m) => ({
+      uid: m.uid,
+      from: parseFromHeader(m.from),
+      subject: m.subject,
+      date: new Date(m.date),
+      unread: m.unread,
+      preview: m.preview,
+    })),
+  };
+}
+
 // Server-reported INBOX counts via IMAP STATUS. Cheaper than list-inbox
 // (no FETCH) and stable across reloads - the displayed total/unread don't
 // drift with the per-fetch limit window.
@@ -540,13 +586,14 @@ const GATEWAY_RETRY_BACKOFF_MS = [1_500, 4_000];
 const IDEMPOTENT_OPS = new Set<string>([
   'validate',
   'list-inbox',
+  'search',
   'get-body',
   'count',
   'clear-binding',
 ]);
 
 async function call<T>(
-  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding' | 'send-mail' | 'append-draft',
+  op: 'validate' | 'list-inbox' | 'search' | 'get-body' | 'count' | 'clear-binding' | 'send-mail' | 'append-draft',
   body: Record<string, unknown>,
 ): Promise<IcloudResult<T>> {
   // Retry policy:
@@ -585,7 +632,7 @@ type CallOnceResult<T> =
   | { ok: false; error: IcloudErrorCode; gatewayFlake?: boolean };
 
 async function callOnce<T>(
-  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding' | 'send-mail' | 'append-draft',
+  op: 'validate' | 'list-inbox' | 'search' | 'get-body' | 'count' | 'clear-binding' | 'send-mail' | 'append-draft',
   body: Record<string, unknown>,
 ): Promise<CallOnceResult<T>> {
   const session = await supabase.auth.getSession();
@@ -596,6 +643,7 @@ async function callOnce<T>(
   const timeoutMs =
     op === 'validate' ? VALIDATE_TIMEOUT_MS
     : op === 'list-inbox' ? LIST_INBOX_TIMEOUT_MS
+    : op === 'search' ? SEARCH_TIMEOUT_MS
     : op === 'get-body' ? GET_BODY_TIMEOUT_MS
     : op === 'send-mail' ? SEND_MAIL_TIMEOUT_MS
     : op === 'append-draft' ? APPEND_DRAFT_TIMEOUT_MS
