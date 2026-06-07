@@ -75,6 +75,12 @@ const IMAP_HOST = 'imap.mail.me.com';
 const IMAP_PORT = 993;
 const CONNECT_TIMEOUT_MS = 5_000;
 const COMMAND_TIMEOUT_MS = 10_000;
+// Server-side SEARCH TEXT scans the whole mailbox (vs list-inbox's cheap
+// last-N sequence fetch), so Apple can stay silent well past the normal 10s
+// inactivity window on a large mailbox. Give the search op a longer socket
+// timeout so a legitimately slow scan completes instead of tripping a
+// 'temporarily-unavailable'.
+const SEARCH_COMMAND_TIMEOUT_MS = 25_000;
 // Hard wall-clock deadlines for append-draft. imapflow's socketTimeout measures
 // socket INACTIVITY, so an APPEND that stalls mid-literal (socket still moving
 // bytes) can outlive it and hang the whole invocation until the edge runtime
@@ -92,6 +98,16 @@ type ListInboxReq = {
   op: 'list-inbox';
   email: string;
   password: string;
+  limit?: number;
+};
+type SearchInboxReq = {
+  op: 'search';
+  email: string;
+  password: string;
+  // Full-text term, matched against the whole message (IMAP TEXT: headers
+  // incl. From/Reply-To AND body), so a sender address that only appears in
+  // Reply-To or the body still matches.
+  query: string;
   limit?: number;
 };
 type GetBodyReq = {
@@ -139,6 +155,7 @@ type AppendDraftReq = ComposeBase & { op: 'append-draft' };
 type Req =
   | ValidateReq
   | ListInboxReq
+  | SearchInboxReq
   | GetBodyReq
   | CountReq
   | ClearBindingReq
@@ -220,6 +237,7 @@ serve(async (req) => {
     !body ||
     (body.op !== 'validate' &&
       body.op !== 'list-inbox' &&
+      body.op !== 'search' &&
       body.op !== 'get-body' &&
       body.op !== 'count' &&
       body.op !== 'clear-binding' &&
@@ -241,6 +259,9 @@ serve(async (req) => {
   }
   if (body.op === 'get-body' && (typeof body.uid !== 'number' || !Number.isFinite(body.uid))) {
     return err('bad-request', 400);
+  }
+  if (body.op === 'search' && (typeof body.query !== 'string' || body.query.trim().length === 0)) {
+    return err('bad-request', 400, 'invalid `query`');
   }
   if (body.op === 'send-mail' || body.op === 'append-draft') {
     const composeBody = body as ComposeBase;
@@ -274,6 +295,8 @@ serve(async (req) => {
     response = await handleValidate(body, userId, pepper, supabaseUrl, serviceKey);
   } else if (body.op === 'list-inbox') {
     response = await handleListInbox(body, userId, pepper, supabaseUrl, serviceKey);
+  } else if (body.op === 'search') {
+    response = await handleSearch(body, userId, pepper, supabaseUrl, serviceKey);
   } else if (body.op === 'get-body') {
     response = await handleGetBody(body, userId, pepper, supabaseUrl, serviceKey);
   } else if (body.op === 'count') {
@@ -305,7 +328,7 @@ async function checkRateLimit(
   serviceKey: string,
   supabaseUrl: string,
   userId: string,
-  op: 'validate' | 'list-inbox' | 'get-body' | 'count' | 'clear-binding' | 'send-mail' | 'append-draft',
+  op: 'validate' | 'list-inbox' | 'search' | 'get-body' | 'count' | 'clear-binding' | 'send-mail' | 'append-draft',
 ): Promise<RateLimitResult> {
   // clear-binding doesn't need rate limiting - the JWT already authorizes,
   // and a malicious user can only delete their OWN row. Skipping the check
@@ -313,13 +336,13 @@ async function checkRateLimit(
   // No audit row either - it's a JWT-only DB delete, not an Apple-touching
   // op, so it doesn't belong in the success-rate metric.
   if (op === 'clear-binding') return { allowed: true, callId: null };
-  // count piggy-backs on the list-inbox bucket - both are read-only INBOX
-  // taps, and the count call is meaningfully cheaper (STATUS vs FETCH), so
-  // sharing the limit prevents a polling client from exhausting either.
+  // count and search piggy-back on the list-inbox bucket - all are read-only
+  // INBOX taps (count is cheaper STATUS, search is a SEARCH+FETCH), so sharing
+  // the limit prevents a polling client from exhausting any of them.
   const limit =
     op === 'validate'
       ? RATE_LIMIT_VALIDATE
-      : op === 'list-inbox' || op === 'count'
+      : op === 'list-inbox' || op === 'count' || op === 'search'
       ? RATE_LIMIT_LIST_INBOX
       : op === 'send-mail'
       ? RATE_LIMIT_SEND_MAIL
@@ -446,7 +469,11 @@ async function handleValidate(
   return Response.json({ ok: true });
 }
 
-async function newImapClient(email: string, password: string): Promise<ImapFlow> {
+async function newImapClient(
+  email: string,
+  password: string,
+  socketTimeoutMs: number = COMMAND_TIMEOUT_MS,
+): Promise<ImapFlow> {
   const Ctor = await getImapFlow();
   const client = new Ctor({
     host: IMAP_HOST,
@@ -454,7 +481,7 @@ async function newImapClient(email: string, password: string): Promise<ImapFlow>
     secure: true,
     auth: { user: email, pass: password },
     logger: false,                  // never log credentials
-    socketTimeout: COMMAND_TIMEOUT_MS,
+    socketTimeout: socketTimeoutMs,
     greetingTimeout: CONNECT_TIMEOUT_MS,
   });
   // Without an 'error' listener, imapflow's EventEmitter rethrows socket errors
@@ -796,6 +823,166 @@ async function handleListInbox(
   } finally {
     if (client && client.usable) {
       try { await client.close(); } catch { /* ignore */ }
+    }
+  }
+}
+
+// --- search -----------------------------------------------------------------
+//
+// Full-text INBOX search. Unlike list-inbox (newest N, no filtering), this
+// runs IMAP `SEARCH TEXT <query>`, which matches the entire message - all
+// headers (From, Reply-To, To, Subject) AND the body. That's what makes it
+// find a contact-form mail where the sender address only appears in Reply-To
+// or the body, not in From. Read-only EXAMINE so matches aren't marked \Seen.
+// Transient IMAP failures worth one reconnect: Apple's anti-abuse layer often
+// closes the FIRST connection from Supabase's edge IPs before/while a command
+// runs (cold worker = fresh connection), and a slow SEARCH can trip the socket
+// inactivity timeout. A second attempt on a fresh connection usually succeeds.
+function isTransientImapError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  const code = (e as { code?: string } | null)?.code ?? '';
+  return (
+    code === 'ClosedAfterConnectTLS' ||
+    code === 'ClosedAfterConnect' ||
+    code === 'NoConnection' ||
+    /ClosedAfterConnect|Connection not available|Socket timeout|timeout|ECONNRESET|EHOSTUNREACH/i.test(msg)
+  );
+}
+
+// Narrower than isTransientImapError: ONLY connection-establishment failures,
+// where the IMAP command provably never ran because the socket died at/just
+// after connect (Apple's edge-IP throttle closing the cold connection). These
+// fail FAST (at TLS/greeting), so a retry is cheap and - crucially for a WRITE
+// like append-draft - cannot duplicate, since the first attempt never reached
+// the server. Deliberately EXCLUDES generic timeouts / the append wall-clock
+// deadline: those can fire mid-append, where a retry might create a 2nd draft.
+function isColdConnectError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  const code = (e as { code?: string } | null)?.code ?? '';
+  return (
+    code === 'ClosedAfterConnectTLS' ||
+    code === 'ClosedAfterConnect' ||
+    code === 'NoConnection' ||
+    /ClosedAfterConnect|ECONNRESET|ECONNREFUSED|EHOSTUNREACH|ENOTFOUND/i.test(msg)
+  );
+}
+
+async function handleSearch(
+  body: SearchInboxReq,
+  userId: string,
+  pepper: string,
+  supabaseUrl: string,
+  serviceKey: string,
+): Promise<Response> {
+  const password = normalizePassword(body.password);
+  const email = body.email.trim().toLowerCase();
+  const query = body.query.trim();
+  const limit = clampLimit(body.limit);
+
+  const hash = await hashCredential(pepper, email, password);
+  const svc = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false },
+  });
+  // Binding check mirrors list-inbox/count: if a row exists, the hash MUST
+  // match (refuse a rotated password). Search is read-only, so - like count -
+  // it doesn't write/refresh the binding.
+  const { data: existing, error: bindReadErr } = await svc
+    .from('icloud_credential_bindings')
+    .select('credential_hash')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (bindReadErr) {
+    console.warn('[imap-proxy] binding read failed:', bindReadErr.message);
+    return err('internal', 500);
+  }
+  if (existing && existing.credential_hash !== hash) {
+    return err('auth-failed', 422);
+  }
+
+  // One IMAP search round. Returns the messages; throws on any IMAP error so
+  // the caller can decide whether to retry on a fresh connection.
+  const runOnce = async (): Promise<Array<{
+    uid: number;
+    from: string;
+    subject: string;
+    date: string;
+    unread: boolean;
+    preview: string;
+  }>> => {
+    let client: ImapFlow | null = null;
+    try {
+      client = await newImapClient(email, password, SEARCH_COMMAND_TIMEOUT_MS);
+      await client.connect();
+      const lock = await client.getMailboxLock('INBOX', { readOnly: true });
+      const messages: Array<{
+        uid: number;
+        from: string;
+        subject: string;
+        date: string;
+        unread: boolean;
+        preview: string;
+      }> = [];
+      try {
+        // SEARCH TEXT returns matching UIDs across the whole INBOX (not just
+        // the newest window). Take the most recent `limit` of them - highest
+        // UID is the most recently delivered - so a broad term still returns a
+        // bounded, useful set rather than hundreds of fetches.
+        const found = await client.search({ text: query }, { uid: true });
+        const uids = (Array.isArray(found) ? found : [])
+          .sort((a, b) => b - a)
+          .slice(0, limit);
+        if (uids.length > 0) {
+          for await (const m of client.fetch(
+            uids.join(','),
+            {
+              uid: true,
+              envelope: true,
+              internalDate: true,
+              flags: true,
+              bodyParts: ['1'],
+            },
+            { uid: true },
+          )) {
+            const env = m.envelope;
+            if (!env) continue;
+            const dateIso = pickMessageDate(m.internalDate, env.date);
+            messages.push({
+              uid: m.uid,
+              from: formatFrom(env.from),
+              subject: env.subject ?? '(uden emne)',
+              date: dateIso,
+              unread: !(m.flags && m.flags.has('\\Seen')),
+              preview: extractPreview(m.bodyParts?.get('1')),
+            });
+          }
+        }
+      } finally {
+        try { lock.release(); } catch { /* release errors are secondary */ }
+      }
+      await client.logout();
+      // FETCH may return in UID/sequence order, not date order - sort newest
+      // first so the caller sees the most relevant hit at the top.
+      messages.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+      return messages;
+    } finally {
+      if (client && client.usable) {
+        try { await client.close(); } catch { /* ignore */ }
+      }
+    }
+  };
+
+  try {
+    return Response.json({ ok: true, messages: await runOnce() });
+  } catch (firstErr) {
+    if (!isTransientImapError(firstErr)) return mapImapError(firstErr);
+    // Apple likely closed the cold connection (or the scan stalled). Retry
+    // once on a fresh connection after a short breath.
+    console.warn('[imap-proxy] search transient, retrying once:', firstErr instanceof Error ? firstErr.message : String(firstErr));
+    await new Promise((r) => setTimeout(r, 700));
+    try {
+      return Response.json({ ok: true, messages: await runOnce() });
+    } catch (secondErr) {
+      return mapImapError(secondErr);
     }
   }
 }
@@ -1648,19 +1835,26 @@ async function handleAppendDraft(
       ? body.reply_to_uid
       : undefined;
 
-  let threaded = false;
-  let client: ImapFlow | null = null;
-  try {
-    // Threading-header fetch AND the Drafts APPEND share ONE connection under
-    // one hard wall-clock deadline. The fetch used to open its own
-    // connect→logout cycle before a second connect→append cycle — that extra
-    // connection was a flaky first-try transient against iCloud. Each step logs
-    // before it runs, so if the deadline fires the LAST logged step stalled.
-    await withDeadline((async () => {
-      console.warn('[imap-proxy] append-draft: step=connect start');
-      const c = await newImapClient(email, password);
-      client = c;
-      await c.connect();
+  // One connect→(threading-fetch)→APPEND→logout cycle under one hard wall-clock
+  // deadline. Returns whether the draft was threaded; closes its own client.
+  // Factored into a closure so we can retry it on a cold-connection close (the
+  // "flaky first-try transient against iCloud" the comment below describes):
+  // that failure happens at connect, before APPEND, so a second attempt on a
+  // fresh connection can't duplicate the draft.
+  const attemptAppend = async (): Promise<boolean> => {
+    let threaded = false;
+    let client: ImapFlow | null = null;
+    try {
+      // Threading-header fetch AND the Drafts APPEND share ONE connection under
+      // one hard wall-clock deadline. The fetch used to open its own
+      // connect→logout cycle before a second connect→append cycle — that extra
+      // connection was a flaky first-try transient against iCloud. Each step logs
+      // before it runs, so if the deadline fires the LAST logged step stalled.
+      await withDeadline((async () => {
+        console.warn('[imap-proxy] append-draft: step=connect start');
+        const c = await newImapClient(email, password);
+        client = c;
+        await c.connect();
 
       let threading: ThreadingHeaders = {};
       if (replyUid !== undefined) {
@@ -1727,13 +1921,28 @@ async function handleAppendDraft(
       console.warn('[imap-proxy] append-draft: step=append ok; logging out');
       await c.logout();
       console.warn('[imap-proxy] append-draft: step=done');
-    })(), APPEND_IMAP_DEADLINE_MS, 'append-imap');
-    return Response.json({ ok: true, threaded });
-  } catch (caughtErr) {
-    return mapImapError(caughtErr);
-  } finally {
-    if (client && (client as ImapFlow).usable) {
-      try { await (client as ImapFlow).close(); } catch { /* ignore */ }
+      })(), APPEND_IMAP_DEADLINE_MS, 'append-imap');
+      return threaded;
+    } finally {
+      if (client && (client as ImapFlow).usable) {
+        try { await (client as ImapFlow).close(); } catch { /* ignore */ }
+      }
+    }
+  };
+
+  try {
+    return Response.json({ ok: true, threaded: await attemptAppend() });
+  } catch (firstErr) {
+    // Only a cold-connection close (fast, append never ran) is safe to retry -
+    // anything else (incl. the wall-clock deadline, which can fire mid-append)
+    // surfaces as-is to avoid a duplicate draft.
+    if (!isColdConnectError(firstErr)) return mapImapError(firstErr);
+    console.warn('[imap-proxy] append-draft cold-connect close, retrying once:', firstErr instanceof Error ? firstErr.message : String(firstErr));
+    await new Promise((r) => setTimeout(r, 700));
+    try {
+      return Response.json({ ok: true, threaded: await attemptAppend() });
+    } catch (secondErr) {
+      return mapImapError(secondErr);
     }
   }
 }
