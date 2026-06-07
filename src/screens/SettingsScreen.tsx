@@ -13,6 +13,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { WebView } from 'react-native-webview';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Purchases from 'react-native-purchases';
+import { presentPaywall, presentCustomerCenter } from '../lib/paywall';
 import {
   ActivityIndicator,
   Alert,
@@ -65,6 +66,7 @@ import {
   useMicrosoftLinked,
   usePrivacyToggles,
   useSubscription,
+  useEntitlement,
   useUser,
   useWorkPreferences,
 } from '../lib/hooks';
@@ -1359,6 +1361,7 @@ export function SettingsScreen({
 }: SettingsScreenProps) {
   const { data: user, loading: userLoading } = useUser();
   const { data: subscription } = useSubscription();
+  const { data: entitlement, loading: entitlementLoading } = useEntitlement();
   const { data: connections, connect, disconnect } = useConnections();
   const { flags: integrationFlags, setEnabled: setIntegrationEnabled } = useIntegrationFlags();
   const { data: workRows, setValue: setWorkValue } = useWorkPreferences();
@@ -2020,24 +2023,43 @@ export function SettingsScreen({
                 ) : (
                   <Text style={{ ...type.body, color: t.ink3 }}>Ingen aktiv plan.</Text>
                 )}
+                {!entitlementLoading && entitlement.tier !== 'pro' ? (
+                  <Pressable
+                    style={({ pressed }) => ({
+                      alignSelf: 'flex-start',
+                      paddingHorizontal: spacing.lg,
+                      paddingVertical: spacing.sm,
+                      borderRadius: radius.pill,
+                      backgroundColor: t.ink,
+                      opacity: pressed ? 0.75 : 1,
+                    })}
+                    onPress={() => {
+                      // After the paywall closes, the customerInfo listener
+                      // updates useEntitlement automatically — no manual refresh.
+                      void presentPaywall();
+                    }}
+                  >
+                    <Text style={{ ...type.body, color: '#FFFFFF', fontFamily: fonts.uiBold }}>
+                      Opgrader til Pro
+                    </Text>
+                  </Pressable>
+                ) : null}
                 <Pressable
                   style={({ pressed }) => ({
                     alignSelf: 'flex-start',
                     paddingHorizontal: spacing.lg,
                     paddingVertical: spacing.sm,
                     borderRadius: radius.pill,
-                    backgroundColor: t.ink,
+                    borderWidth: 1,
+                    borderColor: t.line,
                     opacity: pressed ? 0.75 : 1,
                   })}
-                  onPress={() =>
-                    Alert.alert(
-                      subscription ? 'Skift plan' : 'Vælg plan',
-                      'Abonnementshåndtering er på vej. Kontakt os på Kontakt@zolva.io for at ændre din plan.',
-                    )
-                  }
+                  onPress={() => {
+                    void presentCustomerCenter();
+                  }}
                 >
-                  <Text style={{ ...type.body, color: '#FFFFFF', fontFamily: fonts.uiBold }}>
-                    {subscription ? 'Skift plan' : 'Vælg plan'}
+                  <Text style={{ ...type.body, color: t.ink, fontFamily: fonts.uiBold }}>
+                    Administrer abonnement
                   </Text>
                 </Pressable>
               </SettingsSectionCard>
