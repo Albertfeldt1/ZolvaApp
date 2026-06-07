@@ -30,6 +30,7 @@ import {
   completeJson,
   completeRaw,
   hasClaudeKey,
+  ChatQuotaError,
   ClaudeRateLimitError,
   type ClaudeContentBlock,
   type ClaudeCompletion,
@@ -5002,6 +5003,10 @@ export function useChatSuggestions(): Result<string[]> {
 
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Weekly chat cap (sub-project #2). Set when the server returns 402
+  // chat_quota; the screen disables input + shows the upgrade banner until
+  // resetsAt. `null` = not capped.
+  const [chatCap, setChatCap] = useState<{ resetsAt: string | null } | null>(null);
   const [typing, setTyping] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const { data: profile } = useUser();
@@ -5562,6 +5567,12 @@ export function useChat() {
           if (__DEV__ && getPrivacyFlag('anon-reports')) {
             console.warn('[useChat] Claude request failed:', err.message);
           }
+          // Tier cap: don't post a generic error bubble — flip cap state so the
+          // screen shows the upgrade banner + disables the input instead.
+          if (err instanceof ChatQuotaError) {
+            setChatCap({ resetsAt: err.resetsAt });
+            return;
+          }
           const text = err instanceof ClaudeRateLimitError ? err.message : CHAT_ERROR_TEXT;
           setMessages((cur) => [
             ...cur,
@@ -5591,7 +5602,17 @@ export function useChat() {
     [userId],
   );
 
-  return { data: messages, typing, loading: false, error: null as Error | null, send, clear, sendDraft };
+  return {
+    data: messages,
+    typing,
+    loading: false,
+    error: null as Error | null,
+    send,
+    clear,
+    sendDraft,
+    chatCap,
+    clearChatCap: () => setChatCap(null),
+  };
 }
 
 export function usePendingFacts(): Result<Fact[]> & {
