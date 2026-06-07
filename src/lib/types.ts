@@ -13,6 +13,8 @@ export type Subscription = {
   renewalDate: string;
 };
 
+export type { Entitlement, Tier } from './entitlement';
+
 export type ObservationAction =
   | { kind: 'chat' }
   | { kind: 'prompt'; prompt: string }
@@ -172,6 +174,11 @@ export type ChatMessage = {
   // Transient UI affordance (e.g. a "Vælg Drive-filer" chip). Not persisted
   // to chat_messages - it's recomputed per turn, never part of AI memory.
   action?: ChatMessageAction;
+  // One turn can create several drafts (e.g. the agent replies to multiple
+  // mails at once). Each gets its own "Send svar" / "Se udkast" pair so the
+  // user can review and send them individually. Session-only like `action`:
+  // stripped before disk (carries draft bodies + one-tap send).
+  drafts?: SendDraftAction[];
 };
 
 export type IntegrationKey =

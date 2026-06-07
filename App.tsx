@@ -56,6 +56,7 @@ import {
 import { colors } from './src/theme';
 import { ThemeProvider } from './src/design/ThemeProvider';
 import { useAuth } from './src/lib/auth';
+import { configurePurchases, loginPurchases, logoutPurchases } from './src/lib/purchases';
 import {
   shouldShowMemoryConsent,
   markMemoryConsentShown,
@@ -116,6 +117,17 @@ export default function App() {
   const designFonts = useDesignFonts();
 
   const { user, initializing: authInitializing, googleAccessToken, microsoftAccessToken, signInWithMicrosoft, disconnectProvider } = useAuth();
+
+  // RevenueCat: configure once on mount, then keep the purchases identity in
+  // sync with the Supabase auth user (logIn on sign-in, logOut on sign-out).
+  useEffect(() => {
+    configurePurchases();
+  }, []);
+
+  useEffect(() => {
+    if (user?.id) void loginPurchases(user.id);
+    else void logoutPurchases();
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user?.id) return;

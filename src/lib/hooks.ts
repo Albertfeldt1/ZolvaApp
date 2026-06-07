@@ -3,6 +3,13 @@ import { AppState } from 'react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { subscribeUserId, useAuth } from './auth';
 import {
+  resolveEntitlement,
+  FREE,
+  type Entitlement,
+  type CustomerInfoLike,
+} from './entitlement';
+import { getCustomerInfo, addCustomerInfoListener } from './purchases';
+import {
   DEMO_CHAT_FALLBACK,
   DEMO_CHAT_SCRIPT,
   DEMO_CONNECTIONS,
@@ -100,6 +107,7 @@ import {
   listCalendarEventsAcrossProviders,
   listCalendarsAcrossProviders,
   listRecentMailAcrossProviders,
+  searchMailAcrossProviders,
   readMailBody,
   createCalendarEvent,
   updateCalendarEvent,
@@ -140,7 +148,6 @@ import {
 import type {
   CalendarSlot,
   ChatMessage,
-  ChatMessageAction,
   Connection,
   DoneMail,
   EventAttendee,
@@ -204,10 +211,46 @@ export function useUser(): Result<UserProfile | null> {
   return empty({ name, email: user.email ?? '' });
 }
 
+export function useEntitlement(): Result<Entitlement> {
+  const { user, initializing } = useAuth();
+  const [info, setInfo] = useState<CustomerInfoLike | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    getCustomerInfo().then((ci) => {
+      if (!alive) return;
+      setInfo(ci as CustomerInfoLike | null);
+      setLoading(false);
+    });
+    const unsub = addCustomerInfoListener((ci) => {
+      if (alive) setInfo(ci as CustomerInfoLike);
+    });
+    return () => { alive = false; unsub(); };
+  }, [user?.id]);
+
+  if (isDemoUser(user)) {
+    return empty({ tier: 'pro', isTrial: false, trialEndsAt: null, periodEnd: null });
+  }
+  if (initializing || loading) return { data: FREE, loading: true, error: null };
+  return empty(resolveEntitlement(info));
+}
+
+// Back-compat for Settings, which renders the legacy Subscription shape.
+const TIER_PRICE: Record<'lite' | 'pro', { priceKr: number; plan: string }> = {
+  lite: { priceKr: 49, plan: 'Lite' },
+  pro: { priceKr: 99, plan: 'Pro' },
+};
+
 export function useSubscription(): Result<Subscription | null> {
   const { user } = useAuth();
+  const ent = useEntitlement();
   if (isDemoUser(user)) return empty(DEMO_SUBSCRIPTION);
-  return empty(null);
+  if (ent.loading) return { data: null, loading: true, error: null };
+  const tier = ent.data.tier;
+  if (tier === 'free') return empty(null);
+  const meta = TIER_PRICE[tier];
+  return empty({ priceKr: meta.priceKr, plan: meta.plan, renewalDate: ent.data.periodEnd ?? '' });
 }
 
 type ObservationCacheEntry = { expiresAt: number; data: Observation[] };
@@ -2036,10 +2079,9 @@ const AUTONOMY_TARGETS: Record<string, number> = {
   'Handl selv': 10,
 };
 
-// Drafts are user-facing Danish copy - Sonnet 4.6 is meaningfully better at
-// tone calibration and Danish phrasing than Haiku. Cost delta is small since
-// drafts are ~160 tokens each and only a handful run per inbox refresh.
-const DRAFT_MODEL = 'claude-sonnet-4-6';
+// Drafts are user-facing Danish copy. Haiku keeps cost/latency low; drafts
+// are ~160 tokens each and only a handful run per inbox refresh.
+const DRAFT_MODEL = 'claude-haiku-4-5-20251001';
 
 async function generateDraft(
   mail: NormalizedMail,
@@ -3509,12 +3551,12 @@ function buildDisabledIntegrationsBlock(ctx: ChatCtx): string {
   ].join('\n');
 }
 
-// Default chat model. Sonnet is the everyday driver - capable enough
+// Default chat model. Haiku is the everyday driver - cheap and fast enough
 // for the 80% of conversational + single-tool turns where we want
 // users to feel "this just works", without paying Opus on every
 // trivial "remind me about ..." or "what's on my calendar today?".
-type ChatModel = 'claude-sonnet-4-6' | 'claude-opus-4-7';
-const CHAT_MODEL_DEFAULT: ChatModel = 'claude-sonnet-4-6';
+type ChatModel = 'claude-haiku-4-5-20251001' | 'claude-opus-4-7';
+const CHAT_MODEL_DEFAULT: ChatModel = 'claude-haiku-4-5-20251001';
 const CHAT_MODEL_HARD: ChatModel = 'claude-opus-4-7';
 
 // Heuristic signals that promote a turn to Opus. Bias is intentionally
@@ -3656,7 +3698,8 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       'uden at brugeren behøver bede om det eksplicit. Spørg ALDRIG "skal jeg tjekke din ' +
       'kalender?" / "vil du have at jeg ser i din mail?" / "kan jeg slå det op?" - bare ' +
       'kald værktøjet og brug svaret. Typiske situationer hvor du selv tager initiativet: ' +
-      'brugeren refererer til en mail → list_recent_mail / read_mail_thread; brugeren ' +
+      'brugeren refererer til en bestemt mail/afsender → search_mail, ellers list_recent_mail ' +
+      'for overblik, så read_mail_thread for fuld tekst; brugeren ' +
       'spørger om kalender, fri tid, travl periode eller en specifik dag → ' +
       'list_calendar_events; brugeren navngiver en kalender, mappe eller fil → ' +
       'list_calendars / list_drive_folder / search_drive_files; brugeren beder om en ' +
@@ -3694,24 +3737,38 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       'for at hente listen. Sig ALDRIG "jeg kan ikke se dine kalendere" uden først at have ' +
       'kaldt list_calendars.',
     'Når brugeren spørger om mail, brug list_recent_mail for et hurtigt overblik. ' +
+      'MEN når brugeren leder efter en BESTEMT mail - fra en navngiven person, afsender, ' +
+      'e-mailadresse, virksomhed eller om et bestemt emne ("find mailen fra Thorsten", ' +
+      '"har jeg fået en mail fra X", "den mail om fakturaen") - så brug search_mail, IKKE ' +
+      'list_recent_mail. list_recent_mail viser kun de allernyeste mails; search_mail søger ' +
+      'fuldtekst (afsender, emne OG brødtekst, også Reply-To) og længere tilbage, så den ' +
+      'finder også mails fra kontaktformularer hvor afsenderadressen kun står i brødteksten. ' +
+      'Sig ALDRIG "jeg kan ikke finde mailen" eller "den er ikke i de seneste mails" uden ' +
+      'først at have prøvet search_mail med det relevante navn/adresse/emne. ' +
       'Brug read_mail_thread KUN hvis brugeren beder om indholdet af en specifik mail, ' +
       'eller hvis du har brug for fuld tekst for at svare præcist. ' +
-      'list_recent_mail og read_mail_thread henter fra Gmail, Outlook OG iCloud ' +
+      'Alle tre værktøjer henter fra Gmail, Outlook OG iCloud ' +
       'automatisk afhængigt af hvilke der er forbundet - du har altid adgang til ' +
       'at læse mails så længe brugeren har mindst én postkasse forbundet. Sig ALDRIG ' +
-      '"jeg kan ikke læse din mail" uden først at have prøvet list_recent_mail.',
+      '"jeg kan ikke læse din mail" uden først at have prøvet list_recent_mail eller search_mail.',
     'SKRIV UDKAST SELV - SPØRG ALDRIG HVAD DER SKAL STÅ: Når brugeren siger "lav et udkast", ' +
       '"skriv et svar", "udarbejd et svar", "skriv tilbage" eller lignende, så KOMPONERER du ' +
       'hele teksten selv - en komplet, passende, afsendelsesklar besked i brugerens tone - og ' +
       'kalder create_draft med det samme. Det er hele pointen med Zolva: DU skriver beskeden. ' +
       'Spørg ALDRIG "hvad skal jeg skrive?", "hvad skal der stå i udkastet?" eller bed brugeren ' +
-      'om at diktere indholdet. Er det et svar på en modtaget mail, så kald list_recent_mail og ' +
-      'read_mail_thread FØRST for at læse hvad der skal svares på, og skriv så et svar der ' +
+      'om at diktere indholdet. Er det et svar på en modtaget mail, så find den FØRST ' +
+      '(search_mail når brugeren peger på en bestemt afsender/person/emne, ellers list_recent_mail) ' +
+      'og læs den med read_mail_thread for at se hvad der skal svares på, og skriv så et svar der ' +
       'rammer indholdet, tonen og et evt. spørgsmål i mailen. Sig ALDRIG "jeg har ikke mailen", ' +
       '"hvilken mail?" eller "fortæl mig hvad mailen handler om" - du kan selv hente den. ' +
       'Spørg KUN hvis der kræves en konkret beslutning du umuligt kan udlede (fx et reelt ja/nej ' +
       'til et specifikt tilbud) - og selv da skriver du et fornuftigt udkast som udgangspunkt, ' +
       'frem for at sende bolden tilbage til brugeren.',
+    'TJEK OM UDKASTET FAKTISK BLEV GEMT: create_draft kan fejle (fx "iCloud svarer ikke"). ' +
+      'Hvis værktøjet returnerer en FEJL, så påstå ALDRIG at udkastet er klar, gemt eller ligger ' +
+      'i kladder - der er INTET udkast, og brugeren får derfor ingen "Se udkast"/"Send svar"-knap. ' +
+      'Sig i stedet kort og ærligt at udkastet ikke kunne gemmes lige nu, og at de kan prøve igen. ' +
+      'Du må først sige at udkastet er klar når create_draft er lykkedes uden fejl.',
     'Brug aldrig kalender- eller mail-værktøjer til at gætte fremtidige eller fortidige ' +
       'data - kun konkret det brugeren spørger om i dette øjeblik.',
     'OPRET BEGIVENHEDER UDEN AT SPØRGE: Når brugeren har angivet titel og tidspunkt - fx ' +
@@ -3787,7 +3844,7 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
     'Hvis udkastet/sendingen er et SVAR på en eksisterende mail (brugeren henviser ' +
       'til en mail de har modtaget), så send det fulde unified-ID i `reply_to_id` ' +
       '(fx "google:abc", "microsoft:abc" eller "icloud:123") - så bevares tråden korrekt. ' +
-      'Brug list_recent_mail eller read_mail_thread til at finde det rigtige ID.',
+      'Brug search_mail (eller list_recent_mail) til at finde mailen og dens rigtige ID.',
     'Skriv ALDRIG en signatur/underskrift selv i `body` - Zolva tilføjer ' +
       'automatisk brugerens egen signatur. Skriv kun selve beskeden.',
   ]
@@ -3828,8 +3885,9 @@ function filterToolsByCtx(
       case 'search_onedrive_files':
       case 'read_onedrive_file':
         return ctx.onedrive;
-      // Mail read/list - needs any mail provider
+      // Mail read/list/search - needs any mail provider
       case 'list_recent_mail':
+      case 'search_mail':
       case 'read_mail_thread':
         return anyMail;
       // Calendar read/write - needs any calendar provider
@@ -4028,9 +4086,28 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
     },
   },
   {
+    name: 'search_mail',
+    description:
+      'Søg efter en bestemt mail på tværs af ALLE forbundne postkasser (Gmail, Outlook, iCloud). Brug DETTE - ikke list_recent_mail - når brugeren leder efter en mail fra en bestemt person, afsender, e-mailadresse, virksomhed eller om et bestemt emne. Søger fuldtekst: afsender, modtager, emne OG selve brødteksten (også Reply-To), så en mail fra en kontaktformular - hvor afsenderadressen kun står i Reply-To eller brødteksten - også findes. Søger længere tilbage end de nyeste mails. Returnerer afsender, emne og kort uddrag med unified-ID; brug read_mail_thread til fuld tekst.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Søgeord - fx en e-mailadresse ("thorstenbukh@gmail.com"), et navn ("Thorsten") eller et emne ("faktura").',
+        },
+        limit: {
+          type: 'integer',
+          description: 'Maks antal resultater samlet, default 10, max 30.',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
     name: 'read_mail_thread',
     description:
-      'Hent fuld tekst af én specifik mail. Brug ID returneret af list_recent_mail (fx "google:abc123" eller "icloud:42").',
+      'Hent fuld tekst af én specifik mail. Brug ID returneret af list_recent_mail eller search_mail (fx "google:abc123" eller "icloud:42").',
     input_schema: {
       type: 'object',
       properties: {
@@ -4647,6 +4724,14 @@ async function runChatTool(
       const r = await listRecentMailAcrossProviders(ctx, limit);
       return { content: r.text, isError: r.isError };
     }
+    if (name === 'search_mail') {
+      const query = typeof input.query === 'string' ? input.query : '';
+      if (!query.trim()) return { content: 'Mangler `query`.', isError: true };
+      const raw = typeof input.limit === 'number' ? input.limit : 10;
+      const limit = Math.max(1, Math.min(Math.floor(raw), 30));
+      const r = await searchMailAcrossProviders(ctx, query, limit);
+      return { content: r.text, isError: r.isError };
+    }
     if (name === 'read_mail_thread') {
       const id = typeof input.id === 'string' ? input.id : '';
       if (!id) return { content: 'Mangler `id`.', isError: true };
@@ -4988,13 +5073,16 @@ export function useChat() {
       AsyncStorage.removeItem(key).catch(() => {});
       return;
     }
-    // Strip send_draft actions before they hit disk: they carry the draft
-    // body and a one-tap send, so restoring the button after a reload would
-    // both write outgoing mail to local storage and risk a double-send of a
-    // draft that's usually already gone out. Keep them session-only.
-    const capped = messages
-      .slice(-CHAT_HISTORY_LIMIT)
-      .map((m) => (m.action?.kind === 'send_draft' ? { ...m, action: undefined } : m));
+    // Strip drafts before they hit disk: they carry the draft body and a
+    // one-tap send, so restoring the buttons after a reload would both write
+    // outgoing mail to local storage and risk a double-send of drafts that
+    // have usually already gone out. Keep them session-only. Covers both the
+    // current `drafts[]` field and the legacy single `action` send_draft.
+    const capped = messages.slice(-CHAT_HISTORY_LIMIT).map((m) => {
+      if (!m.drafts && m.action?.kind !== 'send_draft') return m;
+      const { drafts: _drafts, ...rest } = m;
+      return rest.action?.kind === 'send_draft' ? { ...rest, action: undefined } : rest;
+    });
     AsyncStorage.setItem(key, JSON.stringify(capped)).catch(() => {});
   }, [messages, hydrated, userId]);
 
@@ -5116,11 +5204,13 @@ export function useChat() {
       // "Vælg Drive-filer" chip to the assistant message. Closure-scoped so
       // it survives the multiple return points inside runTurn.
       let drivePickerSuggested = false;
-      // Set when create_draft runs this turn. Read after runTurn resolves to
-      // attach a "Send svar" button (+ "Se udkast" preview) to the assistant
-      // message, carrying everything sendChatDraft needs to send the draft.
-      // Closure-scoped so it survives runTurn's multiple return points.
-      let draftCreatedThisTurn: SendDraftAction | null = null;
+      // Collected as create_draft runs this turn (possibly several times - the
+      // agent can reply to multiple mails in one turn). Read after runTurn
+      // resolves to attach a "Send svar" button (+ "Se udkast" preview) per
+      // draft to the assistant message, each carrying everything sendChatDraft
+      // needs to send it. Closure-scoped so it survives runTurn's multiple
+      // return points and accumulates across tool-call rounds.
+      const draftsCreatedThisTurn: SendDraftAction[] = [];
       // Set when add_reminder succeeds this turn. A reminder already captures
       // the user's intent in the reminders table, so we must NOT also run it
       // through the fact extractor - otherwise "påmind mig kl 20 om at ringe
@@ -5307,21 +5397,29 @@ export function useChat() {
 
           if (result.toolUses.length > 0) {
             working.push({ role: 'assistant', content: result.rawContent });
-            const toolResults = await Promise.all(
+            const toolOutcomes = await Promise.all(
               result.toolUses.map(async (t) => {
                 const r = await runChatTool(t.name, t.input, toolCtx);
                 if (r.suggestPicker) drivePickerSuggested = true;
-                if (r.draft) draftCreatedThisTurn = r.draft;
                 if (t.name === 'add_reminder' && !r.isError) reminderCreatedThisTurn = true;
                 return {
-                  type: 'tool_result' as const,
-                  tool_use_id: t.id,
-                  content: r.content,
-                  is_error: r.isError,
+                  draft: r.draft ?? null,
+                  result: {
+                    type: 'tool_result' as const,
+                    tool_use_id: t.id,
+                    content: r.content,
+                    is_error: r.isError,
+                  },
                 };
               }),
             );
-            working.push({ role: 'user', content: toolResults });
+            // Collect drafts in tool-call order (Promise.all preserves the
+            // input order regardless of completion order), so multiple drafts
+            // surface in the order the agent created them.
+            for (const o of toolOutcomes) {
+              if (o.draft) draftsCreatedThisTurn.push(o.draft);
+            }
+            working.push({ role: 'user', content: toolOutcomes.map((o) => o.result) });
             continue;
           }
 
@@ -5421,10 +5519,10 @@ export function useChat() {
             from: 'zolva',
             text: answer.length > 0 ? answer : CHAT_ERROR_TEXT,
             createdAt: new Date().toISOString(),
-            // A fresh draft's "Send svar" button takes precedence over the
+            // Fresh drafts' "Send svar" buttons take precedence over the
             // Drive picker chip (they don't co-occur in practice).
-            ...(draftCreatedThisTurn
-              ? { action: draftCreatedThisTurn as ChatMessageAction }
+            ...(draftsCreatedThisTurn.length > 0
+              ? { drafts: draftsCreatedThisTurn }
               : drivePickerSuggested
                 ? { action: { kind: 'pick_drive_files' as const, label: 'Vælg Drive-filer' } }
                 : {}),
