@@ -29,7 +29,42 @@ import {
   buildComposerMessage,
   COMPOSER_SCHEMA,
   COMPOSER_SYSTEM,
+  formatCalendarLines,
 } from './compose.ts';
+
+type BriefSections = {
+  calendar: string[];
+  mails: string[];
+  followups: string[];
+  focus: string[];
+  weather: string[];
+};
+
+// Assembles the persisted section payload: calendar is deterministic (real
+// event times), the other four come from the model. Defensive `?? []` guards
+// a model response that omits a key.
+function buildSections(inputs: BriefInputs, brief: BriefOutput): BriefSections {
+  return {
+    calendar: formatCalendarLines(inputs),
+    mails: brief.mails ?? [],
+    followups: brief.followups ?? [],
+    focus: brief.focus ?? [],
+    weather: brief.weather ?? [],
+  };
+}
+
+// Flattened prose fallback written to the legacy `body` column. Clients that
+// haven't yet received the structured-UI OTA (and the brief-detail deep link
+// during the server-deploy-before-client window) still render readable text.
+function buildBodyFallback(s: BriefSections): string[] {
+  const out: string[] = [];
+  if (s.calendar.length) out.push(`I kalenderen: ${s.calendar.join(' · ')}`);
+  if (s.mails.length) out.push(`Mails: ${s.mails.join('; ')}`);
+  if (s.followups.length) out.push(`Opfølgninger: ${s.followups.join('; ')}`);
+  out.push(...s.focus);
+  out.push(...s.weather);
+  return out.length ? out : ['Din brief er klar.'];
+}
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -214,13 +249,17 @@ async function generateOneBrief(
   const { brief, usage } = composed;
   void recordAiUsage(client, userId, 'daily-brief', MODEL, usage);
 
+  const sections = buildSections(inputs, brief);
+  const body = buildBodyFallback(sections);
+
   const { data: inserted, error: insertErr } = await client
     .from('briefs')
     .insert({
       user_id: userId,
       kind,
       headline: brief.headline,
-      body: brief.body,
+      body,
+      sections,
       weather: inputs.weather,
       tone: brief.tone,
     })
@@ -242,7 +281,7 @@ async function generateOneBrief(
     kind,
     brief.headline,
     inserted.id as string,
-    brief.body[0] ?? null,
+    sections.focus[0] ?? sections.calendar[0] ?? body[0] ?? null,
   );
   await client
     .from('briefs')
@@ -337,7 +376,13 @@ async function composeWithClaude(
       .replace(/^```\s*/i, '')
       .replace(/\s*```$/, '')
       .trim();
-    const brief = JSON.parse(cleaned) as BriefOutput;
+    // Fail closed if the model returns valid JSON that isn't an object (a bare
+    // string or array): the `as BriefOutput` cast is a runtime no-op, so
+    // without this guard `brief.headline` would be undefined and only surface
+    // later as a NOT NULL insert failure.
+    const parsed: unknown = JSON.parse(cleaned);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const brief = parsed as BriefOutput;
     return {
       brief,
       usage: {

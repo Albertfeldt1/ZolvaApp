@@ -19,24 +19,40 @@ export type BriefInputs = {
 
 export type BriefOutput = {
   headline: string;
-  body: string[];
   tone: 'calm' | 'busy' | 'heads-up';
+  // Structured sections. The calendar section is rendered deterministically
+  // from the real events (see formatCalendarLines) and is NOT produced by the
+  // model - so it never appears here. The model fills these four lists, each a
+  // set of short strings.
+  mails: string[];
+  followups: string[];
+  focus: string[];
+  weather: string[];
 };
 
 const SYSTEM =
-  'Du er Zolva, en rolig dansk AI-assistent. Du skriver en kort, varm og handlingsorienteret ' +
-  '{kind}-brief direkte til brugeren.\n\n' +
+  'Du er Zolva, en rolig dansk AI-assistent. Du laver en kort, struktureret ' +
+  '{kind}-brief til brugeren, opdelt i faste sektioner. Du modtager dagens rå data ' +
+  '(møder, ulæste mails, aktive løfter/aftaler, påmindelser og vejr) og omsætter dem ' +
+  'til korte, handlingsorienterede punkter.\n\n' +
+  'SEKTIONER du skal udfylde (hver er en liste af korte strenge - brug tom liste hvis intet er relevant):\n' +
+  '- mails: ét kort handlingspunkt i bydeform pr. ulæst mail der kræver handling, fx ' +
+  '"Svar på tilbud til Kunde A fra Mads Larsen" eller "Godkend eksternt design fra Marketingbureauet". ' +
+  'Spring mails over der ikke kræver handling.\n' +
+  '- followups: konkrete opfølgninger brugeren bør gøre i dag, udledt af aktive løfter/aftaler, ' +
+  'påmindelser og dagens møder. Bydeform, fx "Følg op på tilbud til Kunde A", ' +
+  '"Send præsentation til Mads efter 1:1".\n' +
+  '- focus: 1-2 korte sætninger med et forslag til hvordan brugeren bør prioritere dagen, ' +
+  'skrevet direkte til brugeren med "du", fx "Du har flere møder i formiddags. ' +
+  'Overvej at lægge fordybelsesarbejde i eftermiddagen."\n' +
+  '- weather: 1-2 korte sætninger om vejret med et praktisk råd, fx ' +
+  '"14°C og mest skyet. Tag en let jakke med, hvis du går ud." Tom liste hvis vejret er ukendt.\n\n' +
+  'GENTAG ALDRIG kalenderen: møderne vises i en separat sektion, så skriv dem ikke som ' +
+  'punkter i mails/followups/focus. Du må dog henvise til et møde i en opfølgning ' +
+  '(fx "efter 1:1 med Mads").\n\n' +
   'ADRESSERINGSKRAV (obligatorisk):\n' +
   '- Skriv ALTID direkte til brugeren med "du", "dig", "din", "dit", "dine".\n' +
-  '- Omtal ALDRIG brugeren i 3. person ved navn - skriv "Du har et møde kl. 14", ' +
-  'IKKE "Albert har et møde kl. 14". Brugerens navn må kun forekomme i hilsenen.\n' +
-  '- Skriv ALDRIG om brugeren som "han"/"hun"/"de" eller "brugeren" i body - kun "du".\n\n' +
-  'HILSEN (obligatorisk som første sætning i body, baseret på briefing-type):\n' +
-  '- morning: "Godmorgen <Navn>." (hvis Bruger-feltet er tomt: "Godmorgen.")\n' +
-  '- midday: "God eftermiddag <Navn>." (hvis tomt: "God eftermiddag.")\n' +
-  '- evening: "Godaften <Navn>." (hvis tomt: "Godaften.")\n' +
-  'Brug fornavnet fra Bruger-feltet, ikke fulde navn. Efter hilsenen skriver du ' +
-  'resten af briefen direkte til brugeren med "du".\n\n' +
+  '- Omtal ALDRIG brugeren i 3. person ved navn eller som "han"/"hun"/"de"/"brugeren".\n\n' +
   'SPROGKRAV: Skriv udelukkende på rigsdansk. Brug ALDRIG norske eller svenske ord eller bøjninger. ' +
   'Typiske fejl at undgå:\n' +
   '- Skriv "møderne" (ikke "møtene"/"møterne")\n' +
@@ -46,16 +62,17 @@ const SYSTEM =
   '- Skriv "pludselig" (ikke "plutseligt")\n' +
   '- Brug danske artikler og endelser: -en/-et/-erne, aldrig -et/-ene på norsk vis\n' +
   'Hvis du er i tvivl om et ord, vælg det mest almindelige danske hverdagsord.\n\n' +
-  'TIDSFORMAT: Skriv mødetider med HH:mm præcis som de står på "Møder"-listen. ' +
-  'Hvis et møde slutter på en anden dag (slut-tiden har et dagnavn foran, fx "tirsdag 00:30"), ' +
-  'så gør det tydeligt i body at det krydser midnat - ellers tror brugeren slut-tiden er samme dag.\n\n' +
-  'Max 3–5 sætninger i body (hilsenen tæller med). ' +
+  'Hold punkterne korte (ca. 8 ord pr. mail-/followup-punkt). ' +
+  'headline er en kort overskrift til push-notifikationen (under 60 tegn), skrevet til brugeren. ' +
   'Vælg tone baseret på hvor presset dagen ser ud: "calm" (rolig), "busy" (pakket), "heads-up" (noget haster).';
 
 const SCHEMA =
-  '{"headline": string, "body": string[], "tone": "calm" | "busy" | "heads-up"}\n' +
-  '- headline: en kort overskrift til push-notifikationen (under 60 tegn).\n' +
-  '- body: 3–5 korte sætninger der opsummerer dagen.\n' +
+  '{"headline": string, "tone": "calm" | "busy" | "heads-up", "mails": string[], ' +
+  '"followups": string[], "focus": string[], "weather": string[]}\n' +
+  '- headline: kort push-overskrift (under 60 tegn).\n' +
+  '- mails/followups: korte handlingspunkter i bydeform (tom liste hvis ingen).\n' +
+  '- focus: 1-2 sætninger med dagens prioritering.\n' +
+  '- weather: 1-2 sætninger om vejret (tom liste hvis ukendt).\n' +
   '- tone: matcher dagens pres.';
 
 export function buildComposerMessage(inputs: BriefInputs): string {
@@ -91,6 +108,14 @@ export function buildComposerMessage(inputs: BriefInputs): string {
 }
 
 export { SYSTEM as COMPOSER_SYSTEM, SCHEMA as COMPOSER_SCHEMA };
+
+// Deterministic "Din kalender" section. We render meeting times straight from
+// the real events rather than letting the model paraphrase them - the times
+// are exact, the cross-midnight handling is already solved in formatEventLine,
+// and the model can't drift or hallucinate a time it never saw.
+export function formatCalendarLines(inputs: BriefInputs): string[] {
+  return inputs.events.map((e) => formatEventLine(e, inputs.timezone));
+}
 
 // Danish-friendly event line. Examples:
 //   "14:30–15:30 Møde med Mette · Mødelokale 4"
