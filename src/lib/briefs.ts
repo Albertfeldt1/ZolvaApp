@@ -4,16 +4,44 @@ import { useAuth } from './auth';
 import { isDemoUser } from './demo';
 import { writeSnapshotFromSources } from './widget-bridge';
 
+export type BriefSections = {
+  calendar: string[];
+  mails: string[];
+  followups: string[];
+  focus: string[];
+  weather: string[];
+};
+
 export type Brief = {
   id: string;
   kind: 'morning' | 'midday' | 'evening';
   headline: string;
   body: string[];
+  // Structured sections (newer briefs). Null for legacy briefs written before
+  // the structured rebuild - the modal falls back to `body` prose in that case.
+  sections: BriefSections | null;
   weather: { tempC: number; highC: number; lowC: number; conditionLabel: string } | null;
   tone: 'calm' | 'busy' | 'heads-up' | null;
   generatedAt: Date;
   readAt: Date | null;
 };
+
+// Defensively coerce the jsonb `sections` payload into BriefSections, dropping
+// any non-string entries. Returns null when the column is absent/empty so the
+// modal renders the legacy `body` fallback.
+function rowToSections(raw: unknown): BriefSections | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const s = raw as Record<string, unknown>;
+  const arr = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  return {
+    calendar: arr(s.calendar),
+    mails: arr(s.mails),
+    followups: arr(s.followups),
+    focus: arr(s.focus),
+    weather: arr(s.weather),
+  };
+}
 
 function rowToBrief(r: Record<string, unknown>): Brief {
   return {
@@ -21,6 +49,7 @@ function rowToBrief(r: Record<string, unknown>): Brief {
     kind: r.kind as 'morning' | 'midday' | 'evening',
     headline: r.headline as string,
     body: Array.isArray(r.body) ? (r.body as string[]) : [],
+    sections: rowToSections(r.sections),
     weather: (r.weather as Brief['weather']) ?? null,
     tone: (r.tone as Brief['tone']) ?? null,
     generatedAt: new Date(r.generated_at as string),

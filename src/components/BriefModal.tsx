@@ -7,6 +7,14 @@ import {
   Text,
   View,
 } from 'react-native';
+import {
+  Calendar as CalendarIcon,
+  CheckCircle2,
+  Cloud,
+  Lightbulb,
+  Mail,
+} from 'lucide-react-native';
+import type { LucideIcon } from 'lucide-react-native';
 import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { useTheme } from '../design/useTheme';
@@ -17,6 +25,24 @@ type Props = {
   visible: boolean;
   onClose: () => void;
 };
+
+// "Torsdag 15. maj – din arbejdsdag i overblik". Date comes from the brief's
+// generation time; the trailing phrase is fixed per kind. Built piecewise (not
+// via a single Intl pattern) so the weekday is capitalised and "den" is dropped
+// to match the design.
+function modalTitle(brief: Brief): string {
+  const d = brief.generatedAt;
+  const weekday = new Intl.DateTimeFormat('da-DK', { weekday: 'long' }).format(d);
+  const month = new Intl.DateTimeFormat('da-DK', { month: 'long' }).format(d);
+  const cap = weekday.charAt(0).toUpperCase() + weekday.slice(1);
+  const phrase =
+    brief.kind === 'morning'
+      ? 'din arbejdsdag i overblik'
+      : brief.kind === 'midday'
+      ? 'din eftermiddag i overblik'
+      : 'din aften i overblik';
+  return `${cap} ${d.getDate()}. ${month} – ${phrase}`;
+}
 
 export function BriefModal({ brief, visible, onClose }: Props) {
   const { t, type, fonts, radius, spacing, surface } = useTheme();
@@ -30,16 +56,76 @@ export function BriefModal({ brief, visible, onClose }: Props) {
     if (brief) setShownBrief(brief);
   }, [brief]);
 
-  const weatherLine = shownBrief?.weather
-    ? `${shownBrief.weather.tempC.toFixed(0)}°C · ${shownBrief.weather.conditionLabel}`
-    : null;
-
   const kindLabel =
     shownBrief?.kind === 'morning'
       ? 'Morgenbrief'
       : shownBrief?.kind === 'midday'
       ? 'Middagsbrief'
       : 'Aftenbrief';
+
+  const sections = shownBrief?.sections ?? null;
+
+  // A section renders only when it has content. Bulleted sections (calendar,
+  // mails, followups) show a dot per item; prose sections (focus, weather)
+  // render each string as its own line.
+  function Section({
+    icon: Icon,
+    title,
+    items,
+    bulleted,
+  }: {
+    icon: LucideIcon;
+    title: string;
+    items: string[];
+    bulleted: boolean;
+  }) {
+    if (items.length === 0) return null;
+    return (
+      <View style={{ marginTop: spacing.xl }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: spacing.sm,
+            marginBottom: spacing.md,
+          }}
+        >
+          <Icon size={20} color={surface.successText} strokeWidth={2} />
+          <Text
+            style={{
+              fontFamily: fonts.display,
+              fontSize: 18,
+              fontWeight: '600',
+              letterSpacing: -0.3,
+              color: t.ink,
+            }}
+          >
+            {title}
+          </Text>
+        </View>
+        {items.map((line, i) =>
+          bulleted ? (
+            <View
+              key={i}
+              style={{
+                flexDirection: 'row',
+                gap: spacing.sm,
+                paddingLeft: spacing.xs,
+                marginBottom: 6,
+              }}
+            >
+              <Text style={{ ...type.body, color: t.ink4 }}>•</Text>
+              <Text style={{ ...type.body, color: t.ink2, flex: 1 }}>{line}</Text>
+            </View>
+          ) : (
+            <Text key={i} style={{ ...type.body, color: t.ink2, marginBottom: 4 }}>
+              {line}
+            </Text>
+          ),
+        )}
+      </View>
+    );
+  }
 
   return (
     <Modal
@@ -83,24 +169,7 @@ export function BriefModal({ brief, visible, onClose }: Props) {
               >
                 <Text style={{ fontFamily: fonts.ui, fontSize: 18, color: t.ink2 }}>×</Text>
               </Pressable>
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={{
-                    fontFamily: fonts.display,
-                    fontSize: 20,
-                    fontWeight: '600',
-                    letterSpacing: -0.4,
-                    color: t.ink,
-                  }}
-                >
-                  {kindLabel}
-                </Text>
-                {weatherLine && (
-                  <Text style={{ ...type.eyebrow, color: t.ink3, textTransform: 'none' }}>
-                    {weatherLine}
-                  </Text>
-                )}
-              </View>
+              <Text style={{ ...type.eyebrow, color: t.ink3 }}>{kindLabel}</Text>
             </View>
           </GlassFrostedCard>
         </View>
@@ -114,10 +183,7 @@ export function BriefModal({ brief, visible, onClose }: Props) {
           showsVerticalScrollIndicator={false}
         >
           {shownBrief && (
-            <GlassFrostedCard
-              overlay={surface.bone}
-              style={{ padding: spacing.lg }}
-            >
+            <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.lg }}>
               <Text
                 style={{
                   fontFamily: fonts.display,
@@ -127,28 +193,62 @@ export function BriefModal({ brief, visible, onClose }: Props) {
                   color: t.ink,
                 }}
               >
-                {shownBrief.headline}
+                {modalTitle(shownBrief)}
               </Text>
               <View
                 style={{
                   marginTop: spacing.md,
-                  marginBottom: spacing.md,
                   height: 1,
                   backgroundColor: t.line,
                 }}
               />
-              {shownBrief.body.map((line, i) => (
-                <Text
-                  key={i}
-                  style={{
-                    ...type.body,
-                    color: t.ink2,
-                    marginBottom: spacing.md,
-                  }}
-                >
-                  {line}
-                </Text>
-              ))}
+
+              {sections ? (
+                <>
+                  <Section
+                    icon={CalendarIcon}
+                    title="Din kalender"
+                    items={sections.calendar}
+                    bulleted
+                  />
+                  <Section
+                    icon={Mail}
+                    title="Mails der kræver opmærksomhed"
+                    items={sections.mails}
+                    bulleted
+                  />
+                  <Section
+                    icon={CheckCircle2}
+                    title="Dine opfølgninger"
+                    items={sections.followups}
+                    bulleted
+                  />
+                  <Section
+                    icon={Lightbulb}
+                    title="Forslag til fokus i dag"
+                    items={sections.focus}
+                    bulleted={false}
+                  />
+                  <Section
+                    icon={Cloud}
+                    title="Vejr"
+                    items={sections.weather}
+                    bulleted={false}
+                  />
+                </>
+              ) : (
+                // Legacy briefs (no structured sections): prose body fallback.
+                <View style={{ marginTop: spacing.md }}>
+                  {shownBrief.body.map((line, i) => (
+                    <Text
+                      key={i}
+                      style={{ ...type.body, color: t.ink2, marginBottom: spacing.md }}
+                    >
+                      {line}
+                    </Text>
+                  ))}
+                </View>
+              )}
             </GlassFrostedCard>
           )}
         </ScrollView>
