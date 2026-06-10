@@ -303,6 +303,7 @@ Deno.test('mail.send_reply (policy=auto, all rails pass): executes via Gmail', a
         hasRecipientHistory: async () => true,
         hasPriorFailedIdem: async () => false,
         threadWasResearched: () => true,
+        railsOk: true,
       },
     },
   );
@@ -337,6 +338,7 @@ Deno.test('mail.send_reply (policy=auto, all rails pass): executes via Outlook',
         hasRecipientHistory: async () => true,
         hasPriorFailedIdem: async () => false,
         threadWasResearched: () => true,
+        railsOk: true,
       },
     },
   );
@@ -370,6 +372,7 @@ Deno.test('mail.send_reply (policy=auto, recipient not in allowlist): falls back
         hasRecipientHistory: async () => false,
         hasPriorFailedIdem: async () => false,
         threadWasResearched: () => true,
+        railsOk: true,
       },
     },
   );
@@ -403,6 +406,7 @@ Deno.test('mail.send_reply (policy=auto, user not idle): falls back to propose',
         hasRecipientHistory: async () => true,
         hasPriorFailedIdem: async () => false,
         threadWasResearched: () => true,
+        railsOk: true,
       },
     },
   );
@@ -436,6 +440,7 @@ Deno.test('mail.send_reply (policy=auto, prior failed idem): falls back to propo
         hasRecipientHistory: async () => true,
         hasPriorFailedIdem: async () => true,
         threadWasResearched: () => true,
+        railsOk: true,
       },
     },
   );
@@ -455,6 +460,7 @@ Deno.test('mail.send_reply (policy=auto, allowlist throws): falls back to propos
         hasRecipientHistory: async () => { throw new Error('db down'); },
         hasPriorFailedIdem: async () => false,
         threadWasResearched: () => true,
+        railsOk: true,
       },
     },
   );
@@ -473,6 +479,7 @@ Deno.test('mail.send_reply (policy=auto, prior-fail throws): falls back to propo
         hasRecipientHistory: async () => true,
         hasPriorFailedIdem: async () => { throw new Error('db down'); },
         threadWasResearched: () => true,
+        railsOk: true,
       },
     },
   );
@@ -533,6 +540,7 @@ Deno.test('mail.send_reply (policy=auto, thread not researched): falls back to p
         hasPriorFailedIdem: async () => { priorFailCalled = true; return false; },
         // Rail fires: agent never opened this thread with mail.get_body.
         threadWasResearched: () => false,
+        railsOk: true,
       },
     },
   );
@@ -660,7 +668,7 @@ Deno.test('executeTool: mail.send_reply (google) applies edited_body via update-
     'mail.send_reply',
     { provider: 'google', thread_id: 't1', draft_id: 'd1', draft_hash: 'h', preview_text: 'p', to: 'a@x.com', subject: 'Re: Hej', in_reply_to_message_id: 'm1', edited_body: 'Min redigerede tekst' },
     ctx,
-    { policy: 'auto', safety: { userIsIdle: true, hasRecipientHistory: async () => true, hasPriorFailedIdem: async () => false, threadWasResearched: () => true } },
+    { policy: 'auto', safety: { userIsIdle: true, hasRecipientHistory: async () => true, hasPriorFailedIdem: async () => false, threadWasResearched: () => true, railsOk: true } },
   );
   assertEquals(result.mode, 'executed');
   // a PUT to the draft (update) happened before the send
@@ -683,7 +691,7 @@ Deno.test('executeTool: mail.send_reply (google) without edited_body does NOT up
     'mail.send_reply',
     { provider: 'google', thread_id: 't1', draft_id: 'd1', draft_hash: 'h', preview_text: 'p', to: 'a@x.com' },
     ctx,
-    { policy: 'auto', safety: { userIsIdle: true, hasRecipientHistory: async () => true, hasPriorFailedIdem: async () => false, threadWasResearched: () => true } },
+    { policy: 'auto', safety: { userIsIdle: true, hasRecipientHistory: async () => true, hasPriorFailedIdem: async () => false, threadWasResearched: () => true, railsOk: true } },
   );
   assertEquals(calls.some((c) => c.method === 'PUT'), false);
 });
@@ -700,7 +708,7 @@ Deno.test('executeTool: mail.send_reply (outlook) applies edited_body via PATCH-
     'mail.send_reply',
     { provider: 'microsoft', thread_id: 't1', draft_id: 'd1', draft_hash: 'h', preview_text: 'p', to: 'a@x.com', edited_body: 'Redigeret' },
     ctx,
-    { policy: 'auto', safety: { userIsIdle: true, hasRecipientHistory: async () => true, hasPriorFailedIdem: async () => false, threadWasResearched: () => true } },
+    { policy: 'auto', safety: { userIsIdle: true, hasRecipientHistory: async () => true, hasPriorFailedIdem: async () => false, threadWasResearched: () => true, railsOk: true } },
   );
   const patch = calls.find((c) => c.method === 'PATCH' && c.url.endsWith('/me/messages/d1'));
   const send = calls.find((c) => c.url.endsWith('/me/messages/d1/send'));
@@ -775,4 +783,34 @@ Deno.test('commitment.record omits due_at when not provided', async () => {
     thread_id: 't1', provider: 'google', source_excerpt: 'x',
   }, {} as never);
   assertEquals('due_at' in res.recordPayload, false);
+});
+
+Deno.test('send_reply: railsOk=false forces propose despite all other gates passing', async () => {
+  const ctx = {
+    fetch: (() => Promise.resolve(new Response('{}', { status: 200 }))) as never,
+    gmail: { accessToken: 't', resolveLabelId: () => Promise.resolve('id') },
+  };
+  const res = await executeTool(
+    'mail.send_reply',
+    {
+      provider: 'google',
+      thread_id: 'th1',
+      draft_id: 'd1',
+      draft_hash: 'h1',
+      preview_text: 'Hej, det lyder godt.',
+      to: 'kollega@firma.dk',
+    },
+    ctx,
+    {
+      policy: 'auto',
+      safety: {
+        userIsIdle: true,
+        hasRecipientHistory: () => Promise.resolve(true),
+        hasPriorFailedIdem: () => Promise.resolve(false),
+        threadWasResearched: () => true,
+        railsOk: false,
+      },
+    },
+  );
+  assertEquals(res.mode, 'propose');
 });
