@@ -78,6 +78,9 @@ function makeDeps(): { deps: RunnerDeps; log: string[] } {
       fireNudge: async () => ({ sent: true }),
       // Commitment tracking: no-op by default.
       recordCommitment: async () => 'inserted' as const,
+      // Guardrails (Slice 1): default to clean so existing tests are unaffected.
+      checkMailInput: async () => ({ ok: true, category: 'none', reason: '' }),
+      checkReplyOutput: async () => ({ ok: true, category: 'none', reason: '' }),
     },
   };
 }
@@ -1467,4 +1470,73 @@ Deno.test('runCommitmentScan records an owed_to_you from a stale candidate (anch
   assertEquals(recorded[0].last_message_at, '2026-05-25T09:00:00Z');
   // owed_to_you inferred due = anchor (last sent) + 3 days.
   assertEquals(recorded[0].due_at, '2026-05-28T09:00:00.000Z');
+});
+
+// Guardrails Slice 1 — drive a get_body → send_reply (policy=auto) script and
+// capture the railsOk the runner passes into the send_reply safety context.
+// railsOk=false is the runner's signal to dispatch to degrade to propose.
+async function runRailScenario(over: {
+  checkMailInput?: RunnerDeps['checkMailInput'];
+  checkReplyOutput?: RunnerDeps['checkReplyOutput'];
+}): Promise<{ railsOk: boolean | null; status: string }> {
+  const { deps } = makeDeps();
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't-1', message_id: 'm-1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't-1', from: 'mor@example.dk', subject: 'Middag?', snippet: 'Hej' },
+  ];
+  deps.loadUserPolicy = async () => [
+    { user_id: 'u-1', action_type: 'mail.send_reply', mode: 'auto' },
+  ];
+  deps.isUserIdle = async () => true;
+  deps.recipientAllowlistCheck = async () => true;
+  deps.priorFailedSendIdem = async () => false;
+  if (over.checkMailInput) deps.checkMailInput = over.checkMailInput;
+  if (over.checkReplyOutput) deps.checkReplyOutput = over.checkReplyOutput;
+
+  let callIdx = 0;
+  const turns: CallClaudeResult[] = [
+    { content: [{ type: 'tool_use', id: 'tb', name: 'mail_get_body', input: { provider: 'google', thread_id: 't-1' } }], usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: 'tool_use' },
+    { content: [{ type: 'tool_use', id: 'ts', name: 'mail_send_reply', input: { provider: 'google', thread_id: 't-1', draft_id: 'd-1', draft_hash: 'h-1', preview_text: 'Ja, jeg er fri.', to: 'mor@example.dk' } }], usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: 'tool_use' },
+    { content: [{ type: 'text', text: 'done' }], usage: { input_tokens: 0, output_tokens: 0 }, stop_reason: 'end_turn' },
+  ];
+  deps.callClaudeTurn = async () => turns[callIdx++];
+
+  let railsOk: boolean | null = null;
+  deps.executeTool = async (action, payload, opts) => {
+    if (action === 'mail.get_body') {
+      return { mode: 'executed', reversible: false, reverseToken: null, recordPayload: { ...payload, body_text: 'Hej, har du tid på fredag?' } };
+    }
+    if (action === 'mail.send_reply') {
+      railsOk = opts?.safety ? opts.safety.railsOk : null;
+      return opts?.safety && opts.safety.railsOk === false
+        ? { mode: 'propose', reversible: false, reverseToken: null, recordPayload: { ...payload } }
+        : { mode: 'executed', reversible: false, reverseToken: null, recordPayload: { ...payload } };
+    }
+    return { mode: 'executed', reversible: false, reverseToken: null, recordPayload: { ...payload } };
+  };
+
+  const result = await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  return { railsOk, status: result.status };
+}
+
+Deno.test('guardrails: input rail taint forces railsOk=false (→ propose)', async () => {
+  const { railsOk, status } = await runRailScenario({
+    checkMailInput: async () => ({ ok: false, category: 'prompt_injection', reason: 'x' }),
+  });
+  assertEquals(status, 'ok');
+  assertEquals(railsOk, false);
+});
+
+Deno.test('guardrails: output rail block forces railsOk=false (→ propose)', async () => {
+  const { railsOk } = await runRailScenario({
+    checkReplyOutput: async () => ({ ok: false, category: 'data_exfil', reason: 'x' }),
+  });
+  assertEquals(railsOk, false);
+});
+
+Deno.test('guardrails: clean rails keep railsOk=true (auto-send regression)', async () => {
+  const { railsOk } = await runRailScenario({});
+  assertEquals(railsOk, true);
 });
