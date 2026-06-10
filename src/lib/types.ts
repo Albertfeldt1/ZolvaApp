@@ -276,7 +276,9 @@ export type NotificationPayload =
   | { type: 'chatReply'; jobId: string }
   // Sent when the autonomous agent proposes an action for user review.
   // Tap routes to Today where the proposal card is displayed.
-  | { type: 'agent_proposal'; action_id: string };
+  | { type: 'agent_proposal'; action_id: string }
+  // Local reminder: trial pro period ends in 2 days. Tap routes to paywall.
+  | { type: 'trialEnding' };
 
 export type FeedEntryType = NotificationPayload['type'];
 

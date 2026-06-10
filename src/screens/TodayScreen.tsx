@@ -26,6 +26,8 @@ import { useOpenCommitments } from '../lib/agent-commitments';
 import type { ProposedActionRow } from '../lib/agent-proposals';
 import type { AgentActionRow } from '../lib/agent-feed';
 import { BriefBanner } from '../components/BriefBanner';
+import { SkipperNudgeCard, TrialEndingBanner } from '../components/TrialNudges';
+import { onForcedBriefSettled } from '../lib/forced-brief';
 import { CountUp } from '../components/CountUp';
 import { DayRibbon } from '../components/DayRibbon';
 import { BriefHistoryModal } from '../components/BriefHistoryModal';
@@ -158,7 +160,12 @@ export function TodayScreen({
   const { data: notes } = useNotes();
   const hasProvider = useHasProvider();
   const { data: pendingFacts, accept: acceptFact, reject: rejectFactHook } = usePendingFacts();
-  const { brief, markRead: markBriefRead } = useTodayBrief();
+  const { brief, markRead: markBriefRead, refresh: refreshBrief } = useTodayBrief();
+
+  // Refresh the brief when the forced first-brief generation settles so users
+  // see their brief immediately after onboarding without waiting for the cron.
+  useEffect(() => onForcedBriefSettled(() => { void refreshBrief(); }), [refreshBrief]);
+
   const [viewingBrief, setViewingBrief] = useState<Brief | null>(null);
   const [historyKind, setHistoryKind] = useState<'morning' | 'midday' | 'evening' | null>(null);
   const [observationHistoryOpen, setObservationHistoryOpen] = useState(false);
@@ -714,6 +721,8 @@ export function TodayScreen({
             }}
           />
         )}
+        <TrialEndingBanner />
+        <SkipperNudgeCard />
 
         {/* Open loops entry — only shown when the agent is tracking something.
             Kept as its own card above the unified card. Tapping opens the

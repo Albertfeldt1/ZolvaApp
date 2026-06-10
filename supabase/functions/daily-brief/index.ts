@@ -31,6 +31,12 @@ import {
   COMPOSER_SYSTEM,
   formatCalendarLines,
 } from './compose.ts';
+import { loadRefreshToken, refreshAccessToken } from '../_shared/oauth.ts';
+import { fetchGmailCandidates } from '../_shared/backfill-providers/gmail.ts';
+import { fetchGraphCandidates } from '../_shared/backfill-providers/microsoft.ts';
+import { parseForceRequest, kindForHour, fetchLiveUnread, type LiveUnreadDeps } from './force.ts';
+import { getEntitlement } from '../_shared/entitlement-read.ts';
+import { RPM_LIMIT, dailyRequestCapForTier } from '../_shared/abuse-limits.ts';
 
 type BriefSections = {
   calendar: string[];
@@ -97,6 +103,7 @@ serve(async (req) => {
   });
 
   let scopedUserId: string | null = null;
+  let scopedUserEmail = '';
   if (!isCron) {
     const authHeader = req.headers.get('Authorization') ?? '';
     if (!authHeader.toLowerCase().startsWith('bearer ')) {
@@ -111,11 +118,59 @@ serve(async (req) => {
       return json({ error: 'unauthorized' }, 401);
     }
     scopedUserId = userData.user.id;
+    scopedUserEmail = (userData.user.email ?? '').toLowerCase().trim();
   }
 
   const client = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
+  let rawBody: unknown = null;
+  try {
+    rawBody = await req.json();
+  } catch {
+    // empty or non-JSON body — normal for cron invocations
+  }
+
+  const liveDeps: LiveUnreadDeps = {
+    loadRefreshToken,
+    refreshAccessToken,
+    fetchGmail: fetchGmailCandidates,
+    fetchGraph: fetchGraphCandidates,
+  };
+
+  // Forced on-demand brief (onboarding "first win"). Bypasses the
+  // work_preferences window entirely — a brand-new user may not even have a
+  // brief preference row yet.
+  if (parseForceRequest(rawBody, isCron) && scopedUserId) {
+    // Rate-limit the forced path: it burns a real Claude compose call + live
+    // Gmail fetches, and compose failures produce no brief row so there is no
+    // natural dedupe guard against a scripted caller running up the shared key.
+    const ent = await getEntitlement(client, scopedUserId);
+    const { data: limitRows, error: limitErr } = await client.rpc(
+      'check_and_incr_claude_usage',
+      { p_user_id: scopedUserId, p_rpm_limit: RPM_LIMIT, p_daily_limit: dailyRequestCapForTier(ent.tier) },
+    );
+    if (limitErr) {
+      console.error(`[daily-brief] rate_limit_check_failed user=${scopedUserId} err=${limitErr.message}`);
+      return json({ error: 'rate limit check failed' }, 500);
+    }
+    const limit = Array.isArray(limitRows) ? limitRows[0] : limitRows;
+    if (!limit?.allowed) {
+      const retryAfter = Math.max(1, Number(limit?.retry_after ?? 60));
+      return json({ error: 'rate_limited', retryAfter }, 429);
+    }
+
+    const zones = await fetchZones(client, [scopedUserId]);
+    const tz = zones.get(scopedUserId) ?? 'UTC';
+    const local = localHourMinute(new Date(), tz);
+    const kind = kindForHour(local.hour);
+    const r = await generateOneBrief(client, anthropicKey, scopedUserId, kind, tz, {
+      forcedEmail: scopedUserEmail,
+      liveDeps,
+    });
+    return json({ forced: true, kind, status: r.status, briefId: r.briefId });
+  }
 
   const now = new Date();
 
@@ -145,8 +200,8 @@ serve(async (req) => {
       pref.id === 'morning-brief' ? 'morning'
       : pref.id === 'midday-brief' ? 'midday'
       : 'evening';
-    const status = await generateOneBrief(client, anthropicKey, pref.user_id, kind, tz);
-    results.push({ userId: pref.user_id, kind, status });
+    const r = await generateOneBrief(client, anthropicKey, pref.user_id, kind, tz);
+    results.push({ userId: pref.user_id, kind, status: r.status });
   }
 
   return json({ processed: results.length, results });
@@ -209,7 +264,8 @@ async function generateOneBrief(
   userId: string,
   kind: 'morning' | 'midday' | 'evening',
   timezone: string,
-): Promise<string> {
+  forced: { forcedEmail: string; liveDeps: LiveUnreadDeps } | null = null,
+): Promise<{ status: string; briefId: string | null }> {
   // Memory toggle gate. The brief quotes facts and mail subjects, so when
   // the user has memory off we must skip composition entirely - not just
   // pass empty arrays through (which would still burn a Claude call to
@@ -224,7 +280,7 @@ async function generateOneBrief(
     // Fail-open to match the timezone-read pattern in fetchZones; a
     // transient profile read error shouldn't drop briefs for everyone.
   }
-  if (profile?.memory_enabled === false) return 'skipped-memory-off';
+  if (profile?.memory_enabled === false) return { status: 'skipped-memory-off', briefId: null };
 
   const today = new Date().toISOString().slice(0, 10);
   const { data: existing } = await client
@@ -234,18 +290,28 @@ async function generateOneBrief(
     .eq('kind', kind)
     .gte('generated_at', `${today}T00:00:00Z`)
     .limit(1);
-  if (existing && existing.length > 0) return 'already-briefed';
+  if (existing && existing.length > 0) {
+    return { status: 'already-briefed', briefId: (existing[0] as { id: string }).id };
+  }
 
   const inputs = await assembleInputs(client, userId, kind, timezone);
+
+  // Cold start: a brand-new user has no mail_events rows yet (poll-mail
+  // hasn't run). On the forced path only, pull live inbox headers so the
+  // first brief isn't empty-skipped.
+  if (forced && inputs.unread.length === 0) {
+    inputs.unread = await fetchLiveUnread(forced.liveDeps, client, userId, forced.forcedEmail);
+  }
+
   const nonEmpty =
     inputs.events.length > 0 ||
     inputs.unread.length > 0 ||
     inputs.commitments.length > 0 ||
     inputs.reminders.length > 0;
-  if (!nonEmpty) return 'empty-skipped';
+  if (!nonEmpty) return { status: 'empty-skipped', briefId: null };
 
   const composed = await composeWithClaude(anthropicKey, inputs);
-  if (!composed) return 'compose-failed';
+  if (!composed) return { status: 'compose-failed', briefId: null };
   const { brief, usage } = composed;
   void recordAiUsage(client, userId, 'daily-brief', MODEL, usage);
 
@@ -270,10 +336,10 @@ async function generateOneBrief(
     // concurrent invocation already wrote the brief and pushed; we
     // silently bail so the user only sees one push. This is the race
     // 20260509100000_briefs_dedupe_constraint.sql exists to neutralise.
-    if ((insertErr as { code?: string }).code === '23505') return 'race-loss';
-    return 'insert-failed';
+    if ((insertErr as { code?: string }).code === '23505') return { status: 'race-loss', briefId: null };
+    return { status: 'insert-failed', briefId: null };
   }
-  if (!inserted) return 'insert-failed';
+  if (!inserted) return { status: 'insert-failed', briefId: null };
 
   await sendPush(
     client,
@@ -287,7 +353,7 @@ async function generateOneBrief(
     .from('briefs')
     .update({ delivered_at: new Date().toISOString() })
     .eq('id', inserted.id as string);
-  return 'sent';
+  return { status: 'sent', briefId: inserted.id as string };
 }
 
 async function assembleInputs(
