@@ -29,7 +29,7 @@ export type LiveUnreadDeps = {
     refreshToken: string, opts?: { microsoftScope?: string },
   ) => Promise<{ accessToken: string; expiresIn: number }>;
   fetchGmail: (accessToken: string, ownEmail: string, maxFetch?: number, keep?: number) => Promise<CandidateLike[]>;
-  fetchGraph: (accessToken: string, ownEmail: string) => Promise<CandidateLike[]>;
+  fetchGraph: (accessToken: string, ownEmail: string, maxFetch?: number, keep?: number) => Promise<CandidateLike[]>;
 };
 
 export type UnreadItem = { from: string; subject: string };
@@ -49,7 +49,7 @@ export async function fetchLiveUnread(
       const { accessToken } = await deps.refreshAccessToken(client, userId, provider, rt);
       const candidates = provider === 'google'
         ? await deps.fetchGmail(accessToken, ownEmail, 10, 3)
-        : await deps.fetchGraph(accessToken, ownEmail);
+        : await deps.fetchGraph(accessToken, ownEmail, 10, 3);
       const mapped = candidates.slice(0, 3).map((c) => ({
         from: c.from || 'ukendt',
         subject: c.subject || '(intet emne)',
