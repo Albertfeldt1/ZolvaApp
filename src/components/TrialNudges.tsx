@@ -4,7 +4,7 @@
 // Visual language mirrors BriefBanner: same theme tokens, same spacing idioms,
 // same card container so both cards look native to the Today feed.
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../lib/auth';
 import { useEntitlement } from '../lib/hooks';
@@ -31,6 +31,8 @@ export function SkipperNudgeCard() {
   const ent = entResult.data;
 
   const [visible, setVisible] = useState(false);
+  const presenting = useRef(false);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,17 +57,25 @@ export function SkipperNudgeCard() {
     return () => { cancelled = true; };
   }, [uid, ent.tier, entResult.loading]);
 
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
   if (!visible) return null;
 
   const dismiss = async () => {
-    setVisible(false);
+    if (mountedRef.current) {
+      setVisible(false);
+    }
     if (uid) await markSkipperNudgeDismissed(uid);
   };
 
   const handlePrimary = async () => {
-    const entitled = await presentPaywallIfNeeded('pro');
-    if (entitled) {
-      void dismiss();
+    if (presenting.current) return;
+    presenting.current = true;
+    try {
+      const entitled = await presentPaywallIfNeeded('pro');
+      if (entitled) void dismiss();
+    } finally {
+      presenting.current = false;
     }
   };
 
