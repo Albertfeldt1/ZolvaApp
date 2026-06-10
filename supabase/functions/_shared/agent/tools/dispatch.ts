@@ -81,6 +81,11 @@ export interface ExecuteSafetyContext {
   // mail.get_body during the same run. The runner populates a per-run
   // Set<thread_id>; this predicate is sync because it's a Set lookup.
   threadWasResearched: (threadId: string) => boolean;
+  // Guardrail gate: false when the input rail tainted the run or the output
+  // rail flagged this reply. Computed by the runner (it owns the Claude creds);
+  // dispatch only enforces it. Failing it degrades to propose like every other
+  // gate.
+  railsOk: boolean;
 }
 
 export interface ExecuteOptions {
@@ -536,7 +541,7 @@ export async function executeTool(
       // Fail-safe: rejection treats recipient as not in allowlist, prior-fail as true.
       const recipientOk = recipientResult.status === 'fulfilled' && recipientResult.value;
       const priorFail = priorFailResult.status !== 'fulfilled' || priorFailResult.value;
-      if (!opts.safety.userIsIdle || !recipientOk || priorFail) {
+      if (!opts.safety.userIsIdle || !recipientOk || priorFail || !opts.safety.railsOk) {
         return {
           mode: 'propose',
           reversible: false,

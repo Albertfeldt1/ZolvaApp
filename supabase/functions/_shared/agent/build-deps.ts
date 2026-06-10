@@ -20,6 +20,8 @@ import { loadRefreshToken, refreshAccessToken } from '../oauth.ts';
 import { dispatchExpoPush } from './expo-push.ts';
 import type { ExecuteContext, ExecuteOptions } from './tools/dispatch.ts';
 import { hasRecipientHistory } from './allowlist.ts';
+import { checkMailInput, checkReplyOutput, parseClassifierOutput } from '../guardrails/index.ts';
+import type { GuardrailClassifier } from '../guardrails/index.ts';
 
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!;
 
@@ -177,6 +179,26 @@ export function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
       cachedOutlookCalToken = await loadOutlookAccessToken(client, userId, 'offline_access Calendars.ReadWrite');
     }
     return cachedOutlookCalToken;
+  };
+
+  // Real guardrail classifier: a tiny Haiku call with a hard 5s timeout. Any
+  // network/timeout error propagates and the rails treat it as fail-safe.
+  const guardrailClassify: GuardrailClassifier = async ({ system, user, surface }) => {
+    const timeoutFetch = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) =>
+      fetch(url, { ...init, signal: AbortSignal.timeout(5000) });
+    const r = await callClaude({
+      fetch: timeoutFetch,
+      apiKey: ANTHROPIC_API_KEY,
+      system: [{ type: 'text', text: system }],
+      messages: [{ role: 'user', content: user }],
+      maxTokens: 16,
+    });
+    await recordAiUsage(client, userId, surface, 'claude-haiku-4-5-20251001', r.usage);
+    const text = r.content
+      .filter((b) => b.type === 'text')
+      .map((b) => (typeof (b as { text?: unknown }).text === 'string' ? (b as { text: string }).text : ''))
+      .join(' ');
+    return parseClassifierOutput(text);
   };
 
   return {
@@ -428,6 +450,8 @@ export function buildDeps(client: SupabaseClient, userId: string): RunnerDeps {
         withinDays: 60,
       });
     },
+    checkMailInput: (text, _userId) => checkMailInput(text, { classify: guardrailClassify }),
+    checkReplyOutput: (text, recipient, _userId) => checkReplyOutput(text, recipient, { classify: guardrailClassify }),
     async priorFailedSendIdem(uid, idemKey) {
       // agent_actions has no status column — failures don't land there.
       // The actual failure signal lives on proposed_actions.status='failed'
