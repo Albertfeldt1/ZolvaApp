@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -1740,6 +1740,10 @@ export function OnboardingFlowScreen({ onComplete, onOpenIcloudSetup }: Props) {
   const [index, setIndex] = useState(0);
   const [state, setState] = useState<OnboardingState>(INITIAL_STATE);
 
+  // One-shot: a double-tap on the final button must not stack two paywall
+  // presentations or call onComplete twice.
+  const pitchInFlight = useRef(false);
+
   // Screens array index 5 = ScreenTrust (the mail/calendar provider connect
   // step). Verified against the screens array below: key="5" at position 5.
   const TRUST_INDEX = 5;
@@ -1755,6 +1759,8 @@ export function OnboardingFlowScreen({ onComplete, onOpenIcloudSetup }: Props) {
     if (index < TOTAL_STEPS - 1) {
       setIndex(index + 1);
     } else {
+      if (pitchInFlight.current) return;
+      pitchInFlight.current = true;
       // Soft trial pitch after the step-7 win, then hand off to the app.
       void presentTrialPitch(user?.id ?? null).finally(() => onComplete(state));
     }
