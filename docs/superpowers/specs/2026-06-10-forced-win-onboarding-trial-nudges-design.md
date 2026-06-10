@@ -37,21 +37,37 @@ Add a `force: true` flag to the `daily-brief` request body:
   (`x-cron-secret`) ignores it — forced generation is always single-user.
 - When forced: skip `windowMatches`, derive `kind` from the user's local hour
   (morning < 12:00, midday < 17:00, else evening) using the existing
-  `localHourMinute` helper, then call `generateOneBrief` unchanged.
-- Existing dedupe inside `generateOneBrief` stays as-is.
+  `localHourMinute` helper, then call `generateOneBrief`.
+- **Cold-start fallback (added after code recon):** `assembleInputs` reads
+  `mail_events`, which is empty for a brand-new user (poll-mail hasn't run),
+  and `generateOneBrief` skips entirely when all inputs are empty. On the
+  forced path only, when `mail_events` yields nothing, fetch ~3 live inbox
+  headers via the stored refresh token (`_shared/oauth.ts` +
+  `_shared/backfill-providers/` gmail/graph readers — same plumbing as
+  onboarding backfill). iCloud-only users are out of scope for the fallback.
+- `generateOneBrief` returns `{ status, briefId }` so the response can point
+  the client at the new (or already-existing) brief row.
+- Existing dedupe stays: forced call on a day with an existing brief returns
+  `already-briefed` plus that brief's id.
 - Deployed with `--no-verify-jwt` (project standard for user-auth functions).
 
-### 2. Client — step 7 becomes the real win
+### 2. Client — forced brief fired from onboarding (revised after code recon)
 
-- After step 6 completes with ≥1 mail provider connected, fire the forced
-  `daily-brief` call in the background while the user transitions to step 7.
-- Step 7 shows Stone in `thinking` mood with loading copy
-  ("Zolva læser din indbakke…") until the real brief lands, then renders it
-  using the existing structured-sections brief layout.
-- Fail-safe (rare in practice since provider connect is the universal path, but
-  the win must never block onboarding): no mail connected, generation error, or
-  >20s timeout → fall back to the current sample preview. Onboarding always
-  completes.
+Code recon found step 7 (`ScreenActivation`) **already renders a real live
+inbox preview** — it fetches ~20 messages with the fresh OAuth token and
+shows 3 actionable mails, falling back to `SAMPLE_BRIEF`. So the visual win
+in step 7 already exists; what's missing is that the Today screen is empty
+after onboarding until the next cron window — the broken promise.
+
+- Step 7's existing live preview is kept untouched; no spinner, no rework.
+- When the user advances past step 6 (provider connect), fire
+  `requestForcedBriefOnce(uid)` in the background — a once-per-user
+  (AsyncStorage-guarded) call to `daily-brief` with `force: true`.
+- When the call settles, notify an in-module listener so `useTodayBrief`
+  refreshes — the real persisted brief is waiting as a `BriefBanner` the
+  moment the user lands on Today.
+- Fail-safe: all failures are swallowed (warn-only); onboarding never blocks
+  on the forced call.
 
 ### 3. Trial pitch — soft, skippable
 
