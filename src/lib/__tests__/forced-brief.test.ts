@@ -44,3 +44,13 @@ test('invoke failure is swallowed and still notifies listeners', async () => {
   expect(fn).toHaveBeenCalledTimes(1);
   off();
 });
+
+test('proceeds and notifies even when AsyncStorage throws', async () => {
+  jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('disk full'));
+  const fn = jest.fn();
+  const off = onForcedBriefSettled(fn);
+  await expect(requestForcedBriefOnce('u4')).resolves.toBeUndefined();
+  expect(invoke).toHaveBeenCalledTimes(1);
+  expect(fn).toHaveBeenCalledTimes(1);
+  off();
+});

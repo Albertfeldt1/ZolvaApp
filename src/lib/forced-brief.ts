@@ -20,6 +20,8 @@ export function onForcedBriefSettled(fn: Listener): () => void {
 
 export async function requestForcedBriefOnce(uid: string): Promise<void> {
   try {
+    // Two concurrent calls can both pass this read-before-write window.
+    // Acceptable — the daily-brief edge fn dedupes via already-briefed.
     if ((await AsyncStorage.getItem(forcedBriefKey(uid))) === '1') return;
     await AsyncStorage.setItem(forcedBriefKey(uid), '1');
   } catch {
