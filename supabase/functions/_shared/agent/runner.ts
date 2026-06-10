@@ -25,6 +25,7 @@ import { resolvePolicy } from './policy.ts';
 import { clampModeForTier } from './tier-policy.ts';
 import type { Tier } from '../entitlement.ts';
 import { shouldPushForProposal } from './push.ts';
+import { fenceUntrusted } from '../guardrails/index.ts';
 
 // A run strategy supplies the parts that differ between the mail-triage path
 // (agent-tick) and the reflect path (agent-reflect). Everything else — the
@@ -74,6 +75,9 @@ export interface RunTraceTurn {
   stop_reason: string;
   text: string;
   tools: Array<{ name: string; thread_id: string | null }>;
+  // Set when a rail fired this turn, so the Today/trace view can show why an
+  // action became a proposal.
+  guardrail?: { rail: 'input' | 'output'; category: string };
   // Outcome of each tool call this round — the verbatim tool_result fed back
   // to Claude. is_error=true means executeTool threw (provider 4xx, dup idem,
   // policy_off, etc). This is what tells us WHY a tool failed.
@@ -288,6 +292,10 @@ async function executeRun(
     // Consulted by the mail.send_reply safety rail so we never auto-send a
     // reply off the snippet alone. Resets every run (scoped inside the try).
     const researchedThreads = new Set<string>();
+    // Set true if the input rail flags injected content in any mail body this
+    // run. Once tainted, the run loses auto-send (send_reply degrades to
+    // propose) regardless of the other safety gates.
+    let tainted = false;
     // Per-run bridge: a mail.draft_reply step records the full reply body +
     // headers; the later mail.send_reply proposal needs them (for the approval
     // UI to show/edit the real text, and for the edited-send path to have
@@ -422,6 +430,23 @@ async function executeRun(
           // mail.send_reply is the only auto-eligible action that uses it
           // today, and isUserIdle / recipient check both hit Supabase.
           const needsSafety = action === 'mail.send_reply' && policy === 'auto';
+          let railsOk = true;
+          if (needsSafety) {
+            // Output rail: moderate the reply preview before auto-send. Skip
+            // the call if already tainted (we know it degrades to propose).
+            if (tainted) {
+              railsOk = false;
+              trace[trace.length - 1].guardrail = { rail: 'input', category: 'tainted_run' };
+            } else {
+              const previewText = typeof input.preview_text === 'string' ? input.preview_text : '';
+              const out = await deps.checkReplyOutput(previewText, recipient ?? '', userId);
+              railsOk = out.ok;
+              if (!out.ok) {
+                trace[trace.length - 1].guardrail = { rail: 'output', category: out.category };
+                console.warn(`[guardrails] output rail blocked run=${runId} category=${out.category}`);
+              }
+            }
+          }
           const safety = needsSafety
             ? {
                 userIsIdle: await deps.isUserIdle(userId, new Date()),
@@ -430,6 +455,7 @@ async function executeRun(
                 hasPriorFailedIdem: (idem: string) =>
                   deps.priorFailedSendIdem(userId, idem),
                 threadWasResearched: (tid: string) => researchedThreads.has(tid),
+                railsOk,
               }
             : undefined;
           const exec = await deps.executeTool(action, input, {
@@ -468,7 +494,20 @@ async function executeRun(
               if (tid) {
                 researchedThreads.add(tid);
                 const bodyText = typeof exec.recordPayload.body_text === 'string' ? exec.recordPayload.body_text : '';
-                if (bodyText) ctx._sourceBodyByThread?.set(tid, bodyText.slice(0, 4000));
+                if (bodyText) {
+                  ctx._sourceBodyByThread?.set(tid, bodyText.slice(0, 4000));
+                  // Input rail: classify the body for prompt injection, then
+                  // fence it before it goes back to Claude. A hit taints the
+                  // run (auto-send → propose) but we still return the fenced
+                  // body so triage continues.
+                  const verdict = await deps.checkMailInput(bodyText, userId);
+                  if (!verdict.ok) {
+                    tainted = true;
+                    trace[trace.length - 1].guardrail = { rail: 'input', category: verdict.category };
+                    console.warn(`[guardrails] input rail tainted run=${runId} thread=${tid} category=${verdict.category}`);
+                  }
+                  exec.recordPayload.body_text = fenceUntrusted(bodyText);
+                }
               }
             }
             toolResults.push({
