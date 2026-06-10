@@ -48,7 +48,7 @@ export async function fetchLiveUnread(
       if (!rt) continue;
       const { accessToken } = await deps.refreshAccessToken(client, userId, provider, rt);
       const candidates = provider === 'google'
-        ? await deps.fetchGmail(accessToken, ownEmail, 25, 3)
+        ? await deps.fetchGmail(accessToken, ownEmail, 10, 3)
         : await deps.fetchGraph(accessToken, ownEmail);
       const mapped = candidates.slice(0, 3).map((c) => ({
         from: c.from || 'ukendt',

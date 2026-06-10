@@ -35,6 +35,8 @@ import { loadRefreshToken, refreshAccessToken } from '../_shared/oauth.ts';
 import { fetchGmailCandidates } from '../_shared/backfill-providers/gmail.ts';
 import { fetchGraphCandidates } from '../_shared/backfill-providers/microsoft.ts';
 import { parseForceRequest, kindForHour, fetchLiveUnread, type LiveUnreadDeps } from './force.ts';
+import { getEntitlement } from '../_shared/entitlement-read.ts';
+import { RPM_LIMIT, dailyRequestCapForTier } from '../_shared/abuse-limits.ts';
 
 type BriefSections = {
   calendar: string[];
@@ -141,6 +143,24 @@ serve(async (req) => {
   // work_preferences window entirely — a brand-new user may not even have a
   // brief preference row yet.
   if (parseForceRequest(rawBody, isCron) && scopedUserId) {
+    // Rate-limit the forced path: it burns a real Claude compose call + live
+    // Gmail fetches, and compose failures produce no brief row so there is no
+    // natural dedupe guard against a scripted caller running up the shared key.
+    const ent = await getEntitlement(client, scopedUserId);
+    const { data: limitRows, error: limitErr } = await client.rpc(
+      'check_and_incr_claude_usage',
+      { p_user_id: scopedUserId, p_rpm_limit: RPM_LIMIT, p_daily_limit: dailyRequestCapForTier(ent.tier) },
+    );
+    if (limitErr) {
+      console.error(`[daily-brief] rate_limit_check_failed user=${scopedUserId} err=${limitErr.message}`);
+      return json({ error: 'rate limit check failed' }, 500);
+    }
+    const limit = Array.isArray(limitRows) ? limitRows[0] : limitRows;
+    if (!limit?.allowed) {
+      const retryAfter = Math.max(1, Number(limit?.retry_after ?? 60));
+      return json({ error: 'rate_limited', retryAfter }, 429);
+    }
+
     const zones = await fetchZones(client, [scopedUserId]);
     const tz = zones.get(scopedUserId) ?? 'UTC';
     const local = localHourMinute(new Date(), tz);
