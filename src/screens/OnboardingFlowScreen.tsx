@@ -29,6 +29,8 @@ import { useAuth } from '../lib/auth';
 import { useIcloudConnected, useMicrosoftLinked } from '../lib/hooks';
 import * as gmail from '../lib/gmail';
 import * as graph from '../lib/microsoft-graph';
+import { requestForcedBriefOnce } from '../lib/forced-brief';
+import { presentTrialPitch } from '../lib/trial-nudges';
 
 // All non-theme literal values used by this screen, centralised so no
 // component has to inline a colour/font/size/radius. Anything not derivable
@@ -1734,12 +1736,28 @@ type Props = {
 export function OnboardingFlowScreen({ onComplete, onOpenIcloudSetup }: Props) {
   const PAL = usePal();
   const { radius } = useTheme();
+  const { user } = useAuth();
   const [index, setIndex] = useState(0);
   const [state, setState] = useState<OnboardingState>(INITIAL_STATE);
 
+  // Screens array index 5 = ScreenTrust (the mail/calendar provider connect
+  // step). Verified against the screens array below: key="5" at position 5.
+  const TRUST_INDEX = 5;
+
   const next = () => {
-    if (index < TOTAL_STEPS - 1) setIndex(index + 1);
-    else onComplete(state);
+    if (index === TRUST_INDEX && user?.id) {
+      // Leaving the connect step: kick off the real first brief in the
+      // background so it's waiting on Today after onboarding. Never awaited.
+      // Back-navigation then forward again may call this twice — fine,
+      // requestForcedBriefOnce dedupes internally via AsyncStorage.
+      void requestForcedBriefOnce(user.id);
+    }
+    if (index < TOTAL_STEPS - 1) {
+      setIndex(index + 1);
+    } else {
+      // Soft trial pitch after the step-7 win, then hand off to the app.
+      void presentTrialPitch(user?.id ?? null).finally(() => onComplete(state));
+    }
   };
   const back = () => {
     if (index > 0) setIndex(index - 1);
