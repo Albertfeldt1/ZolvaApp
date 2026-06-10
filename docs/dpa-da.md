@@ -298,19 +298,43 @@ brugere.
 ### A.2 Karakter og art af behandling
 
 - Lagring og organisering af brugerdata og arbejdspræferencer.
-- Hentning af mail- og kalender-data fra Google/Microsoft via
-  OAuth-tokens leveret af den registrerede.
-- Generering af AI-baserede svar, udkast og opsummeringer via
-  underdatabehandler (Anthropic).
-- Afsendelse af push-notifikationer.
-- Midlertidig opbevaring af chat-historik og notater.
+- Hentning af mail- og kalender-data fra Google/Microsoft (via
+  OAuth-tokens leveret af den registrerede) og fra Apple iCloud (via
+  en app-specifik adgangskode leveret af den registrerede, IMAP
+  skrivebeskyttet / CalDAV).
+- Skrivebeskyttet hentning af filhenvisninger og -indhold fra Google
+  Drev (fil-specifikt `drive.file`-scope) og OneDrive/Microsoft 365
+  (`Files.Read`), hvor brugeren har forbundet disse.
+- Generering af AI-baserede svar, udkast, opsummeringer og daglige
+  briefs via underdatabehandler (Anthropic).
+- Valgfri automatisk behandling via assistenten ("agenten"):
+  automatisk læsning, prioritering og opsummering af indgående post,
+  registrering af aftaler samt udarbejdelse af svarkladder og
+  kalenderforslag. Denne automatiske behandling sker kun, hvor
+  Dataansvarlig eller dennes autoriserede brugere har aktiveret den
+  via Tjenestens indstillinger, som udgør dokumenteret instruks efter
+  klausul 5. Afsendelse af mail samt oprettelse eller ændring af
+  kalenderbegivenheder kræver som standard godkendelse; der kan gives
+  tilladelse til automatisk afsendelse pr. modtager, som til enhver
+  tid kan tilbagekaldes. Assistenten flytter, mærker, arkiverer eller
+  sletter aldrig mails automatisk.
+- Oprettelse og ændring af kalenderbegivenheder, som brugeren har
+  godkendt.
+- Behandling af abonnementsstatus (rettigheder) via
+  underdatabehandler (RevenueCat) for betalte abonnementer.
+- Afsendelse af push-notifikationer, herunder proaktive
+  assistent-notifikationer ("nudges").
+- Opbevaring af chat-historik, noter, påmindelser, assistentens
+  hukommelse ("fakta"), forslag der afventer godkendelse, samt en
+  audit-log over assistentens handlinger.
 
 ### A.3 Kategorier af registrerede
 
 - Dataansvarliges medarbejdere og autoriserede brugere, der har
   oprettet en Zolva-konto.
 - Tredjeparter, hvis personoplysninger forekommer i de registreredes
-  mails eller kalenderbegivenheder (afsendere, mødedeltagere m.fl.).
+  mails, kalenderbegivenheder eller forbundne filer (afsendere,
+  modtagere, mødedeltagere, dokumentforfattere m.fl.).
 
 ### A.4 Typer af personoplysninger
 
@@ -318,32 +342,55 @@ brugere.
   profilbillede (hvis leveret af Google/Microsoft), bruger-ID,
   telefonnummer (kun hvis angivet af brugeren).
 - Indholdsdata: emnefelter, afsendere, modtagere og tekstindhold i
-  mails; titler, tidspunkter, steder og deltagere i
-  kalenderbegivenheder.
+  mails; titler, tidspunkter, steder, deltagere og beskrivelser i
+  kalenderbegivenheder; navne på og indhold af forbundne filer, som
+  assistenten henviser til.
 - Brugerindhold: chat-beskeder, noter, påmindelser, AI-genererede
-  kladder.
-- Teknisk metadata: OAuth-refresh-tokens (krypteret), push-tokens,
-  app-indstillinger, log-data (IP-adresse, tidsstempler, fejlspor).
+  kladder og forslag, assistentens hukommelse ("fakta", aftaler).
+- Loginoplysninger: OAuth-refresh-tokens (opbevares server-side med
+  begrænset adgang), iCloud app-specifikke adgangskoder (opbevares
+  krypteret i hvile med krypteringsnøglen uden for databasen).
+- Abonnementsdata: niveau, produkt-id, butik, prøveperiode-status,
+  periodens udløb og et pseudonymt RevenueCat bruger-id. Ingen
+  kortdata.
+- Teknisk metadata: push-tokens, app-indstillinger, log-data
+  (IP-adresse, tidsstempler, fejlspor).
 
 Behandling af særlige kategorier af personoplysninger (GDPR art. 9)
-er ikke formålet med Tjenesten. Hvis sådanne oplysninger utilsigtet
-forekommer i mail- eller kalender-indhold, behandles de efter samme
-sikkerhedsniveau som øvrige data, men Dataansvarlig opfordres til at
-begrænse dette i sin egen interne brug.
+er ikke formålet med Tjenesten, og sådanne oplysninger indsamles ikke
+målrettet og anvendes ikke til profilering. Da Tjenesten behandler
+indholdet af postkasser, kalendere og forbundne filer, kan særlige
+kategorier — for eksempel helbredsoplysninger eller politiske
+holdninger, der optræder i korrespondance — dog blive behandlet
+accessorisk som en del af dette indhold. Sådanne oplysninger
+behandles på samme sikkerhedsniveau som alle øvrige data.
+Dataansvarlig er ansvarlig for, at der foreligger et gyldigt
+behandlingsgrundlag efter art. 9 for de særlige kategorier, som
+brugernes indhold måtte indeholde, og opfordres til at begrænse
+sådant indhold i sin egen interne brug.
 
 ### A.5 Varighed af behandlingen
 
-Data behandles, så længe brugerens konto er aktiv, og slettes ved
-kontosletning eller ved ophør af Hovedaftalen, jf. klausul 12.
+Data behandles i Hovedaftalens løbetid og slettes eller
+tilbageleveres i overensstemmelse med klausul 12.
+Sletningsfunktionerne i Tjenesten (sletning af enkeltelementer og
+kontosletning, tilgængelige for Dataansvarliges autoriserede brugere)
+udgør dokumenteret instruks efter klausul 5 og effektueres
+øjeblikkeligt.
 
-- Mail- og kalenderindhold cachelagres typisk op til 7 dage i
-  Databehandlers produktion, men slettes øjeblikkeligt ved eksplicit
-  brugerhandling (f.eks. "Slet min profil").
-- Chat-beskeder og fakta gemt i "hukommelsen" opbevares, indtil
-  brugeren sletter dem eller konto slettes.
+- Mail- og kalenderindhold hentes ved behov. Besked-metadata
+  (afsender, emne, tidsstempler) og assistentens arbejdsprodukter
+  (opsummeringer, kladder, forslag og audit-loggen over assistentens
+  handlinger) opbevares tilknyttet kontoen, indtil de slettes via
+  disse funktioner, og under alle omstændigheder ved Hovedaftalens
+  ophør.
+- Chat-beskeder og fakta gemt i "hukommelsen" opbevares på samme
+  grundlag.
 - Prompts og svar sendt til Anthropic opbevares hos Anthropic i op
   til 30 dage til misbrugsovervågning, hvorefter de slettes. De
   bruges ikke til modeltræning.
+- Abonnementsregistreringer opbevares i det omfang,
+  bogføringsforpligtelser kræver det.
 
 ---
 
@@ -386,8 +433,10 @@ registrerede:
   - Row Level Security (RLS) i database-laget: hver bruger kan kun
     tilgå egne rækker.
   - JWT-baseret autentificering (ES256).
-  - OAuth 2.0 ved tredjepartsintegrationer; access-tokens
-    opbevares kun lokalt på enheden.
+  - OAuth 2.0 ved tredjepartsintegrationer; access-tokens opbevares
+    lokalt på enheden, refresh-tokens server-side med begrænset
+    adgang, og iCloud-loginoplysninger krypteret i hvile med nøglen
+    uden for databasen.
   - Rate-limiting pr. bruger på AI-endpoints.
 - **Hemmeligheder** (API-nøgler, service-role-keys) opbevares
   eksklusivt i Supabase-miljø og roterer efter behov. Ingen

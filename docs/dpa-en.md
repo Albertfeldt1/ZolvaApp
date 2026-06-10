@@ -302,19 +302,41 @@ calendar, and reminders — to the Controller's employees and users.
 ### A.2 Nature and scope of processing
 
 - Storage and organization of user data and work preferences.
-- Retrieval of email and calendar data from Google/Microsoft via
-  OAuth tokens provided by the data subject.
-- Generation of AI-based replies, drafts, and summaries via a
-  sub-processor (Anthropic).
-- Delivery of push notifications.
-- Temporary storage of chat history and notes.
+- Retrieval of email and calendar data from Google/Microsoft (via
+  OAuth tokens provided by the data subject) and from Apple iCloud
+  (via an app-specific password provided by the data subject, IMAP
+  read-only / CalDAV).
+- Read-only retrieval of file references and content from Google
+  Drive (per-file `drive.file` scope) and OneDrive/Microsoft 365
+  (`Files.Read`), where the user has connected these.
+- Generation of AI-based replies, drafts, summaries, and daily briefs
+  via a sub-processor (Anthropic).
+- Optional automated processing by the assistant ("agent"): automatic
+  reading, prioritisation, and summarising of incoming mail, tracking
+  of commitments, and preparation of draft replies and calendar
+  proposals. This automated processing runs only where the Controller
+  or its authorized users have enabled it through the Service's
+  settings, which constitute documented instructions under Clause 5.
+  Sending email and creating or changing calendar events require
+  approval by default; per-recipient automatic sending may be granted
+  and can be revoked at any time. The assistant does not
+  automatically move, label, archive, or delete emails.
+- Creation and updating of calendar events approved by the user.
+- Processing of subscription status (entitlements) via a
+  sub-processor (RevenueCat) for paid plans.
+- Delivery of push notifications, including proactive assistant
+  notifications ("nudges").
+- Storage of chat history, notes, reminders, assistant memory
+  ("facts"), proposals awaiting approval, and an audit log of
+  assistant actions.
 
 ### A.3 Categories of data subjects
 
 - The Controller's employees and authorized users who have created a
   Zolva account.
 - Third parties whose personal data appears in the data subjects'
-  emails or calendar events (senders, meeting participants, etc.).
+  emails, calendar events, or connected files (senders, recipients,
+  meeting participants, document authors, etc.).
 
 ### A.4 Types of personal data
 
@@ -322,32 +344,52 @@ calendar, and reminders — to the Controller's employees and users.
   provided by Google/Microsoft), user ID, phone number (only if
   provided by the user).
 - Content data: subjects, senders, recipients, and body text of
-  emails; titles, times, locations, and attendees of calendar events.
-- User Content: chat messages, notes, reminders, AI-generated
-  drafts.
-- Technical metadata: OAuth refresh tokens (encrypted), push tokens,
-  app settings, log data (IP address, timestamps, error traces).
+  emails; titles, times, locations, attendees, and descriptions of
+  calendar events; names and content of connected files the assistant
+  references.
+- User Content: chat messages, notes, reminders, AI-generated drafts
+  and proposals, assistant memory ("facts", commitments).
+- Credentials: OAuth refresh tokens (stored server-side with
+  restricted access), iCloud app-specific passwords (stored encrypted
+  at rest, with the encryption key held outside the database).
+- Subscription data: plan tier, product identifier, store, trial
+  status, period end, and a pseudonymous RevenueCat app-user
+  identifier. No payment-card data.
+- Technical metadata: push tokens, app settings, log data (IP
+  address, timestamps, error traces).
 
 Processing of special categories of personal data (Art. 9 GDPR) is
-not the purpose of the Service. If such information inadvertently
-appears in email or calendar content, it is processed at the same
-security level as other data, but the Controller is encouraged to
-minimize this through its own internal practices.
+not the purpose of the Service, and such data is not intentionally
+collected and is not used for profiling. However, because the Service
+processes the content of mailboxes, calendars, and connected files,
+special categories — for example health information or political
+opinions appearing in correspondence — may be processed incidentally
+as part of that content. Such data is processed at the same security
+level as all other data. The Controller is responsible for ensuring a
+valid legal basis under Art. 9 for any special categories its users'
+content contains, and is encouraged to minimize such content through
+its own internal practices.
 
 ### A.5 Duration of processing
 
-Data is processed for as long as the user's account is active, and
-deleted upon account deletion or termination of the Main Agreement,
-cf. Clause 12.
+Data is processed for the duration of the Main Agreement and deleted
+or returned in accordance with Clause 12. Deletion controls in the
+Service (per-item deletion and account deletion, available to the
+Controller's authorized users) constitute documented instructions
+under Clause 5 and take effect immediately.
 
-- Email and calendar content is typically cached for up to 7 days in
-  the Processor's production, but deleted immediately upon explicit
-  user action (e.g. "Delete my profile").
-- Chat messages and facts stored in "memory" are retained until the
-  user deletes them or the account is deleted.
+- Email and calendar content is retrieved on demand. Message metadata
+  (sender, subject, timestamps) and the assistant's work products
+  (summaries, drafts, proposals, and the audit log of assistant
+  actions) are stored linked to the account until deleted via those
+  controls, and in any case upon termination of the Main Agreement.
+- Chat messages and facts stored in "memory" are retained on the same
+  basis.
 - Prompts and replies sent to Anthropic are retained by Anthropic
   for up to 30 days for abuse monitoring, after which they are
   deleted. They are not used for model training.
+- Subscription records are retained as required by bookkeeping
+  obligations.
 
 ---
 
@@ -391,8 +433,10 @@ to the data subjects:
   - Row Level Security (RLS) at the database layer: each user can
     only access their own rows.
   - JWT-based authentication (ES256).
-  - OAuth 2.0 for third-party integrations; access tokens are only
-    stored locally on the device.
+  - OAuth 2.0 for third-party integrations; access tokens are stored
+    locally on the device, refresh tokens server-side with restricted
+    access, and iCloud credentials encrypted at rest with the key
+    held outside the database.
   - Per-user rate limiting on AI endpoints.
 - **Secrets** (API keys, service role keys) are stored exclusively
   in the Supabase environment and rotated as needed. No secrets in
