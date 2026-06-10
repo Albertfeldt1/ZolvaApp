@@ -30,7 +30,7 @@ Kontakt: kontakt@zolva.io
 Tilsammen "Parterne".
 
 Ikrafttrædelsesdato: \_\_\_\_\_\_\_\_\_\_\_\_\_\_ (udfyldes ved underskrift)
-Denne skabelon-version er senest opdateret: 22. april 2026
+Denne skabelon-version er senest opdateret: 8. juni 2026
 
 ---
 
@@ -359,7 +359,8 @@ Ikrafttrædelsesdatoen:
 | Expo Application Services | Push-notifikationer via Apple Push Notification service og Firebase Cloud Messaging. | USA. | SCC'er. Kun push-token og notifikationstekst behandles. |
 | Google LLC | OAuth, Gmail API, Google Calendar API. Aktiveres kun, hvis brugeren forbinder sin Google-konto. | USA. Data bor hos brugerens egen Google-konto. | EU-US Data Privacy Framework / SCC'er. Data tilgås via brugerens eget refresh-token. |
 | Microsoft Corp. | OAuth, Microsoft Graph. Aktiveres kun, hvis brugeren forbinder sin Microsoft-konto. | USA. Data bor hos brugerens egen Microsoft-konto. | EU-US Data Privacy Framework / SCC'er. Data tilgås via brugerens eget refresh-token. |
-| Apple Inc. | App-distribution, Sign in with Apple, Push Notification service. | USA. | EU-US Data Privacy Framework / SCC'er. Begrænset persondata (relay-e-mail, push-token). |
+| Apple Inc. | App-distribution, Sign in with Apple, Push Notification service samt iCloud Mail/Kalender (IMAP/CalDAV), når brugeren forbinder en iCloud-konto. | USA. Postkasse-/kalenderdata ligger i brugerens egen iCloud-konto. | EU-US Data Privacy Framework / SCC'er. Tilgås via brugerens app-specifikke adgangskode. |
+| RevenueCat, Inc. | Administration af abonnement og rettigheder. Aktiveres kun, hvis brugeren køber et abonnement. | USA. | SCC'er. Modtager et pseudonymt bruger-id og abonnementshændelser; ingen mail-, kalender- eller kortdata. |
 
 Den til enhver tid opdaterede liste over underdatabehandlere
 offentliggøres på [zolva.io/privacy](https://zolva.io/privacy-policy-da.html).

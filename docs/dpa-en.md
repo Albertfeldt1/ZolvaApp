@@ -31,7 +31,7 @@ Contact: kontakt@zolva.io
 Together, the "Parties".
 
 Effective date: \_\_\_\_\_\_\_\_\_\_\_\_\_\_ (to be completed on signature)
-Template version last updated: 22 April 2026
+Template version last updated: 8 June 2026
 
 ---
 
@@ -363,7 +363,8 @@ sub-processors:
 | Expo Application Services | Push notifications via Apple Push Notification service and Firebase Cloud Messaging. | US. | SCCs. Only push token and notification text are processed. |
 | Google LLC | OAuth, Gmail API, Google Calendar API. Activated only if the user connects their Google account. | US. Data resides in the user's own Google account. | EU-US Data Privacy Framework / SCCs. Data accessed via the user's own refresh token. |
 | Microsoft Corp. | OAuth, Microsoft Graph. Activated only if the user connects their Microsoft account. | US. Data resides in the user's own Microsoft account. | EU-US Data Privacy Framework / SCCs. Data accessed via the user's own refresh token. |
-| Apple Inc. | App distribution, Sign in with Apple, Push Notification service. | US. | EU-US Data Privacy Framework / SCCs. Limited personal data (relay email, push token). |
+| Apple Inc. | App distribution, Sign in with Apple, Push Notification service, and iCloud Mail/Calendar (IMAP/CalDAV) when the user connects an iCloud account. | US. Mailbox/calendar data resides in the user's own iCloud account. | EU-US Data Privacy Framework / SCCs. Accessed via the user's app-specific password. |
+| RevenueCat, Inc. | Subscription and entitlement management. Activated only if the user purchases a subscription. | US. | SCCs. Receives a pseudonymous app-user identifier and subscription events; no email, calendar, or payment-card data. |
 
 The current list of sub-processors is published at
 [zolva.io/privacy](https://zolva.io/privacy-policy-en.html). Changes

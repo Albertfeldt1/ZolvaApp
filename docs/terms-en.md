@@ -5,7 +5,7 @@ title: Terms of Service
 # Terms of Service for Zolva
 
 Effective date: 22 April 2026
-Last updated: 22 April 2026
+Last updated: 8 June 2026
 
 These Terms of Service (the "Terms") govern your use of Zolva — the
 mobile application, related services, and content (the "Service"). By
@@ -32,10 +32,15 @@ calendar, email, and reminders. Features may include:
 
 - Daily summaries of email and calendar.
 - AI-generated email reply drafts.
+- An optional assistant ("agent") that can process your inbox and
+  calendar automatically (see section 5).
 - Notifications for new and important emails.
 - Personal notes and reminders, optionally with AI understanding.
-- Integration with Google (Gmail, Calendar) and Microsoft (Outlook,
-  Calendar) via OAuth.
+- Integration with Google (Gmail, Calendar, Drive), Microsoft (Outlook,
+  Calendar, Files) via OAuth, and Apple iCloud (Mail/Calendar) via an
+  app-specific password.
+- Optional paid subscriptions (Lite, Pro) that unlock additional usage
+  and features.
 
 We develop the Service continuously and may add, modify, or remove
 features. We will announce material changes with reasonable notice.
@@ -87,6 +92,14 @@ generate replies, drafts, and summaries. You acknowledge that:
 - We are not liable for decisions you make based on AI output, or for
   the content of emails you send based on AI drafts.
 
+If you enable the assistant, it may act on your mailbox and calendar
+automatically — for example reading, summarising, and drafting.
+Sending emails and creating or updating calendar events require your
+approval by default. You may optionally allow the assistant to send
+automatically to specific recipients you select; you are responsible for
+messages sent under that setting, and you can disable it at any time in
+Settings.
+
 You retain all rights to content you submit to the Service ("User
 Content"). You grant us a time-limited, non-exclusive license to
 process User Content for the purpose of providing the Service. See
@@ -97,11 +110,14 @@ the Privacy Policy for details on whom we share data with.
 The Service depends on third-party providers. By using integrations
 you accept their terms:
 
-- Google LLC (Gmail, Google Calendar, Google sign-in) — subject to
-  Google's own terms.
-- Microsoft Corp. (Outlook, Microsoft 365 Calendar, Microsoft
+- Google LLC (Gmail, Google Calendar, Google Drive, Google sign-in) —
+  subject to Google's own terms.
+- Microsoft Corp. (Outlook, Microsoft 365 Calendar, Files, Microsoft
   sign-in) — subject to Microsoft's own terms.
+- Apple Inc. (iCloud Mail/Calendar, Apple sign-in) — subject to Apple's
+  own terms.
 - Anthropic PBC (Claude AI) — the AI model that generates replies.
+- RevenueCat, Inc. — manages subscription status and entitlements.
 - Apple Inc. and Google LLC — distribution via App Store and Google
   Play. Purchases and subscriptions made through these platforms are
   subject to the platform's terms, and the platform may be your
@@ -113,21 +129,23 @@ affected without prior notice.
 
 ## 7. Subscription, pricing, and payment
 
-Parts of the Service may be free. Other features may require a paid
-subscription (the "Subscription").
+Parts of the Service are free. Additional usage and features require a
+paid subscription (the "Subscription"), currently offered as Lite and
+Pro tiers.
 
-- Prices are displayed in the app or on [zolva.io](https://zolva.io)
-  before you place an order. Prices are in Danish kroner (DKK)
-  including VAT, unless otherwise stated.
-- Payments are processed by third parties — currently Stripe (via
-  Stripe agreements) and/or Apple App Store and Google Play. We do
-  not store your card or payment details on our servers.
+- Prices are displayed in the app before you place an order. Prices are
+  in Danish kroner (DKK) including VAT, unless otherwise stated.
+- Subscriptions are sold as in-app purchases through the Apple App Store
+  or Google Play, and your subscription status is managed via our
+  provider RevenueCat. The App Store or Google Play processes the
+  payment and is your counterparty for it. We do not receive or store
+  your card or payment-card details.
 - Subscriptions renew automatically at the end of each billing cycle
   unless you cancel before renewal.
-- You may cancel your Subscription at any time through the app, our
-  website, or — if purchased via App Store/Google Play — through the
-  platform's settings. Cancellation takes effect at the end of the
-  current billing period, unless otherwise stated.
+- You may cancel your Subscription at any time through your Apple App
+  Store or Google Play subscription settings (reachable from the app).
+  Cancellation takes effect at the end of the current billing period,
+  unless otherwise stated.
 - Price changes are announced at least 30 days before taking effect.
   If you do not accept a new price, you may cancel before it takes
   effect.

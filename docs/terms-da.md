@@ -5,7 +5,7 @@ title: Vilkår for brug
 # Vilkår for brug af Zolva
 
 Ikrafttrædelsesdato: 22. april 2026
-Senest opdateret: 22. april 2026
+Senest opdateret: 8. juni 2026
 
 Disse vilkår ("Vilkårene") regulerer din brug af Zolva — mobilappen,
 tilhørende tjenester og indhold ("Tjenesten"). Ved at oprette en konto
@@ -32,10 +32,15 @@ overblik, kalender, mail og påmindelser. Funktioner kan omfatte:
 
 - Daglig opsummering af mail og kalender.
 - AI-genererede kladder til mailsvar.
+- En valgfri assistent ("agent"), der automatisk kan behandle din
+  indbakke og kalender (se afsnit 5).
 - Notifikationer om nye og vigtige mails.
 - Personlige noter og påmindelser, eventuelt med AI-forståelse.
-- Integration med Google (Gmail, Kalender) og Microsoft (Outlook,
-  Kalender) via OAuth.
+- Integration med Google (Gmail, Kalender, Drev), Microsoft (Outlook,
+  Kalender, Filer) via OAuth og Apple iCloud (Mail/Kalender) via en
+  app-specifik adgangskode.
+- Valgfrie betalte abonnementer (Lite, Pro), der låser op for yderligere
+  forbrug og funktioner.
 
 Vi videreudvikler løbende Tjenesten og kan tilføje, ændre eller fjerne
 funktioner. Vi oplyser om væsentlige ændringer i rimeligt omfang.
@@ -88,6 +93,14 @@ at generere svar, kladder og opsummeringer. Du accepterer, at:
   AI-output, eller for indhold i mails, du sender på baggrund af en
   AI-kladde.
 
+Hvis du aktiverer assistenten, kan den behandle din postkasse og
+kalender automatisk — for eksempel læse, opsummere og skrive
+kladder. Afsendelse af mails samt oprettelse eller ændring af
+kalenderbegivenheder kræver som standard din godkendelse. Du kan
+valgfrit tillade, at assistenten sender automatisk til specifikke
+modtagere, du vælger; du er ansvarlig for beskeder sendt under denne
+indstilling, og du kan slå den fra når som helst i Indstillinger.
+
 Du bevarer alle rettigheder til det indhold, du indtaster i Tjenesten
 ("Brugerindhold"). Du giver os en tidsbegrænset, ikke-eksklusiv licens
 til at behandle Brugerindhold med det formål at levere Tjenesten. Se
@@ -98,11 +111,14 @@ Privatlivspolitikken for detaljer om, hvem vi deler data med.
 Tjenesten er afhængig af tredjepartsleverandører. Ved at bruge
 integrationer accepterer du disses vilkår:
 
-- Google LLC (Gmail, Google Kalender, Google login) — underlagt
-  Googles egne vilkår.
-- Microsoft Corp. (Outlook, Microsoft 365-kalender, Microsoft-login)
-  — underlagt Microsofts egne vilkår.
+- Google LLC (Gmail, Google Kalender, Google Drev, Google login) —
+  underlagt Googles egne vilkår.
+- Microsoft Corp. (Outlook, Microsoft 365-kalender, Filer,
+  Microsoft-login) — underlagt Microsofts egne vilkår.
+- Apple Inc. (iCloud Mail/Kalender, Apple login) — underlagt Apples egne
+  vilkår.
 - Anthropic PBC (Claude AI) — AI-modellen, der genererer svar.
+- RevenueCat, Inc. — administrerer abonnementsstatus og rettigheder.
 - Apple Inc. og Google LLC — distribution via App Store og Google
   Play. Køb og abonnementer, der foretages via disse platforme, er
   underlagt platformens vilkår, og platformen kan være din
@@ -114,21 +130,23 @@ påvirket uden forudgående varsel.
 
 ## 7. Abonnement, priser og betaling
 
-Dele af Tjenesten kan være gratis. Andre funktioner kan kræve et
-betalt abonnement ("Abonnementet").
+Dele af Tjenesten er gratis. Yderligere forbrug og funktioner kræver et
+betalt abonnement ("Abonnementet"), som i øjeblikket udbydes som
+Lite- og Pro-niveauer.
 
-- Priser vises i appen eller på [zolva.io](https://zolva.io) før du
-  afgiver ordre. Priser er i danske kroner (DKK) inkl. moms, medmindre
-  andet er angivet.
-- Betaling håndteres via tredjepart — p.t. Stripe (via
-  Stripe-aftaler) og/eller Apple App Store og Google Play. Vi opbevarer
-  ikke dine kort- eller betalingsoplysninger på vores servere.
+- Priser vises i appen før du afgiver ordre. Priser er i danske kroner
+  (DKK) inkl. moms, medmindre andet er angivet.
+- Abonnementer sælges som køb i appen via Apple App Store eller Google
+  Play, og din abonnementsstatus administreres via vores leverandør
+  RevenueCat. App Store eller Google Play behandler betalingen og er din
+  aftalepart for den. Vi modtager eller opbevarer ikke dine kort- eller
+  betalingsoplysninger.
 - Abonnementer fornyes automatisk ved udløbet af hver abonnements-
   periode, medmindre du opsiger inden.
-- Du kan opsige dit abonnement når som helst via appen, vores
-  hjemmeside eller — hvis du har købt via App Store/Google Play — via
-  platformens indstillinger. Opsigelsen træder i kraft ved udgangen af
-  indeværende abonnementsperiode, medmindre andet fremgår.
+- Du kan opsige dit abonnement når som helst via dine abonnements-
+  indstillinger i Apple App Store eller Google Play (kan tilgås fra
+  appen). Opsigelsen træder i kraft ved udgangen af indeværende
+  abonnementsperiode, medmindre andet fremgår.
 - Prisændringer varsles mindst 30 dage før ikrafttrædelse. Hvis du
   ikke accepterer en ny pris, kan du opsige inden den træder i kraft.
 

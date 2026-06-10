@@ -1,7 +1,7 @@
 // EXPORT_PATH_DOCUMENTED - The previous "Eksportér alle data" button rendered a
 // fake Alert. It was removed (see comment in the Privatliv card below) because a
 // broken promise is a GDPR Art. 15 liability. The right-of-access path now lives
-// in the privacy policy (owned by T3 in legal/privacy-policy-{da,en}.md): users
+// in the privacy policy (docs/privacy-policy-{da,en}.md — the published source): users
 // email the contact address and Zolva responds within 30 days. When/if a real
 // JSON export is built (Edge Function + Resend), re-add a button here and grep
 // for this marker to update the handoff.
@@ -2148,8 +2148,8 @@ export function SettingsScreen({
                       {/* Export button removed: a fake Alert is a GDPR liability. Rewire to a real
                           Edge Function (JSON bundle + Resend email) before bringing this back.
 
-                          T3 handoff - please add to legal/privacy-policy-da.md AND
-                          legal/privacy-policy-en.md:
+                          T3 handoff - now covered in docs/privacy-policy-da.md AND
+                          docs/privacy-policy-en.md (section 11, data portability):
 
                             DA: "For at anmode om en kopi af dine data, skriv til
                                  <contact email>. Vi svarer inden for 30 dage jf.
