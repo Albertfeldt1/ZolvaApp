@@ -1,8 +1,6 @@
-//
-// Forced ("on-demand first brief") support for the user-authed path of
-// daily-brief. Pure decision helpers plus a live-inbox fallback used when a
-// brand-new user has no mail_events yet (poll-mail hasn't run). Provider IO
-// is injected so everything here is unit-testable.
+// Forced ("on-demand first brief") path helpers for daily-brief. The live
+// fallback exists because a brand-new user has no mail_events rows yet
+// (poll-mail hasn't run), and an all-empty input set is otherwise skipped.
 
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -27,7 +25,8 @@ export type LiveUnreadDeps = {
     client: SupabaseClient, userId: string, provider: 'google' | 'microsoft',
   ) => Promise<string | null>;
   refreshAccessToken: (
-    client: SupabaseClient, userId: string, provider: 'google' | 'microsoft', refreshToken: string,
+    client: SupabaseClient, userId: string, provider: 'google' | 'microsoft',
+    refreshToken: string, opts?: { microsoftScope?: string },
   ) => Promise<{ accessToken: string; expiresIn: number }>;
   fetchGmail: (accessToken: string, ownEmail: string, maxFetch?: number, keep?: number) => Promise<CandidateLike[]>;
   fetchGraph: (accessToken: string, ownEmail: string) => Promise<CandidateLike[]>;
@@ -55,7 +54,7 @@ export async function fetchLiveUnread(
         from: c.from || 'ukendt',
         subject: c.subject || '(intet emne)',
       }));
-      if (mapped.length > 0) return mapped;
+      if (candidates.length > 0) return mapped;
     } catch (err) {
       console.warn('[daily-brief] live unread fallback failed', provider,
         err instanceof Error ? err.message : err);

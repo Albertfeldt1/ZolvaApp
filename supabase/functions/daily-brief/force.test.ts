@@ -50,7 +50,7 @@ Deno.test('fetchLiveUnread: maps google candidates to unread shape', async () =>
 Deno.test('fetchLiveUnread: falls through to microsoft when google has no token', async () => {
   const out = await fetchLiveUnread(
     deps({
-      loadRefreshToken: (_c: unknown, _u: unknown, p: string) => Promise.resolve(p === 'microsoft' ? 'rt' : null),
+      loadRefreshToken: (_c, _u, p) => Promise.resolve(p === 'microsoft' ? 'rt' : null),
       fetchGraph: () => Promise.resolve([{ from: 'A', subject: 'B' }]),
     }),
     {} as never, 'u1', 'me@x.dk',
