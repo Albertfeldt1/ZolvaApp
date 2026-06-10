@@ -196,6 +196,7 @@ import {
 } from './chat-suggestions';
 import { supabase } from './supabase';
 import { writeSnapshotFromSources } from './widget-bridge';
+import { syncTrialEndingNotification } from './trial-nudges';
 
 // All hooks return placeholder/empty state. When the backend is wired,
 // swap the internals for real data sources (Supabase auth, API fetches,
@@ -223,9 +224,12 @@ export function useEntitlement(): Result<Entitlement> {
       if (!alive) return;
       setInfo(ci as CustomerInfoLike | null);
       setLoading(false);
+      void syncTrialEndingNotification(resolveEntitlement(ci as CustomerInfoLike | null));
     });
     const unsub = addCustomerInfoListener((ci) => {
-      if (alive) setInfo(ci as CustomerInfoLike);
+      if (!alive) return;
+      setInfo(ci as CustomerInfoLike);
+      void syncTrialEndingNotification(resolveEntitlement(ci as CustomerInfoLike));
     });
     return () => { alive = false; unsub(); };
   }, [user?.id]);
