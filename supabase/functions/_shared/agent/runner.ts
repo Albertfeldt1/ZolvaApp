@@ -500,7 +500,7 @@ async function executeRun(
                   // fence it before it goes back to Claude. A hit taints the
                   // run (auto-send → propose) but we still return the fenced
                   // body so triage continues.
-                  const verdict = await deps.checkMailInput(bodyText, userId);
+                  const verdict = await deps.checkMailInput(bodyText.slice(0, 4000), userId);
                   if (!verdict.ok) {
                     tainted = true;
                     trace[trace.length - 1].guardrail = { rail: 'input', category: verdict.category };
