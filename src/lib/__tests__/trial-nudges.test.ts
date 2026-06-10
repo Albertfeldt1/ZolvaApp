@@ -67,6 +67,9 @@ describe('trialEndingBannerVisible', () => {
     expect(trialEndingBannerVisible(trialEnt(47), NOW)).toBe(true);
     expect(trialEndingBannerVisible(trialEnt(1), NOW)).toBe(true);
   });
+  test('visible at exactly 48h remaining', () => {
+    expect(trialEndingBannerVisible(trialEnt(48), NOW)).toBe(true);
+  });
   test('hidden before final 48h, after expiry, and off-trial', () => {
     expect(trialEndingBannerVisible(trialEnt(49), NOW)).toBe(false);
     expect(trialEndingBannerVisible(trialEnt(-1), NOW)).toBe(false);

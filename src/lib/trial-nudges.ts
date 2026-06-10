@@ -91,6 +91,11 @@ export async function presentTrialPitch(uid: string | null): Promise<'started' |
 
 const TRIAL_ENDING_NOTIF_ID = 'zolva-trial-ending-2d';
 
+// useEntitlement mounts in several components; identical resolutions would
+// otherwise cancel+reschedule on every mount. Cache the last fire time and
+// only touch the OS scheduler when it actually changes.
+let lastScheduledFireMs: number | null = null;
+
 // Idempotent: cancel-then-(re)schedule under a stable identifier, safe to call
 // on every entitlement resolution. Off-trial → cancels any pending reminder.
 // Notification content includes data: { type: 'trialEnding' } consistent with
@@ -98,10 +103,13 @@ const TRIAL_ENDING_NOTIF_ID = 'zolva-trial-ending-2d';
 // so tap-routing for trialEnding can be wired in a later task without a breaking
 // change; the type tag is present now so the union is accurate.
 export async function syncTrialEndingNotification(ent: Entitlement): Promise<void> {
+  const fireAt = trialEndingFireDate(ent, new Date());
+  const fireMs = fireAt?.getTime() ?? null;
+  if (fireMs === lastScheduledFireMs) return;
+  lastScheduledFireMs = fireMs;
   try {
     await Notifications.cancelScheduledNotificationAsync(TRIAL_ENDING_NOTIF_ID);
   } catch {}
-  const fireAt = trialEndingFireDate(ent, new Date());
   if (!fireAt) return;
   try {
     await Notifications.scheduleNotificationAsync({
@@ -117,6 +125,7 @@ export async function syncTrialEndingNotification(ent: Entitlement): Promise<voi
       },
     });
   } catch (err) {
+    lastScheduledFireMs = null;
     if (__DEV__) console.warn('[trial-nudges] schedule failed:', err);
   }
 }
