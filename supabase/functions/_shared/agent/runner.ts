@@ -123,6 +123,11 @@ export interface RunnerDeps {
   // Phase 3.1 safety deps — only consulted on mail.send_reply with policy=auto.
   isUserIdle: (userId: string, now: Date) => Promise<boolean>;
   recipientAllowlistCheck: (userId: string, address: string) => Promise<boolean>;
+  // Guardrails (Slice 1). Input rail classifies an incoming mail body; output
+  // rail classifies a drafted reply before auto-send. Both return ok=false on
+  // any uncertainty (fail-safe → propose).
+  checkMailInput: (text: string, userId: string) => Promise<{ ok: boolean; category: string; reason: string }>;
+  checkReplyOutput: (text: string, recipient: string, userId: string) => Promise<{ ok: boolean; category: string; reason: string }>;
   priorFailedSendIdem: (userId: string, idemKey: string) => Promise<boolean>;
   writeProposedAction: (row: {
     user_id: string;
