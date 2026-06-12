@@ -3558,15 +3558,18 @@ function buildDisabledIntegrationsBlock(ctx: ChatCtx): string {
 
 // Default chat model. Haiku is the everyday driver - cheap and fast enough
 // for the 80% of conversational + single-tool turns where we want
-// users to feel "this just works", without paying Opus on every
-// trivial "remind me about ..." or "what's on my calendar today?".
-type ChatModel = 'claude-haiku-4-5-20251001' | 'claude-opus-4-7';
+// users to feel "this just works", without paying the hard-turn model
+// on every trivial "remind me about ..." or "what's on my calendar today?".
+type ChatModel = 'claude-haiku-4-5-20251001' | 'claude-sonnet-4-6';
 const CHAT_MODEL_DEFAULT: ChatModel = 'claude-haiku-4-5-20251001';
-const CHAT_MODEL_HARD: ChatModel = 'claude-opus-4-7';
+// Hard-turn model. Was Opus 4.7; switched to Sonnet 4.6 — ~5x cheaper on the
+// dominant chat cost line with negligible quality loss for assistant chat,
+// which is what keeps Pro margin positive for engaged users.
+const CHAT_MODEL_HARD: ChatModel = 'claude-sonnet-4-6';
 
-// Heuristic signals that promote a turn to Opus. Bias is intentionally
-// loose - the founder wants Opus to engage on "even slightly harder"
-// requests, so the keyword list errs toward false-positives. All
+// Heuristic signals that promote a turn to the hard model. Bias is
+// intentionally loose - the founder wants it to engage on "even slightly
+// harder" requests, so the keyword list errs toward false-positives. All
 // strings are matched against a lowercased copy of the user message,
 // so tokens here must already be lowercase.
 const HARD_TASK_KEYWORDS: readonly string[] = [
