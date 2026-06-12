@@ -10,7 +10,8 @@
 
 export const ALLOWED_CHAT_MODELS = new Set<string>([
   'claude-haiku-4-5-20251001', // default chat / drafts / memory
-  'claude-opus-4-7', // CHAT_MODEL_HARD — long/hard chat turns
+  'claude-sonnet-4-6', // CHAT_MODEL_HARD — long/hard chat turns
+  'claude-opus-4-7', // legacy hard-turn model; kept allowlisted so pre-OTA clients still pass
 ]);
 
 // Largest max_tokens the legit client asks for (hooks.ts CHAT_MAX_TOKENS_RETRY).

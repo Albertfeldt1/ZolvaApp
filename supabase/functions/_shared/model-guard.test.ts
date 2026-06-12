@@ -7,7 +7,8 @@ import {
 
 Deno.test('isAllowedModel accepts the legit chat models', () => {
   assertEquals(isAllowedModel('claude-haiku-4-5-20251001'), true);
-  assertEquals(isAllowedModel('claude-opus-4-7'), true);
+  assertEquals(isAllowedModel('claude-sonnet-4-6'), true); // current hard-turn model
+  assertEquals(isAllowedModel('claude-opus-4-7'), true); // legacy, still accepted
 });
 
 Deno.test('isAllowedModel rejects unknown / spoofed models', () => {
