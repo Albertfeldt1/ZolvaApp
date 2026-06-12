@@ -503,19 +503,24 @@ async function persistProviderRefreshToken(
   refreshToken: string | null,
 ): Promise<void> {
   if (!refreshToken) return;
-  const { error } = await supabase
-    .from('user_oauth_tokens')
-    .upsert(
-      {
-        user_id: userId,
-        provider,
-        refresh_token: refreshToken,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id,provider' },
-    );
-  if (error && __DEV__) {
-    console.warn('[auth] persist refresh token failed:', error.message);
+  // Persist via SECURITY DEFINER RPC, NOT a direct upsert. The
+  // oauth_token_column_lockdown migration (2026-06-07) revoked table-wide
+  // SELECT from `authenticated`, and INSERT ... ON CONFLICT DO UPDATE
+  // (.upsert) requires table-level SELECT in Postgres - so the direct upsert
+  // failed with 42501 and no refresh_token was ever stored. The RPC runs as
+  // owner and derives the user from auth.uid(), so refresh_token stays
+  // unreadable by the client. `userId` is kept for the call-site contract but
+  // the server trusts auth.uid(), not this argument.
+  void userId;
+  const { error } = await supabase.rpc('persist_oauth_token', {
+    p_provider: provider,
+    p_refresh_token: refreshToken,
+  });
+  if (error) {
+    // NOT __DEV__-only: a swallowed failure here leaves the user with no
+    // durable refresh token, so silent-refresh has nothing to mint and the
+    // connection silently drifts to "stale"/UDLØBET (the 2026-06-07 incident).
+    console.error('[auth] persist refresh token failed:', error.message);
   }
 }
 
@@ -814,6 +819,46 @@ export async function disconnectProvider(
   else broadcastMicrosoft(null);
 
   await clearProviderToken(provider);
+}
+
+// "Log helt ud" — a COMPLETE provider logout, stronger than disconnectProvider.
+// disconnectProvider revokes the grant and deletes the token row, but for
+// Google the Supabase IDENTITY stays linked, so `googleLinked` remains true and
+// the connect/toggle paths short-circuit to a flag-flip and never re-run OAuth
+// (the user can never recover a stale connection in-app). This also unlinks the
+// identity so the row resets to fully disconnected and the next connect is a
+// clean fresh grant. Microsoft's linkage is the user_oauth_tokens row (not an
+// identity — see the separate-account quirk), so disconnectProvider alone
+// already resets it; only Google needs the unlink.
+//
+// If Google is the user's SOLE identity, unlinking would orphan the account, so
+// we sign them out entirely — the honest meaning of "log completely out", and
+// the next login re-establishes a fresh grant.
+export async function logOutProvider(
+  provider: 'google' | 'microsoft',
+): Promise<{ signedOut: boolean }> {
+  init();
+  await disconnectProvider(provider);
+  if (provider === 'microsoft') return { signedOut: false };
+
+  const identity = cachedSession?.user?.identities?.find((i) => i.provider === 'google');
+  if (!identity) return { signedOut: false };
+
+  const { error } = await supabase.auth.unlinkIdentity(identity);
+  if (error) {
+    const msg = error.message ?? '';
+    if (msg.includes('single_identity_not_deletable') || msg.includes('at least 1 identity')) {
+      await performSignOut();
+      return { signedOut: true };
+    }
+    // The grant is already revoked above, so the connection is dead either way;
+    // surface but don't hard-fail.
+    if (__DEV__) console.warn('[auth] unlinkIdentity failed in logOutProvider:', msg);
+    return { signedOut: false };
+  }
+  // Propagate the identity change so googleLinked recomputes to false in the UI.
+  await supabase.auth.refreshSession();
+  return { signedOut: false };
 }
 
 export async function tryWithRefresh<T>(

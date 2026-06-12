@@ -1601,12 +1601,12 @@ export function SettingsScreen({
     const isGoogle = id === 'google-calendar' || id === 'gmail' || id === 'google-drive';
     if (isGoogle) {
       return {
-        title: 'Frakobl Google',
-        message: 'Zolva mister adgang til Gmail, Google Kalender og Google Drive. Du kan forbinde igen når som helst.',
+        title: 'Log Google helt ud',
+        message: 'Zolva mister adgang til Gmail, Google Kalender og Google Drive. Er Google din eneste login, bliver du logget helt ud. Du kan forbinde igen når som helst.',
       };
     }
     return {
-      title: 'Frakobl Microsoft',
+      title: 'Log Microsoft helt ud',
       message: 'Zolva mister adgang til Outlook Mail, Kalender og OneDrive. Du kan forbinde igen når som helst.',
     };
   };
@@ -1880,7 +1880,7 @@ export function SettingsScreen({
                   const switchValue = isConnected || isStale;
                   const pillText = isStale ? 'UDLØBET' : 'AFVIST';
                   const warnSub = isStale
-                    ? 'Forbindelsen er udløbet. Genstart appen, eller frakobl og forbind igen.'
+                    ? "Forbindelsen er udløbet. Log ud og ind igen med din Google-konto for at forny den — eller tryk 'Log Google helt ud' nederst og forbind igen."
                     : 'Adgangskoden er afvist af Apple. Slå til igen for at indtaste en ny.';
 
                   return (
@@ -1968,15 +1968,18 @@ export function SettingsScreen({
                     grant entirely - useful if the user wants Zolva fully
                     cut off from a provider. */}
                 {(hasGoogle || hasMicrosoft || icloudCredState !== 'absent') && (
-                  <View style={{ paddingTop: spacing.md, gap: spacing.xs, borderTopWidth: 1, borderTopColor: t.line, marginTop: spacing.xs }}>
+                  <View style={{ paddingTop: spacing.md, gap: spacing.sm, borderTopWidth: 1, borderTopColor: t.line, marginTop: spacing.xs }}>
+                    <Text style={{ ...type.caption, color: t.ink3 }}>
+                      Log helt ud af en konto. Slår du blot kontakten fra, beholder Zolva stadig adgangen.
+                    </Text>
                     {hasGoogle && (
                       <Pressable
                         onPress={() => handleDisconnect('gmail')}
                         disabled={!!connectingId}
-                        style={({ pressed }) => [{ paddingVertical: spacing.xs }, pressed && { opacity: 0.6 }]}
+                        style={({ pressed }) => [styles.logoutButton, { borderColor: t.line }, pressed && { opacity: 0.6 }]}
                       >
-                        <Text style={{ ...type.caption, color: t.ink3, fontFamily: fonts.uiBold }}>
-                          Fjern Google-konto helt
+                        <Text style={{ ...type.caption, color: colors.danger, fontFamily: fonts.uiBold }}>
+                          Log Google helt ud
                         </Text>
                       </Pressable>
                     )}
@@ -1984,20 +1987,20 @@ export function SettingsScreen({
                       <Pressable
                         onPress={() => handleDisconnect('outlook-mail')}
                         disabled={!!connectingId}
-                        style={({ pressed }) => [{ paddingVertical: spacing.xs }, pressed && { opacity: 0.6 }]}
+                        style={({ pressed }) => [styles.logoutButton, { borderColor: t.line }, pressed && { opacity: 0.6 }]}
                       >
-                        <Text style={{ ...type.caption, color: t.ink3, fontFamily: fonts.uiBold }}>
-                          Fjern Microsoft-konto helt
+                        <Text style={{ ...type.caption, color: colors.danger, fontFamily: fonts.uiBold }}>
+                          Log Microsoft helt ud
                         </Text>
                       </Pressable>
                     )}
                     {icloudCredState !== 'absent' && (
                       <Pressable
                         onPress={confirmIcloudDisconnect}
-                        style={({ pressed }) => [{ paddingVertical: spacing.xs }, pressed && { opacity: 0.6 }]}
+                        style={({ pressed }) => [styles.logoutButton, { borderColor: t.line }, pressed && { opacity: 0.6 }]}
                       >
-                        <Text style={{ ...type.caption, color: t.ink3, fontFamily: fonts.uiBold }}>
-                          Fjern iCloud-konto helt
+                        <Text style={{ ...type.caption, color: colors.danger, fontFamily: fonts.uiBold }}>
+                          Log iCloud helt ud
                         </Text>
                       </Pressable>
                     )}
@@ -3674,6 +3677,13 @@ const styles = StyleSheet.create({
     color: colors.paper,
   },
   logoBox: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  logoutButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderRadius: 999,
+  },
   logo: { width: 32, height: 32 },
   connTitle: { fontFamily: fonts.uiSemi, fontSize: 14.5, color: colors.ink },
   connSub: { marginTop: 2, fontFamily: fonts.ui, fontSize: 12.5, color: colors.fg3 },

@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState } from 'react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { subscribeUserId, useAuth } from './auth';
+import { logOutProvider, subscribeUserId, useAuth } from './auth';
 import {
   resolveEntitlement,
   FREE,
@@ -2864,7 +2864,6 @@ export function useConnections() {
     microsoftAccessToken,
     signInWithGoogle,
     signInWithMicrosoft,
-    disconnectProvider,
   } = useAuth();
   const demo = isDemoUser(user);
   const { isEnabled, setEnabled } = useIntegrationFlags();
@@ -2929,12 +2928,16 @@ export function useConnections() {
   const disconnect = async (id: Connection['id']): Promise<{ error: Error | null }> => {
     try {
       if (GOOGLE_INTEGRATIONS.has(id)) {
-        await disconnectProvider('google');
+        // logOutProvider (not disconnectProvider): also unlinks the Google
+        // identity so googleLinked flips false and a later reconnect runs a
+        // fresh OAuth grant instead of a no-op flag-flip on a still-linked
+        // identity. Sole-identity users get signed out (see logOutProvider).
+        await logOutProvider('google');
         // Clear the per-integration flags too so a re-grant starts from
         // default-on rather than inheriting a previous explicit "off".
         await clearIntegrationFlags(['gmail', 'google-calendar', 'google-drive']);
       } else if (MICROSOFT_INTEGRATIONS.has(id)) {
-        await disconnectProvider('microsoft');
+        await logOutProvider('microsoft');
         await clearIntegrationFlags(['outlook-mail', 'outlook-calendar', 'onedrive']);
       } else {
         return { error: new Error('Ukendt integration.') };
