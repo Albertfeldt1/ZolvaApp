@@ -12,12 +12,18 @@
 
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-export const STATE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+export const STATE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days (was 30) — shrink the
+// replay window of a signed admin-consent link; an IT admin actions it within days.
 
 export type StatePayload = {
   requesting_user_id: string;
   tenant_domain: string;
   issued_at: number; // ms since epoch
+  // The tenant id resolved at link-creation time ('common' when unknown). Bound
+  // into the signed state so the callback can reject a redirect carrying a
+  // different `tenant` query param (consent-record IDOR). Optional for backward
+  // compat with links signed before this field existed.
+  tenant_id?: string;
 };
 
 export class StateInvalidError extends Error {
@@ -85,7 +91,8 @@ export async function verifyState(token: string, secret: string): Promise<StateP
   if (
     typeof parsed.requesting_user_id !== 'string' ||
     typeof parsed.tenant_domain !== 'string' ||
-    typeof parsed.issued_at !== 'number'
+    typeof parsed.issued_at !== 'number' ||
+    (parsed.tenant_id !== undefined && typeof parsed.tenant_id !== 'string')
   ) {
     throw new StateInvalidError('malformed');
   }

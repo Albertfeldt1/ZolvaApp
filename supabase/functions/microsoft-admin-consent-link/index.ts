@@ -111,6 +111,10 @@ serve(async (req) => {
       requesting_user_id: userId,
       tenant_domain: tenantDomain,
       issued_at: Date.now(),
+      // Bind the resolved tenant so the callback can reject a mismatched
+      // `tenant` query param. 'common' means "not pre-resolved" — the callback
+      // then trusts the param (legitimate discovery-at-consent case).
+      tenant_id: effectiveTenantId,
     },
     stateSecret,
   );

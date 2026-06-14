@@ -175,8 +175,24 @@ serve(async (req) => {
       anthropicBody.system = [{ type: 'text', text: body.system }];
     }
   }
-  if (body.temperature != null) anthropicBody.temperature = body.temperature;
-  if (body.tools != null) anthropicBody.tools = body.tools;
+  // Validate temperature: finite number clamped to [0,1]; drop anything else
+  // rather than forward unvalidated input across the trust boundary.
+  if (typeof body.temperature === 'number' && Number.isFinite(body.temperature)) {
+    anthropicBody.temperature = Math.min(1, Math.max(0, body.temperature));
+  }
+  // Bound the tools payload so an authenticated caller can't forward an
+  // unbounded/arbitrary definition on the shared org key. The app's own tool
+  // set is well within these limits.
+  if (body.tools != null) {
+    if (
+      !Array.isArray(body.tools) ||
+      body.tools.length > 64 ||
+      JSON.stringify(body.tools).length > 32_768
+    ) {
+      return json({ error: 'invalid-tools' }, 400);
+    }
+    anthropicBody.tools = body.tools;
+  }
 
   let anthropicRes: Response;
   try {

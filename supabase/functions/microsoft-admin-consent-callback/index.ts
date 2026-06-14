@@ -150,7 +150,7 @@ serve(async (req) => {
       400,
     );
   }
-  let payload: { requesting_user_id: string; tenant_domain: string; issued_at: number };
+  let payload: { requesting_user_id: string; tenant_domain: string; issued_at: number; tenant_id?: string };
   try {
     payload = await verifyState(stateRaw, stateSecret);
   } catch (err) {
@@ -191,6 +191,21 @@ serve(async (req) => {
       error_description: `unexpected callback shape (admin_consent=${adminConsent}, tenant=${tenantParam})`,
     });
     return htmlResponse(errorPage('Godkendelsen blev ikke gennemført. Prøv igen.'), 400);
+  }
+
+  // Tenant binding: if the link was signed with a concrete tenant_id, the
+  // redirect's `tenant` param MUST match it — otherwise a holder of a valid
+  // link could record consent for an arbitrary tenant ('common' = not
+  // pre-resolved, so the discovered param is trusted; absent = legacy link).
+  if (payload.tenant_id && payload.tenant_id !== 'common' && payload.tenant_id !== tenantParam) {
+    await logEvent(client, {
+      event_type: 'admin_consent_failed',
+      tenant_id: tenantParam,
+      tenant_domain: payload.tenant_domain,
+      user_id: payload.requesting_user_id,
+      error_description: `tenant mismatch (state=${payload.tenant_id}, param=${tenantParam})`,
+    });
+    return htmlResponse(errorPage('Godkendelsen matcher ikke det forventede domæne. Bed brugeren om et nyt link.'), 400);
   }
 
   const { error: upsertErr } = await client

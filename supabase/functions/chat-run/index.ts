@@ -232,7 +232,20 @@ serve(async (req) => {
   } else {
     anthropicBody.system = [{ type: 'text', text: body.system }];
   }
-  if (body.tools != null) anthropicBody.tools = body.tools;
+  // Bound the tools payload (same rationale as claude-proxy): never forward an
+  // unbounded/arbitrary tool definition on the shared org key. Oversized → drop
+  // (the app's own tool set is always within these limits). Dropped rather than
+  // 400'd because the job row already exists.
+  if (
+    Array.isArray(body.tools) &&
+    body.tools.length > 0 &&
+    body.tools.length <= 64 &&
+    JSON.stringify(body.tools).length <= 32_768
+  ) {
+    anthropicBody.tools = body.tools;
+  } else if (body.tools != null) {
+    console.warn('[chat-run] tools payload rejected (count/size bound)');
+  }
 
   let anthropicRes: Response;
   try {
