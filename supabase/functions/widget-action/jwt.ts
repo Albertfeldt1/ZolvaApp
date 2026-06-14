@@ -9,15 +9,11 @@ let jwks = createRemoteJWKSet(JWKS_URL, {
   cacheMaxAge: 10 * 60 * 1000, // 10 min - Supabase rotation is rare
 });
 
-// Bind the token to this project's issuer + the authenticated-user audience, so
-// a same-JWKS token minted for a different purpose can't be replayed here.
-// NOTE: the JWKS is served from the custom auth domain (auth.zolva.io) but the
-// token `iss` claim is the canonical Supabase URL (verified via openid-config
-// 2026-06-14). Do NOT change this to auth.zolva.io or all widget auth breaks.
-const VERIFY_OPTS = {
-  issuer: 'https://sjkhfkatmeqtsrysixop.supabase.co/auth/v1',
-  audience: 'authenticated',
-} as const;
+// TODO(casa #2): re-add issuer + audience binding once the token's real `iss`
+// claim is confirmed. The openid-config reported the supabase.co URL but real
+// tokens 401'd against it (2026-06-14) — likely iss is the custom auth domain
+// (auth.zolva.io). Reverted to signature+expiry verification (pre-2026-06-14
+// behavior) to restore widget auth; the JWKS is already project-scoped.
 
 export type VerifiedJwt = {
   userId: string;
@@ -27,7 +23,7 @@ export type VerifiedJwt = {
 export async function verifyJwt(token: string | null): Promise<VerifiedJwt> {
   if (!token) throw new Error('missing token');
   try {
-    const { payload } = await jwtVerify(token, jwks, VERIFY_OPTS);
+    const { payload } = await jwtVerify(token, jwks);
     if (typeof payload.sub !== 'string') throw new Error('jwt missing sub');
     return { userId: payload.sub, payload };
   } catch (err) {
@@ -37,7 +33,7 @@ export async function verifyJwt(token: string | null): Promise<VerifiedJwt> {
       cooldownDuration: 30_000,
       cacheMaxAge: 10 * 60 * 1000,
     });
-    const { payload } = await jwtVerify(token, jwks, VERIFY_OPTS);
+    const { payload } = await jwtVerify(token, jwks);
     if (typeof payload.sub !== 'string') throw new Error('jwt missing sub');
     return { userId: payload.sub, payload };
   }
