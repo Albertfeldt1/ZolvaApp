@@ -9,11 +9,19 @@ let jwks = createRemoteJWKSet(JWKS_URL, {
   cacheMaxAge: 10 * 60 * 1000, // 10 min - Supabase rotation is rare
 });
 
-// TODO(casa #2): re-add issuer + audience binding once the token's real `iss`
-// claim is confirmed. The openid-config reported the supabase.co URL but real
-// tokens 401'd against it (2026-06-14) — likely iss is the custom auth domain
-// (auth.zolva.io). Reverted to signature+expiry verification (pre-2026-06-14
-// behavior) to restore widget auth; the JWKS is already project-scoped.
+// Bind the token to this project's issuer + the authenticated-user audience.
+// CONFIRMED 2026-06-14 by decoding freshly-minted tokens via BOTH the supabase.co
+// URL and the custom domain (auth.zolva.io): GoTrue stamps the canonical
+// `iss = https://sjkhfkatmeqtsrysixop.supabase.co/auth/v1` and `aud =
+// authenticated` regardless of which host minted the token. We still accept the
+// custom-domain issuer as a defensive fallback in case that ever changes.
+const VERIFY_OPTS = {
+  issuer: [
+    'https://sjkhfkatmeqtsrysixop.supabase.co/auth/v1',
+    'https://auth.zolva.io/auth/v1',
+  ],
+  audience: 'authenticated',
+};
 
 export type VerifiedJwt = {
   userId: string;
@@ -23,7 +31,7 @@ export type VerifiedJwt = {
 export async function verifyJwt(token: string | null): Promise<VerifiedJwt> {
   if (!token) throw new Error('missing token');
   try {
-    const { payload } = await jwtVerify(token, jwks);
+    const { payload } = await jwtVerify(token, jwks, VERIFY_OPTS);
     if (typeof payload.sub !== 'string') throw new Error('jwt missing sub');
     return { userId: payload.sub, payload };
   } catch (err) {
@@ -33,7 +41,7 @@ export async function verifyJwt(token: string | null): Promise<VerifiedJwt> {
       cooldownDuration: 30_000,
       cacheMaxAge: 10 * 60 * 1000,
     });
-    const { payload } = await jwtVerify(token, jwks);
+    const { payload } = await jwtVerify(token, jwks, VERIFY_OPTS);
     if (typeof payload.sub !== 'string') throw new Error('jwt missing sub');
     return { userId: payload.sub, payload };
   }
