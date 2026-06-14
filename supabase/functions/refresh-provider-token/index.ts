@@ -141,8 +141,10 @@ serve(async (req) => {
       return json({ error: 'refresh-rejected' }, 401);
     }
     const msg = err instanceof Error ? err.message : String(err);
+    // Keep the raw provider error in the server-side log/trace (finish), but
+    // return a generic code — provider error bodies can carry upstream detail.
     finish('failed', 500, msg);
-    return json({ error: msg }, 500);
+    return json({ error: 'refresh-failed' }, 500);
   }
 });
 

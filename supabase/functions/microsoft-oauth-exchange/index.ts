@@ -71,13 +71,15 @@ export async function handler(req: Request): Promise<Response> {
   try {
     minted = await exchangeAuthorizationCode('microsoft', code, code_verifier, redirect_uri);
   } catch (err) {
+    // Raw AADSTS/provider error text stays in the server log only — not the
+    // client response (it can carry tenant/policy detail).
     if (err instanceof RefreshRejectedError) {
       console.warn('[microsoft-oauth-exchange] code rejected:', err.message);
-      return json({ error: 'invalid-code', detail: err.message }, 401);
+      return json({ error: 'invalid-code' }, 401);
     }
     const msg = err instanceof Error ? err.message : String(err);
     console.warn('[microsoft-oauth-exchange] exchange failed:', msg);
-    return json({ error: 'exchange-failed', detail: msg }, 400);
+    return json({ error: 'exchange-failed' }, 400);
   }
 
   if (!minted.rotatedRefreshToken) {
@@ -99,8 +101,9 @@ export async function handler(req: Request): Promise<Response> {
     { onConflict: 'user_id,provider' },
   );
   if (tokenErr) {
+    // DB error detail (table/constraint names) stays server-side only.
     console.warn('[microsoft-oauth-exchange] persist token failed:', tokenErr.message);
-    return json({ error: 'persist-failed', detail: tokenErr.message }, 500);
+    return json({ error: 'persist-failed' }, 500);
   }
 
   const { error: watcherErr } = await service.from('mail_watchers').upsert(

@@ -94,13 +94,6 @@ serve(async (req) => {
 
   const presentedSecret = req.headers.get('x-cron-secret');
   const isCron = !!cronSecret && presentedSecret === cronSecret;
-  console.log('[daily-brief][debug]', {
-    cronSecretSet: !!cronSecret,
-    cronSecretLen: cronSecret?.length ?? 0,
-    presentedSet: !!presentedSecret,
-    presentedLen: presentedSecret?.length ?? 0,
-    match: isCron,
-  });
 
   let scopedUserId: string | null = null;
   let scopedUserEmail = '';

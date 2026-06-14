@@ -101,7 +101,10 @@ export async function workerHandler(req: Request): Promise<Response> {
   }
 
   const body = (await req.json().catch(() => ({}))) as WidgetActionRequest;
-  const prompt = (body.prompt ?? '').trim();
+  // Cap prompt length before it reaches Claude — bounds per-call token cost on
+  // an authenticated endpoint. 2000 chars is far beyond any real voice/widget
+  // command; truncate rather than reject so legit input is never broken.
+  const prompt = (body.prompt ?? '').trim().slice(0, 2000);
   const timezone = body.timezone ?? 'UTC';
   const idempotencyKey =
     typeof body.idempotency_key === 'string' &&
