@@ -40,6 +40,7 @@ import type { Brief } from '../lib/briefs';
 import { fetchBriefById, useTodayBrief } from '../lib/briefs';
 import { formatToday, greeting } from '../lib/date';
 import {
+  useEntitlement,
   useHasProvider,
   useInboxCounts,
   useInboxWaiting,
@@ -331,6 +332,12 @@ export function TodayScreen({
   // quiet-state card (Næste + agent-empty + time-of-day as one card).
   const [agentEmpty, setAgentEmpty] = useState(true);
   const { rows: openLoops } = useOpenCommitments(userId || null);
+  // Open loops is a Pro-only surface — the agent only reconciles/closes loops
+  // for Pro users, so non-pro users must never see them (a downgraded user's
+  // rows are expired server-side on the RevenueCat webhook; this also hides any
+  // brief window before that write lands).
+  const { data: entitlement } = useEntitlement();
+  const isPro = entitlement.tier === 'pro';
 
   // Match the MemoryScreen filter: pending + dueAt within 5min past - so a
   // reminder that already fired and decayed stops counting toward the
@@ -727,7 +734,7 @@ export function TodayScreen({
         {/* Open loops entry — only shown when the agent is tracking something.
             Kept as its own card above the unified card. Tapping opens the
             read-only OpenLoopsModal (mounted outside the ScrollView below). */}
-        {openLoops.length > 0 && (
+        {isPro && openLoops.length > 0 && (
           <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.md }}>
             <Pressable
               onPress={() => setShowOpenLoops(true)}
@@ -960,7 +967,7 @@ export function TodayScreen({
         />
       ) : null}
 
-      {showOpenLoops ? (
+      {isPro && showOpenLoops ? (
         <OpenLoopsModal rows={openLoops} onClose={() => setShowOpenLoops(false)} />
       ) : null}
     </View>
