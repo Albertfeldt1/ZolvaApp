@@ -647,7 +647,7 @@ async function reportEvents(
   return { ok: true, data: items };
 }
 
-function parseVcalendarEvents(
+export function parseVcalendarEvents(
   vcalText: string,
   rangeStart: Date,
   rangeEnd: Date,
@@ -661,17 +661,62 @@ function parseVcalendarEvents(
   registerMissingTimezones(vcalendar);
 
   const out: IcloudCalEvent[] = [];
+
+  // Group VEVENTs by UID so RECURRENCE-ID overrides (a single moved/edited
+  // instance of a series) attach to their master series. Without this, each
+  // override is treated as an independent event and renders IN ADDITION to the
+  // original occurrence — the instance shows up twice.
+  const groups = new Map<string, { master: ICAL.Component | null; exceptions: ICAL.Component[] }>();
   for (const ve of vcalendar.getAllSubcomponents('vevent')) {
-    const event = new ICAL.Event(ve);
+    const uid = (ve.getFirstPropertyValue('uid') as string) || '';
+    const group = groups.get(uid) ?? { master: null, exceptions: [] };
+    if (ve.getFirstProperty('recurrence-id')) group.exceptions.push(ve);
+    else group.master = ve;
+    groups.set(uid, group);
+  }
+
+  // ical.js exposes these at runtime but ships them off its .d.ts.
+  type IcalEventExt = ICAL.Event & {
+    component?: ICAL.Component;
+    relateException(ex: ICAL.Event): void;
+  };
+
+  const inRange = (s: Date, e: Date) =>
+    s.getTime() < rangeEnd.getTime() && e.getTime() >= rangeStart.getTime();
+  const isCancelled = (ev: ICAL.Event) =>
+    String((ev as IcalEventExt).component?.getFirstPropertyValue('status') ?? '').toUpperCase() === 'CANCELLED';
+
+  for (const { master, exceptions } of groups.values()) {
+    // A detached override whose master isn't in this response: render it alone.
+    if (!master) {
+      for (const ex of exceptions) {
+        const exEvent = new ICAL.Event(ex);
+        if (isCancelled(exEvent)) continue;
+        const s = exEvent.startDate.toJSDate();
+        const e = exEvent.endDate.toJSDate();
+        if (inRange(s, e)) out.push(toIcloudEvent(exEvent, s, e, cal, eventUrl));
+      }
+      continue;
+    }
+
+    const event = new ICAL.Event(master);
+    for (const ex of exceptions) {
+      try { (event as IcalEventExt).relateException(new ICAL.Event(ex)); } catch { /* skip malformed override */ }
+    }
+
     if (event.isRecurring()) {
       const iter = event.iterator();
       let next: ICAL.Time | null;
-      while ((next = iter.next()) && next.toJSDate().getTime() < rangeEnd.getTime()) {
+      let guard = 0;
+      // Bound the walk so a malformed RRULE can't spin forever.
+      while ((next = iter.next()) && next.toJSDate().getTime() < rangeEnd.getTime() && guard < 1000) {
+        guard += 1;
         if (next.toJSDate().getTime() < rangeStart.getTime()) continue;
         const details = event.getOccurrenceDetails(next);
+        if (isCancelled(details.item)) continue; // EXDATE-style cancelled override
         out.push(toIcloudEvent(details.item, details.startDate.toJSDate(), details.endDate.toJSDate(), cal, eventUrl));
       }
-    } else {
+    } else if (!isCancelled(event)) {
       out.push(toIcloudEvent(event, event.startDate.toJSDate(), event.endDate.toJSDate(), cal, eventUrl));
     }
   }
