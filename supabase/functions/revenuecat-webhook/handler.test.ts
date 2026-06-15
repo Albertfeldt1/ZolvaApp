@@ -4,14 +4,16 @@ import { handleWebhook, type WebhookDeps } from './handler.ts';
 
 const UID = '5d9ef13e-7f5a-40b1-907b-31d0abb7e415';
 
-function fakeDeps(): WebhookDeps & { upserts: unknown[]; expires: string[] } {
+function fakeDeps(): WebhookDeps & { upserts: unknown[]; expires: string[]; nonPro: string[] } {
   const upserts: unknown[] = [];
   const expires: string[] = [];
+  const nonPro: string[] = [];
   return {
     secret: 'shh',
-    upserts, expires,
+    upserts, expires, nonPro,
     upsert: async (userId, state) => { upserts.push({ userId, state }); },
     expire: async (userId) => { expires.push(userId); },
+    onNonPro: async (userId) => { nonPro.push(userId); },
   };
 }
 
@@ -49,6 +51,37 @@ Deno.test('ignores cancellation without writing', async () => {
   assertEquals(res.status, 200);
   assertEquals(deps.upserts.length, 0);
   assertEquals(deps.expires.length, 0);
+});
+
+Deno.test('onNonPro fires on EXPIRATION so open loops get expired', async () => {
+  const deps = fakeDeps();
+  await handleWebhook('shh', { event: { type: 'EXPIRATION', app_user_id: UID, entitlement_ids: ['pro'] } }, deps);
+  assertEquals(deps.nonPro, [UID]);
+});
+
+Deno.test('onNonPro fires when a renewal downgrades pro -> lite', async () => {
+  const deps = fakeDeps();
+  const res = await handleWebhook('shh', {
+    event: { type: 'RENEWAL', app_user_id: UID, entitlement_ids: ['lite'], product_id: 'lite_monthly' },
+  }, deps);
+  assertEquals(res.status, 200);
+  assertEquals((deps.upserts[0] as { state: { tier: string } }).state.tier, 'lite');
+  assertEquals(deps.nonPro, [UID]);
+});
+
+Deno.test('onNonPro does NOT fire on a pro renewal', async () => {
+  const deps = fakeDeps();
+  await handleWebhook('shh', { event: { type: 'RENEWAL', app_user_id: UID, entitlement_ids: ['pro'] } }, deps);
+  assertEquals(deps.nonPro.length, 0);
+});
+
+Deno.test('onNonPro does NOT fire for a stale (skipped) event', async () => {
+  const deps = fakeDeps();
+  deps.readEventTimestamp = async () => '2026-06-15T12:00:00.000Z';
+  await handleWebhook('shh', {
+    event: { type: 'EXPIRATION', app_user_id: UID, event_timestamp_ms: Date.parse('2026-06-15T11:00:00Z') },
+  }, deps);
+  assertEquals(deps.nonPro.length, 0);
 });
 
 Deno.test('400 when payload has no event', async () => {

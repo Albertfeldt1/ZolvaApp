@@ -78,6 +78,18 @@ serve(async (req: Request) => {
         }, { onConflict: 'user_id' });
         if (error) throw error;
       },
+      onNonPro: async (userId) => {
+        // Open loops ("Open loops") are a Pro-only surface: once a user is
+        // non-pro, agent-commitments stops reconciling them, so any still-open
+        // row would linger forever as a zombie. Expire them here at the
+        // downgrade moment. Idempotent — re-running only re-expires open rows.
+        const { error } = await client
+          .from('agent_commitments')
+          .update({ status: 'expired' })
+          .eq('user_id', userId)
+          .in('status', ['open', 'nudged']);
+        if (error) throw error;
+      },
     });
     return json(result.status, result.body);
   } catch (_e) {

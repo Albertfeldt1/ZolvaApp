@@ -9,6 +9,13 @@ export type WebhookDeps = {
   readEventTimestamp?: (userId: string) => Promise<string | null>;
   upsert: (userId: string, state: EntitlementState, eventAtMs: number | null, raw: unknown) => Promise<void>;
   expire: (userId: string, eventAtMs: number | null, raw: unknown) => Promise<void>;
+  // Side effect fired AFTER a write whose resulting tier is non-pro (an
+  // expiration, or an upsert to free/lite). Used to close Pro-only artifacts —
+  // currently expiring the user's open commitments ("Open loops") so they don't
+  // linger as zombies once the agent stops reconciling them. Only runs when the
+  // write actually applies (i.e. after the ordering guard), never on a stale or
+  // ignored event. Optional so unit tests and other callers can omit it.
+  onNonPro?: (userId: string) => Promise<void>;
 };
 
 export type WebhookResult = { status: number; body: { ok: boolean; reason?: string } };
@@ -50,8 +57,13 @@ export async function handleWebhook(
 
   if (outcome.action === 'expire') {
     await deps.expire(outcome.userId, eventAtMs, payload);
+    await deps.onNonPro?.(outcome.userId);
     return { status: 200, body: { ok: true } };
   }
   await deps.upsert(outcome.userId, outcome.state, eventAtMs, payload);
+  // A downgrade to free/lite is still non-pro: close Pro-only artifacts too.
+  if (outcome.state.tier !== 'pro') {
+    await deps.onNonPro?.(outcome.userId);
+  }
   return { status: 200, body: { ok: true } };
 }
