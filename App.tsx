@@ -44,7 +44,7 @@ import { SentMailScreen } from './src/screens/SentMailScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { TodayScreen } from './src/screens/TodayScreen';
 import { runStartupMigrations } from './src/lib/migrations';
-import { registerResponseHandler, syncOnAppForeground } from './src/lib/notifications';
+import { registerFeedRecorder, registerResponseHandler, syncOnAppForeground } from './src/lib/notifications';
 import { initNotificationSettings } from './src/lib/notification-settings';
 import { initNotificationFeed, markFeedByPayload } from './src/lib/notification-feed';
 import type { InboxMail, NotificationPayload } from './src/lib/types';
@@ -379,6 +379,9 @@ export default function App() {
     if (!migrationsDone) return;
     initNotificationSettings();
     initNotificationFeed();
+    // Record every delivered notification into the in-app feed (received +
+    // tapped), so the Notifications screen is an actual history.
+    const unsubFeedRecorder = registerFeedRecorder();
     let inflight: Promise<void> | null = null;
     const runSync = () => {
       if (inflight) return;
@@ -397,7 +400,10 @@ export default function App() {
         void writeSnapshotFromSources({});
       }
     });
-    return () => sub.remove();
+    return () => {
+      sub.remove();
+      unsubFeedRecorder();
+    };
   }, [migrationsDone]);
 
   useEffect(() => {

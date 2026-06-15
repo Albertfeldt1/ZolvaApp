@@ -8,7 +8,7 @@ import type { NotificationPayload, Reminder } from './types';
 import { getNotificationSettings } from './notification-settings';
 import type { CalendarEventForAlert } from './calendar-events-today';
 import { fetchPreAlertEligibleEvents } from './calendar-events-today';
-import { recordFeedEntry } from './notification-feed';
+import { coerceNotificationPayload, recordFeedEntry, recordFeedFromNotification } from './notification-feed';
 
 export type PermissionStatus = 'granted' | 'denied' | 'undetermined';
 
@@ -173,6 +173,36 @@ function dispatchPayload(
   }
 }
 
+// Turn a delivered notification's content into an in-app feed entry. Shared by
+// the received + response listeners; idempotent via the feed's deterministic
+// id so a notification recorded on arrival AND on tap collapses to one row.
+function recordNotificationToFeed(content: Notifications.NotificationContent): void {
+  const payload = coerceNotificationPayload(content.data);
+  if (!payload) return;
+  void recordFeedFromNotification({
+    payload,
+    title: content.title ?? 'Zolva',
+    body: content.body ?? undefined,
+  });
+}
+
+// Records every delivered notification into the in-app feed: foreground
+// arrivals via the received listener, and taps (incl. from background/cold
+// start) via the response listener. Without this the Notifications screen
+// stays empty even though notifications fire. Returns an unsubscribe fn.
+export function registerFeedRecorder(): () => void {
+  const recvSub = Notifications.addNotificationReceivedListener((notification) => {
+    recordNotificationToFeed(notification.request.content);
+  });
+  const respSub = Notifications.addNotificationResponseReceivedListener((response) => {
+    recordNotificationToFeed(response.notification.request.content);
+  });
+  return () => {
+    recvSub.remove();
+    respSub.remove();
+  };
+}
+
 export function registerResponseHandler(
   onTap: (payload: NotificationPayload) => void,
 ): () => void {
@@ -294,8 +324,10 @@ export async function syncCalendarPreAlerts(events: CalendarEventForAlert[]): Pr
           date: fireAt,
         },
       });
+      // Same id the feed recorder derives on delivery (feedIdFor), so the
+      // scheduled-ahead entry and the delivered one collapse to a single row.
       void recordFeedEntry({
-        id: `calendar:${event.id}:${fireAt.getTime()}`,
+        id: `calendarPreAlert:${event.id}`,
         type: 'calendarPreAlert',
         title: event.title,
         body: 'Starter om 15 minutter.',

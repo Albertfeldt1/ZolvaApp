@@ -140,6 +140,100 @@ export function subscribeFeed(listener: (entries: FeedEntry[]) => void): () => v
   };
 }
 
+// Validate an arbitrary notification `data` blob into a typed payload, or null
+// if it isn't a recognised notification. Used to turn delivered push/local
+// notifications into feed entries.
+export function coerceNotificationPayload(data: unknown): NotificationPayload | null {
+  if (!data || typeof data !== 'object') return null;
+  const p = data as Record<string, unknown>;
+  const str = (k: string) => (typeof p[k] === 'string' && p[k] ? (p[k] as string) : null);
+  switch (p.type) {
+    case 'reminder': {
+      const reminderId = str('reminderId');
+      return reminderId ? { type: 'reminder', reminderId } : null;
+    }
+    case 'reminderAdded': {
+      const reminderId = str('reminderId');
+      return reminderId ? { type: 'reminderAdded', reminderId } : null;
+    }
+    case 'digest': {
+      const date = str('date');
+      return date ? { type: 'digest', date } : null;
+    }
+    case 'calendarPreAlert': {
+      const eventId = str('eventId');
+      return eventId ? { type: 'calendarPreAlert', eventId } : null;
+    }
+    case 'newMail': {
+      const provider = p.provider;
+      const messageId = str('messageId');
+      if ((provider !== 'google' && provider !== 'microsoft') || !messageId) return null;
+      return { type: 'newMail', provider, messageId, threadId: str('threadId') ?? undefined };
+    }
+    case 'brief': {
+      const briefId = str('briefId');
+      return briefId ? { type: 'brief', briefId } : null;
+    }
+    case 'factDecay': {
+      const factId = str('factId');
+      return factId ? { type: 'factDecay', factId } : null;
+    }
+    case 'microsoftConsentGranted': {
+      const tenantDomain = str('tenantDomain');
+      return tenantDomain ? { type: 'microsoftConsentGranted', tenantDomain } : null;
+    }
+    case 'chatReply': {
+      const jobId = str('jobId');
+      return jobId ? { type: 'chatReply', jobId } : null;
+    }
+    case 'agent_proposal': {
+      const action_id = str('action_id');
+      return action_id ? { type: 'agent_proposal', action_id } : null;
+    }
+    case 'trialEnding':
+      return { type: 'trialEnding' };
+    default:
+      return null;
+  }
+}
+
+// Deterministic, type-scoped feed id so a notification recorded both when it
+// arrives (received listener) and when it's tapped (response listener)
+// collapses to a single entry.
+export function feedIdFor(payload: NotificationPayload): string {
+  switch (payload.type) {
+    case 'reminder': return `reminder:${payload.reminderId}`;
+    case 'reminderAdded': return `reminderAdded:${payload.reminderId}`;
+    case 'digest': return `digest:${payload.date}`;
+    case 'calendarPreAlert': return `calendarPreAlert:${payload.eventId}`;
+    case 'newMail': return `newMail:${payload.provider}:${payload.messageId}`;
+    case 'brief': return `brief:${payload.briefId}`;
+    case 'factDecay': return `factDecay:${payload.factId}`;
+    case 'microsoftConsentGranted': return `microsoftConsentGranted:${payload.tenantDomain}`;
+    case 'chatReply': return `chatReply:${payload.jobId}`;
+    case 'agent_proposal': return `agent_proposal:${payload.action_id}`;
+    case 'trialEnding': return 'trialEnding';
+  }
+}
+
+// Build + record a feed entry from a delivered notification. Idempotent via
+// feedIdFor, so receive + tap (and re-delivery) don't duplicate.
+export async function recordFeedFromNotification(input: {
+  payload: NotificationPayload;
+  title: string;
+  body?: string;
+  firesAt?: Date;
+}): Promise<void> {
+  await recordFeedEntry({
+    id: feedIdFor(input.payload),
+    type: input.payload.type,
+    title: input.title,
+    body: input.body,
+    firesAt: input.firesAt ?? new Date(),
+    payload: input.payload,
+  });
+}
+
 type RecordInput = Omit<FeedEntry, 'createdAt' | 'readAt'> & {
   createdAt?: Date;
 };
