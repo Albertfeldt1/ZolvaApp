@@ -4,17 +4,23 @@
 // scheduling, which proved unreliable (settings hydrate race, OS
 // permission revoke, app deleted before due time, etc.).
 //
-// Idempotency: fired_at is stamped after the push attempt, gated by
-// .is('fired_at', null) on the UPDATE - so two ticks hitting the same
-// row both attempt to update, but the second matches zero rows.
-// Stamping after means a crash between push and UPDATE could double-fire
-// on the next tick; we accept that over the alternative (stamp first +
-// crash leaves the user with no notification).
+// Idempotency: fired_at is stamped after a SUCCESSFUL push submission, gated
+// by .is('fired_at', null) on the UPDATE - so two ticks hitting the same row
+// both attempt to update, but the second matches zero rows. Stamping after
+// means a crash between submit and UPDATE could double-fire on the next tick;
+// we accept that over the alternative (stamp first + crash leaves the user
+// with no notification).
+//
+// If the push could NOT be submitted (network error / non-200 from Expo) we
+// leave fired_at null so the next tick retries - a transient Expo outage must
+// not permanently swallow a reminder. (No double-push risk: the push never
+// went out.) Dead tokens reported by Expo (DeviceNotRegistered) are pruned.
 //
 // Deploy with --no-verify-jwt: ES256 keys, manual cron-secret check.
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { parseDeadTokens } from './expo-tickets.ts';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const BATCH_SIZE = 50;
@@ -66,17 +72,25 @@ serve(async (req) => {
   let pushed = 0;
   for (const [userId, userRows] of byUser) {
     const tokens = await loadTokens(client, userId);
+    // No tokens means nothing to deliver; stamp so we don't reprocess forever.
+    let submitted = true;
     if (tokens.length > 0) {
-      const ok = await sendPush(tokens, userRows);
-      if (ok) pushed += userRows.length;
+      const result = await sendPush(tokens, userRows);
+      submitted = result.submitted;
+      if (submitted) pushed += userRows.length;
+      if (result.deadTokens.length > 0) {
+        await client.from('push_tokens').delete().in('token', result.deadTokens);
+      }
     }
-    // Stamp fired_at regardless of push success - failed pushes don't
-    // get retried. Cost of double-pushing is worse than missing one.
-    await client
-      .from('reminders')
-      .update({ fired_at: new Date().toISOString() })
-      .in('id', userRows.map((r) => r.id))
-      .is('fired_at', null);
+    // Only stamp when the push was actually submitted (or there was nothing to
+    // send). A failed submission stays fired_at null so the next tick retries.
+    if (submitted) {
+      await client
+        .from('reminders')
+        .update({ fired_at: new Date().toISOString() })
+        .in('id', userRows.map((r) => r.id))
+        .is('fired_at', null);
+    }
   }
 
   console.log(JSON.stringify({ kind: 'reminders-fire', processed: rows.length, pushed }));
@@ -94,7 +108,7 @@ async function loadTokens(client: SupabaseClient, userId: string): Promise<strin
 async function sendPush(
   tokens: string[],
   reminders: Array<{ id: string; title: string }>,
-): Promise<boolean> {
+): Promise<{ submitted: boolean; deadTokens: string[] }> {
   const headline = reminders[0].title;
   const body = reminders.length === 1
     ? headline
@@ -115,10 +129,15 @@ async function sendPush(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(messages),
     });
-    return res.ok;
+    if (!res.ok) {
+      console.warn('[reminders-fire] expo push HTTP', res.status);
+      return { submitted: false, deadTokens: [] };
+    }
+    const json = await res.json().catch(() => null);
+    return { submitted: true, deadTokens: parseDeadTokens(tokens, json) };
   } catch (err) {
     console.warn('[reminders-fire] push send failed:', err);
-    return false;
+    return { submitted: false, deadTokens: [] };
   }
 }
 
