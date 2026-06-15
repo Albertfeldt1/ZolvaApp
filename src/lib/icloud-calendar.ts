@@ -12,6 +12,7 @@
 
 import ICAL from 'ical.js';
 
+import { allDayDateCompact } from './calendar-date';
 import * as secureStorage from './secure-storage';
 import { loadCredential, markInvalid } from './icloud-credentials';
 
@@ -854,9 +855,10 @@ function fmtUtcDateTime(d: Date): string {
   );
 }
 
+// All-day VEVENT DATE values use the user's local calendar day. Using UTC
+// components shifts the day backward for UTC+ users (see calendar-date.ts).
 function fmtDate(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}`;
+  return allDayDateCompact(d);
 }
 
 function buildVeventIcs(input: { uid: string } & IcloudEventInput): string {

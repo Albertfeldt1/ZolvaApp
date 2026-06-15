@@ -35,6 +35,7 @@ import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { Stone } from '../design/primitives/Stone';
 import { useTheme } from '../design/useTheme';
 import { fetchBackfillStatus, type BackfillJob } from '../lib/onboarding-backfill';
+import { isBackfillComplete } from '../lib/backfill-progress';
 
 type ServiceId =
   | 'google:mail'
@@ -127,6 +128,10 @@ type Props = {
 export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
   const { t, type, fonts, spacing } = useTheme();
   const [jobs, setJobs] = useState<BackfillJob[]>([]);
+  // Flips true once the first status poll resolves (even with zero jobs), so
+  // the completion effect can tell "no jobs to track" apart from "haven't
+  // polled yet" and finish promptly instead of waiting the animation ceiling.
+  const [firstPollDone, setFirstPollDone] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const completedRef = useRef(false);
   const mountedAtRef = useRef(Date.now());
@@ -195,13 +200,16 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
         const fresh = await fetchBackfillStatus();
         if (cancelled) return;
         setJobs(fresh);
+        setFirstPollDone(true);
       } catch {
         // Silent - keep polling. The completion handler has its own
         // timeout fallback if the endpoint stays unreachable.
       }
       if (attempts >= POLL_TIMEOUT_ATTEMPTS && !cancelled && !completedRef.current) {
         completedRef.current = true;
-        onComplete(jobs.filter((j) => j.status !== 'done'));
+        // Use the live ref, not the stale `jobs` captured by this []-deps
+        // effect closure, so timed-out runs actually report their failures.
+        onComplete(jobsRef.current.filter((j) => j.status !== 'done'));
       }
     };
     void poll();
@@ -225,14 +233,12 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Completion: every real job is in a terminal state.
+  // Completion: every real job is in a terminal state, OR a status poll has
+  // confirmed there are no jobs to track at all (e.g. no providers connected),
+  // which would otherwise hang on the animation ceiling.
   useEffect(() => {
     if (completedRef.current) return;
-    if (jobs.length === 0) return;
-    const allTerminal = jobs.every(
-      (j) => j.status === 'done' || j.status === 'failed' || j.status === 'cancelled',
-    );
-    if (!allTerminal) return;
+    if (!isBackfillComplete(jobs, firstPollDone)) return;
     completedRef.current = true;
 
     if (!reduceMotion) {
@@ -251,7 +257,7 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
     // changes. Returning a cleanup that clears the timer would cancel it
     // on the very next poll. Unmount cleanup is handled separately above.
     completionTimerRef.current = setTimeout(() => onComplete(failed), hold);
-  }, [jobs, reduceMotion, stoneScale, onComplete]);
+  }, [jobs, firstPollDone, reduceMotion, stoneScale, onComplete]);
 
   const stoneStyle = useAnimatedStyle(() => ({
     transform: [

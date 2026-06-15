@@ -3,6 +3,7 @@
 // signing in with Google (scope: calendar.events).
 
 import { ProviderAuthError, tryWithRefresh } from './auth';
+import { allDayDateHyphenated } from './calendar-date';
 import { fetchWithTimeout } from './network-errors';
 
 const BASE = 'https://www.googleapis.com/calendar/v3';
@@ -185,10 +186,7 @@ export type GoogleEventInput = {
 // doesn't need a separate timeZone field for the event-edit case.
 function toGoogleDateTime(d: Date, isAllDay: boolean): { dateTime?: string; date?: string } {
   if (isAllDay) {
-    const yyyy = d.getUTCFullYear();
-    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(d.getUTCDate()).padStart(2, '0');
-    return { date: `${yyyy}-${mm}-${dd}` };
+    return { date: allDayDateHyphenated(d) };
   }
   return { dateTime: d.toISOString() };
 }

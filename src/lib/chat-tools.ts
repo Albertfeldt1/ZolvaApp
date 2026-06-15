@@ -18,6 +18,7 @@ import {
   type GoogleEventInput,
 } from './google-calendar';
 import { listGoogleCalendars, listWritableCalendars } from './calendar-providers';
+import { allDayDateHyphenated } from './calendar-date';
 import { formatMailWhen } from './mail-when';
 import {
   listCalendarEvents as listGraphEvents,
@@ -1038,6 +1039,9 @@ function toIcloudInput(input: WriteEventInput): IcloudEventInput {
 }
 
 function rangeText(input: WriteEventInput): string {
-  if (input.allDay) return `${input.start.toISOString().slice(0, 10)} (hele dagen)`;
+  // All-day uses the local calendar day (matches what we write to the
+  // provider); toISOString() would render the UTC day and read one day
+  // early for UTC+ users.
+  if (input.allDay) return `${allDayDateHyphenated(input.start)} (hele dagen)`;
   return `${input.start.toISOString()} → ${input.end.toISOString()}`;
 }

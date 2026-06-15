@@ -21,6 +21,7 @@ import { useAuth } from '../lib/auth';
 import { useGenerateDraftAction, useMailDetail, useSendReply } from '../lib/hooks';
 import { recordMailEvent } from '../lib/mail-events';
 import { runExtractor } from '../lib/profile-extractor';
+import { shouldSeedReplyDraft } from '../lib/reply-draft';
 import type { InboxMail } from '../lib/types';
 import { translateProviderError } from '../utils/danish';
 
@@ -45,6 +46,10 @@ export function InboxDetailScreen({ mail, onClose, autoDraft = false }: Props) {
   // One-shot guard so the autoDraft trigger fires exactly once per mail
   // open even if the body re-renders or the user navigates away and back.
   const autoDraftFiredRef = useRef(false);
+  // One-shot guard for seeding the reply box from mail.aiDraft. Initialised
+  // from whether useState already seeded it at mount, so a late-arriving
+  // aiDraft seeds once but emptying the box never re-injects it.
+  const draftSeededRef = useRef(!!mail.aiDraft);
 
   const handleGenerateDraft = useCallback(async () => {
     const body = detail?.body ?? '';
@@ -57,8 +62,11 @@ export function InboxDetailScreen({ mail, onClose, autoDraft = false }: Props) {
   }, [detail?.body, generateDraft, mail.from, mail.subject]);
 
   useEffect(() => {
-    if (mail.aiDraft && !draft) setDraft(mail.aiDraft);
-  }, [mail.aiDraft, draft]);
+    if (shouldSeedReplyDraft(mail.aiDraft, draftSeededRef.current)) {
+      draftSeededRef.current = true;
+      setDraft(mail.aiDraft as string);
+    }
+  }, [mail.aiDraft]);
 
   // Auto-fire draft generation when the screen is opened from a mailDraft
   // observation. We wait for the full body to load so the generator gets
