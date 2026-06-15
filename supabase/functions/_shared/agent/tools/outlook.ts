@@ -14,6 +14,29 @@ export interface OutlookDraftReverseToken {
   draft_id: string;
 }
 
+// Graph's createReply needs a real message id, but the agent only ever holds
+// the conversationId (thread_id). Resolve the latest message in the
+// conversation — the same one outlookGetBody read — so the reply threads
+// correctly instead of 404-ing on a conversationId.
+export async function outlookResolveLatestMessageId(input: {
+  fetch: OutlookFetch;
+  accessToken: string;
+  conversationId: string;
+}): Promise<string> {
+  const url =
+    `https://graph.microsoft.com/v1.0/me/messages?$filter=conversationId eq '${input.conversationId}'` +
+    `&$orderby=sentDateTime desc&$top=1&$select=id`;
+  const res = await input.fetch(url, { headers: { authorization: `Bearer ${input.accessToken}` } });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`graph resolve reply target ${res.status}: ${detail.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as { value?: Array<{ id: string }> };
+  const id = json.value?.[0]?.id;
+  if (!id) throw new Error('graph: conversation has no messages to reply to');
+  return id;
+}
+
 export interface OutlookCreateDraftInput {
   fetch: OutlookFetch;
   accessToken: string;

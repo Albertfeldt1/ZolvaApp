@@ -1540,3 +1540,48 @@ Deno.test('guardrails: clean rails keep railsOk=true (auto-send regression)', as
   const { railsOk } = await runRailScenario({});
   assertEquals(railsOk, true);
 });
+
+Deno.test('guardrails: output rail moderates the drafted body, not the preview text', async () => {
+  const { deps } = makeDeps();
+  deps.claimEvents = async () => [
+    { id: 1, kind: 'mail.new', payload: { thread_id: 't-1', message_id: 'm-1', provider: 'google' } },
+  ];
+  deps.loadThreadBriefs = async () => [
+    { thread_id: 't-1', from: 'mor@example.dk', subject: 'Middag?', snippet: 'Hej' },
+  ];
+  deps.loadUserPolicy = async () => [
+    { user_id: 'u-1', action_type: 'mail.send_reply', mode: 'auto' },
+  ];
+  deps.isUserIdle = async () => true;
+  deps.recipientAllowlistCheck = async () => true;
+  deps.priorFailedSendIdem = async () => false;
+
+  let moderated = '';
+  deps.checkReplyOutput = async (text: string) => {
+    moderated = text;
+    return { ok: true, category: 'none', reason: '' };
+  };
+
+  let callIdx = 0;
+  const turns: CallClaudeResult[] = [
+    { content: [{ type: 'tool_use', id: 'tb', name: 'mail_get_body', input: { provider: 'google', thread_id: 't-1' } }], usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: 'tool_use' },
+    { content: [{ type: 'tool_use', id: 'td', name: 'mail_draft_reply', input: { provider: 'google', thread_id: 't-1', in_reply_to_message_id: 'm-1', to: 'mor@example.dk', subject: 'Re: Middag?', body: 'Dette er den fulde tekst' } }], usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: 'tool_use' },
+    { content: [{ type: 'tool_use', id: 'ts', name: 'mail_send_reply', input: { provider: 'google', thread_id: 't-1', draft_id: 'd-1', draft_hash: 'h-1', preview_text: 'kort preview', to: 'mor@example.dk' } }], usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: 'tool_use' },
+    { content: [{ type: 'text', text: 'done' }], usage: { input_tokens: 0, output_tokens: 0 }, stop_reason: 'end_turn' },
+  ];
+  deps.callClaudeTurn = async () => turns[callIdx++];
+
+  deps.executeTool = async (action, payload) => {
+    if (action === 'mail.get_body') {
+      return { mode: 'executed', reversible: false, reverseToken: null, recordPayload: { ...payload, body_text: 'Hej, har du tid på fredag?' } };
+    }
+    if (action === 'mail.draft_reply') {
+      return { mode: 'executed', reversible: true, reverseToken: { kind: 'gmail.draft', draft_id: 'd-1' }, recordPayload: { ...payload, draft_id: 'd-1', draft_hash: 'h-1', body_full: 'Dette er den fulde tekst' } };
+    }
+    return { mode: 'executed', reversible: false, reverseToken: null, recordPayload: { ...payload } };
+  };
+
+  await runAgent({ userId: 'u-1', trigger: 'tick', deps });
+  // The rail must see the actual drafted body, not the model's short preview.
+  assertEquals(moderated, 'Dette er den fulde tekst');
+});

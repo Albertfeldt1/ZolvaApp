@@ -438,8 +438,17 @@ async function executeRun(
               railsOk = false;
               trace[trace.length - 1].guardrail = { rail: 'input', category: 'tainted_run' };
             } else {
-              const previewText = typeof input.preview_text === 'string' ? input.preview_text : '';
-              const out = await deps.checkReplyOutput(previewText, recipient ?? '', userId);
+              // Moderate the ACTUAL drafted body (captured from the
+              // draft_reply step earlier in this run), not the model-authored
+              // preview_text — a benign preview must not wave through an unsafe
+              // body. Fall back to the preview only if the body isn't available
+              // (e.g. a send whose draft was created in a prior run).
+              const draftId = typeof input.draft_id === 'string' ? input.draft_id : '';
+              const draftedBody = draftId ? draftDetail.get(draftId)?.body_full : undefined;
+              const moderationText = draftedBody && draftedBody.length > 0
+                ? draftedBody
+                : (typeof input.preview_text === 'string' ? input.preview_text : '');
+              const out = await deps.checkReplyOutput(moderationText, recipient ?? '', userId);
               railsOk = out.ok;
               if (!out.ok) {
                 trace[trace.length - 1].guardrail = { rail: 'output', category: out.category };

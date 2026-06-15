@@ -1,5 +1,6 @@
 // supabase/functions/_shared/agent/tools/dispatch.ts
 import type { ActionMode, ActionType } from '../types.ts';
+import { deriveIdemKey } from '../idem.ts';
 import {
   gmailModifyThread,
   resolveLabelId,
@@ -13,6 +14,7 @@ import {
 } from './gmail.ts';
 import {
   outlookCreateDraft,
+  outlookResolveLatestMessageId,
   outlookMoveMessage,
   outlookSetFlag,
   outlookAddCategory,
@@ -466,10 +468,19 @@ export async function executeTool(
       if (!ctx.outlook) {
         throw new Error('outlook draft requested but outlook context missing');
       }
+      // The agent only ever holds the conversationId (thread_id) for Outlook;
+      // createReply needs a real Graph message id, so resolve the latest
+      // message in the conversation instead of trusting in_reply_to (which is
+      // the conversationId or a hallucination, and would 404).
+      const replyTargetId = await outlookResolveLatestMessageId({
+        fetch: ctx.fetch,
+        accessToken: ctx.outlook.accessToken,
+        conversationId: threadId,
+      });
       const out = await outlookCreateDraft({
         fetch: ctx.fetch,
         accessToken: ctx.outlook.accessToken,
-        inReplyToMessageId: inReplyTo,
+        inReplyToMessageId: replyTargetId,
         bodyText,
       });
       return {
@@ -481,9 +492,10 @@ export async function executeTool(
           thread_id: threadId,
           draft_id: out.draftId,
           draft_hash: draftHash,
+          message_id: replyTargetId,
           body_preview: bodyText.slice(0, 200),
           body_full: bodyText,
-          in_reply_to_message_id: inReplyTo,
+          in_reply_to_message_id: replyTargetId,
         },
       };
     }
@@ -532,8 +544,10 @@ export async function executeTool(
         };
       }
 
-      // Auto-send path — every rail must hold.
-      const idemKey = `${threadId}::${draftHash}`;
+      // Auto-send path — every rail must hold. The prior-failed lookup key MUST
+      // match what the runner stored on proposed_actions.payload.idem_key
+      // (deriveIdemKey), or the rail silently never matches a prior failure.
+      const idemKey = deriveIdemKey('mail.send_reply', { thread_id: threadId, draft_hash: draftHash });
       const [recipientResult, priorFailResult] = await Promise.allSettled([
         opts.safety.hasRecipientHistory(toAddr),
         opts.safety.hasPriorFailedIdem(idemKey),

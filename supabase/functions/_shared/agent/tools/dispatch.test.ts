@@ -131,11 +131,15 @@ Deno.test('executeTool: mail.draft_reply with provider=google calls gmail draft'
   assertEquals((result.recordPayload.draft_hash as string).length, 40);
 });
 
-Deno.test('executeTool: mail.draft_reply with provider=microsoft hits graph createReply', async () => {
-  let urls: string[] = [];
+Deno.test('executeTool: mail.draft_reply (microsoft) resolves the conversation to a real message id before createReply', async () => {
+  const urls: string[] = [];
   const ctx = makeCtx({
     fetch: async (url) => {
       urls.push(url);
+      // Resolve query → the real Graph message id for this conversation.
+      if (url.includes('$filter=conversationId')) {
+        return new Response(JSON.stringify({ value: [{ id: 'real-msg-id' }] }), { status: 200 });
+      }
       return new Response(JSON.stringify({ id: 'draft-1' }), { status: 200 });
     },
   });
@@ -143,18 +147,21 @@ Deno.test('executeTool: mail.draft_reply with provider=microsoft hits graph crea
     'mail.draft_reply',
     {
       provider: 'microsoft',
-      thread_id: 't1',
-      in_reply_to_message_id: 'm-orig',
+      thread_id: 'conv-1',
+      // The agent only ever has the conversationId; whatever it passes here is
+      // ignored for Outlook because createReply needs a real message id.
+      in_reply_to_message_id: 'conv-1',
       to: 'r@x.com',
       subject: 'Re: Hej',
       body: 'Tak.',
     },
     ctx,
   );
-  assertEquals(urls[0].includes('createReply'), true);
+  assertEquals(urls.some((u) => u.includes("$filter=conversationId eq 'conv-1'")), true);
+  assertEquals(urls.some((u) => u.includes('/messages/real-msg-id/createReply')), true);
   assertEquals(result.reverseToken?.kind, 'graph.draft');
   assertEquals(result.recordPayload.body_full, 'Tak.');
-  assertEquals(result.recordPayload.in_reply_to_message_id, 'm-orig');
+  assertEquals(result.recordPayload.message_id, 'real-msg-id');
 });
 
 Deno.test('executeTool: mail.send_reply returns mode=propose without calling provider', async () => {
@@ -310,6 +317,29 @@ Deno.test('mail.send_reply (policy=auto, all rails pass): executes via Gmail', a
   assertEquals(result.mode, 'executed');
   assertEquals(sentUrl, 'https://gmail.googleapis.com/gmail/v1/users/me/drafts/send');
   assertEquals(JSON.parse(sentBody), { id: 'd-1' });
+});
+
+Deno.test('mail.send_reply (auto): prior-failed-idem lookup uses the stored deriveIdemKey format', async () => {
+  let seenIdem = '';
+  const ctx = makeCtx({ fetch: async () => new Response('{"id":"sent-1"}', { status: 200 }) });
+  await executeTool(
+    'mail.send_reply',
+    { provider: 'google', thread_id: 't-1', draft_id: 'd-1', draft_hash: 'h-1', preview_text: 'Hej', to: 'mor@example.dk' },
+    ctx,
+    {
+      policy: 'auto',
+      safety: {
+        userIsIdle: true,
+        hasRecipientHistory: async () => true,
+        hasPriorFailedIdem: async (idem) => { seenIdem = idem; return false; },
+        threadWasResearched: () => true,
+        railsOk: true,
+      },
+    },
+  );
+  // Must equal proposed_actions.payload.idem_key (deriveIdemKey format), else
+  // the rail can never match a prior failed send and is effectively dead.
+  assertEquals(seenIdem, 'mail.send_reply:t-1:h-1');
 });
 
 Deno.test('mail.send_reply (policy=auto, all rails pass): executes via Outlook', async () => {
