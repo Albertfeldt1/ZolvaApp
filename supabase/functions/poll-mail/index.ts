@@ -19,7 +19,8 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { loadRefreshToken, refreshAccessToken } from '../_shared/oauth.ts';
-import { buildMailNewEventRows, isInboundGmailMessage } from './emit.ts';
+import { buildMailNewEventRows } from './emit.ts';
+import { fetchGmailSince, fetchGraphSince, type NewMessage } from './mail-delta.ts';
 
 type Watcher = {
   user_id: string;
@@ -30,13 +31,6 @@ type Watcher = {
 };
 
 type PushToken = { token: string };
-
-type NewMessage = {
-  messageId: string;
-  threadId?: string;
-  subject: string;
-  from: string;
-};
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
@@ -188,87 +182,6 @@ async function processWatcher(client: SupabaseClient, watcher: Watcher): Promise
   }
 }
 
-async function fetchGmailSince(
-  accessToken: string,
-  lastHistoryId: string | null,
-): Promise<{ messages: NewMessage[]; nextHistoryId: string | null; nextDeltaLink: null }> {
-  if (!lastHistoryId) {
-    const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
-      headers: { authorization: `Bearer ${accessToken}` },
-    });
-    if (!profileRes.ok) throw new Error(`gmail profile ${profileRes.status}`);
-    const profile = (await profileRes.json()) as { historyId?: string };
-    return { messages: [], nextHistoryId: profile.historyId ?? null, nextDeltaLink: null };
-  }
-  const historyRes = await fetch(
-    `https://gmail.googleapis.com/gmail/v1/users/me/history?startHistoryId=${lastHistoryId}&historyTypes=messageAdded`,
-    { headers: { authorization: `Bearer ${accessToken}` } },
-  );
-  if (!historyRes.ok) throw new Error(`gmail history ${historyRes.status}`);
-  const history = (await historyRes.json()) as {
-    history?: Array<{ messagesAdded?: Array<{ message: { id: string; threadId?: string } }> }>;
-    historyId?: string;
-  };
-
-  const added = (history.history ?? [])
-    .flatMap((h) => h.messagesAdded ?? [])
-    .map((m) => ({ id: m.message.id, threadId: m.message.threadId }));
-
-  const messages: NewMessage[] = [];
-  for (const m of added) {
-    const metaRes = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`,
-      { headers: { authorization: `Bearer ${accessToken}` } },
-    );
-    if (!metaRes.ok) continue;
-    const meta = (await metaRes.json()) as {
-      labelIds?: string[];
-      payload?: { headers?: Array<{ name: string; value: string }> };
-    };
-    // Skip the agent's own drafts/sends and any non-inbox message — emitting
-    // for those would re-trigger the agent on a thread it just handled.
-    if (!isInboundGmailMessage(meta.labelIds)) continue;
-    const headers = meta.payload?.headers ?? [];
-    const subject = headers.find((h) => h.name === 'Subject')?.value ?? '(uden emne)';
-    const from = headers.find((h) => h.name === 'From')?.value ?? '';
-    messages.push({ messageId: m.id, threadId: m.threadId, subject, from });
-  }
-
-  return { messages, nextHistoryId: history.historyId ?? lastHistoryId, nextDeltaLink: null };
-}
-
-async function fetchGraphSince(
-  accessToken: string,
-  lastDeltaLink: string | null,
-): Promise<{ messages: NewMessage[]; nextHistoryId: null; nextDeltaLink: string | null }> {
-  const url =
-    lastDeltaLink ??
-    'https://graph.microsoft.com/v1.0/me/mailFolders/Inbox/messages/delta?$select=subject,from';
-  const res = await fetch(url, { headers: { authorization: `Bearer ${accessToken}` } });
-  if (!res.ok) throw new Error(`graph delta ${res.status}`);
-  const j = (await res.json()) as {
-    value?: Array<{
-      id: string;
-      subject?: string;
-      from?: { emailAddress?: { address?: string; name?: string } };
-    }>;
-    '@odata.deltaLink'?: string;
-  };
-
-  const messages: NewMessage[] = lastDeltaLink
-    ? (j.value ?? []).map((m) => ({
-        messageId: m.id,
-        subject: m.subject ?? '(uden emne)',
-        from: m.from?.emailAddress?.name ?? m.from?.emailAddress?.address ?? '',
-      }))
-    : [];
-
-  return {
-    messages,
-    nextHistoryId: null,
-    nextDeltaLink: j['@odata.deltaLink'] ?? lastDeltaLink,
-  };
-}
 
 async function loadPushTokens(client: SupabaseClient, userId: string): Promise<PushToken[]> {
   const { data, error } = await client

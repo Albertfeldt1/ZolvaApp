@@ -23,6 +23,7 @@ export type RcEvent = {
   expiration_at_ms?: number | null;
   store?: string;                  // 'APP_STORE' | 'PLAY_STORE' | 'PROMOTIONAL'
   product_id?: string;
+  event_timestamp_ms?: number | null; // when RevenueCat generated the event
 };
 
 export type WebhookOutcome =
@@ -81,6 +82,23 @@ export function eventToOutcome(event: RcEvent): WebhookOutcome {
       product_id: event.product_id ?? null,
     },
   };
+}
+
+// Ordering guard for webhook writes. RevenueCat retries and can deliver
+// events out of order; without this, a re-delivered older EXPIRATION arriving
+// after a newer RENEWAL would clobber an active paying user down to free.
+// Apply the incoming event only if it is at least as new as what we last
+// stored. Fail open (apply) when we can't order it, so we never silently drop
+// a legitimate write.
+export function shouldApplyRcEvent(
+  incomingMs: number | null | undefined,
+  storedIso: string | null | undefined,
+): boolean {
+  if (incomingMs == null) return true;
+  if (!storedIso) return true;
+  const storedMs = Date.parse(storedIso);
+  if (Number.isNaN(storedMs)) return true;
+  return incomingMs >= storedMs;
 }
 
 // Maps a DB row (or null) to a full state. Used by getEntitlement (Task 3).

@@ -1,6 +1,6 @@
 // supabase/functions/_shared/entitlement.test.ts
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { tierFromEntitlementIds, eventToOutcome, rowToState } from './entitlement.ts';
+import { tierFromEntitlementIds, eventToOutcome, rowToState, shouldApplyRcEvent } from './entitlement.ts';
 
 Deno.test('tierFromEntitlementIds prefers pro over lite', () => {
   assertEquals(tierFromEntitlementIds(['lite', 'pro']), 'pro');
@@ -75,4 +75,26 @@ Deno.test('rowToState maps a row', () => {
     rowToState({ tier: 'pro', is_trial: true, current_period_end: '2026-01-01T00:00:00.000Z', store: 'APP_STORE', product_id: 'pro_monthly' }),
     { tier: 'pro', is_trial: true, current_period_end: '2026-01-01T00:00:00.000Z', store: 'APP_STORE', product_id: 'pro_monthly' },
   );
+});
+
+Deno.test('shouldApplyRcEvent: applies when nothing is stored yet', () => {
+  assertEquals(shouldApplyRcEvent(123, null), true);
+  assertEquals(shouldApplyRcEvent(123, undefined), true);
+});
+
+Deno.test('shouldApplyRcEvent: applies when the incoming event is newer or equal', () => {
+  assertEquals(shouldApplyRcEvent(Date.parse('2026-06-15T11:00:00Z'), '2026-06-15T10:00:00Z'), true);
+  // Equal timestamps (a plain redelivery) reapply identical state — harmless.
+  assertEquals(shouldApplyRcEvent(Date.parse('2026-06-15T10:00:00Z'), '2026-06-15T10:00:00Z'), true);
+});
+
+Deno.test('shouldApplyRcEvent: skips a stale out-of-order event', () => {
+  assertEquals(shouldApplyRcEvent(Date.parse('2026-06-15T09:00:00Z'), '2026-06-15T10:00:00Z'), false);
+});
+
+Deno.test('shouldApplyRcEvent: fail-open when the incoming timestamp is missing', () => {
+  // Can't order without a timestamp — preserve last-write-wins rather than
+  // silently dropping a write.
+  assertEquals(shouldApplyRcEvent(null, '2026-06-15T10:00:00Z'), true);
+  assertEquals(shouldApplyRcEvent(undefined, '2026-06-15T10:00:00Z'), true);
 });

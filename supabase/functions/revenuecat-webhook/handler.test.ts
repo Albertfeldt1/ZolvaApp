@@ -56,3 +56,30 @@ Deno.test('400 when payload has no event', async () => {
   const res = await handleWebhook('shh', {}, deps);
   assertEquals(res.status, 400);
 });
+
+Deno.test('skips a stale (out-of-order) event when a newer one was already applied', async () => {
+  const deps = fakeDeps();
+  deps.readEventTimestamp = async () => '2026-06-15T12:00:00.000Z'; // newer already stored
+  const res = await handleWebhook('shh', {
+    event: {
+      type: 'EXPIRATION', app_user_id: UID,
+      event_timestamp_ms: Date.parse('2026-06-15T11:00:00Z'), // older than stored
+    },
+  }, deps);
+  assertEquals(res.status, 200);
+  assertEquals(deps.expires.length, 0); // stale → not applied
+  assertEquals(deps.upserts.length, 0);
+});
+
+Deno.test('applies an event newer than the stored one', async () => {
+  const deps = fakeDeps();
+  deps.readEventTimestamp = async () => '2026-06-15T10:00:00.000Z';
+  const res = await handleWebhook('shh', {
+    event: {
+      type: 'RENEWAL', app_user_id: UID, entitlement_ids: ['pro'],
+      event_timestamp_ms: Date.parse('2026-06-15T11:00:00Z'),
+    },
+  }, deps);
+  assertEquals(res.status, 200);
+  assertEquals(deps.upserts.length, 1);
+});

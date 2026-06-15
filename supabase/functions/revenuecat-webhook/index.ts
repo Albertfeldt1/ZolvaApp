@@ -30,9 +30,25 @@ serve(async (req: Request) => {
 
   const client = admin();
   try {
+    // Event time we record on each write, used by the ordering guard. Falls
+    // back to server time when RevenueCat omits a timestamp.
+    const eventAtIso = (eventAtMs: number | null): string =>
+      eventAtMs != null ? new Date(eventAtMs).toISOString() : new Date().toISOString();
+
     const result = await handleWebhook(authHeader, payload as { event?: never } | null, {
       secret: WEBHOOK_SECRET,
-      upsert: async (userId, state: EntitlementState, raw) => {
+      readEventTimestamp: async (userId) => {
+        const { data, error } = await client
+          .from('user_entitlements')
+          .select('last_event_at')
+          .eq('user_id', userId)
+          .maybeSingle();
+        // Fail open: a read error degrades to last-write-wins rather than
+        // dropping the event or 500-ing the webhook.
+        if (error) return null;
+        return (data?.last_event_at as string | null) ?? null;
+      },
+      upsert: async (userId, state: EntitlementState, eventAtMs, raw) => {
         const { error } = await client.from('user_entitlements').upsert({
           user_id: userId,
           tier: state.tier,
@@ -42,11 +58,12 @@ serve(async (req: Request) => {
           product_id: state.product_id,
           rc_app_user_id: userId,
           updated_at: new Date().toISOString(),
+          last_event_at: eventAtIso(eventAtMs),
           raw_event: raw,
         }, { onConflict: 'user_id' });
         if (error) throw error;
       },
-      expire: async (userId, raw) => {
+      expire: async (userId, eventAtMs, raw) => {
         const { error } = await client.from('user_entitlements').upsert({
           user_id: userId,
           tier: 'free',
@@ -56,6 +73,7 @@ serve(async (req: Request) => {
           product_id: null,
           rc_app_user_id: userId,
           updated_at: new Date().toISOString(),
+          last_event_at: eventAtIso(eventAtMs),
           raw_event: raw,
         }, { onConflict: 'user_id' });
         if (error) throw error;

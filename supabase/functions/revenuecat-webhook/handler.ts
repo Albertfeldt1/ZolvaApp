@@ -1,11 +1,14 @@
 // supabase/functions/revenuecat-webhook/handler.ts
-import { eventToOutcome, type EntitlementState, type RcEvent } from '../_shared/entitlement.ts';
+import { eventToOutcome, shouldApplyRcEvent, type EntitlementState, type RcEvent } from '../_shared/entitlement.ts';
 import { timingSafeEqual } from 'https://deno.land/std@0.224.0/crypto/timing_safe_equal.ts';
 
 export type WebhookDeps = {
   secret: string;
-  upsert: (userId: string, state: EntitlementState, raw: unknown) => Promise<void>;
-  expire: (userId: string, raw: unknown) => Promise<void>;
+  // Returns the timestamp (ISO) of the last event we applied for this user,
+  // or null. Optional: when absent the ordering guard is skipped.
+  readEventTimestamp?: (userId: string) => Promise<string | null>;
+  upsert: (userId: string, state: EntitlementState, eventAtMs: number | null, raw: unknown) => Promise<void>;
+  expire: (userId: string, eventAtMs: number | null, raw: unknown) => Promise<void>;
 };
 
 export type WebhookResult = { status: number; body: { ok: boolean; reason?: string } };
@@ -34,10 +37,21 @@ export async function handleWebhook(
   if (outcome.action === 'ignore') {
     return { status: 200, body: { ok: true, reason: outcome.reason } };
   }
+
+  // Drop stale, out-of-order redeliveries so they can't downgrade a paying
+  // user. Equal timestamps reapply identical state (harmless).
+  const eventAtMs = typeof event.event_timestamp_ms === 'number' ? event.event_timestamp_ms : null;
+  if (deps.readEventTimestamp) {
+    const storedIso = await deps.readEventTimestamp(outcome.userId);
+    if (!shouldApplyRcEvent(eventAtMs, storedIso)) {
+      return { status: 200, body: { ok: true, reason: 'stale event ignored' } };
+    }
+  }
+
   if (outcome.action === 'expire') {
-    await deps.expire(outcome.userId, payload);
+    await deps.expire(outcome.userId, eventAtMs, payload);
     return { status: 200, body: { ok: true } };
   }
-  await deps.upsert(outcome.userId, outcome.state, payload);
+  await deps.upsert(outcome.userId, outcome.state, eventAtMs, payload);
   return { status: 200, body: { ok: true } };
 }
