@@ -8,7 +8,7 @@ import { useChromeInsets } from '../components/PhoneChrome';
 import { formatToday } from '../lib/date';
 import { useNotes, useReminders, getPrivacyFlag, hydratePrivacyCache, setPrivacyFlag } from '../lib/hooks';
 import { isPendingAndDueOrUpcoming } from '../lib/reminders';
-import { deleteAllChatHistory, deleteAllFacts, deleteAllMailEvents, deleteFact, listFacts, listRecentChatMessages, subscribeFactsChanged } from '../lib/profile-store';
+import { confirmFact, deleteAllChatHistory, deleteAllFacts, deleteAllMailEvents, deleteFact, listFacts, listPendingFactsForReview, listRecentChatMessages, rejectFact, subscribeFactsChanged } from '../lib/profile-store';
 import { migrateLocalChatIfNeeded } from '../lib/chat-sync';
 import { triggerBackfillRerun } from '../lib/onboarding-backfill';
 import { syncMemoryEnabled } from '../lib/user-profile';
@@ -81,6 +81,7 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
   const [privacyVersion, setPrivacyVersion] = useState(0);
   const memoryEnabled = useMemoryEnabledLocal(privacyVersion);
   const [facts, setFacts] = useState<Fact[]>([]);
+  const [pendingFacts, setPendingFacts] = useState<Fact[]>([]);
   const [chat, setChat] = useState<ChatMessageRow[]>([]);
   const [factsRev, setFactsRev] = useState(0);
 
@@ -99,10 +100,25 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
   useEffect(() => subscribeFactsChanged(() => setFactsRev((v) => v + 1)), []);
 
   useEffect(() => {
-    if (!memoryEnabled || !userId) { setFacts([]); setChat([]); return; }
+    if (!memoryEnabled || !userId) { setFacts([]); setPendingFacts([]); setChat([]); return; }
     void listFacts(userId, 'confirmed').then(setFacts).catch(() => setFacts([]));
+    void listPendingFactsForReview(userId).then(setPendingFacts).catch(() => setPendingFacts([]));
     void listRecentChatMessages(userId, 100).then(setChat).catch(() => setChat([]));
   }, [memoryEnabled, userId, factsRev]);
+
+  // Optimistically drop the reviewed fact, then persist. subscribeFactsChanged
+  // (fired by confirmFact/rejectFact) re-pulls both lists so a confirmed fact
+  // lands in "Fakta om dig".
+  const reviewFact = async (id: string, decision: 'confirm' | 'reject') => {
+    setPendingFacts((prev) => prev.filter((f) => f.id !== id));
+    try {
+      await (decision === 'confirm' ? confirmFact(id) : rejectFact(id));
+    } catch (err) {
+      if (__DEV__) console.warn('[MemoryScreen] fact review failed:', err);
+      setFactsRev((v) => v + 1); // re-sync from the server on failure
+      Alert.alert('Kunne ikke gemme', 'Tjek din forbindelse og prøv igen.');
+    }
+  };
 
   const toggleMemory = async () => {
     const next = !memoryEnabled;
@@ -241,7 +257,7 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
               tabs={MEMORY_TABS.map((tabDef) => {
                 const count =
                   tabDef.id === 'noter' ? notes.length :
-                  tabDef.id === 'fakta' ? facts.length :
+                  tabDef.id === 'fakta' ? facts.length + pendingFacts.length :
                   chat.length;
                 const labelStyle = {
                   fontFamily: fonts.uiBold,
@@ -430,6 +446,32 @@ export function MemoryScreen({ onOpenChat, onOpenNotifications, onOpenSettings }
               />
             ) : (
               <>
+                {pendingFacts.length > 0 && (
+                  <View style={{ marginBottom: spacing.xl }}>
+                    <Text style={{ ...type.eyebrow, color: t.mem, fontWeight: '600', paddingHorizontal: spacing.xs, paddingBottom: spacing.sm }}>
+                      TIL GENNEMSYN
+                    </Text>
+                    <GlassFrostedCard style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.cardPad }}>
+                      {pendingFacts.map((f, i) => (
+                        <View
+                          key={f.id}
+                          style={{
+                            paddingVertical: spacing.md,
+                            borderTopWidth: i > 0 ? 1 : 0,
+                            borderTopColor: t.line,
+                          }}
+                        >
+                          <FactRow
+                            fact={f}
+                            onConfirm={() => { void reviewFact(f.id, 'confirm'); }}
+                            onReject={() => { void reviewFact(f.id, 'reject'); }}
+                          />
+                        </View>
+                      ))}
+                    </GlassFrostedCard>
+                  </View>
+                )}
+
                 <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600', paddingHorizontal: spacing.xs, paddingBottom: spacing.sm }}>
                   FAKTA OM DIG
                 </Text>
