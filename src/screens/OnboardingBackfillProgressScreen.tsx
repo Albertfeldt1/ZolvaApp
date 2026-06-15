@@ -34,7 +34,7 @@ import Animated, {
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { Stone } from '../design/primitives/Stone';
 import { useTheme } from '../design/useTheme';
-import { fetchBackfillStatus, type BackfillJob } from '../lib/onboarding-backfill';
+import { cancelBackfill, fetchBackfillStatus, type BackfillJob } from '../lib/onboarding-backfill';
 import { isBackfillComplete } from '../lib/backfill-progress';
 
 type ServiceId =
@@ -146,6 +146,13 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
   useEffect(() => {
     return () => {
       if (completionTimerRef.current) clearTimeout(completionTimerRef.current);
+      // If the screen is torn down before the backfill finished (the user
+      // left onboarding), cancel the server-side workers so they stop
+      // spending Claude tokens on work no one will see. On normal completion
+      // completedRef is already true, so this never cancels real results.
+      if (!completedRef.current) {
+        void cancelBackfill().catch(() => {});
+      }
     };
   }, []);
 

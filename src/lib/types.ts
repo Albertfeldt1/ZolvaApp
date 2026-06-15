@@ -282,6 +282,36 @@ export type NotificationPayload =
 
 export type FeedEntryType = NotificationPayload['type'];
 
+// Single source of truth for the feed's runtime type allow-list. Keeping the
+// validation (notification-feed.reviveEntry), the icon map, and the
+// tap-to-mark matcher derived from this prevents the lists from drifting
+// apart (which previously dropped chatReply/agent_proposal/trialEnding on
+// reload and could render an undefined icon).
+export const FEED_ENTRY_TYPES = [
+  'reminder',
+  'digest',
+  'calendarPreAlert',
+  'reminderAdded',
+  'newMail',
+  'brief',
+  'factDecay',
+  'microsoftConsentGranted',
+  'chatReply',
+  'agent_proposal',
+  'trialEnding',
+] as const satisfies readonly FeedEntryType[];
+
+// Compile-time guard: if a new NotificationPayload type is added but not
+// listed above, this assignment fails to type-check.
+type _FeedTypesExhaustive =
+  Exclude<FeedEntryType, (typeof FEED_ENTRY_TYPES)[number]> extends never ? true : false;
+const _feedTypesExhaustive: _FeedTypesExhaustive = true;
+void _feedTypesExhaustive;
+
+export function isFeedEntryType(v: unknown): v is FeedEntryType {
+  return typeof v === 'string' && (FEED_ENTRY_TYPES as readonly string[]).includes(v);
+}
+
 export type FeedEntry = {
   id: string;
   type: FeedEntryType;

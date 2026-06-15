@@ -4,9 +4,11 @@ import {
   Calendar,
   CheckCircle2,
   ChevronLeft,
+  Clock,
   Hourglass,
   Mail,
   MessageCircle,
+  Sparkles,
   Sun,
   Sunrise,
 } from 'lucide-react-native';
@@ -285,6 +287,14 @@ function iconFor(type: FeedEntry['type']) {
       return CheckCircle2;
     case 'chatReply':
       return MessageCircle;
+    case 'agent_proposal':
+      return Sparkles;
+    case 'trialEnding':
+      return Clock;
+    default:
+      // Never render an undefined component (would crash the row). Any future
+      // feed type falls back to a neutral bell until given its own icon.
+      return Bell;
   }
 }
 

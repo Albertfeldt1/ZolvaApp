@@ -5,7 +5,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { subscribeUserId } from './auth';
-import type { FeedEntry, FeedEntryType, NotificationPayload } from './types';
+import { isFeedEntryType, type FeedEntry, type FeedEntryType, type NotificationPayload } from './types';
 
 const feedKey = (uid: string) => `zolva.${uid}.notifications.feed`;
 
@@ -32,17 +32,9 @@ function reviveEntry(raw: unknown): FeedEntry | null {
     readAt?: string | Date | null;
   };
   if (typeof e.id !== 'string' || typeof e.title !== 'string') return null;
-  const types: FeedEntryType[] = [
-    'reminder',
-    'digest',
-    'calendarPreAlert',
-    'reminderAdded',
-    'newMail',
-    'brief',
-    'factDecay',
-    'microsoftConsentGranted',
-  ];
-  if (!types.includes(e.type as FeedEntryType)) return null;
+  // Validate against the single source of truth so newer types (chatReply,
+  // agent_proposal, trialEnding) survive a reload instead of being dropped.
+  if (!isFeedEntryType(e.type)) return null;
   const firesAt = e.firesAt instanceof Date ? e.firesAt : new Date(e.firesAt ?? Date.now());
   const createdAt = e.createdAt instanceof Date ? e.createdAt : new Date(e.createdAt ?? Date.now());
   const readAt =
@@ -232,5 +224,14 @@ function payloadMatches(a: NotificationPayload, b: NotificationPayload): boolean
   if (a.type === 'newMail' && b.type === 'newMail') {
     return a.provider === b.provider && a.messageId === b.messageId;
   }
+  if (a.type === 'brief' && b.type === 'brief') return a.briefId === b.briefId;
+  if (a.type === 'factDecay' && b.type === 'factDecay') return a.factId === b.factId;
+  if (a.type === 'microsoftConsentGranted' && b.type === 'microsoftConsentGranted') {
+    return a.tenantDomain === b.tenantDomain;
+  }
+  if (a.type === 'chatReply' && b.type === 'chatReply') return a.jobId === b.jobId;
+  if (a.type === 'agent_proposal' && b.type === 'agent_proposal') return a.action_id === b.action_id;
+  // trialEnding carries no id — type match (handled above) is enough.
+  if (a.type === 'trialEnding' && b.type === 'trialEnding') return true;
   return false;
 }

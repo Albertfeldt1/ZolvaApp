@@ -47,7 +47,7 @@ import {
 } from './chat-jobs';
 import { buildProfilePreamble } from './profile';
 import { currentWeekBounds } from './week-bounds';
-import { fetchServerMemoryEnabled } from './user-profile';
+import { fetchServerMemoryEnabled, syncMemoryEnabled } from './user-profile';
 import {
   addNote as storeAddNote,
   listNotes,
@@ -3301,23 +3301,50 @@ export function usePrivacyToggles() {
     };
   }, [userId]);
 
-  const flip = useCallback(
-    (id: string) => {
-      setToggles((prev) => {
-        const next = prev.map((t) => (t.id === id ? { ...t, enabled: !t.enabled } : t));
-        const snapshot = Object.fromEntries(next.map((t) => [t.id, t.enabled])) as Partial<
-          Record<PrivacyFlagId, boolean>
-        >;
-        privacyCache = snapshot;
-        privacyHydrated = true;
-        if (userId) {
-          AsyncStorage.setItem(privacyTogglesKey(userId), JSON.stringify(snapshot)).catch(() => {});
-        }
-        return next;
-      });
+  const commit = useCallback(
+    (next: PrivacyToggle[]) => {
+      const snapshot = Object.fromEntries(next.map((t) => [t.id, t.enabled])) as Partial<
+        Record<PrivacyFlagId, boolean>
+      >;
+      privacyCache = snapshot;
+      privacyHydrated = true;
+      if (userId) {
+        AsyncStorage.setItem(privacyTogglesKey(userId), JSON.stringify(snapshot)).catch(() => {});
+      }
       notifyPrivacyChange();
     },
     [userId],
+  );
+
+  const flip = useCallback(
+    (id: string) => {
+      const current = toggles.find((t) => t.id === id)?.enabled
+        ?? PRIVACY_DEFAULTS[id as PrivacyFlagId]
+        ?? false;
+      const nextEnabled = !current;
+      setToggles((prev) => {
+        const next = prev.map((t) => (t.id === id ? { ...t, enabled: nextEnabled } : t));
+        commit(next);
+        return next;
+      });
+      // memory-enabled is not a local-only preference: the daily-brief,
+      // chat-run and fact-decay crons read user_profiles.memory_enabled. If we
+      // only wrote AsyncStorage the server would diverge (cron uses facts while
+      // the user thinks they opted out, or vice versa). Mirror to the server
+      // and revert the optimistic flip on failure — same contract as
+      // MemoryScreen.toggleMemory.
+      if (id === 'memory-enabled' && userId) {
+        syncMemoryEnabled(userId, nextEnabled).catch((err) => {
+          if (__DEV__) console.warn('[privacy] memory_enabled server sync failed; reverting:', err);
+          setToggles((prev) => {
+            const reverted = prev.map((t) => (t.id === id ? { ...t, enabled: current } : t));
+            commit(reverted);
+            return reverted;
+          });
+        });
+      }
+    },
+    [userId, toggles, commit],
   );
 
   return { data: toggles, loading: false, error: null as Error | null, flip };
