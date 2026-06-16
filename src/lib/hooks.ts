@@ -2476,6 +2476,7 @@ export function useMailDetail(
                 subject: r.data.subject,
                 fromEmail: r.data.fromEmail,
                 messageIdHeader: r.data.messageIdHeader,
+                references: r.data.references || undefined,
               },
             };
           })();
@@ -4606,10 +4607,14 @@ async function runMailComposeTool(
       // the server's INBOX-UID re-fetch fallback fails once it's archived.
       // Mirrors the Gmail chat path which fetches the original for its headers.
       let icloudInReplyTo: string | undefined;
+      let icloudReferences: string | undefined;
       if (providerReplyIdNum !== undefined) {
         try {
           const original = await getIcloudMessageBody(ctx.userId, providerReplyIdNum);
-          if (original.ok) icloudInReplyTo = original.data.messageIdHeader || undefined;
+          if (original.ok) {
+            icloudInReplyTo = original.data.messageIdHeader || undefined;
+            icloudReferences = original.data.references || undefined;
+          }
         } catch (err) {
           if (__DEV__) console.warn('[hooks] icloud reply lookup failed:', err);
           // Fall through - still send, just falling back to UID threading.
@@ -4623,6 +4628,7 @@ async function runMailComposeTool(
           body,
           replyToUid: providerReplyIdNum,
           inReplyTo: icloudInReplyTo,
+          references: icloudReferences,
         });
         if (!r.ok) return { text: mapIcloudComposeError(r.error), isError: true };
         return {
@@ -4641,6 +4647,7 @@ async function runMailComposeTool(
             replyToUnifiedId,
             replyToUid: providerReplyIdNum,
             inReplyTo: icloudInReplyTo,
+            references: icloudReferences,
           },
         };
       }
@@ -4651,6 +4658,7 @@ async function runMailComposeTool(
         body,
         replyToUid: providerReplyIdNum,
         inReplyTo: icloudInReplyTo,
+        references: icloudReferences,
       });
       if (!r.ok) return { text: mapIcloudComposeError(r.error), isError: true };
       void recordSentMailSafe(ctx.userId, { provider: 'icloud', to, cc, subject, body, replyToId: replyToUnifiedId });

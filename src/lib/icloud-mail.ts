@@ -75,6 +75,9 @@ export type IcloudMessageBody = {
   subject: string;
   body: string;
   messageIdHeader: string;
+  // Full References chain (original's References + its Message-ID) for threading
+  // a reply by chain, not just In-Reply-To. Empty when none available.
+  references: string;
 };
 
 // Action-oriented error codes - names describe what the caller should do, not
@@ -467,7 +470,11 @@ export async function getMessageBody(
   }
   return {
     ok: true,
-    data: { ...res.data.message, from: parseFromHeader(res.data.message.from) },
+    data: {
+      ...res.data.message,
+      from: parseFromHeader(res.data.message.from),
+      references: res.data.message.references ?? '',
+    },
   };
 }
 
