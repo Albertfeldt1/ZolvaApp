@@ -83,6 +83,7 @@ import { subscribeBackfillRerun, type BackfillJob } from './src/lib/onboarding-b
 import { AuthSheet } from './src/screens/AuthSheet';
 import { LoginCtaBar } from './src/components/LoginCtaBar';
 import { isDemoUser } from './src/lib/demo';
+import { decideOnboardingTrigger } from './src/lib/onboarding-trigger';
 import { usePendingProposalCount } from './src/lib/agent-proposals';
 import { syncUserProfile } from './src/lib/user-profile';
 import { registerPresenceListener } from './src/lib/presence';
@@ -243,30 +244,32 @@ export default function App() {
     return () => { cancelled = true; };
   }, [user?.id, inV2Onboarding]);
 
-  // Open V2 onboarding for first-time launches. Gated on a device-level
-  // flag (NOT user.id) so it fires before any auth happens - that's what
-  // keeps the cold-launch surface from being a login wall. Existing users
-  // who finished V2 under the old per-uid system get their flag ported
-  // forward on next launch instead of replaying the 7 steps.
+  // Open the V2 onboarding wizard on the sign-in transition (NOT on cold
+  // launch). Logged-out cold launches land in the empty app behind the
+  // login CTA; the wizard only appears once the user authenticates. Reuses
+  // the existing device + per-uid gates via decideOnboardingTrigger.
   useEffect(() => {
     if (authInitializing) return;
     if (onboardingOpen) return;
-    if (isDemoUser(user)) return;
+    const uid = user?.id;
+    if (!uid) return;
     let cancelled = false;
     void (async () => {
-      const showDevice = await shouldShowV2OnboardingDevice();
-      if (cancelled || !showDevice) return;
-      // Port-forward: if a signed-in user already has the per-uid V2 flag
-      // set (saw onboarding before this device-level flag existed), mark
-      // device shown and skip - don't replay onboarding for returning users.
-      if (user?.id) {
-        const showUid = await shouldShowV2Onboarding(user.id);
-        if (!showUid) {
-          await markV2OnboardingShownDevice();
-          return;
-        }
-      }
+      const [deviceShowPending, uidShowPending] = await Promise.all([
+        shouldShowV2OnboardingDevice(),
+        shouldShowV2Onboarding(uid),
+      ]);
       if (cancelled) return;
+      const decision = decideOnboardingTrigger({
+        isDemo: isDemoUser(user),
+        deviceShowPending,
+        uidShowPending,
+      });
+      if (decision === 'mark-device-shown') {
+        await markV2OnboardingShownDevice();
+        return;
+      }
+      if (decision !== 'open') return;
       setOnboardingStage('v2-intro');
       setOnboardingOpen(true);
     })();
@@ -868,15 +871,9 @@ export default function App() {
                     connections: collected.connections,
                   });
                   void persistOnboardingPersona(user?.id ?? null, collected.persona);
-                  // V2 flow finished — fall through to the existing
-                  // backfill chain (provider-connect + extract + review)
-                  // when the user is signed in, otherwise close the flow
-                  // and let the user land on the main app surface.
-                  if (user?.id) {
-                    setOnboardingStage('intro');
-                  } else {
-                    setOnboardingOpen(false);
-                  }
+                  // Auth precedes the wizard now, so user.id is always set
+                  // here — advance straight into the backfill chain.
+                  setOnboardingStage('intro');
                 }}
               />
             )}
