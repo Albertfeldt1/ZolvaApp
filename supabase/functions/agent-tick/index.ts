@@ -12,6 +12,10 @@ import type { AgentRunTrigger } from '../_shared/agent/types.ts';
 import { buildDeps, selectEligibleUserIds } from '../_shared/agent/build-deps.ts';
 import { getEntitlement } from '../_shared/entitlement-read.ts';
 
+// Re-exported so this entry-point module is the public surface for tests
+// (agent-tick/index.test.ts imports selectEligibleUserIds from here).
+export { selectEligibleUserIds };
+
 const CRON_SECRET = Deno.env.get('CRON_SHARED_SECRET');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
