@@ -31,6 +31,12 @@ async function load(uid: string): Promise<CalendarVisibility> {
   }
 }
 
+// Non-hook loader for background paths (e.g. the pre-alert fan-out) that need
+// the hidden set outside a React component.
+export async function loadCalendarVisibility(uid: string): Promise<CalendarVisibility> {
+  return load(uid);
+}
+
 async function save(uid: string, v: CalendarVisibility): Promise<void> {
   if (!uid) return;
   await AsyncStorage.setItem(storageKey(uid), JSON.stringify(v));

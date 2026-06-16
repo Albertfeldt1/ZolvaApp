@@ -11,12 +11,13 @@ import {
   type GoogleCalendarEvent,
 } from './google-calendar';
 import {
-  listCalendarEvents as listGraphEvents,
+  listCalendarEventsForCalendars as listGraphEventsWithCalendarId,
   type GraphCalendarEvent,
 } from './microsoft-graph';
 import { listEvents as listIcloudEvents, type IcloudCalEvent } from './icloud-calendar';
 import { getActiveUserId } from './auth';
 import { getIntegrationFlag, loadIntegrationFlags } from './integration-flags';
+import { loadCalendarVisibility, isCalendarVisible } from './calendar-visibility';
 
 export type CalendarEventForAlert = {
   id: string;
@@ -78,11 +79,19 @@ export async function fetchPreAlertEligibleEvents(): Promise<CalendarEventForAle
   const end = endOfToday(now);
   const results: CalendarEventForAlert[] = [];
 
+  // Per-calendar visibility (the calendar picker's hidden set). Respect it so a
+  // meeting on a calendar the user explicitly hid doesn't still fire a pre-alert.
+  // Background path, so use the non-hook loader; empty set when no user.
+  const userId = getActiveUserId();
+  const visibility = userId ? await loadCalendarVisibility(userId) : {};
+
   // Skip providers the user has explicitly disabled. The flag is read
   // sync from the in-memory cache; if the cache hasn't loaded yet (rare
   // during a cold pre-alert run) we err on the side of fetching, since
   // missing the alert is worse than firing for an unused integration.
   if (getIntegrationFlag('google-calendar') !== false) {
+    // Google pre-alerts read only the primary calendar, so hidden secondary
+    // calendars never reach here — no per-calendar filtering needed.
     const google = await listGoogleEvents(now, end).catch((err) => {
       if (__DEV__) console.warn('[calendar-events-today] google fetch failed:', err);
       return [] as GoogleCalendarEvent[];
@@ -94,11 +103,16 @@ export async function fetchPreAlertEligibleEvents(): Promise<CalendarEventForAle
   }
 
   if (getIntegrationFlag('outlook-calendar') !== false) {
-    const graph = await listGraphEvents(now, end).catch((err) => {
+    // null = fan-in across all calendars; each event carries calendarId so we
+    // can drop ones on a hidden calendar below.
+    const graph = await listGraphEventsWithCalendarId(now, end, null).catch((err) => {
       if (__DEV__) console.warn('[calendar-events-today] graph fetch failed:', err);
-      return [] as GraphCalendarEvent[];
+      return [] as Array<GraphCalendarEvent & { calendarId: string | undefined }>;
     });
     for (const e of graph) {
+      // Undefined calendarId (rare) → treat as visible; missing an alert is
+      // worse than firing for an un-hidden calendar.
+      if (e.calendarId && !isCalendarVisible(visibility, 'microsoft', e.calendarId)) continue;
       const passed = passesGraphFilter(e, now);
       if (passed) results.push(passed);
     }
@@ -106,7 +120,6 @@ export async function fetchPreAlertEligibleEvents(): Promise<CalendarEventForAle
 
   // iCloud needs the user id to load its CalDAV credential (the OAuth providers
   // use the global session). Skip silently if there's no active user.
-  const userId = getActiveUserId();
   if (userId && getIntegrationFlag('icloud') !== false) {
     const res = await listIcloudEvents(userId, now, end).catch((err) => {
       if (__DEV__) console.warn('[calendar-events-today] icloud fetch failed:', err);
@@ -114,6 +127,7 @@ export async function fetchPreAlertEligibleEvents(): Promise<CalendarEventForAle
     });
     if (res.ok) {
       for (const e of res.data) {
+        if (!isCalendarVisible(visibility, 'icloud', e.calendarUrl)) continue;
         const passed = passesIcloudFilter(e, now);
         if (passed) results.push(passed);
       }
