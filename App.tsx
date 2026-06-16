@@ -822,7 +822,7 @@ export default function App() {
             />
           </Animated.View>
         )}
-        {authSheetOpen && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && (
+        {authSheetOpen && loggedOut && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && (
           <Animated.View
             key="auth-sheet"
             style={StyleSheet.absoluteFill}
@@ -957,7 +957,7 @@ export default function App() {
           />
         </View>
       )}
-      {loggedOut && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && !authSheetOpen && (
+      {loggedOut && chromeHeight > 0 && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && !authSheetOpen && (
         <LoginCtaBar onPress={openAuthSheet} bottomOffset={chromeHeight} />
       )}
       <StatusBarScrim />
