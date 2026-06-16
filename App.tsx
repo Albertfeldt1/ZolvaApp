@@ -44,6 +44,7 @@ import { SentMailScreen } from './src/screens/SentMailScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { TodayScreen } from './src/screens/TodayScreen';
 import { runStartupMigrations } from './src/lib/migrations';
+import { presentPaywall } from './src/lib/paywall';
 import { registerFeedRecorder, registerResponseHandler, syncOnAppForeground } from './src/lib/notifications';
 import { initNotificationSettings } from './src/lib/notification-settings';
 import { initNotificationFeed, markFeedByPayload } from './src/lib/notification-feed';
@@ -469,6 +470,10 @@ export default function App() {
           // proposal card is visible for the user to approve or dismiss.
           setTab('today');
           break;
+        case 'trialEnding':
+          // Trial ends in 2 days. Open the paywall so the user can convert.
+          void presentPaywall();
+          break;
       }
     });
     return unsub;
@@ -632,6 +637,10 @@ export default function App() {
         // Autonomous agent proposed an action. Route to Today so the
         // proposal card is visible for the user to approve or dismiss.
         setTab('today');
+        break;
+      case 'trialEnding':
+        // Trial ends in 2 days. Open the paywall so the user can convert.
+        void presentPaywall();
         break;
     }
   };

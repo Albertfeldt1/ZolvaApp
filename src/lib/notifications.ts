@@ -170,6 +170,13 @@ function dispatchPayload(
     typeof (payload as { jobId?: unknown }).jobId === 'string'
   ) {
     onTap({ type: 'chatReply', jobId: (payload as { jobId: string }).jobId });
+  } else if (
+    payload.type === 'agent_proposal' &&
+    typeof (payload as { action_id?: unknown }).action_id === 'string'
+  ) {
+    onTap({ type: 'agent_proposal', action_id: (payload as { action_id: string }).action_id });
+  } else if (payload.type === 'trialEnding') {
+    onTap({ type: 'trialEnding' });
   }
 }
 
