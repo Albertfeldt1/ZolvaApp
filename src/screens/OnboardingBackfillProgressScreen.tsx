@@ -35,7 +35,7 @@ import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { Stone } from '../design/primitives/Stone';
 import { useTheme } from '../design/useTheme';
 import { cancelBackfill, fetchBackfillStatus, type BackfillJob } from '../lib/onboarding-backfill';
-import { isBackfillComplete } from '../lib/backfill-progress';
+import { isBackfillComplete, failedJobs } from '../lib/backfill-progress';
 
 type ServiceId =
   | 'google:mail'
@@ -216,7 +216,9 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
         completedRef.current = true;
         // Use the live ref, not the stale `jobs` captured by this []-deps
         // effect closure, so timed-out runs actually report their failures.
-        onComplete(jobsRef.current.filter((j) => j.status !== 'done'));
+        // Only genuine failures — jobs still running at the timeout keep
+        // processing server-side and must not be shown as failed.
+        onComplete(failedJobs(jobsRef.current));
       }
     };
     void poll();
@@ -233,7 +235,9 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
     const id = setTimeout(() => {
       if (completedRef.current) return;
       completedRef.current = true;
-      onComplete(jobsRef.current.filter((j) => j.status !== 'done'));
+      // Only genuine failures — a long backfill that hasn't finished by the
+      // animation ceiling keeps running server-side; don't mislabel it failed.
+      onComplete(failedJobs(jobsRef.current));
     }, ANIMATION_CEILING_MS);
     return () => clearTimeout(id);
     // onComplete intentionally not in deps - stable single-fire timer.
