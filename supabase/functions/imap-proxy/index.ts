@@ -1472,16 +1472,32 @@ function extractHeaderValue(raw: unknown, name: string): string {
   return '';
 }
 
+// RFC 5322 msg-id shape: <local@domain>, no whitespace/control chars.
+const MSGID_RE = /^<[^\s<>\r\n\0]+@[^\s<>\r\n\0]+>$/;
+
+// Sanitize a space-separated Message-ID list (In-Reply-To / References). These
+// values come from the client and are spliced directly into mail headers, so
+// any CR/LF/NUL or malformed id is rejected to prevent header injection.
+// Returns the cleaned list, or null if anything is off (caller falls back).
+function sanitizeMsgIdList(s: string): string | null {
+  if (/[\r\n\0]/.test(s)) return null;
+  const ids = s.trim().split(/\s+/).filter(Boolean);
+  if (ids.length === 0 || !ids.every((id) => MSGID_RE.test(id))) return null;
+  return ids.join(' ');
+}
+
 // Build threading headers from values the client supplied directly (the
 // original Message-ID + References). Resilient to the original having left
-// INBOX, unlike the UID re-fetch. Returns null when no usable Message-ID.
+// INBOX, unlike the UID re-fetch. Returns null when no usable/safe Message-ID.
 function explicitThreadingHeaders(
   inReplyTo?: string,
   references?: string,
 ): ThreadingHeaders | null {
-  const irt = typeof inReplyTo === 'string' ? inReplyTo.trim() : '';
+  if (typeof inReplyTo !== 'string') return null;
+  const irt = sanitizeMsgIdList(inReplyTo);
   if (!irt) return null;
-  const refs = typeof references === 'string' && references.trim() ? references.trim() : irt;
+  const refs =
+    (typeof references === 'string' && references.trim() && sanitizeMsgIdList(references)) || irt;
   return { inReplyTo: irt, references: refs };
 }
 
