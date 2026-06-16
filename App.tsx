@@ -72,6 +72,7 @@ import {
   shouldShowMsReconnectPrompt,
   markMsReconnectPromptShown,
   useStyleSummaryRefresh,
+  useIcloudConnected,
 } from './src/lib/hooks';
 import { MemoryConsentModal } from './src/components/MemoryConsentModal';
 import { OnboardingBackfillScreen } from './src/screens/OnboardingBackfillScreen';
@@ -118,6 +119,10 @@ export default function App() {
   const designFonts = useDesignFonts();
 
   const { user, initializing: authInitializing, googleAccessToken, microsoftAccessToken, signInWithMicrosoft, disconnectProvider } = useAuth();
+  // iCloud mail connectedness (valid app-specific password). The backfill server
+  // supports iCloud mail, so an iCloud-only user is a real provider for the
+  // Genscan / memory-enable backfill gates below — not a dead-end.
+  const icloudConnected = useIcloudConnected(user?.id ?? '');
 
   // RevenueCat: configure once on mount, then keep the purchases identity in
   // sync with the Supabase auth user (logIn on sign-in, logOut on sign-out).
@@ -282,13 +287,13 @@ export default function App() {
   useEffect(() => {
     return subscribeBackfillRerun(() => {
       if (!user?.id) return;
-      const hasProvider = !!googleAccessToken || !!microsoftAccessToken;
+      const hasProvider = !!googleAccessToken || !!microsoftAccessToken || icloudConnected;
       if (!hasProvider) return;
       setOnboardingForceRerun(true);
       setOnboardingStage('intro');
       setOnboardingOpen(true);
     });
-  }, [user?.id, googleAccessToken, microsoftAccessToken]);
+  }, [user?.id, googleAccessToken, microsoftAccessToken, icloudConnected]);
 
   // Open the onboarding-backfill chain whenever memory-enabled flips false → true,
   // regardless of which UI surface flipped it (MemoryConsentModal, MemoryScreen
@@ -301,7 +306,7 @@ export default function App() {
     const transitionedOn = memoryEnabled && !prevMemoryEnabled.current;
     prevMemoryEnabled.current = memoryEnabled;
     if (!uid || !transitionedOn) return;
-    const hasProvider = !!googleAccessToken || !!microsoftAccessToken;
+    const hasProvider = !!googleAccessToken || !!microsoftAccessToken || icloudConnected;
     if (!hasProvider) return;
     // Don't override the V2 stage — V2's onComplete handler advances to
     // 'intro' on its own when the user finishes the flow.
@@ -313,7 +318,7 @@ export default function App() {
       setOnboardingOpen(true);
     });
     return () => { cancelled = true; };
-  }, [memoryEnabled, user?.id, googleAccessToken, microsoftAccessToken, inV2Onboarding]);
+  }, [memoryEnabled, user?.id, googleAccessToken, microsoftAccessToken, icloudConnected, inV2Onboarding]);
 
   // What's-new modal disabled — was firing on every login during onboarding
   // iteration and adding noise. Re-enable later if there's a release we
