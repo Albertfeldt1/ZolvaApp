@@ -296,11 +296,13 @@ async function generateOneBrief(
     inputs.unread = await fetchLiveUnread(forced.liveDeps, client, userId, forced.forcedEmail);
   }
 
+  // NB: reminders are local-only (client AsyncStorage), so the server never
+  // sees them — inputs.reminders is always empty and is intentionally not part
+  // of this gate.
   const nonEmpty =
     inputs.events.length > 0 ||
     inputs.unread.length > 0 ||
-    inputs.commitments.length > 0 ||
-    inputs.reminders.length > 0;
+    inputs.commitments.length > 0;
   if (!nonEmpty) return { status: 'empty-skipped', briefId: null };
 
   const composed = await composeWithClaude(anthropicKey, inputs);
