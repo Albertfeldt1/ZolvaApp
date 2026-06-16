@@ -2,6 +2,7 @@
 // for the signed-in Microsoft account.
 
 import { ProviderAuthError, tryWithRefresh } from './auth';
+import { allDayDateHyphenated } from './calendar-date';
 import { buildOutgoingBody } from './mail-signature';
 import type { InlineAttachmentSpec, OutgoingBody } from './mail-signature';
 import { fetchWithTimeout, NetworkTimeoutError } from './network-errors';
@@ -611,12 +612,11 @@ export type GraphEventInput = {
 
 function toGraphDateTime(d: Date, isAllDay: boolean): { dateTime: string; timeZone: string } {
   if (isAllDay) {
-    // All-day events use date-only and Graph requires the timeZone field
-    // even though the value is irrelevant in that case.
-    const yyyy = d.getUTCFullYear();
-    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(d.getUTCDate()).padStart(2, '0');
-    return { dateTime: `${yyyy}-${mm}-${dd}T00:00:00`, timeZone: 'UTC' };
+    // All-day events are a calendar DATE, not an instant. Read LOCAL components
+    // (via allDayDateHyphenated) — reading UTC components shifted the day back
+    // one for every user east of UTC (all Danish users), landing the event a
+    // day early. Matches the Google/iCloud all-day write paths.
+    return { dateTime: `${allDayDateHyphenated(d)}T00:00:00`, timeZone: 'UTC' };
   }
   return { dateTime: d.toISOString().replace(/\.\d{3}Z$/, ''), timeZone: 'UTC' };
 }
