@@ -55,11 +55,26 @@ export function AgentActionPolicySection() {
 
   const set = useCallback(async (actionType: ActionType, mode: Mode) => {
     if (!user) return;
-    setPolicy((p) => ({ ...p, [actionType]: mode }));
-    await supabase.from('user_agent_policy').upsert(
+    let previous: Mode | undefined;
+    setPolicy((p) => {
+      previous = p[actionType];
+      return { ...p, [actionType]: mode };
+    });
+    const { error } = await supabase.from('user_agent_policy').upsert(
       { user_id: user.id, action_type: actionType, mode, updated_at: new Date().toISOString() },
       { onConflict: 'user_id,action_type' },
     );
+    if (error) {
+      // The write failed — revert the optimistic pill so the UI never shows a
+      // mode the server didn't accept.
+      if (__DEV__) console.warn('[agent-policy] upsert failed:', error.message);
+      setPolicy((p) => {
+        const reverted = { ...p };
+        if (previous === undefined) delete reverted[actionType];
+        else reverted[actionType] = previous;
+        return reverted;
+      });
+    }
   }, [user?.id]);
 
   if (!user) return null;
