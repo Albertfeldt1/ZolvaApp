@@ -44,7 +44,7 @@ import { SentMailScreen } from './src/screens/SentMailScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { TodayScreen } from './src/screens/TodayScreen';
 import { runStartupMigrations } from './src/lib/migrations';
-import { presentPaywall } from './src/lib/paywall';
+import { presentPaywall, presentPaywallIfNeeded } from './src/lib/paywall';
 import { registerFeedRecorder, registerResponseHandler, syncOnAppForeground } from './src/lib/notifications';
 import { initNotificationSettings } from './src/lib/notification-settings';
 import { initNotificationFeed, markFeedByPayload } from './src/lib/notification-feed';
@@ -629,6 +629,17 @@ export default function App() {
     action();
   };
 
+  // Closes the onboarding chain and presents the conversion paywall. The
+  // paywall is a no-op if the user is already entitled, so returning users
+  // re-running the chain won't be nagged.
+  const finishOnboarding = (uid: string) => {
+    void markOnboardingBackfillShown(uid);
+    setOnboardingOpen(false);
+    setOnboardingForceRerun(false);
+    setOnboardingFailedJobs([]);
+    void presentPaywallIfNeeded('pro');
+  };
+
   const handleNotificationNavigate = (payload: NotificationPayload) => {
     setNotificationsOpen(false);
     setChatOpen(false);
@@ -923,13 +934,7 @@ export default function App() {
             {user?.id && onboardingStage === 'review' && (
               <OnboardingFactReviewScreen
                 failedJobs={onboardingFailedJobs}
-                onDone={() => {
-                  const uid = user.id;
-                  void markOnboardingBackfillShown(uid);
-                  setOnboardingOpen(false);
-                  setOnboardingForceRerun(false);
-                  setOnboardingFailedJobs([]);
-                }}
+                onDone={() => finishOnboarding(user.id)}
               />
             )}
           </Animated.View>
