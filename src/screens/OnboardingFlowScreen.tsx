@@ -31,6 +31,8 @@ import * as gmail from '../lib/gmail';
 import * as graph from '../lib/microsoft-graph';
 import { requestForcedBriefOnce } from '../lib/forced-brief';
 import { presentTrialPitch } from '../lib/trial-nudges';
+import { ensurePermission } from '../lib/notifications';
+import { registerPushToken } from '../lib/push';
 
 // All non-theme literal values used by this screen, centralised so no
 // component has to inline a colour/font/size/radius. Anything not derivable
@@ -1755,6 +1757,14 @@ export function OnboardingFlowScreen({ onComplete, onOpenIcloudSetup }: Props) {
       // Back-navigation then forward again may call this twice — fine,
       // requestForcedBriefOnce dedupes internally via AsyncStorage.
       void requestForcedBriefOnce(user.id);
+      // Ask for notification permission at this deliberate moment so briefs and
+      // reminders actually display. Previously only the Settings "Nye mails"
+      // toggle ever prompted, so a user who skipped it had a registered push
+      // token but no permission — every push was silently dropped by iOS.
+      // ensurePermission is a no-op once already granted/denied-permanently.
+      void ensurePermission().then((status) => {
+        if (status === 'granted') void registerPushToken();
+      });
     }
     if (index < TOTAL_STEPS - 1) {
       setIndex(index + 1);
