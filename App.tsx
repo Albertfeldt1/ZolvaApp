@@ -80,6 +80,8 @@ import { OnboardingBackfillProgressScreen } from './src/screens/OnboardingBackfi
 import { OnboardingFactReviewScreen } from './src/screens/OnboardingFactReviewScreen';
 import { OnboardingFlowScreen } from './src/screens/OnboardingFlowScreen';
 import { subscribeBackfillRerun, type BackfillJob } from './src/lib/onboarding-backfill';
+import { AuthSheet } from './src/screens/AuthSheet';
+import { LoginCtaBar } from './src/components/LoginCtaBar';
 import { isDemoUser } from './src/lib/demo';
 import { usePendingProposalCount } from './src/lib/agent-proposals';
 import { syncUserProfile } from './src/lib/user-profile';
@@ -194,6 +196,7 @@ export default function App() {
   const [icloudPrefilledEmail, setIcloudPrefilledEmail] = useState<string | undefined>(undefined);
   const [adminConsentOpen, setAdminConsentOpen] = useState(false);
   const [adminConsentPrefilledEmail, setAdminConsentPrefilledEmail] = useState<string | undefined>(undefined);
+  const [authSheetOpen, setAuthSheetOpen] = useState(false);
   // Bumped on overlay close so SettingsScreen's iCloud loadCredential effect re-runs.
   const [icloudRefreshVersion, setIcloudRefreshVersion] = useState(0);
   const [chromeOverDark, setChromeOverDark] = useState(false);
@@ -607,6 +610,12 @@ export default function App() {
     setAdminConsentPrefilledEmail(undefined);
   };
 
+  const openAuthSheet = () => {
+    Haptics.selectionAsync();
+    setAuthSheetOpen(true);
+  };
+  const closeAuthSheet = () => setAuthSheetOpen(false);
+
   const handleNotificationNavigate = (payload: NotificationPayload) => {
     setNotificationsOpen(false);
     setChatOpen(false);
@@ -813,6 +822,16 @@ export default function App() {
             />
           </Animated.View>
         )}
+        {authSheetOpen && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && (
+          <Animated.View
+            key="auth-sheet"
+            style={StyleSheet.absoluteFill}
+            entering={SlideInDown.duration(320)}
+            exiting={SlideOutDown.duration(260)}
+          >
+            <AuthSheet onClose={closeAuthSheet} />
+          </Animated.View>
+        )}
         {/* V2 onboarding stage doesn't require auth — it's pure UI iteration.
             Later stages (intro/progress/review) reference user.id, so they
             stay gated on `user` being present. */}
@@ -923,7 +942,7 @@ export default function App() {
           }}
         />
       )}
-      {!chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && (
+      {!chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && !authSheetOpen && (
         <View
           style={styles.chrome}
           pointerEvents="box-none"
@@ -937,6 +956,9 @@ export default function App() {
             badges={{ today: pendingProposalCount }}
           />
         </View>
+      )}
+      {loggedOut && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && !authSheetOpen && (
+        <LoginCtaBar onPress={openAuthSheet} bottomOffset={chromeHeight} />
       )}
       <StatusBarScrim />
       {introPlaying && <IntroVideo onEnd={dismissIntro} />}

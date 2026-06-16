@@ -3,15 +3,16 @@ import { Pressable, Text, StyleSheet, View } from 'react-native';
 
 interface Props {
   onPress: () => void;
+  bottomOffset?: number;
 }
 
 /**
  * Persistent logged-out call-to-action. Rendered by App.tsx only while
  * `loggedOut`, sitting just above the tab chrome. Tapping opens the AuthSheet.
  */
-export function LoginCtaBar({ onPress }: Props) {
+export function LoginCtaBar({ onPress, bottomOffset = 0 }: Props) {
   return (
-    <View style={styles.wrap} pointerEvents="box-none">
+    <View style={[styles.wrap, { bottom: bottomOffset }]} pointerEvents="box-none">
       <Pressable
         accessibilityRole="button"
         onPress={onPress}
