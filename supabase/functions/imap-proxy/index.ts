@@ -149,6 +149,12 @@ type ComposeBase = {
   content: string;
   attachments?: AttachmentSpec[];
   reply_to_uid?: number;
+  // The original message's Message-ID (+ optional References chain), captured
+  // by the client at read time. Preferred over reply_to_uid because it threads
+  // correctly even when the original has since left INBOX (UIDs are
+  // INBOX-scoped, so the re-fetch fails once the message is archived/moved).
+  in_reply_to?: string;
+  references?: string;
 };
 type SendMailReq = ComposeBase & { op: 'send-mail' };
 type AppendDraftReq = ComposeBase & { op: 'append-draft' };
@@ -1466,6 +1472,19 @@ function extractHeaderValue(raw: unknown, name: string): string {
   return '';
 }
 
+// Build threading headers from values the client supplied directly (the
+// original Message-ID + References). Resilient to the original having left
+// INBOX, unlike the UID re-fetch. Returns null when no usable Message-ID.
+function explicitThreadingHeaders(
+  inReplyTo?: string,
+  references?: string,
+): ThreadingHeaders | null {
+  const irt = typeof inReplyTo === 'string' ? inReplyTo.trim() : '';
+  if (!irt) return null;
+  const refs = typeof references === 'string' && references.trim() ? references.trim() : irt;
+  return { inReplyTo: irt, references: refs };
+}
+
 async function fetchThreadingHeadersOn(
   client: ImapFlow,
   uid: number,
@@ -1740,7 +1759,10 @@ async function handleSendMailInner(
   }
 
   let threading: ThreadingHeaders = {};
-  if (typeof body.reply_to_uid === 'number' && Number.isFinite(body.reply_to_uid)) {
+  const explicitSend = explicitThreadingHeaders(body.in_reply_to, body.references);
+  if (explicitSend) {
+    threading = explicitSend;
+  } else if (typeof body.reply_to_uid === 'number' && Number.isFinite(body.reply_to_uid)) {
     try {
       threading = await fetchThreadingHeaders(email, password, body.reply_to_uid);
     } catch (e) {
@@ -1857,7 +1879,11 @@ async function handleAppendDraft(
         await c.connect();
 
       let threading: ThreadingHeaders = {};
-      if (replyUid !== undefined) {
+      const explicitDraft = explicitThreadingHeaders(body.in_reply_to, body.references);
+      if (explicitDraft) {
+        threading = explicitDraft;
+        threaded = true;
+      } else if (replyUid !== undefined) {
         try {
           console.warn('[imap-proxy] append-draft: step=threading-fetch start');
           const res = await fetchThreadingHeadersOn(c, replyUid);
