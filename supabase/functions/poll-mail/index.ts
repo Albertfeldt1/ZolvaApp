@@ -137,19 +137,11 @@ async function processWatcher(client: SupabaseClient, watcher: Watcher): Promise
       ? await fetchGmailSince(accessToken, watcher.last_history_id)
       : await fetchGraphSince(accessToken, watcher.last_delta_link);
 
-  // Advance the watermark before dispatching pushes so a failed/retried
-  // run can't re-notify the same messages.
-  await client
-    .from('mail_watchers')
-    .update({
-      last_history_id: nextHistoryId ?? watcher.last_history_id,
-      last_delta_link: nextDeltaLink ?? watcher.last_delta_link,
-      last_polled_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('user_id', watcher.user_id)
-    .eq('provider', watcher.provider);
-
+  // Record new mail as agent_events FIRST, then advance the watermark. If the
+  // insert fails we must NOT move the watermark past these messages — doing so
+  // strands them permanently (no triage, no draft, never re-fetched). Throwing
+  // leaves the watermark untouched so the next poll re-fetches; re-emitted
+  // events are deduped downstream by the runner's idem_key.
   const eventRows = buildMailNewEventRows({
     userId: watcher.user_id,
     provider: watcher.provider,
@@ -162,9 +154,22 @@ async function processWatcher(client: SupabaseClient, watcher: Watcher): Promise
     // skip duplicate idem_keys during executeTool. So a bulk insert is fine.
     const { error: insertErr } = await client.from('agent_events').insert(eventRows);
     if (insertErr) {
-      console.warn('[poll-mail] agent_events insert failed:', insertErr.message);
+      throw new Error(`agent_events insert failed: ${insertErr.message}`);
     }
   }
+
+  // Advance the watermark before dispatching pushes so a failed/retried
+  // push can't re-notify the same messages.
+  await client
+    .from('mail_watchers')
+    .update({
+      last_history_id: nextHistoryId ?? watcher.last_history_id,
+      last_delta_link: nextDeltaLink ?? watcher.last_delta_link,
+      last_polled_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('user_id', watcher.user_id)
+    .eq('provider', watcher.provider);
 
   // Push only for users who opted into new-mail notifications. Agent-only
   // watchers (enabled=false, agent on) still emit agent_events above, but must

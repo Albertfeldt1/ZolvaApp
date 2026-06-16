@@ -52,6 +52,41 @@ Deno.test('fetchGraphSince baseline walks pages, emits nothing, returns final de
   assertEquals(res.nextDeltaLink, 'https://graph.microsoft.com/D');
 });
 
+Deno.test('fetchGmailSince keeps the old watermark when the page budget is exhausted', async () => {
+  // Gmail returns a fresh nextPageToken on every page, so pagination never
+  // ends naturally and the safety cap (MAX_GMAIL_HISTORY_PAGES) is hit with
+  // pages still pending. Advancing the watermark to the current mailbox
+  // historyId here would skip the unread pages forever — so it must stay put.
+  let historyCalls = 0;
+  const fetchFn: FetchFn = (url) => {
+    const u = String(url);
+    if (u.includes('/history')) {
+      historyCalls++;
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            history: [{ messagesAdded: [{ message: { id: `m${historyCalls}` } }] }],
+            historyId: String(1000 + historyCalls),
+            nextPageToken: `TOK${historyCalls}`,
+          }),
+          { status: 200 },
+        ),
+      );
+    }
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          labelIds: ['INBOX'],
+          payload: { headers: [{ name: 'Subject', value: 'S' }, { name: 'From', value: 'f@x.dk' }] },
+        }),
+        { status: 200 },
+      ),
+    );
+  };
+  const res = await fetchGmailSince('tok', '100', fetchFn);
+  assertEquals(res.nextHistoryId, '100');
+});
+
 Deno.test('fetchGmailSince follows nextPageToken and accumulates added inbox messages', async () => {
   const { fetchFn } = routerFetch([
     { match: 'pageToken=TOK', body: { history: [{ messagesAdded: [{ message: { id: 'm2' } }] }], historyId: '160' } },

@@ -39,6 +39,7 @@ export async function fetchGmailSince(
   const added: Array<{ id: string; threadId?: string }> = [];
   let nextHistoryId = lastHistoryId;
   let pageToken: string | undefined;
+  let walkedAllPages = false;
   for (let page = 0; page < MAX_GMAIL_HISTORY_PAGES; page++) {
     const u = new URL('https://gmail.googleapis.com/gmail/v1/users/me/history');
     u.searchParams.set('startHistoryId', lastHistoryId);
@@ -59,9 +60,21 @@ export async function fetchGmailSince(
       }
     }
     if (history.historyId) nextHistoryId = history.historyId;
-    if (!history.nextPageToken) break;
+    if (!history.nextPageToken) {
+      walkedAllPages = true;
+      break;
+    }
     pageToken = history.nextPageToken;
   }
+
+  // If we burned the whole page budget and Gmail still had a nextPageToken, we
+  // did NOT see every change. The historyId in a history.list response is the
+  // mailbox's CURRENT id (same on every page), so advancing the watermark to it
+  // would skip the unread pages forever. Keep the old watermark and let the next
+  // run re-fetch from the same point — messages already collected are deduped
+  // downstream by the runner's idem_key. Mirrors fetchGraphSince keeping
+  // lastDeltaLink when it never reaches a final deltaLink.
+  if (!walkedAllPages) nextHistoryId = lastHistoryId;
 
   const messages: NewMessage[] = [];
   for (const m of added) {
