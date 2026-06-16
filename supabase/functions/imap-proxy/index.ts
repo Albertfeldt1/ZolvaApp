@@ -1145,13 +1145,23 @@ async function handleGetBody(
     try {
       const meta = await client.fetchOne(
         String(uid),
-        { envelope: true, bodyStructure: true },
+        { envelope: true, bodyStructure: true, headers: ['references'] },
         { uid: true },
       );
       if (!meta) {
         return err('protocol', 502);
       }
       envelope = meta.envelope as typeof envelope;
+      // Build the References chain the client should carry on a reply: the
+      // original's References header plus its own Message-ID. Lets iCloud
+      // replies thread by full chain (deep-thread grouping), not just
+      // In-Reply-To. Sanitized so we never echo a malformed/injected value.
+      const refsHeader = extractHeaderValue(meta.headers, 'references');
+      const originalMsgId = envelope?.messageId ?? '';
+      const referencesChainRaw = refsHeader
+        ? `${refsHeader}${originalMsgId ? ' ' + originalMsgId : ''}`.trim()
+        : originalMsgId;
+      const referencesChain = referencesChainRaw ? (sanitizeMsgIdList(referencesChainRaw) ?? '') : '';
       const textParts = pickTextParts(meta.bodyStructure as BodyNode | undefined);
 
       // Try each text part in preference order, stopping on the first one
@@ -1202,6 +1212,7 @@ async function handleGetBody(
           subject: envelope?.subject ?? '(uden emne)',
           body: bodyText,
           messageIdHeader: envelope?.messageId ?? '',
+          references: referencesChain,
         },
       });
     } finally {
