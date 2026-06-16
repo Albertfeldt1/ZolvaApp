@@ -1183,7 +1183,11 @@ function ScreenTrust({
   };
 
   const count = ACTIVE_SOURCES.filter((a) => conn[a.id]).length;
-  const cta = count === 0 ? 'Vælg mindst én kilde' : count === 1 ? 'Fortsæt med 1 kilde →' : `Fortsæt med ${count} kilder →`;
+  // Connecting a source is optional — a user can explore the app first and
+  // wire up Gmail/Outlook/etc. later from Settings. At zero sources the CTA
+  // reads as an explicit skip rather than a dead "pick one" button, so the
+  // onboarding flow never becomes a hard provider/login wall (Apple 5.1.1).
+  const cta = count === 0 ? 'Spring over for nu →' : count === 1 ? 'Fortsæt med 1 kilde →' : `Fortsæt med ${count} kilder →`;
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={[styles.screen, { paddingHorizontal: 22 }]}>
@@ -1285,7 +1289,7 @@ function ScreenTrust({
         entering={FadeInUp.delay(STAGGER_BASE * 11).duration(STAGGER_DURATION)}
         style={{ marginTop: 18 }}
       >
-        <PrimaryButton label={cta} onPress={next} disabled={count === 0} />
+        <PrimaryButton label={cta} onPress={next} />
         <Text
           style={{
             marginTop: 12,
