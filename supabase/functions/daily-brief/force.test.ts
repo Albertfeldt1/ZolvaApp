@@ -69,6 +69,58 @@ Deno.test('fetchLiveUnread: provider errors are swallowed, returns []', async ()
   assertEquals(out, []);
 });
 
+Deno.test('fetchLiveUnread: falls back to icloud when no oauth token exists', async () => {
+  const out = await fetchLiveUnread(
+    deps({
+      loadRefreshToken: () => Promise.resolve(null),
+      fetchIcloud: () => Promise.resolve([{ from: 'Mor <mor@me.com>', subject: 'Frokost' }]),
+    }),
+    {} as never, 'u1', 'me@me.com',
+  );
+  assertEquals(out, [{ from: 'Mor <mor@me.com>', subject: 'Frokost' }]);
+});
+
+Deno.test('fetchLiveUnread: skips icloud when an oauth provider already yielded', async () => {
+  let icloudCalled = false;
+  const out = await fetchLiveUnread(
+    deps({
+      fetchIcloud: () => {
+        icloudCalled = true;
+        return Promise.resolve([{ from: 'x', subject: 'y' }]);
+      },
+    }),
+    {} as never, 'u1', 'me@x.dk',
+  );
+  assertEquals(icloudCalled, false);
+  assertEquals(out.length, 2);
+});
+
+Deno.test('fetchLiveUnread: icloud errors are swallowed, returns []', async () => {
+  const out = await fetchLiveUnread(
+    deps({
+      loadRefreshToken: () => Promise.resolve(null),
+      fetchIcloud: () => Promise.reject(new Error('icloud fetch deadline 60000ms exceeded')),
+    }),
+    {} as never, 'u1', 'me@me.com',
+  );
+  assertEquals(out, []);
+});
+
+Deno.test('fetchLiveUnread: icloud results capped at 3 and blanks filled', async () => {
+  const out = await fetchLiveUnread(
+    deps({
+      loadRefreshToken: () => Promise.resolve(null),
+      fetchIcloud: () => Promise.resolve([
+        { from: '', subject: '' }, { from: 'b', subject: 's2' },
+        { from: 'c', subject: 's3' }, { from: 'd', subject: 's4' },
+      ]),
+    }),
+    {} as never, 'u1', 'me@me.com',
+  );
+  assertEquals(out.length, 3);
+  assertEquals(out[0], { from: 'ukendt', subject: '(intet emne)' });
+});
+
 Deno.test('fetchLiveUnread: caps at 3 and fills blanks', async () => {
   const out = await fetchLiveUnread(
     deps({

@@ -34,6 +34,7 @@ import {
 import { loadRefreshToken, refreshAccessToken } from '../_shared/oauth.ts';
 import { fetchGmailCandidates } from '../_shared/backfill-providers/gmail.ts';
 import { fetchGraphCandidates } from '../_shared/backfill-providers/microsoft.ts';
+import { fetchIcloudCandidates } from '../_shared/backfill-providers/icloud.ts';
 import { parseForceRequest, kindForHour, fetchLiveUnread, type LiveUnreadDeps } from './force.ts';
 import { getEntitlement } from '../_shared/entitlement-read.ts';
 import { RPM_LIMIT, dailyRequestCapForTier } from '../_shared/abuse-limits.ts';
@@ -130,6 +131,17 @@ serve(async (req) => {
     refreshAccessToken,
     fetchGmail: fetchGmailCandidates,
     fetchGraph: fetchGraphCandidates,
+    // iCloud-only users have no OAuth token; reach their INBOX over IMAP so the
+    // forced "first win" brief is populated for them too. Small fetch window
+    // (10 scanned / 3 kept) — same cold-start volume as the OAuth providers.
+    fetchIcloud: (c, uid, ownEmail) => {
+      const encryptionKey = Deno.env.get('ICLOUD_CREDS_ENCRYPTION_KEY');
+      if (!encryptionKey) {
+        console.warn('[daily-brief] icloud live unread skipped: missing encryption key');
+        return Promise.resolve([]);
+      }
+      return fetchIcloudCandidates(c, uid, encryptionKey, ownEmail, 10, 3);
+    },
   };
 
   // Forced on-demand brief (onboarding "first win"). Bypasses the

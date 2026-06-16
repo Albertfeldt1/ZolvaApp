@@ -30,12 +30,24 @@ export type LiveUnreadDeps = {
   ) => Promise<{ accessToken: string; expiresIn: number }>;
   fetchGmail: (accessToken: string, ownEmail: string, maxFetch?: number, keep?: number) => Promise<CandidateLike[]>;
   fetchGraph: (accessToken: string, ownEmail: string, maxFetch?: number, keep?: number) => Promise<CandidateLike[]>;
+  // iCloud-only users have no OAuth refresh token, so the live fallback reaches
+  // their INBOX over IMAP instead. Optional: the caller wires it only when the
+  // iCloud encryption key is available.
+  fetchIcloud?: (client: SupabaseClient, userId: string, ownEmail: string) => Promise<CandidateLike[]>;
 };
 
 export type UnreadItem = { from: string; subject: string };
 
-// Try google then microsoft; first provider that yields anything wins.
-// iCloud is intentionally out of scope (needs imap-proxy round trip).
+function toUnread(candidates: CandidateLike[]): UnreadItem[] {
+  return candidates.slice(0, 3).map((c) => ({
+    from: c.from || 'ukendt',
+    subject: c.subject || '(intet emne)',
+  }));
+}
+
+// Try google then microsoft (OAuth), then iCloud over IMAP; the first provider
+// that yields anything wins. iCloud is last because the IMAP round trip is the
+// slowest path and most users have an OAuth provider connected.
 export async function fetchLiveUnread(
   deps: LiveUnreadDeps,
   client: SupabaseClient,
@@ -50,13 +62,18 @@ export async function fetchLiveUnread(
       const candidates = provider === 'google'
         ? await deps.fetchGmail(accessToken, ownEmail, 10, 3)
         : await deps.fetchGraph(accessToken, ownEmail, 10, 3);
-      const mapped = candidates.slice(0, 3).map((c) => ({
-        from: c.from || 'ukendt',
-        subject: c.subject || '(intet emne)',
-      }));
-      if (candidates.length > 0) return mapped;
+      if (candidates.length > 0) return toUnread(candidates);
     } catch (err) {
       console.warn('[daily-brief] live unread fallback failed', provider,
+        err instanceof Error ? err.message : err);
+    }
+  }
+  if (deps.fetchIcloud) {
+    try {
+      const candidates = await deps.fetchIcloud(client, userId, ownEmail);
+      if (candidates.length > 0) return toUnread(candidates);
+    } catch (err) {
+      console.warn('[daily-brief] live unread fallback failed', 'icloud',
         err instanceof Error ? err.message : err);
     }
   }
