@@ -2454,7 +2454,7 @@ export function useMailDetail(
             from: b.from,
             subject: b.subject,
             body: b.text,
-            replyContext: { provider: 'microsoft', messageId: b.id },
+            replyContext: { provider: 'microsoft', messageId: b.id, subject: b.subject, replyTo: b.fromEmail },
           }))
         : (async (): Promise<MailDetail> => {
             // 'icloud' branch - id format is `icloud:<uid>` from useMailItems.
@@ -2638,8 +2638,10 @@ export function useSendReply() {
           await graphReplyToMessage(ctx.messageId, body);
           await recordSentMailSafe(user?.id ?? null, {
             provider: 'microsoft',
-            to: [],          // graphReplyToMessage uses the original recipients server-side
-            subject: '',     // not exposed via this code path; keep empty for the log
+            // graphReplyToMessage replies to the original recipients server-side;
+            // we log the original sender + subject so the Sent view isn't blank.
+            to: [ctx.replyTo],
+            subject: ctx.subject,
             body,
             replyToId: mailId,
           });
@@ -4600,6 +4602,19 @@ async function runMailComposeTool(
       if (!ctx.userId) {
         return { text: 'Ingen bruger-session.', isError: true };
       }
+      // Thread by the original Message-ID (survives the mail leaving INBOX) —
+      // the server's INBOX-UID re-fetch fallback fails once it's archived.
+      // Mirrors the Gmail chat path which fetches the original for its headers.
+      let icloudInReplyTo: string | undefined;
+      if (providerReplyIdNum !== undefined) {
+        try {
+          const original = await getIcloudMessageBody(ctx.userId, providerReplyIdNum);
+          if (original.ok) icloudInReplyTo = original.data.messageIdHeader || undefined;
+        } catch (err) {
+          if (__DEV__) console.warn('[hooks] icloud reply lookup failed:', err);
+          // Fall through - still send, just falling back to UID threading.
+        }
+      }
       if (name === 'create_draft') {
         const r = await icloudAppendDraft(ctx.userId, {
           to,
@@ -4607,6 +4622,7 @@ async function runMailComposeTool(
           subject,
           body,
           replyToUid: providerReplyIdNum,
+          inReplyTo: icloudInReplyTo,
         });
         if (!r.ok) return { text: mapIcloudComposeError(r.error), isError: true };
         return {
@@ -4624,6 +4640,7 @@ async function runMailComposeTool(
             body,
             replyToUnifiedId,
             replyToUid: providerReplyIdNum,
+            inReplyTo: icloudInReplyTo,
           },
         };
       }
@@ -4633,6 +4650,7 @@ async function runMailComposeTool(
         subject,
         body,
         replyToUid: providerReplyIdNum,
+        inReplyTo: icloudInReplyTo,
       });
       if (!r.ok) return { text: mapIcloudComposeError(r.error), isError: true };
       void recordSentMailSafe(ctx.userId, { provider: 'icloud', to, cc, subject, body, replyToId: replyToUnifiedId });
@@ -4724,6 +4742,9 @@ export async function sendChatDraft(
         subject,
         body,
         replyToUid: action.replyToUid,
+        // Thread by Message-ID captured at draft time (survives leaving INBOX).
+        inReplyTo: action.inReplyTo,
+        references: action.references,
       });
       if (!r.ok) return { ok: false, error: mapIcloudComposeError(r.error) };
     }

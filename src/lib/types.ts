@@ -89,6 +89,10 @@ export type ReplyContext =
   | {
       provider: 'microsoft';
       messageId: string;
+      // The reply goes to the original recipients server-side (graphReply), but
+      // we still carry these so the in-app Sent log records who/what, not blanks.
+      subject: string;
+      replyTo: string;
     }
   | {
       provider: 'icloud';
