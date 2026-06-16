@@ -477,6 +477,10 @@ export type IcloudComposeInput = {
   subject: string;
   body: string;          // raw user body - signature is applied below
   replyToUid?: number;   // IMAP UID of original mail when replying
+  // Original message's Message-ID (+ optional References). Preferred over
+  // replyToUid for threading because it survives the original leaving INBOX.
+  inReplyTo?: string;
+  references?: string;
 };
 
 function attachmentsToWire(specs: InlineAttachmentSpec[]): Array<{
@@ -514,6 +518,10 @@ export async function icloudSendMail(
   };
   if (typeof input.replyToUid === 'number' && Number.isFinite(input.replyToUid)) {
     reqBody.reply_to_uid = input.replyToUid;
+  }
+  if (input.inReplyTo) {
+    reqBody.in_reply_to = input.inReplyTo;
+    if (input.references) reqBody.references = input.references;
   }
 
   const res = await call<null>('send-mail', reqBody);
@@ -553,6 +561,10 @@ export async function icloudAppendDraft(
   };
   if (typeof input.replyToUid === 'number' && Number.isFinite(input.replyToUid)) {
     reqBody.reply_to_uid = input.replyToUid;
+  }
+  if (input.inReplyTo) {
+    reqBody.in_reply_to = input.inReplyTo;
+    if (input.references) reqBody.references = input.references;
   }
 
   const res = await call<null>('append-draft', reqBody);

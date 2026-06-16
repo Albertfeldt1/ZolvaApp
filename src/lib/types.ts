@@ -95,6 +95,10 @@ export type ReplyContext =
       uid: number;
       subject: string;
       fromEmail: string;   // address to reply to - sender of the original
+      // Original Message-ID (+ References) for threading. Optional: when
+      // absent the server falls back to the INBOX UID re-fetch.
+      messageIdHeader?: string;
+      references?: string;
     };
 
 export type MailDetail = {

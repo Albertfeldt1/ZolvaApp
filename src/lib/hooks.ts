@@ -2475,6 +2475,7 @@ export function useMailDetail(
                 uid,
                 subject: r.data.subject,
                 fromEmail: r.data.fromEmail,
+                messageIdHeader: r.data.messageIdHeader,
               },
             };
           })();
@@ -2653,6 +2654,9 @@ export function useSendReply() {
             subject: replySubject,
             body,
             replyToUid: ctx.uid,
+            // Thread via the original Message-ID (survives the mail leaving INBOX).
+            inReplyTo: ctx.messageIdHeader,
+            references: ctx.references,
           });
           if (!r.ok) throw new Error(`icloud:${r.error}`);
           await recordSentMailSafe(user.id, {
