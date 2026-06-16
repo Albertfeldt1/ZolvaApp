@@ -79,6 +79,7 @@ type Props = {
   onGoToSettings: () => void;
   onGoToMemory: () => void;
   onGoToCalendar: () => void;
+  onGoToInbox: () => void;
   onOpenNotifications: () => void;
   onOverDarkChange?: (over: boolean) => void;
   // Set by App whenever a brief push or in-app notification is tapped.
@@ -110,6 +111,7 @@ export function TodayScreen({
   onGoToSettings,
   onGoToMemory,
   onGoToCalendar,
+  onGoToInbox,
   onOpenNotifications,
   onOverDarkChange,
   briefOpenRequest,
@@ -623,7 +625,12 @@ export function TodayScreen({
 
               {/* Big number + secondary stats */}
               <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.lg }}>
-                <View>
+                <Pressable
+                  onPress={onGoToCalendar}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${todayMeetingCount} ${todayMeetingCount === 1 ? 'møde' : 'møder'} i dag, åbn kalender`}
+                  style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}
+                >
                   <CountUp
                     to={todayMeetingCount}
                     style={{
@@ -635,11 +642,19 @@ export function TodayScreen({
                       color: t.ink,
                     }}
                   />
-                  <Text style={{ ...type.eyebrow, color: t.ink2, marginTop: spacing.xs, fontWeight: '600' }}>{todayMeetingCount === 1 ? 'Møde' : 'Møder'}</Text>
-                </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: spacing.xs }}>
+                    <Text style={{ ...type.eyebrow, color: t.ink2, fontWeight: '600' }}>{todayMeetingCount === 1 ? 'Møde' : 'Møder'}</Text>
+                    <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '700' }}>›</Text>
+                  </View>
+                </Pressable>
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', gap: spacing.cardPad }}>
-                    <View>
+                    <Pressable
+                      onPress={onGoToInbox}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${inboxCounts.unread} ${inboxCounts.unread === 1 ? 'mail venter' : 'mails venter'}, åbn indbakke`}
+                      style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}
+                    >
                       <CountUp
                         to={inboxCounts.unread}
                         style={{
@@ -650,10 +665,18 @@ export function TodayScreen({
                           color: t.ink,
                         }}
                       />
-                      <Text style={{ ...type.eyebrow, color: t.ink3, marginTop: spacing.xs, fontWeight: '600' }}>{inboxCounts.unread === 1 ? 'Mail' : 'Mails'}</Text>
-                    </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: spacing.xs }}>
+                        <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>{inboxCounts.unread === 1 ? 'Mail' : 'Mails'}</Text>
+                        <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '700' }}>›</Text>
+                      </View>
+                    </Pressable>
                     <View style={{ width: 1, backgroundColor: t.line }} />
-                    <View>
+                    <Pressable
+                      onPress={onGoToMemory}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${pendingReminders.length} ${pendingReminders.length === 1 ? 'påmindelse' : 'påmindelser'}, åbn Husk`}
+                      style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}
+                    >
                       <CountUp
                         to={pendingReminders.length}
                         style={{
@@ -664,8 +687,11 @@ export function TodayScreen({
                           color: t.ink,
                         }}
                       />
-                      <Text style={{ ...type.eyebrow, color: t.ink3, marginTop: spacing.xs, fontWeight: '600' }}>{pendingReminders.length === 1 ? 'Påmindelse' : 'Påmindelser'}</Text>
-                    </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: spacing.xs }}>
+                        <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '600' }}>{pendingReminders.length === 1 ? 'Påmindelse' : 'Påmindelser'}</Text>
+                        <Text style={{ ...type.eyebrow, color: t.ink3, fontWeight: '700' }}>›</Text>
+                      </View>
+                    </Pressable>
                   </View>
                 </View>
               </View>

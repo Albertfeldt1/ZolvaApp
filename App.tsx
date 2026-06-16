@@ -681,6 +681,7 @@ export default function App() {
               onGoToSettings={() => switchTab('settings')}
               onGoToMemory={() => switchTab('memory')}
               onGoToCalendar={() => switchTab('calendar')}
+              onGoToInbox={() => switchTab('inbox')}
               onOpenNotifications={openNotifications}
               onOverDarkChange={setChromeOverDark}
               briefOpenRequest={briefOpenRequest}
