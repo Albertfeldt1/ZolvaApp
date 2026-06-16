@@ -619,6 +619,16 @@ export default function App() {
   };
   const closeAuthSheet = () => setAuthSheetOpen(false);
 
+  // Logged-out taps that need an account open the sign-in sheet instead of
+  // running the action. Demo users count as authed and pass through.
+  const requireAuth = (action: () => void) => {
+    if (loggedOut) {
+      openAuthSheet();
+      return;
+    }
+    action();
+  };
+
   const handleNotificationNavigate = (payload: NotificationPayload) => {
     setNotificationsOpen(false);
     setChatOpen(false);
@@ -948,7 +958,7 @@ export default function App() {
           <PhoneChrome
             active={tab}
             onChange={switchTab}
-            onAskZolva={openChat}
+            onAskZolva={() => requireAuth(openChat)}
             darkBg={chromeOverDark}
             badges={{ today: pendingProposalCount }}
           />
