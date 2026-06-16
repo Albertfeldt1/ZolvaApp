@@ -134,11 +134,20 @@ async function deleteUserRows(
   client: SupabaseClient,
   userId: string,
 ): Promise<Record<string, number | 'error'>> {
-  // claude_usage_buckets has NO FK to auth.users, so admin.deleteUser does NOT
-  // cascade it — it must be deleted explicitly or the user's usage rows (PII)
-  // survive account deletion (GDPR erasure gap). All other user tables cascade
-  // via auth.users / profiles; verified against pg_constraint 2026-06-14.
-  const tables = ['push_tokens', 'mail_watchers', 'user_oauth_tokens', 'claude_usage_buckets'];
+  // claude_usage_buckets and consent_events have NO FK to auth.users, so
+  // admin.deleteUser does NOT cascade them — they must be deleted explicitly or
+  // the user's usage/consent rows (PII) survive account deletion (GDPR erasure
+  // gap). All other user tables cascade via auth.users / profiles; verified
+  // against pg_constraint 2026-06-14 (consent_events confirmed 2026-06-16).
+  // (consented_tenants / tenant_deletion_log / tenant_id_cache are org-scoped,
+  // not per-user PII, so they are intentionally retained.)
+  const tables = [
+    'push_tokens',
+    'mail_watchers',
+    'user_oauth_tokens',
+    'claude_usage_buckets',
+    'consent_events',
+  ];
   const counts: Record<string, number | 'error'> = {};
   for (const table of tables) {
     const { error, count } = await client
