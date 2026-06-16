@@ -58,6 +58,12 @@ const tokenKey = (provider: 'google' | 'microsoft', userId: string) =>
 
 const currentUserId = () => cachedSession?.user?.id ?? null;
 
+// Synchronous read of the active user id from the cached session, for non-hook
+// callers (e.g. background pre-alert sync that needs the iCloud credential key).
+export function getActiveUserId(): string | null {
+  return currentUserId();
+}
+
 const GOOGLE_SCOPES = [
   'openid',
   'email',

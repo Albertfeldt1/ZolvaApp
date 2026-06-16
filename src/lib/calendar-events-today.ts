@@ -14,13 +14,15 @@ import {
   listCalendarEvents as listGraphEvents,
   type GraphCalendarEvent,
 } from './microsoft-graph';
+import { listEvents as listIcloudEvents, type IcloudCalEvent } from './icloud-calendar';
+import { getActiveUserId } from './auth';
 import { getIntegrationFlag, loadIntegrationFlags } from './integration-flags';
 
 export type CalendarEventForAlert = {
   id: string;
   title: string;
   start: Date;
-  source: 'google' | 'microsoft';
+  source: 'google' | 'microsoft' | 'icloud';
 };
 
 function endOfToday(now: Date): Date {
@@ -57,6 +59,16 @@ function passesGraphFilter(e: GraphCalendarEvent, now: Date): CalendarEventForAl
   };
 }
 
+// iCloud exposes no RSVP/PARTSTAT, so we can't filter to "meetings you
+// accepted" like Google/Outlook. Gate on attendee presence instead — alert
+// for events that have other attendees (a real meeting), not personal blocks.
+export function passesIcloudFilter(e: IcloudCalEvent, now: Date): CalendarEventForAlert | null {
+  if (e.allDay) return null;
+  if (e.start.getTime() <= now.getTime() + 15 * 60 * 1000) return null;
+  if (e.attendeeCount <= 0) return null;
+  return { id: `icloud:${e.uid}`, title: e.title, start: e.start, source: 'icloud' };
+}
+
 export async function fetchPreAlertEligibleEvents(): Promise<CalendarEventForAlert[]> {
   // Background paths (e.g. push-triggered pre-alerts) may run before any
   // React component has mounted the flag-store hook. Awaiting load is a
@@ -89,6 +101,22 @@ export async function fetchPreAlertEligibleEvents(): Promise<CalendarEventForAle
     for (const e of graph) {
       const passed = passesGraphFilter(e, now);
       if (passed) results.push(passed);
+    }
+  }
+
+  // iCloud needs the user id to load its CalDAV credential (the OAuth providers
+  // use the global session). Skip silently if there's no active user.
+  const userId = getActiveUserId();
+  if (userId && getIntegrationFlag('icloud') !== false) {
+    const res = await listIcloudEvents(userId, now, end).catch((err) => {
+      if (__DEV__) console.warn('[calendar-events-today] icloud fetch failed:', err);
+      return { ok: false } as const;
+    });
+    if (res.ok) {
+      for (const e of res.data) {
+        const passed = passesIcloudFilter(e, now);
+        if (passed) results.push(passed);
+      }
     }
   }
 

@@ -583,6 +583,10 @@ export type IcloudCalEvent = {
   title: string;
   location?: string;
   description?: string;
+  // Number of ATTENDEE properties. iCloud exposes no RSVP/PARTSTAT we can map,
+  // so attendee presence is our only "this is a meeting with others" signal
+  // (used to gate pre-meeting alerts).
+  attendeeCount: number;
   calendarColor?: string;
   calendarName: string;
   // URL of the calendar collection this event lives in - handy for the
@@ -730,6 +734,7 @@ function toIcloudEvent(
   cal: IcloudCalendarMeta,
   eventUrl: string,
 ): IcloudCalEvent {
+  const attendees = (source as unknown as { attendees?: unknown[] }).attendees;
   return {
     uid: source.uid,
     eventUrl,
@@ -739,6 +744,7 @@ function toIcloudEvent(
     title: source.summary || '(uden titel)',
     location: source.location || undefined,
     description: source.description || undefined,
+    attendeeCount: Array.isArray(attendees) ? attendees.length : 0,
     calendarColor: cal.calendarColor,
     calendarName: cal.displayName,
     calendarUrl: cal.url,
