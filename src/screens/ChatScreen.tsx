@@ -493,6 +493,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
                   submit={submit}
                   inputRef={inputRef}
                   capped={capped}
+                  onPickDrive={() => setDrivePickerVisible(true)}
                 />
               </GlassView>
             ) : (
@@ -516,6 +517,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
                   submit={submit}
                   inputRef={inputRef}
                   capped={capped}
+                  onPickDrive={() => setDrivePickerVisible(true)}
                 />
               </View>
             )}
@@ -724,8 +726,9 @@ function DockRow(props: {
   submit: (text: string) => void;
   inputRef: React.RefObject<TextInput | null>;
   capped?: boolean;
+  onPickDrive?: () => void;
 }) {
-  const { fonts, type, t, spacing, input, setInput, typing, submit, inputRef, capped } = props;
+  const { fonts, type, t, spacing, input, setInput, typing, submit, inputRef, capped, onPickDrive } = props;
   return (
     <View
       style={{
@@ -738,12 +741,11 @@ function DockRow(props: {
     >
       <Pressable
         hitSlop={8}
-        onPress={() => {
-          /* TODO: wire to attachments menu */
-        }}
+        onPress={onPickDrive}
+        disabled={!onPickDrive}
         style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
         accessibilityRole="button"
-        accessibilityLabel="Tilføj"
+        accessibilityLabel="Vedhæft fra Drive"
       >
         <DesignIcon.plus size={20} color={t.ink3} />
       </Pressable>
