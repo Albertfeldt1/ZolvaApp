@@ -202,6 +202,7 @@ export default function App() {
   const [icloudRefreshVersion, setIcloudRefreshVersion] = useState(0);
   const [chromeOverDark, setChromeOverDark] = useState(false);
   const [chromeHeight, setChromeHeight] = useState(0);
+  const [ctaBarHeight, setCtaBarHeight] = useState(0);
   const [migrationsDone, setMigrationsDone] = useState(false);
   const [memoryConsentOpen, setMemoryConsentOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -525,12 +526,18 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
+  // Computed early so the chrome-inset memo can account for the login CTA bar.
+  const loggedOut = !authInitializing && !user;
+
   // Shadow from the tab bar bleeds a few pixels above its measured box;
-  // a small buffer keeps the last line of content clear of it.
-  const chromeInsets = useMemo(
-    () => ({ bottom: chromeHeight > 0 ? chromeHeight + 12 : 0 }),
-    [chromeHeight],
-  );
+  // a small buffer keeps the last line of content clear of it. When logged
+  // out, the persistent login CTA bar sits above the tab chrome, so content
+  // must clear both — add the CTA bar's measured height too.
+  const chromeInsets = useMemo(() => {
+    if (chromeHeight <= 0) return { bottom: 0 };
+    const ctaClearance = loggedOut && ctaBarHeight > 0 ? ctaBarHeight : 0;
+    return { bottom: chromeHeight + 12 + ctaClearance };
+  }, [chromeHeight, loggedOut, ctaBarHeight]);
 
   if (!fraunces || !playfair || !inter || !mono || !designFonts || !migrationsDone) {
     // Match app.json splash.backgroundColor so the pre-bundle native splash
@@ -541,8 +548,8 @@ export default function App() {
   // Logged-out tracking is only used for downstream UX hints now (e.g. the
   // Today screen's "log ind for at se dine ting" banner). The bottom nav
   // stays visible so Settings is reachable for re-login, and the cold-launch
-  // surface isn't a login wall - Apple 5.1.1 rejects that.
-  const loggedOut = !authInitializing && !user;
+  // surface isn't a login wall - Apple 5.1.1 rejects that. (`loggedOut` is
+  // declared above so the chrome-inset memo can include the login CTA bar.)
 
   const openChat = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -965,7 +972,11 @@ export default function App() {
         </View>
       )}
       {loggedOut && chromeHeight > 0 && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && !authSheetOpen && (
-        <LoginCtaBar onPress={openAuthSheet} bottomOffset={chromeHeight} />
+        <LoginCtaBar
+          onPress={openAuthSheet}
+          bottomOffset={chromeHeight}
+          onLayout={(e) => setCtaBarHeight(e.nativeEvent.layout.height)}
+        />
       )}
       <StatusBarScrim />
       {introPlaying && <IntroVideo onEnd={dismissIntro} />}
