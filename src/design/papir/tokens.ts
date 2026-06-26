@@ -55,7 +55,26 @@ export const papirFont = {
 } as const;
 
 // ─── Typography roles (from the handover type scale) ─────────────────────────
-export const papirType = {
+export type PapirTypeRole =
+  | 'displayL'
+  | 'displayM'
+  | 'displayS'
+  | 'titleSerif'
+  | 'statNumber'
+  | 'price'
+  | 'heading'
+  | 'name'
+  | 'bodySerif'
+  | 'body'
+  | 'bodyStrong'
+  | 'button'
+  | 'chip'
+  | 'small'
+  | 'caption'
+  | 'eyebrow'
+  | 'navLabel';
+
+export const papirType: Record<PapirTypeRole, TextStyle> = {
   displayL: { fontFamily: papirFont.display, fontSize: 34, lineHeight: 38, letterSpacing: -0.4 },
   displayM: { fontFamily: papirFont.display, fontSize: 30, lineHeight: 34, letterSpacing: -0.4 },
   displayS: { fontFamily: papirFont.display, fontSize: 27, lineHeight: 32, letterSpacing: -0.3 },
@@ -79,7 +98,7 @@ export const papirType = {
     textTransform: 'uppercase',
   },
   navLabel: { fontFamily: papirFont.uiMedium, fontSize: 10, lineHeight: 12, letterSpacing: 0.2 },
-} as const satisfies Record<string, TextStyle>;
+};
 
 // Tabular figures for clocks/timers/durations: spread alongside a type role.
 export const papirTabular: TextStyle = { fontVariant: ['tabular-nums'] };

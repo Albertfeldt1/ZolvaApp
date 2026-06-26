@@ -1,5 +1,7 @@
 import {
+  Fraunces_400Regular,
   Fraunces_500Medium,
+  Fraunces_600SemiBold,
   useFonts as useFraunces,
 } from '@expo-google-fonts/fraunces';
 import {
@@ -7,6 +9,7 @@ import {
   Inter_500Medium,
   Inter_500Medium_Italic,
   Inter_600SemiBold,
+  Inter_700Bold,
   useFonts as useInter,
 } from '@expo-google-fonts/inter';
 import {
@@ -104,7 +107,9 @@ console.log(`[BOOT] ${APP_BOOT_TAG}`);
 
 export default function App() {
   const [fraunces] = useFraunces({
+    Fraunces_400Regular,
     Fraunces_500Medium,
+    Fraunces_600SemiBold,
   });
   const [playfair] = usePlayfair({
     PlayfairDisplay_400Regular_Italic,
@@ -115,6 +120,7 @@ export default function App() {
     Inter_500Medium,
     Inter_500Medium_Italic,
     Inter_600SemiBold,
+    Inter_700Bold,
   });
   const [mono] = useJetBrains({
     JetBrainsMono_400Regular,
