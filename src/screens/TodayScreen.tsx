@@ -16,6 +16,7 @@ import {
   View,
 } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
+import { DURATION, EASE, staggerDelay } from '../design/motion';
 import { useAuth } from '../lib/auth';
 import { loadCredential } from '../lib/icloud-credentials';
 import { TodayAgentFeed } from '../components/TodayAgentFeed';
@@ -1043,8 +1044,8 @@ function NoticedRow({
   // remaining rows up smoothly into the freed space - no manual animateOut.
   return (
     <Animated.View
-      entering={FadeIn.duration(420).delay(index * 100)}
-      exiting={FadeOut.duration(220)}
+      entering={FadeIn.duration(DURATION.enter).easing(EASE.out).delay(staggerDelay(index))}
+      exiting={FadeOut.duration(DURATION.exit)}
       layout={LinearTransition.duration(260)}
       style={styles.noticedRow}
     >
@@ -1085,8 +1086,8 @@ function PendingFactRow({
 }) {
   return (
     <Animated.View
-      entering={FadeIn.duration(420)}
-      exiting={FadeOut.duration(220)}
+      entering={FadeIn.duration(DURATION.enter).easing(EASE.out)}
+      exiting={FadeOut.duration(DURATION.exit)}
       layout={LinearTransition.duration(260)}
       style={styles.noticedRow}
     >

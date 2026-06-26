@@ -25,6 +25,7 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Linking, StyleSheet, View } from 'react-native';
 import Animated, { SlideInDown, SlideOutDown } from 'react-native-reanimated';
+import { DURATION } from './src/design/motion';
 import { ChromeInsetsContext, PhoneChrome, TabId } from './src/components/PhoneChrome';
 import { TabPane } from './src/components/TabPane';
 import { GlassHaloLayer } from './src/design/primitives/GlassHaloLayer';
@@ -776,8 +777,8 @@ export default function App() {
             // and gets pushed up by the keyboard with the old screen
             // peeking through underneath.
             style={[StyleSheet.absoluteFill, { backgroundColor: colors.paper }]}
-            entering={SlideInDown.duration(320)}
-            exiting={SlideOutDown.duration(260)}
+            entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
+            exiting={SlideOutDown.duration(DURATION.modalExit)}
           >
             <ChatScreen onBack={closeChat} initialDraft={chatDraft} initialDraftAutoSend={chatAutoSend} />
           </Animated.View>
@@ -786,8 +787,8 @@ export default function App() {
           <Animated.View
             key={`mail-${openMail.id}`}
             style={StyleSheet.absoluteFill}
-            entering={SlideInDown.duration(320)}
-            exiting={SlideOutDown.duration(260)}
+            entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
+            exiting={SlideOutDown.duration(DURATION.modalExit)}
           >
             <InboxDetailScreen mail={openMail} onClose={closeMailDetail} autoDraft={openMailAutoDraft} />
           </Animated.View>
@@ -796,8 +797,8 @@ export default function App() {
           <Animated.View
             key="notifications"
             style={StyleSheet.absoluteFill}
-            entering={SlideInDown.duration(320)}
-            exiting={SlideOutDown.duration(260)}
+            entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
+            exiting={SlideOutDown.duration(DURATION.modalExit)}
           >
             <NotificationsScreen
               onClose={closeNotifications}
@@ -809,8 +810,8 @@ export default function App() {
           <Animated.View
             key="sent-mails"
             style={StyleSheet.absoluteFill}
-            entering={SlideInDown.duration(320)}
-            exiting={SlideOutDown.duration(260)}
+            entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
+            exiting={SlideOutDown.duration(DURATION.modalExit)}
           >
             <SentMailScreen onClose={() => setSentMailsOpen(false)} />
           </Animated.View>
@@ -819,8 +820,8 @@ export default function App() {
           <Animated.View
             key="icloud-setup"
             style={StyleSheet.absoluteFill}
-            entering={SlideInDown.duration(320)}
-            exiting={SlideOutDown.duration(260)}
+            entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
+            exiting={SlideOutDown.duration(DURATION.modalExit)}
           >
             <IcloudSetupScreen
               prefilledEmail={icloudPrefilledEmail}
@@ -833,8 +834,8 @@ export default function App() {
           <Animated.View
             key="admin-consent"
             style={StyleSheet.absoluteFill}
-            entering={SlideInDown.duration(320)}
-            exiting={SlideOutDown.duration(260)}
+            entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
+            exiting={SlideOutDown.duration(DURATION.modalExit)}
           >
             <MicrosoftAdminConsentScreen
               prefilledEmail={adminConsentPrefilledEmail}
@@ -846,8 +847,8 @@ export default function App() {
           <Animated.View
             key="auth-sheet"
             style={StyleSheet.absoluteFill}
-            entering={SlideInDown.duration(320)}
-            exiting={SlideOutDown.duration(260)}
+            entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
+            exiting={SlideOutDown.duration(DURATION.modalExit)}
           >
             <AuthSheet onClose={closeAuthSheet} />
           </Animated.View>
@@ -859,8 +860,8 @@ export default function App() {
           <Animated.View
             key="onboarding-backfill"
             style={StyleSheet.absoluteFill}
-            entering={SlideInDown.duration(320)}
-            exiting={SlideOutDown.duration(260)}
+            entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
+            exiting={SlideOutDown.duration(DURATION.modalExit)}
           >
             {onboardingStage === 'v2-intro' && (
               <OnboardingFlowScreen

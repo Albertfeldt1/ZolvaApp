@@ -23,6 +23,7 @@ import Reanimated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-na
 import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { Icon as DesignIcon } from '../design/primitives/Icon';
+import { DURATION, ScaleButton } from '../design/motion';
 import { liquidGlassReady } from '../lib/liquid-glass';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
@@ -558,8 +559,8 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
             onPress={() => setDraftPreview(null)}
           />
           <Reanimated.View
-            entering={SlideInDown.duration(260)}
-            exiting={SlideOutDown.duration(220)}
+            entering={SlideInDown.springify().damping(20).stiffness(200).mass(0.9)}
+            exiting={SlideOutDown.duration(DURATION.modalExit)}
             style={{
               position: 'absolute',
               left: 0,
@@ -666,8 +667,9 @@ function HeaderRow(props: {
         paddingHorizontal: spacing.cardPad,
       }}
     >
-      <Pressable
+      <ScaleButton
         onPress={onBack}
+        haptic="light"
         style={{
           width: 34,
           height: 34,
@@ -680,7 +682,7 @@ function HeaderRow(props: {
         accessibilityLabel="Tilbage"
       >
         <ChevronLeft size={18} color={t.ink} strokeWidth={1.75} />
-      </Pressable>
+      </ScaleButton>
       <Stone size={36} />
       <View style={{ flex: 1 }}>
         <Text style={{ fontFamily: fonts.display, fontSize: 20, fontWeight: '600', letterSpacing: -0.4, color: t.ink }}>
@@ -690,23 +692,23 @@ function HeaderRow(props: {
           Læser kalender og mail
         </Text>
       </View>
-      <Pressable
+      <ScaleButton
         onPress={onClear}
         hitSlop={8}
-        style={({ pressed }) => ({
+        haptic="light"
+        style={{
           width: 34,
           height: 34,
           borderRadius: radius.pill,
           backgroundColor: surface.iconButton,
           alignItems: 'center',
           justifyContent: 'center',
-          opacity: pressed ? 0.6 : 1,
-        })}
+        }}
         accessibilityRole="button"
         accessibilityLabel="Slet samtale"
       >
         <Trash2 size={16} color={t.ink2} strokeWidth={1.75} />
-      </Pressable>
+      </ScaleButton>
     </View>
   );
 }
@@ -739,16 +741,16 @@ function DockRow(props: {
         paddingHorizontal: spacing.md,
       }}
     >
-      <Pressable
+      <ScaleButton
         hitSlop={8}
         onPress={onPickDrive}
         disabled={!onPickDrive}
-        style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
+        haptic="light"
         accessibilityRole="button"
         accessibilityLabel="Vedhæft fra Drive"
       >
         <DesignIcon.plus size={20} color={t.ink3} />
-      </Pressable>
+      </ScaleButton>
       <TextInput
         ref={inputRef}
         value={input}
