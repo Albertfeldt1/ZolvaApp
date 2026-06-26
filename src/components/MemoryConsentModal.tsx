@@ -1,6 +1,7 @@
 import React from 'react';
-import { Alert, Pressable, SafeAreaView, ScrollView, Text, View } from 'react-native';
+import { Alert, SafeAreaView, ScrollView, Text, View } from 'react-native';
 import Animated, { SlideInDown, SlideOutDown } from 'react-native-reanimated';
+import { DURATION, ScaleButton } from '../design/motion';
 import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
 import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
 import { Stone } from '../design/primitives/Stone';
@@ -52,8 +53,11 @@ export function MemoryConsentModal({ visible, userId, onClose }: Props) {
   return (
     <Animated.View
       style={{ ...StyleSheet_absoluteFillObject, zIndex: 100 }}
-      entering={SlideInDown.duration(320)}
-      exiting={SlideOutDown.duration(260)}
+      // Spring entrance (matches SPRING_GENTLE) so the sheet settles in like a
+      // native iOS sheet rather than sliding a fixed 320ms. Exit stays a brisk
+      // timed slide — exits should feel quicker than entrances.
+      entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
+      exiting={SlideOutDown.duration(DURATION.modalExit)}
     >
       <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
         <GlassHaloLayer />
@@ -123,15 +127,15 @@ export function MemoryConsentModal({ visible, userId, onClose }: Props) {
               {/* CTAs */}
               <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm }}>
                 {/* Secondary - decline */}
-                <Pressable
-                  style={({ pressed }) => ({
+                <ScaleButton
+                  haptic="light"
+                  style={{
                     flex: 1,
                     paddingVertical: spacing.md,
                     alignItems: 'center',
                     borderRadius: radius.pill,
                     backgroundColor: surface.glassWeak,
-                    opacity: pressed ? 0.7 : 1,
-                  })}
+                  }}
                   onPress={onClose}
                   accessibilityRole="button"
                   accessibilityLabel="Ikke nu"
@@ -139,18 +143,18 @@ export function MemoryConsentModal({ visible, userId, onClose }: Props) {
                   <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: t.ink2 }}>
                     Ikke nu
                   </Text>
-                </Pressable>
+                </ScaleButton>
 
                 {/* Primary - accept */}
-                <Pressable
-                  style={({ pressed }) => ({
+                <ScaleButton
+                  haptic="medium"
+                  style={{
                     flex: 2,
                     paddingVertical: spacing.md,
                     alignItems: 'center',
                     borderRadius: radius.pill,
                     backgroundColor: t.ink,
-                    opacity: pressed ? 0.8 : 1,
-                  })}
+                  }}
                   onPress={enable}
                   accessibilityRole="button"
                   accessibilityLabel="Aktivér hukommelse"
@@ -158,7 +162,7 @@ export function MemoryConsentModal({ visible, userId, onClose }: Props) {
                   <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: t.paper }}>
                     Aktivér hukommelse
                   </Text>
-                </Pressable>
+                </ScaleButton>
               </View>
             </GlassFrostedCard>
           </ScrollView>

@@ -1,6 +1,7 @@
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { useTheme } from '../useTheme';
+import { ScaleButton } from '../motion';
 import { Icon } from './Icon';
 
 type Props = {
@@ -43,7 +44,7 @@ export function TopBar({ eyebrow, onBell, onGear, onSend, onArchive }: Props) {
       </Text>
       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
         {onSend ? (
-          <Pressable
+          <ScaleButton
             onPress={onSend}
             accessibilityRole="button"
             accessibilityLabel="Sendte mails fra Zolva"
@@ -57,10 +58,10 @@ export function TopBar({ eyebrow, onBell, onGear, onSend, onArchive }: Props) {
             }}
           >
             <Icon.send size={ICON_GLYPH_SIZE} color={t.ink2} />
-          </Pressable>
+          </ScaleButton>
         ) : null}
         {onArchive ? (
-          <Pressable
+          <ScaleButton
             onPress={onArchive}
             accessibilityRole="button"
             accessibilityLabel="Arkiverede mails"
@@ -74,9 +75,9 @@ export function TopBar({ eyebrow, onBell, onGear, onSend, onArchive }: Props) {
             }}
           >
             <Icon.archive size={ICON_GLYPH_SIZE} color={t.ink2} />
-          </Pressable>
+          </ScaleButton>
         ) : null}
-        <Pressable
+        <ScaleButton
           onPress={onBell}
           style={{
             width: ICON_BUTTON_SIZE,
@@ -88,8 +89,8 @@ export function TopBar({ eyebrow, onBell, onGear, onSend, onArchive }: Props) {
           }}
         >
           <Icon.bell size={ICON_GLYPH_SIZE} color={t.ink2} />
-        </Pressable>
-        <Pressable
+        </ScaleButton>
+        <ScaleButton
           onPress={onGear}
           style={{
             width: ICON_BUTTON_SIZE,
@@ -101,7 +102,7 @@ export function TopBar({ eyebrow, onBell, onGear, onSend, onArchive }: Props) {
           }}
         >
           <Icon.gear size={ICON_GLYPH_SIZE} color={t.ink2} />
-        </Pressable>
+        </ScaleButton>
       </View>
     </View>
   );
