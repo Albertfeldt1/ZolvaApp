@@ -3,6 +3,7 @@ import { ScrollView, View } from 'react-native';
 import { Check } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { PaperText, SegmentedControl, papirColor, papirRadius, papirSpace } from '../../design/papir';
+import { DayTimeline } from './DayTimeline';
 
 function GroupLabel({ children }: { children: string }) {
   return (
@@ -94,12 +95,6 @@ const WEEK = [
   { wn: 'S', d: 16 },
 ];
 
-const EVENTS = [
-  { time: '11.00', title: 'Kundemøde hos Hansen', place: 'Hovedgaden 12' },
-  { time: '13.55', title: 'Aflever 2 dyr til Ole', place: 'Gården' },
-  { time: '16.30', title: 'Opkald med revisor', place: 'Telefon' },
-];
-
 function CalendarView() {
   const [sel, setSel] = useState(1);
   return (
@@ -131,31 +126,8 @@ function CalendarView() {
           );
         })}
       </View>
-      <View style={{ marginTop: papirSpace.lg }}>
-        {EVENTS.map((e) => (
-          <View key={e.time} style={{ flexDirection: 'row', gap: 14, paddingHorizontal: papirSpace.screen, paddingVertical: 8 }}>
-            <PaperText role="small" color={papirColor.ink3} tabular style={{ width: 42, paddingTop: 12 }}>
-              {e.time}
-            </PaperText>
-            <View
-              style={{
-                flex: 1,
-                borderWidth: 1,
-                borderColor: papirColor.line,
-                borderLeftWidth: 3,
-                borderLeftColor: papirColor.red,
-                borderRadius: 13,
-                backgroundColor: papirColor.card,
-                padding: 12,
-              }}
-            >
-              <PaperText role="bodyStrong">{e.title}</PaperText>
-              <PaperText role="caption" color={papirColor.ink2} style={{ marginTop: 3 }}>
-                {e.place}
-              </PaperText>
-            </View>
-          </View>
-        ))}
+      <View style={{ marginTop: papirSpace.lg, paddingLeft: papirSpace.screen }}>
+        <DayTimeline />
       </View>
     </View>
   );
