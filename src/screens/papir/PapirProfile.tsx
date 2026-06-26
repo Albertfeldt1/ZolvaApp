@@ -10,6 +10,7 @@ import {
 } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { Button, PaperText, papirColor, papirDarkSurface, papirRadius, papirSpace } from '../../design/papir';
+import { usePapirNav, type PushScreen } from './nav';
 
 type IconCmp = ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
 
@@ -19,19 +20,20 @@ const STATS: [string, string][] = [
   ['41', 'Opgaver'],
 ];
 
-const MENU: { Icon: IconCmp; label: string; value?: string }[] = [
-  { Icon: Settings, label: 'Indstillinger' },
+const MENU: { Icon: IconCmp; label: string; value?: string; screen?: PushScreen }[] = [
+  { Icon: Settings, label: 'Indstillinger', screen: 'settings' },
   { Icon: Crown, label: 'Zolva Premium', value: 'Prøv gratis' },
   { Icon: FileText, label: 'Mine noter' },
   { Icon: Download, label: 'Eksportér data' },
   { Icon: HelpCircle, label: 'Hjælp & support' },
 ];
 
-function MenuRow({ Icon, label, value, divider }: { Icon: IconCmp; label: string; value?: string; divider: boolean }) {
+function MenuRow({ Icon, label, value, divider, onPress }: { Icon: IconCmp; label: string; value?: string; divider: boolean; onPress?: () => void }) {
   return (
     <ScaleButton
       scaleTo={0.99}
       haptic="none"
+      onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
       style={{
@@ -59,6 +61,7 @@ function MenuRow({ Icon, label, value, divider }: { Icon: IconCmp; label: string
 }
 
 export function PapirProfile() {
+  const nav = usePapirNav();
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: papirColor.paper }}
@@ -171,7 +174,14 @@ export function PapirProfile() {
         }}
       >
         {MENU.map((m, i) => (
-          <MenuRow key={m.label} Icon={m.Icon} label={m.label} value={m.value} divider={i > 0} />
+          <MenuRow
+            key={m.label}
+            Icon={m.Icon}
+            label={m.label}
+            value={m.value}
+            divider={i > 0}
+            onPress={m.screen ? () => nav.push(m.screen as PushScreen) : undefined}
+          />
         ))}
       </View>
 

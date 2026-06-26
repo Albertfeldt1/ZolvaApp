@@ -19,15 +19,17 @@ import {
   papirShadow,
   papirSpace,
 } from '../../design/papir';
+import { usePapirNav } from './nav';
 import { WaveGlyph } from './WaveGlyph';
 
 type IconCmp = ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
 
-function QuickButton({ Icon, label }: { Icon: IconCmp; label: string }) {
+function QuickButton({ Icon, label, onPress }: { Icon: IconCmp; label: string; onPress?: () => void }) {
   return (
     <ScaleButton
       scaleTo={0.97}
       haptic="light"
+      onPress={onPress}
       style={{
         width: 88,
         gap: 10,
@@ -126,6 +128,7 @@ function TaskRow({ title, time, done: initialDone }: { title: string; time: stri
 }
 
 export function PapirHome() {
+  const nav = usePapirNav();
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: papirColor.paper }}
@@ -149,7 +152,7 @@ export function PapirHome() {
             Godmorgen,{'\n'}Oscar.
           </PaperText>
         </View>
-        <IconButton accessibilityLabel="Søg">
+        <IconButton accessibilityLabel="Søg" onPress={() => nav.push('search')}>
           <Search size={18} color={papirColor.ink} strokeWidth={1.8} />
         </IconButton>
       </View>
@@ -176,10 +179,10 @@ export function PapirHome() {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ gap: 10, paddingHorizontal: papirSpace.screen, paddingTop: papirSpace.xl }}
       >
-        <QuickButton Icon={AlignLeft} label="Briefing" />
+        <QuickButton Icon={AlignLeft} label="Briefing" onPress={() => nav.push('briefing')} />
         <QuickButton Icon={FileText} label="Noter" />
-        <QuickButton Icon={MessageSquare} label="Chat" />
-        <QuickButton Icon={Search} label="Søg" />
+        <QuickButton Icon={MessageSquare} label="Chat" onPress={() => nav.push('chat')} />
+        <QuickButton Icon={Search} label="Søg" onPress={() => nav.push('search')} />
       </ScrollView>
 
       {/* In focus: morning briefing card (dark surface) */}
