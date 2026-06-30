@@ -94,12 +94,16 @@ export function PapirTranscription({ uri, onDone }: Props) {
     let cancelled = false;
     (async () => {
       try {
+        console.log('[voice] transcribing uri:', uri);
         const transcript = await transcribeAudio(uri);
+        console.log('[voice] transcript:', JSON.stringify(transcript).slice(0, 120));
         const { title, actions } = await extractActions(transcript);
+        console.log('[voice] extracted:', title, '· actions:', actions.length);
         if (!cancelled) setData({ title, transcript, actions });
-      } catch {
+      } catch (e) {
         // Not logged in / backend not deployed yet → fall back to demo so the
         // flow stays demonstrable in preview.
+        console.warn('[voice] transcription failed → demo fallback:', e instanceof Error ? e.message : String(e));
         if (!cancelled) setData(DEMO);
       } finally {
         if (!cancelled) setLoading(false);

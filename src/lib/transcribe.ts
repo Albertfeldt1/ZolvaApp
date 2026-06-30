@@ -6,6 +6,7 @@
 //
 // The OpenAI key NEVER lives in the app — only in the edge function, exactly
 // like ANTHROPIC_API_KEY behind claude-proxy.
+import { uploadAsync, FileSystemUploadType } from 'expo-file-system/legacy';
 import { supabase } from './supabase';
 import { completeJson } from './claude';
 
@@ -29,26 +30,20 @@ export async function transcribeAudio(uri: string): Promise<string> {
     throw new TranscribeError('Du skal være logget ind for at transskribere.');
   }
 
-  // React Native FormData accepts a { uri, name, type } file part directly.
-  const form = new FormData();
-  form.append('file', {
-    uri,
-    name: 'optagelse.m4a',
-    type: 'audio/m4a',
-    // RN's FormData file shape isn't in the DOM lib types.
-  } as unknown as Blob);
-  form.append('language', 'da');
-
-  let res: Response;
+  // Use expo-file-system's native multipart upload — far more reliable on iOS
+  // than fetch + FormData with a file part (which dropped uploads intermittently).
+  let res: { status: number; body: string };
   try {
-    res = await fetch(TRANSCRIBE_URL, {
-      method: 'POST',
+    res = await uploadAsync(TRANSCRIBE_URL, uri, {
+      httpMethod: 'POST',
+      uploadType: FileSystemUploadType.MULTIPART,
+      fieldName: 'file',
+      mimeType: 'audio/m4a',
+      parameters: { language: 'da' },
       headers: {
         authorization: `Bearer ${accessToken}`,
         apikey: SUPABASE_ANON,
-        // NB: do NOT set content-type — fetch sets the multipart boundary itself.
       },
-      body: form,
     });
   } catch {
     throw new TranscribeError('Kunne ikke nå serveren. Tjek din forbindelse.');
@@ -57,11 +52,17 @@ export async function transcribeAudio(uri: string): Promise<string> {
   if (res.status === 429) {
     throw new TranscribeError('Du har nået din grænse for nu. Prøv igen senere.');
   }
-  if (!res.ok) {
-    throw new TranscribeError('Transskriberingen fejlede. Prøv igen.');
+  if (res.status < 200 || res.status >= 300) {
+    console.warn(`[voice] proxy ${res.status}: ${(res.body ?? '').slice(0, 300)}`);
+    throw new TranscribeError(`Transskriberingen fejlede (${res.status}).`);
   }
-  const json = (await res.json()) as { text?: string };
-  return (json.text ?? '').trim();
+  let parsed: { text?: string };
+  try {
+    parsed = JSON.parse(res.body) as { text?: string };
+  } catch {
+    throw new TranscribeError('Uventet svar fra serveren.');
+  }
+  return (parsed.text ?? '').trim();
 }
 
 export type ExtractedAction =
