@@ -69,6 +69,12 @@
       "expo-apple-authentication",
       "expo-video",
       [
+        "expo-audio",
+        {
+          "microphonePermission": "Zolva bruger mikrofonen, så du kan optage stemme-noter og få dem skrevet ned."
+        }
+      ],
+      [
         "expo-notifications",
         {
           "icon": "./assets/android/notification-icon.png",
