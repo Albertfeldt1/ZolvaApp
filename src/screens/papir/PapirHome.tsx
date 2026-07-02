@@ -19,6 +19,8 @@ import {
   papirShadow,
   papirSpace,
 } from '../../design/papir';
+import { useUser } from '../../lib/hooks';
+import { greeting, formatToday } from '../../lib/date';
 import { usePapirNav } from './nav';
 import { WaveGlyph } from './WaveGlyph';
 
@@ -129,6 +131,12 @@ function TaskRow({ title, time, done: initialDone }: { title: string; time: stri
 
 export function PapirHome() {
   const nav = usePapirNav();
+  const { data: user } = useUser();
+  const now = new Date();
+  const d = formatToday(now);
+  // Match the prototype's eyebrow style: "Tirsdag · 11. juni".
+  const eyebrow = `${d.weekdayFull} · ${d.day}. ${d.monthFull}`;
+  const firstName = user?.name?.trim().split(/\s+/)[0] ?? '';
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: papirColor.paper }}
@@ -146,10 +154,10 @@ export function PapirHome() {
       >
         <View>
           <PaperText role="eyebrow" color={papirColor.ink3}>
-            Tirsdag · 11. juni
+            {eyebrow}
           </PaperText>
           <PaperText role="displayL" style={{ marginTop: 14 }}>
-            Godmorgen,{'\n'}Oscar.
+            {greeting(now)},{firstName ? `\n${firstName}.` : '.'}
           </PaperText>
         </View>
         <IconButton accessibilityLabel="Søg" onPress={() => nav.push('search')}>
