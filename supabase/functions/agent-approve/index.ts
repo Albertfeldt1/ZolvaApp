@@ -144,6 +144,11 @@ serve(async (req) => {
           // unattended auto-send) does not apply. Without this the dispatcher
           // calls undefined() at the threadWasResearched check and throws.
           threadWasResearched: () => true,
+          // The guardrail gate exists for unattended auto-sends; the user's
+          // explicit approval IS the authorization here. Omitting this made
+          // the dispatcher degrade every approval to 'propose' (no send)
+          // while this function still marked the proposal executed.
+          railsOk: true,
         },
       },
     );
@@ -152,6 +157,18 @@ serve(async (req) => {
     console.error('[agent-approve] execute', msg);
     await client.from('proposed_actions').update({ status: 'failed' }).eq('id', actionId);
     return new Response(JSON.stringify({ ok: false, error: msg }), { status: 502 });
+  }
+
+  // The dispatcher degrades to 'propose' when a safety gate refuses the send.
+  // On this path nothing left the mailbox — treat it as a failure instead of
+  // recording an executed action that never happened.
+  if (exec.mode !== 'executed') {
+    console.error('[agent-approve] dispatcher refused send (mode=propose)', claimed.action_type);
+    await client.from('proposed_actions').update({ status: 'failed' }).eq('id', actionId);
+    return new Response(
+      JSON.stringify({ ok: false, error: 'dispatch_refused' }),
+      { status: 502 },
+    );
   }
 
   // Mirror to agent_actions so the executed row appears in the Today feed.
