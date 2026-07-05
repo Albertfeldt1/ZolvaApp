@@ -38,6 +38,7 @@
 - **Hvorfor:** Brugeren trykker "Send", appen siger sendt, mailen sendes aldrig (bliver i Drafts). Kernefunktion brudt siden 10. juni. Trust-eskalering tæller oveni de falske `executed`-rækker. `edited_body`-stien rammes også.
 - **Løsning:** (1) Tilføj `railsOk: true` i `agent-approve`s safety-objekt. (2) Tjek `exec.mode === 'executed'` før proposal markeres executed. (3) `deno check` i CI + integrationstest. (4) Verificér prod-data: er `executed`-rækker efter 2026-06-10 reelt sendt?
 - **Indsats:** Lille for fixet; Mellem inkl. test + dataoprydning
+- **✅ STATUS (2026-07-05):** Fixet i commit `28194eb` (railsOk + `exec.mode`-tjek) og deployet som `agent-approve` v16 kl. 13:06. Prod-data verificeret via SQL: **0** `executed`-rækker i bug-vinduet (10/6→5/7) — kun 2 executed nogensinde, begge 30/5 (før buggen). Ingen brugere ramt, ingen oprydning nødvendig. Punkt (3) — CI/test — udestår (H40).
 
 ### K3. Reel TypeScript-fejl: `runTurn` returnerer streng hvor `TurnResult` kræves
 - **Placering:** `src/lib/hooks.ts:5393` (type :5277, caller :5553)
@@ -45,6 +46,7 @@
 - **Hvorfor:** Ved runtime bliver `answer` `undefined`, `answer.length` kaster TypeError, og quota-/ratelimit-håndteringen i fejlgrenen rammes aldrig; brugeren reddes kun tilfældigt af den generiske `.catch`.
 - **Løsning:** `return { text: CHAT_ERROR_TEXT, finalizeJobId: null };`
 - **Indsats:** Lille (én linje)
+- **✅ STATUS (2026-07-05):** Fixet i commit `ea22aba`; `npx tsc --noEmit` er grøn.
 
 ### K4. Afbrudt OAuth-reconnect efterlader brugeren unlinked eller helt logget ud
 - **Placering:** `src/lib/auth.ts:351-374, 427-435`
