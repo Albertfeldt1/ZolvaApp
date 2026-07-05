@@ -1,5 +1,6 @@
 import React, { useState, type ComponentType } from 'react';
 import { ScrollView, View } from 'react-native';
+import { usePapirScreenPads } from './insets';
 import {
   AlignLeft,
   ArrowRight,
@@ -137,10 +138,11 @@ export function PapirHome() {
   // Match the prototype's eyebrow style: "Tirsdag · 11. juni".
   const eyebrow = `${d.weekdayFull} · ${d.day}. ${d.monthFull}`;
   const firstName = user?.name?.trim().split(/\s+/)[0] ?? '';
+  const pads = usePapirScreenPads();
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: papirColor.paper }}
-      contentContainerStyle={{ paddingTop: 60, paddingBottom: 120 }}
+      contentContainerStyle={{ paddingTop: pads.top, paddingBottom: pads.bottom }}
       showsVerticalScrollIndicator={false}
     >
       {/* Greeting */}

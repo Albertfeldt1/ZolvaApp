@@ -16,6 +16,30 @@ const TRANSCRIBE_URL = `${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/transcri
 
 export class TranscribeError extends Error {}
 
+// Upload cap: recordings are minutes of m4a (≈1 MB/min) — a healthy upload
+// finishes long before this. The legacy uploadAsync API has no abort signal,
+// so a race is the only way to stop the UI from hanging forever (M82).
+const UPLOAD_TIMEOUT_MS = 60_000;
+
+const MIME_BY_EXT: Record<string, string> = {
+  m4a: 'audio/m4a',
+  mp4: 'audio/mp4',
+  aac: 'audio/aac',
+  wav: 'audio/wav',
+  caf: 'audio/x-caf',
+  '3gp': 'audio/3gpp',
+  amr: 'audio/amr',
+  ogg: 'audio/ogg',
+  webm: 'audio/webm',
+};
+
+/** expo-audio's output container differs per platform/preset — derive the
+ * mimetype from the file extension instead of hardcoding m4a (L67). */
+function mimeTypeFor(uri: string): string {
+  const ext = uri.split('?')[0].split('.').pop()?.toLowerCase() ?? '';
+  return MIME_BY_EXT[ext] ?? 'audio/m4a';
+}
+
 /**
  * Upload a recorded audio file to the transcribe-proxy and return the Danish
  * transcript. `uri` is the local file URI from expo-audio's recorder.
@@ -34,18 +58,23 @@ export async function transcribeAudio(uri: string): Promise<string> {
   // than fetch + FormData with a file part (which dropped uploads intermittently).
   let res: { status: number; body: string };
   try {
-    res = await uploadAsync(TRANSCRIBE_URL, uri, {
+    const upload = uploadAsync(TRANSCRIBE_URL, uri, {
       httpMethod: 'POST',
       uploadType: FileSystemUploadType.MULTIPART,
       fieldName: 'file',
-      mimeType: 'audio/m4a',
+      mimeType: mimeTypeFor(uri),
       parameters: { language: 'da' },
       headers: {
         authorization: `Bearer ${accessToken}`,
         apikey: SUPABASE_ANON,
       },
     });
-  } catch {
+    const timeout = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new TranscribeError('Transskriberingen tog for lang tid. Prøv igen.')), UPLOAD_TIMEOUT_MS);
+    });
+    res = await Promise.race([upload, timeout]);
+  } catch (e) {
+    if (e instanceof TranscribeError) throw e;
     throw new TranscribeError('Kunne ikke nå serveren. Tjek din forbindelse.');
   }
 

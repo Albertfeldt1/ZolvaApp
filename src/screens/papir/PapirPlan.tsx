@@ -3,6 +3,7 @@ import { ScrollView, View } from 'react-native';
 import { Check } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { PaperText, SegmentedControl, papirColor, papirRadius, papirSpace } from '../../design/papir';
+import { usePapirScreenPads } from './insets';
 import { DayTimeline } from './DayTimeline';
 
 function GroupLabel({ children }: { children: string }) {
@@ -135,10 +136,11 @@ function CalendarView() {
 
 export function PapirPlan() {
   const [view, setView] = useState(0);
+  const pads = usePapirScreenPads();
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: papirColor.paper }}
-      contentContainerStyle={{ paddingTop: 60, paddingBottom: 120 }}
+      contentContainerStyle={{ paddingTop: pads.top, paddingBottom: pads.bottom }}
       showsVerticalScrollIndicator={false}
     >
       <View style={{ paddingHorizontal: papirSpace.screen }}>

@@ -1,28 +1,21 @@
 import React, { useEffect, useState, type ComponentType } from 'react';
 import { ActivityIndicator, ScrollView, View } from 'react-native';
 import { Calendar, Clock } from 'lucide-react-native';
+import { deleteAsync } from 'expo-file-system/legacy';
 import { ScaleButton } from '../../design/motion';
 import { Button, PaperText, papirColor, papirRadius, papirSpace } from '../../design/papir';
-import { extractActions, transcribeAudio, type ExtractedAction } from '../../lib/transcribe';
+import { extractActions, transcribeAudio, TranscribeError, type ExtractedAction } from '../../lib/transcribe';
 import { PushHeader } from './PushHeader';
 
 type Props = {
-  /** Local audio URI to transcribe. Omit for the demo/mock preview. */
-  uri?: string | null;
-  onDone?: () => void;
+  /** Local audio URI to transcribe. */
+  uri: string;
+  /** Recording length in ms (threaded from PapirRecord; persisted in M1). */
+  durationMillis?: number;
+  onDone: () => void;
 };
 
 type Loaded = { title: string; transcript: string; actions: ExtractedAction[] };
-
-const DEMO: Loaded = {
-  title: 'Aflevering til Ole',
-  transcript:
-    'Husk lige at ringe til Ole inden frokost om afleveringen. Jeg skal aflevere de to dyr klokken 13.55, og jeg vil gerne mindes om det en halv time før.',
-  actions: [
-    { kind: 'reminder', title: 'Ring til Ole inden frokost', time: '13.25' },
-    { kind: 'event', title: 'Aflever 2 dyr til Ole', time: '13.55' },
-  ],
-};
 
 type IconCmp = ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
 
@@ -85,32 +78,42 @@ function ActionCard({ action }: { action: ExtractedAction }) {
   );
 }
 
-export function PapirTranscription({ uri, onDone }: Props) {
-  const [loading, setLoading] = useState(!!uri);
-  const [data, setData] = useState<Loaded>(DEMO);
+export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
+  void durationMillis; // persisted with the note in M1
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<Loaded | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (!uri) return; // demo mode — show mock immediately
     let cancelled = false;
+    setLoading(true);
+    setError(null);
     (async () => {
       try {
-        console.log('[voice] transcribing uri:', uri);
         const transcript = await transcribeAudio(uri);
-        console.log('[voice] transcript:', JSON.stringify(transcript).slice(0, 120));
         const { title, actions } = await extractActions(transcript);
-        console.log('[voice] extracted:', title, '· actions:', actions.length);
         if (!cancelled) setData({ title, transcript, actions });
       } catch (e) {
-        // Not logged in / backend not deployed yet → fall back to demo so the
-        // flow stays demonstrable in preview.
-        console.warn('[voice] transcription failed → demo fallback:', e instanceof Error ? e.message : String(e));
-        if (!cancelled) setData(DEMO);
+        // Show the real failure — never invent content the user didn't record.
+        const msg =
+          e instanceof TranscribeError ? e.message : 'Transskriberingen fejlede. Prøv igen.';
+        console.warn('[voice] transcription failed:', e instanceof Error ? e.message : String(e));
+        if (!cancelled) setError(msg);
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
+    };
+  }, [uri, attempt]);
+
+  // The recorder's temp file is only needed while this screen can still
+  // retry. Audio is not kept (transcript-only by design) — clean up on exit.
+  useEffect(() => {
+    return () => {
+      deleteAsync(uri, { idempotent: true }).catch(() => {});
     };
   }, [uri]);
 
@@ -120,7 +123,7 @@ export function PapirTranscription({ uri, onDone }: Props) {
       contentContainerStyle={{ paddingBottom: 40 }}
       showsVerticalScrollIndicator={false}
     >
-      <PushHeader title="Ny optagelse" />
+      <PushHeader title="Ny optagelse" onBack={onDone} />
 
       {loading ? (
         <View style={{ alignItems: 'center', paddingTop: 80, gap: 14 }}>
@@ -129,7 +132,17 @@ export function PapirTranscription({ uri, onDone }: Props) {
             Skriver din optagelse ned…
           </PaperText>
         </View>
-      ) : (
+      ) : error ? (
+        <View style={{ alignItems: 'center', paddingTop: 80, gap: 18, paddingHorizontal: papirSpace.screen }}>
+          <PaperText role="body" color={papirColor.ink2} style={{ textAlign: 'center' }}>
+            {error}
+          </PaperText>
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <Button label="Kassér" variant="ghost" style={{ paddingHorizontal: 24 }} onPress={onDone} />
+            <Button label="Prøv igen" variant="primary" style={{ paddingHorizontal: 24 }} onPress={() => setAttempt((a) => a + 1)} />
+          </View>
+        </View>
+      ) : data ? (
         <>
           <View style={{ paddingHorizontal: papirSpace.screen }}>
             <PaperText role="caption" color={papirColor.ink3} tabular>
@@ -160,7 +173,7 @@ export function PapirTranscription({ uri, onDone }: Props) {
                 </PaperText>
               </View>
               {data.actions.map((a, i) => (
-                <ActionCard key={i} action={a} />
+                <ActionCard key={`${a.kind}-${a.title}-${i}`} action={a} />
               ))}
             </View>
           ) : null}
@@ -170,7 +183,7 @@ export function PapirTranscription({ uri, onDone }: Props) {
             <Button label="Gem note" variant="primary" style={{ flex: 1 }} onPress={onDone} />
           </View>
         </>
-      )}
+      ) : null}
     </ScrollView>
   );
 }

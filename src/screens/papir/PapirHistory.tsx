@@ -1,6 +1,7 @@
 import React from 'react';
 import { ScrollView, View } from 'react-native';
 import { ListRow, PaperText, papirColor, papirSpace } from '../../design/papir';
+import { usePapirScreenPads } from './insets';
 import { WaveGlyph } from './WaveGlyph';
 
 function GroupLabel({ children }: { children: string }) {
@@ -40,10 +41,11 @@ const GROUPS = [
 ];
 
 export function PapirHistory() {
+  const pads = usePapirScreenPads();
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: papirColor.paper }}
-      contentContainerStyle={{ paddingTop: 60, paddingBottom: 120 }}
+      contentContainerStyle={{ paddingTop: pads.top, paddingBottom: pads.bottom }}
       showsVerticalScrollIndicator={false}
     >
       <View style={{ paddingHorizontal: papirSpace.screen }}>

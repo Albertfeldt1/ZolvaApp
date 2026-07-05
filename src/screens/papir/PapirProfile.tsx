@@ -1,5 +1,6 @@
 import React, { type ComponentType } from 'react';
 import { ScrollView, View } from 'react-native';
+import { usePapirScreenPads } from './insets';
 import {
   ChevronRight,
   Crown,
@@ -62,10 +63,11 @@ function MenuRow({ Icon, label, value, divider, onPress }: { Icon: IconCmp; labe
 
 export function PapirProfile() {
   const nav = usePapirNav();
+  const pads = usePapirScreenPads();
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: papirColor.paper }}
-      contentContainerStyle={{ paddingTop: 60, paddingBottom: 120 }}
+      contentContainerStyle={{ paddingTop: pads.top, paddingBottom: pads.bottom }}
       showsVerticalScrollIndicator={false}
     >
       {/* Identity */}

@@ -74,6 +74,7 @@ import { listWritableCalendars, type ProviderCalendar } from '../lib/calendar-pr
 import { useIntegrationFlags, clearIntegrationFlags } from '../lib/integration-flags';
 import type { CalendarLabelKey } from '../lib/calendar-labels';
 import { supabase } from '../lib/supabase';
+import { setPapirEnabled } from '../lib/papir-flag';
 import type { Connection, IntegrationStatus, WorkPreference } from '../lib/types';
 import { clearCredential, loadCredential } from '../lib/icloud-credentials';
 import { clearDiscoveryCacheFor } from '../lib/icloud-calendar';
@@ -2245,6 +2246,19 @@ export function SettingsScreen({
                   <Text style={{ ...type.body, color: '#D14343' }}>→</Text>
                 </Pressable>
               </SettingsSectionCard>
+
+              {/* Dev: switch to the Papir UI (runtime toggle; release builds
+                  ignore the flag entirely — see src/lib/papir-flag.ts). */}
+              {__DEV__ && (
+                <Pressable
+                  onPress={() => {
+                    void setPapirEnabled(true);
+                  }}
+                  style={{ padding: 16, backgroundColor: '#333', borderRadius: 8, marginTop: 24, marginHorizontal: spacing.screenPad }}
+                >
+                  <Text style={{ color: '#fff' }}>Papir UI (dev)</Text>
+                </Pressable>
+              )}
 
               {/* Dev buttons - only visible for albertfeldt1; keep dark style */}
               {user?.email === 'albertfeldt1@gmail.com' && (

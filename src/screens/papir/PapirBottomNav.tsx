@@ -1,6 +1,7 @@
 import React, { type ComponentType } from 'react';
 import { Pressable, View } from 'react-native';
 import { AudioLines, CalendarCheck, House, User } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PaperText, RecordFAB, papirColor, papirSpace } from '../../design/papir';
 
 export type PapirTab = 'home' | 'plan' | 'history' | 'profile';
@@ -49,6 +50,9 @@ type Props = {
 
 /** Bottom nav: I dag · Plan · [record FAB] · Historik · Profil. */
 export function PapirBottomNav({ active, onChange, onRecord }: Props) {
+  // Home-indicator devices get the real inset; button-devices a fixed 16pt.
+  const insets = useSafeAreaInsets();
+  const bottomPad = Math.max(insets.bottom, 16);
   return (
     <View
       style={{
@@ -56,10 +60,10 @@ export function PapirBottomNav({ active, onChange, onRecord }: Props) {
         left: 0,
         right: 0,
         bottom: 0,
-        height: 92,
+        height: 68 + bottomPad,
         paddingTop: 12,
         paddingHorizontal: 14,
-        paddingBottom: 24,
+        paddingBottom: bottomPad,
         flexDirection: 'row',
         alignItems: 'flex-start',
         backgroundColor: papirColor.paper,

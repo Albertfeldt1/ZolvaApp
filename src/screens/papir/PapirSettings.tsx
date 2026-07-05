@@ -1,7 +1,8 @@
 import React, { useState, type ComponentType, type ReactNode } from 'react';
-import { ScrollView, View } from 'react-native';
-import { Bell, ChevronRight, Globe, Lock, Moon, Trash2, User, Vibrate } from 'lucide-react-native';
+import { Pressable, ScrollView, View } from 'react-native';
+import { ArrowLeftRight, Bell, ChevronRight, Globe, Lock, Moon, Trash2, User, Vibrate } from 'lucide-react-native';
 import { PaperText, Toggle, papirColor, papirRadius, papirSpace } from '../../design/papir';
+import { setPapirEnabled } from '../../lib/papir-flag';
 import { PushHeader } from './PushHeader';
 
 type IconCmp = ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
@@ -101,6 +102,16 @@ export function PapirSettings() {
         <SRow Icon={Lock} label="Privatliv & data" right={chevron} divider={false} />
         <SRow Icon={Trash2} label="Slet alle data" danger right={chevron} divider />
       </Group>
+
+      {/* Dev: exit hatch back to the classic UI (the toggle lives in the
+          classic Settings' dev cluster; without this Papir is a roach motel). */}
+      {__DEV__ ? (
+        <Group label="Udvikler">
+          <Pressable onPress={() => void setPapirEnabled(false)} accessibilityRole="button" accessibilityLabel="Skift til klassisk UI">
+            <SRow Icon={ArrowLeftRight} label="Skift til klassisk UI" right={chevron} divider={false} />
+          </Pressable>
+        </Group>
+      ) : null}
     </ScrollView>
   );
 }

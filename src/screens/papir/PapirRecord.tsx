@@ -8,43 +8,76 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
+import { deleteAsync } from 'expo-file-system/legacy';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScaleButton } from '../../design/motion';
 import { PaperText, papirColor, papirDuration, papirShadow } from '../../design/papir';
 
 type Props = {
-  /** Called with the recorded file URI when the user stops. */
-  onStop: (uri: string) => void;
+  /** Called with the recorded file URI + duration when the user stops. */
+  onStop: (uri: string, durationMillis: number) => void;
   onClose: () => void;
 };
 
 const BAR_COUNT = 34;
 
+/** Leave the iOS audio session in playback mode — recording mode mutes other
+ * apps' audio and must never outlive this screen. Best-effort. */
+function resetAudioMode(): void {
+  setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
+}
+
 /** Full-screen record overlay: real expo-audio recording + live UI. */
 export function PapirRecord({ onStop, onClose }: Props) {
+  const insets = useSafeAreaInsets();
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const state = useAudioRecorderState(recorder);
   const [paused, setPaused] = useState(false);
   const [bars, setBars] = useState<number[]>(() => Array(BAR_COUNT).fill(8));
   const startedRef = useRef(false);
+  const stoppingRef = useRef(false);
 
   // Request mic permission + start recording once on mount.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const perm = await requestRecordingPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert('Mikrofon-adgang', 'Giv Zolva adgang til mikrofonen for at optage stemme-noter.');
-        onClose();
-        return;
+      try {
+        const perm = await requestRecordingPermissionsAsync();
+        if (cancelled) return;
+        if (!perm.granted) {
+          Alert.alert('Mikrofon-adgang', 'Giv Zolva adgang til mikrofonen for at optage stemme-noter.');
+          onClose();
+          return;
+        }
+        await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+        if (cancelled) return;
+        await recorder.prepareToRecordAsync();
+        // The user may have hit Annullér while prepare was in flight — starting
+        // now would leave a ghost recording behind the closed overlay.
+        if (cancelled) {
+          resetAudioMode();
+          return;
+        }
+        recorder.record();
+        startedRef.current = true;
+      } catch (e) {
+        console.warn('[voice] recorder start failed:', e instanceof Error ? e.message : String(e));
+        if (!cancelled) {
+          Alert.alert('Optagelse', 'Optagelsen kunne ikke startes. Prøv igen.');
+          resetAudioMode();
+          onClose();
+        }
       }
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      if (cancelled) return;
-      await recorder.prepareToRecordAsync();
-      recorder.record();
-      startedRef.current = true;
     })();
     return () => {
       cancelled = true;
+      // Unmount without an explicit stop (e.g. Android back): stop the native
+      // recorder and restore the audio session. File cleanup happens in the
+      // close path; after a normal stop the file is owned by transcription.
+      if (startedRef.current && !stoppingRef.current) {
+        stoppingRef.current = true;
+        recorder.stop().catch(() => {}).finally(resetAudioMode);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -60,24 +93,50 @@ export function PapirRecord({ onStop, onClose }: Props) {
   }, [paused]);
 
   const togglePause = () => {
-    if (paused) {
-      recorder.record();
-      setPaused(false);
-    } else {
-      recorder.pause();
-      setPaused(true);
+    if (!startedRef.current || stoppingRef.current) return;
+    try {
+      if (paused) {
+        recorder.record();
+        setPaused(false);
+      } else {
+        recorder.pause();
+        setPaused(true);
+      }
+    } catch (e) {
+      console.warn('[voice] pause/resume failed:', e instanceof Error ? e.message : String(e));
     }
   };
 
   const stop = async () => {
+    if (!startedRef.current || stoppingRef.current) return;
+    stoppingRef.current = true;
+    // Capture duration before stop — the recorder state resets afterwards.
+    const durationMillis = state.durationMillis ?? 0;
     try {
       await recorder.stop();
     } catch {
       // ignore — we still try to read whatever uri exists
     }
+    resetAudioMode();
     const uri = recorder.uri;
-    if (uri) onStop(uri);
+    if (uri) onStop(uri, durationMillis);
     else onClose();
+  };
+
+  const close = () => {
+    if (startedRef.current && !stoppingRef.current) {
+      stoppingRef.current = true;
+      // Discard: stop, delete the temp take, restore the audio session.
+      recorder
+        .stop()
+        .catch(() => {})
+        .then(() => {
+          const uri = recorder.uri;
+          if (uri) return deleteAsync(uri, { idempotent: true }).catch(() => {});
+        })
+        .finally(resetAudioMode);
+    }
+    onClose();
   };
 
   const totalSecs = Math.floor((state.durationMillis ?? 0) / 1000);
@@ -96,7 +155,7 @@ export function PapirRecord({ onStop, onClose }: Props) {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: papirColor.paper, alignItems: 'center', paddingTop: 70 }}>
+    <View style={{ flex: 1, backgroundColor: papirColor.paper, alignItems: 'center', paddingTop: insets.top + 24 }}>
       <PaperText role="eyebrow" color={papirColor.ink3}>
         Optager
       </PaperText>
@@ -143,7 +202,7 @@ export function PapirRecord({ onStop, onClose }: Props) {
         >
           <View style={{ width: 26, height: 26, borderRadius: 8, backgroundColor: papirColor.paper }} />
         </ScaleButton>
-        <ScaleButton scaleTo={0.9} haptic="light" onPress={onClose} style={side} accessibilityLabel="Annullér">
+        <ScaleButton scaleTo={0.9} haptic="light" onPress={close} style={side} accessibilityLabel="Annullér">
           <X size={20} color={papirColor.ink} strokeWidth={1.8} />
         </ScaleButton>
       </View>

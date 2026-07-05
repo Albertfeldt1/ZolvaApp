@@ -92,6 +92,8 @@ import { usePendingProposalCount } from './src/lib/agent-proposals';
 import { syncUserProfile } from './src/lib/user-profile';
 import { registerPresenceListener } from './src/lib/presence';
 import { writeSnapshotFromSources } from './src/lib/widget-bridge';
+import { usePapirEnabled } from './src/lib/papir-flag';
+import { PapirRoot } from './src/screens/papir/PapirRoot';
 
 // Module-level flag - persists across component re-renders and across
 // background/foreground transitions (JS VM stays warm), but resets on cold
@@ -536,6 +538,10 @@ export default function App() {
   // Computed early so the chrome-inset memo can account for the login CTA bar.
   const loggedOut = !authInitializing && !user;
 
+  // Dev-only Papir toggle (always false in release builds). Declared with the
+  // other hooks so the early return below stays hook-safe.
+  const papirEnabled = usePapirEnabled();
+
   // Shadow from the tab bar bleeds a few pixels above its measured box;
   // a small buffer keeps the last line of content clear of it. When logged
   // out, the persistent login CTA bar sits above the tab chrome, so content
@@ -550,6 +556,20 @@ export default function App() {
     // Match app.json splash.backgroundColor so the pre-bundle native splash
     // and this fallback view share a seam-free color while fonts load.
     return <View style={[styles.root, { backgroundColor: '#FF8868' }]} />;
+  }
+
+  // Papir UI (dev toggle): a different face on the same running app. Every
+  // boot effect above (auth, RevenueCat, push, deep links, widget snapshot)
+  // keeps running — only the rendered chrome changes. Classic path below is
+  // untouched when the flag is off.
+  if (papirEnabled) {
+    return (
+      <ThemeProvider>
+        <ErrorBoundary>
+          <PapirRoot loggedOut={loggedOut} />
+        </ErrorBoundary>
+      </ThemeProvider>
+    );
   }
 
   // Logged-out tracking is only used for downstream UX hints now (e.g. the
