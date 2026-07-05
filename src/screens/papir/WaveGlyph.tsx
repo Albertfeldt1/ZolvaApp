@@ -8,6 +8,14 @@ type Props = {
   barWidth?: number;
 };
 
+/** Deterministic pseudo-waveform per note id so rows stay visually distinct
+ * without storing audio (transcript-only by design). */
+export function barsFor(id: string): number[] {
+  let h = 0;
+  for (let i = 0; i < id.length; i += 1) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return Array.from({ length: 5 }, (_, i) => 5 + ((h >> (i * 5)) % 9));
+}
+
 /** Static mini-waveform glyph used as the leading icon on recording rows. */
 export function WaveGlyph({ heights = [5, 11, 7, 13, 6], color = papirColor.ink3, barWidth = 2 }: Props) {
   return (

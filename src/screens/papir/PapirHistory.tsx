@@ -5,7 +5,7 @@ import { ListRow, PaperText, SegmentedControl, papirColor, papirSpace } from '..
 import { useNotes } from '../../lib/hooks';
 import type { Note } from '../../lib/types';
 import { usePapirScreenPads } from './insets';
-import { WaveGlyph } from './WaveGlyph';
+import { barsFor, WaveGlyph } from './WaveGlyph';
 
 function GroupLabel({ children }: { children: string }) {
   return (
@@ -17,14 +17,6 @@ function GroupLabel({ children }: { children: string }) {
       {children}
     </PaperText>
   );
-}
-
-/** Deterministic pseudo-waveform per note so rows stay visually distinct
- * without storing audio (transcript-only by design). */
-function barsFor(id: string): number[] {
-  let h = 0;
-  for (let i = 0; i < id.length; i += 1) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return Array.from({ length: 5 }, (_, i) => 5 + ((h >> (i * 5)) % 9));
 }
 
 const WEEKDAYS_SHORT = ['Søn', 'Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør'];
