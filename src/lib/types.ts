@@ -257,6 +257,11 @@ export type Note = {
   text: string;
   category: NoteCategory;
   createdAt: Date;
+  // Voice-note extras (Papir): optional so existing stored notes revive
+  // unchanged. Audio itself is NOT kept — transcript-only by design.
+  title?: string;
+  durationSec?: number;
+  source?: 'voice' | 'text';
 };
 
 export type Result<T> = {

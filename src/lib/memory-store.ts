@@ -36,7 +36,16 @@ function reviveNote(raw: unknown): Note | null {
   const category: NoteCategory = categories.includes(n.category as NoteCategory)
     ? (n.category as NoteCategory)
     : 'note';
-  return { id: n.id, text: n.text, category, createdAt };
+  return {
+    id: n.id,
+    text: n.text,
+    category,
+    createdAt,
+    // Voice-note extras — pass through when present, drop when malformed.
+    ...(typeof n.title === 'string' && n.title ? { title: n.title } : {}),
+    ...(typeof n.durationSec === 'number' && Number.isFinite(n.durationSec) ? { durationSec: n.durationSec } : {}),
+    ...(n.source === 'voice' || n.source === 'text' ? { source: n.source } : {}),
+  };
 }
 
 async function hydrate(): Promise<void> {
@@ -119,7 +128,13 @@ export function listNotes(): Note[] {
   return notesCache;
 }
 
-export async function addNote(text: string, category: NoteCategory = 'note'): Promise<Note> {
+export type NoteExtras = Partial<Pick<Note, 'title' | 'durationSec' | 'source'>>;
+
+export async function addNote(
+  text: string,
+  category: NoteCategory = 'note',
+  extras?: NoteExtras,
+): Promise<Note> {
   ensureUserSubscription();
   await hydrate();
   if (!currentUid) throw new Error('No active user - sign in before storing notes.');
@@ -130,6 +145,7 @@ export async function addNote(text: string, category: NoteCategory = 'note'): Pr
     text: trimmed,
     category,
     createdAt: new Date(),
+    ...extras,
   };
   notesCache = [...notesCache, note];
   notifyNotes();

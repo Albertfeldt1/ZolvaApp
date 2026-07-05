@@ -53,6 +53,7 @@ import {
   listNotes,
   removeNote as storeRemoveNote,
   subscribeNotes,
+  type NoteExtras,
 } from './memory-store';
 import {
   listAllReminders,
@@ -159,6 +160,7 @@ import type {
   MailDetail,
   MailProvider,
   Note,
+  NoteCategory,
   Observation,
   PrivacyToggle,
   Reminder,
@@ -3446,18 +3448,19 @@ export function useNotes() {
     [demo],
   );
   const add = useCallback(
-    (text: string): Promise<Note> => {
+    (text: string, category: NoteCategory = 'note', extras?: NoteExtras): Promise<Note> => {
       if (demo) {
         const n: Note = {
           id: `d-n-${Date.now()}`,
           text,
-          category: 'note',
+          category,
           createdAt: new Date(),
+          ...extras,
         };
         setNotes((prev) => [...prev, n]);
         return Promise.resolve(n);
       }
-      return storeAddNote(text);
+      return storeAddNote(text, category, extras);
     },
     [demo],
   );

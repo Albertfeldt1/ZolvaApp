@@ -95,22 +95,33 @@ export async function transcribeAudio(uri: string): Promise<string> {
 }
 
 export type ExtractedAction =
-  | { kind: 'reminder'; title: string; time?: string }
-  | { kind: 'event'; title: string; time?: string; place?: string };
+  | { kind: 'reminder'; title: string; time?: string; whenISO?: string }
+  | { kind: 'event'; title: string; time?: string; place?: string; whenISO?: string; endISO?: string };
 
 type ExtractionResult = { title: string; actions: ExtractedAction[] };
 
-const EXTRACT_SYSTEM = `Du analyserer en transskriberet dansk stemme-note fra en lille virksomhedsejer. Find konkrete handlinger personen vil gøre: påmindelser og kalender-begivenheder.
+// The model resolves relative Danish time expressions ("i morgen kl 10",
+// "på fredag") against the CURRENT local datetime injected below — parsing
+// those client-side is strictly worse. `time` stays as the display string
+// the user actually said; `whenISO` is the machine-usable resolution.
+function buildExtractSystem(now: Date): string {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Copenhagen';
+  const local = now.toLocaleString('da-DK', { timeZone: tz, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return `Du analyserer en transskriberet dansk stemme-note fra en lille virksomhedsejer. Find konkrete handlinger personen vil gøre: påmindelser og kalender-begivenheder.
+
+Lige nu er klokken: ${local} (tidszone ${tz}).
 
 - Giv noten en kort, naturlig dansk titel (3-6 ord).
-- For hver handling: en kort dansk titel, og hvis nævnt, et tidspunkt ("13.55", "i morgen", "før fredag") og evt. et sted.
+- For hver handling: en kort dansk titel, og hvis nævnt, et tidspunkt som personen sagde det ("13.55", "i morgen", "før fredag") og evt. et sted.
+- Når et tidspunkt kan opløses til en konkret dato/tid, sæt "whenISO" til en ISO 8601-dato-tid MED tidszone-offset (fx "2026-07-06T10:00:00+02:00"), opløst relativt til klokken lige nu. For begivenheder med kendt sluttid: sæt også "endISO". Er tidspunktet for vagt ("snart", "en dag"), udelad whenISO.
 - Medtag KUN handlinger der tydeligt er udtrykt. Opfind intet. Hvis ingen, returnér en tom liste.`;
+}
 
 const EXTRACT_SCHEMA = `{
   "title": string,
   "actions": Array<
-    | { "kind": "reminder", "title": string, "time"?: string }
-    | { "kind": "event", "title": string, "time"?: string, "place"?: string }
+    | { "kind": "reminder", "title": string, "time"?: string, "whenISO"?: string }
+    | { "kind": "event", "title": string, "time"?: string, "place"?: string, "whenISO"?: string, "endISO"?: string }
   >
 }`;
 
@@ -120,7 +131,7 @@ export async function extractActions(transcript: string): Promise<ExtractionResu
   if (!text) return { title: 'Tom optagelse', actions: [] };
   try {
     const result = await completeJson<ExtractionResult>({
-      system: EXTRACT_SYSTEM,
+      system: buildExtractSystem(new Date()),
       schemaHint: EXTRACT_SCHEMA,
       messages: [{ role: 'user', content: text }],
       maxTokens: 512,
