@@ -5390,7 +5390,7 @@ export function useChat() {
               if (__DEV__ && getPrivacyFlag('anon-reports')) {
                 console.warn('[useChat] chat-run error:', job.errorCode);
               }
-              return CHAT_ERROR_TEXT;
+              return { text: CHAT_ERROR_TEXT, finalizeJobId: null };
             }
             if (job.status === 'done') {
               // Ack immediately on receipt for the no-tool path: chat-run
