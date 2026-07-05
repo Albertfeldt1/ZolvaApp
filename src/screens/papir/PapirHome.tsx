@@ -19,6 +19,7 @@ import {
   papirSpace,
 } from '../../design/papir';
 import { useInboxCounts, useNotes, useReminders, useUpcoming, useUser } from '../../lib/hooks';
+import { useTodayBrief } from '../../lib/briefs';
 import { greeting, formatToday } from '../../lib/date';
 import type { Note, Reminder } from '../../lib/types';
 import { usePapirNav } from './nav';
@@ -150,6 +151,7 @@ export function PapirHome() {
   const inbox = useInboxCounts();
   const notes = useNotes();
   const reminders = useReminders();
+  const { brief } = useTodayBrief();
   const now = new Date();
   const d = formatToday(now);
   // Match the prototype's eyebrow style: "Tirsdag · 11. juni".
@@ -252,7 +254,7 @@ export function PapirHome() {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14 }}>
           <WaveGlyph heights={[6, 11, 8, 13]} color={papirColor.ink4} />
           <PaperText role="caption" color="#C9C4B6">
-            3 min · klar nu
+            {brief ? (brief.readAt ? '3 min · læst' : '3 min · klar nu') : 'kommer senere i dag'}
           </PaperText>
         </View>
         <View
