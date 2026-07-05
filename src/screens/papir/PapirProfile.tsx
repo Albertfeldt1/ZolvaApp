@@ -1,5 +1,5 @@
-import React, { type ComponentType } from 'react';
-import { ScrollView, View } from 'react-native';
+import React, { useMemo, type ComponentType } from 'react';
+import { Alert, ScrollView, View } from 'react-native';
 import { usePapirScreenPads } from './insets';
 import {
   ChevronRight,
@@ -11,30 +11,41 @@ import {
 } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { Button, PaperText, papirColor, papirDarkSurface, papirRadius, papirSpace } from '../../design/papir';
-import { usePapirNav, type PushScreen } from './nav';
+import { useAuth } from '../../lib/auth';
+import { useEntitlement, useNotes, useReminders, useUser } from '../../lib/hooks';
+import { presentCustomerCenter, presentPaywall } from '../../lib/paywall';
+import { usePapirNav } from './nav';
 
 type IconCmp = ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
 
-const STATS: [string, string][] = [
-  ['128', 'Optagelser'],
-  ['64', 'Noter'],
-  ['41', 'Opgaver'],
-];
+function initialsFor(name: string, email: string): string {
+  const src = name.trim() || email;
+  const parts = src.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  return src.slice(0, 2).toUpperCase();
+}
 
-const MENU: { Icon: IconCmp; label: string; value?: string; screen?: PushScreen }[] = [
-  { Icon: Settings, label: 'Indstillinger', screen: 'settings' },
-  { Icon: Crown, label: 'Zolva Premium', value: 'Prøv gratis' },
-  { Icon: FileText, label: 'Mine noter' },
-  { Icon: Download, label: 'Eksportér data' },
-  { Icon: HelpCircle, label: 'Hjælp & support' },
-];
-
-function MenuRow({ Icon, label, value, divider, onPress }: { Icon: IconCmp; label: string; value?: string; divider: boolean; onPress?: () => void }) {
+function MenuRow({
+  Icon,
+  label,
+  value,
+  divider,
+  onPress,
+  dimmed,
+}: {
+  Icon: IconCmp;
+  label: string;
+  value?: string;
+  divider: boolean;
+  onPress?: () => void;
+  dimmed?: boolean;
+}) {
   return (
     <ScaleButton
       scaleTo={0.99}
       haptic="none"
       onPress={onPress}
+      disabled={!onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
       style={{
@@ -44,6 +55,7 @@ function MenuRow({ Icon, label, value, divider, onPress }: { Icon: IconCmp; labe
         padding: 16,
         borderTopWidth: divider ? 1 : 0,
         borderTopColor: papirColor.line,
+        opacity: dimmed ? 0.45 : 1,
       }}
     >
       <Icon size={20} color={papirColor.ink2} strokeWidth={1.7} />
@@ -61,9 +73,44 @@ function MenuRow({ Icon, label, value, divider, onPress }: { Icon: IconCmp; labe
   );
 }
 
+const TIER_LABEL: Record<string, string> = { free: 'Prøv gratis', lite: 'Lite', pro: 'Pro' };
+
 export function PapirProfile() {
   const nav = usePapirNav();
   const pads = usePapirScreenPads();
+  const { user, signOut } = useAuth();
+  const { data: profile } = useUser();
+  const entitlement = useEntitlement();
+  const notes = useNotes();
+  const reminders = useReminders();
+
+  const loggedIn = !!user;
+  const name = profile?.name ?? '';
+  const email = profile?.email ?? '';
+  const isPro = entitlement.data.tier === 'pro';
+
+  const stats = useMemo<[string, string][]>(() => {
+    const voice = notes.data.filter((n) => n.source === 'voice').length;
+    const textNotes = notes.data.length - voice;
+    return [
+      [String(voice), voice === 1 ? 'Optagelse' : 'Optagelser'],
+      [String(textNotes), textNotes === 1 ? 'Note' : 'Noter'],
+      [String(reminders.data.length), reminders.data.length === 1 ? 'Opgave' : 'Opgaver'],
+    ];
+  }, [notes.data, reminders.data]);
+
+  const openPremium = () => {
+    if (isPro) void presentCustomerCenter();
+    else void presentPaywall();
+  };
+
+  const confirmSignOut = () => {
+    Alert.alert('Log ud?', email, [
+      { text: 'Annullér', style: 'cancel' },
+      { text: 'Log ud', style: 'destructive', onPress: () => void signOut() },
+    ]);
+  };
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: papirColor.paper }}
@@ -83,14 +130,14 @@ export function PapirProfile() {
           }}
         >
           <PaperText role="statNumber" color={papirColor.onInk} style={{ fontSize: 30 }}>
-            OH
+            {loggedIn ? initialsFor(name, email) : '?'}
           </PaperText>
         </View>
         <PaperText role="name" style={{ marginTop: 16 }}>
-          Oscar Hangaard
+          {loggedIn ? name || email : 'Ikke logget ind'}
         </PaperText>
         <PaperText role="caption" color={papirColor.ink3} style={{ marginTop: 4 }}>
-          oscar@zolva.io
+          {loggedIn ? email : 'Log ind for at se dine ting'}
         </PaperText>
       </View>
 
@@ -106,7 +153,7 @@ export function PapirProfile() {
           backgroundColor: papirColor.card,
         }}
       >
-        {STATS.map(([n, l], i) => (
+        {stats.map(([n, l], i) => (
           <View
             key={l}
             style={{
@@ -125,43 +172,46 @@ export function PapirProfile() {
         ))}
       </View>
 
-      {/* Upsell */}
-      <ScaleButton
-        scaleTo={0.985}
-        haptic="light"
-        style={{
-          marginHorizontal: papirSpace.screen,
-          marginTop: papirSpace.lg,
-          padding: 20,
-          borderRadius: papirRadius.card,
-          backgroundColor: papirDarkSurface.gradientFrom,
-        }}
-      >
-        <PaperText role="titleSerif" color={papirColor.onInk} style={{ fontSize: 20, maxWidth: 210 }}>
-          Lås hele assistenten op
-        </PaperText>
-        <PaperText role="caption" color={papirDarkSurface.muted} style={{ marginTop: 8 }}>
-          Ubegrænsede optagelser, lokationspåmindelser og stemme-svar.
-        </PaperText>
-        <View
+      {/* Upsell (hidden for Pro — nothing to upsell) */}
+      {!isPro ? (
+        <ScaleButton
+          scaleTo={0.985}
+          haptic="light"
+          onPress={openPremium}
           style={{
-            alignSelf: 'flex-start',
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 7,
-            marginTop: 16,
-            backgroundColor: papirColor.paper,
-            paddingVertical: 9,
-            paddingHorizontal: 16,
-            borderRadius: papirRadius.pill,
+            marginHorizontal: papirSpace.screen,
+            marginTop: papirSpace.lg,
+            padding: 20,
+            borderRadius: papirRadius.card,
+            backgroundColor: papirDarkSurface.gradientFrom,
           }}
         >
-          <PaperText role="small" color={papirColor.ink}>
-            Se Premium
+          <PaperText role="titleSerif" color={papirColor.onInk} style={{ fontSize: 20, maxWidth: 210 }}>
+            Lås hele assistenten op
           </PaperText>
-          <ChevronRight size={14} color={papirColor.ink} strokeWidth={2.4} />
-        </View>
-      </ScaleButton>
+          <PaperText role="caption" color={papirDarkSurface.muted} style={{ marginTop: 8 }}>
+            Autonome handlinger, åbne løkker og mere.
+          </PaperText>
+          <View
+            style={{
+              alignSelf: 'flex-start',
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 7,
+              marginTop: 16,
+              backgroundColor: papirColor.paper,
+              paddingVertical: 9,
+              paddingHorizontal: 16,
+              borderRadius: papirRadius.pill,
+            }}
+          >
+            <PaperText role="small" color={papirColor.ink}>
+              Se Premium
+            </PaperText>
+            <ChevronRight size={14} color={papirColor.ink} strokeWidth={2.4} />
+          </View>
+        </ScaleButton>
+      ) : null}
 
       {/* Menu */}
       <View
@@ -175,20 +225,26 @@ export function PapirProfile() {
           overflow: 'hidden',
         }}
       >
-        {MENU.map((m, i) => (
-          <MenuRow
-            key={m.label}
-            Icon={m.Icon}
-            label={m.label}
-            value={m.value}
-            divider={i > 0}
-            onPress={m.screen ? () => nav.push(m.screen as PushScreen) : undefined}
-          />
-        ))}
+        <MenuRow Icon={Settings} label="Indstillinger" divider={false} onPress={() => nav.push('settings')} />
+        <MenuRow
+          Icon={Crown}
+          label="Zolva Premium"
+          value={TIER_LABEL[entitlement.data.tier] ?? entitlement.data.tier}
+          divider
+          onPress={openPremium}
+        />
+        <MenuRow Icon={FileText} label="Mine noter" divider onPress={() => nav.setTab('history')} />
+        {/* Parity backlog: data export + support get real destinations later. */}
+        <MenuRow Icon={Download} label="Eksportér data" divider dimmed />
+        <MenuRow Icon={HelpCircle} label="Hjælp & support" divider dimmed />
       </View>
 
       <View style={{ paddingHorizontal: papirSpace.screen, marginTop: papirSpace.xl }}>
-        <Button label="Log ud" variant="ghost" />
+        {loggedIn ? (
+          <Button label="Log ud" variant="ghost" onPress={confirmSignOut} />
+        ) : (
+          <Button label="Log ind" variant="primary" onPress={() => nav.openAuth()} />
+        )}
       </View>
     </ScrollView>
   );
