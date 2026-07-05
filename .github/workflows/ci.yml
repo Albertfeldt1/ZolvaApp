@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      # Fail fast on TODO placeholders in app.json/eas.json — same guard
+      # EAS runs on production builds (see app.config.js).
+      - name: Production config guard
+        run: ZOLVA_REQUIRE_PROD_CONFIG=1 npx expo config --type public > /dev/null
