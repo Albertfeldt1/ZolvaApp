@@ -14,9 +14,10 @@ import { PapirChat } from './PapirChat';
 import { PapirSearch } from './PapirSearch';
 import { PapirSettings } from './PapirSettings';
 import { PapirInbox } from './PapirInbox';
+import { PapirMailDetail } from './PapirMailDetail';
 import { PapirBottomNav, type PapirTab } from './PapirBottomNav';
 
-function PushView({ screen }: { screen: PushScreen; params?: PushParams }) {
+function PushView({ screen, params }: { screen: PushScreen; params?: PushParams }) {
   switch (screen) {
     case 'briefing':
       return <PapirBriefing />;
@@ -29,8 +30,7 @@ function PushView({ screen }: { screen: PushScreen; params?: PushParams }) {
     case 'inbox':
       return <PapirInbox />;
     case 'mailDetail':
-      // Wired in M4 (PapirMailDetail). Until then an accidental push is a no-op screen.
-      return null;
+      return <PapirMailDetail params={params ?? {}} />;
   }
 }
 

@@ -1,18 +1,144 @@
-import React from 'react';
-import { ScrollView, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { ActivityIndicator, ScrollView, View } from 'react-native';
+import { ChevronDown } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { PaperText, papirColor, papirRadius, papirSpace } from '../../design/papir';
+import { useHasProvider, useInboxWaiting } from '../../lib/hooks';
+import type { InboxMail } from '../../lib/types';
+import { usePapirNav } from './nav';
 import { PushHeader } from './PushHeader';
 
-const MAILS = [
-  { from: 'Ole Hansen', subj: 'Aflevering i dag?', preview: 'Hej, passer det stadig at du kommer forbi…', t: '9:12', urgent: true, initial: 'O' },
-  { from: 'Hansen Byg', subj: 'Tilbud på terrasse', preview: 'Vi mangler stadig prisen på det store…', t: '8:40', urgent: true, initial: 'H' },
-  { from: 'Revisor Berg', subj: 'Bilag til moms', preview: 'Deadline er den 20. — kan du nå at sende…', t: 'i går', urgent: true, initial: 'R' },
-  { from: 'Leverandør', subj: 'Ordrebekræftelse #4471', preview: 'Tak for din ordre. Forventet levering…', t: 'i går', urgent: false, initial: 'L' },
-  { from: 'Nyhedsbrev', subj: 'Ugens tilbud til erhverv', preview: 'Se hvad vi har på lager denne uge…', t: 'man', urgent: false, initial: 'N' },
-];
+function MailRow({ mail, onPress }: { mail: InboxMail; onPress: () => void }) {
+  const urgent = mail.tier === 0;
+  return (
+    <ScaleButton
+      scaleTo={0.99}
+      haptic="none"
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${mail.from}: ${mail.subject}`}
+      style={{
+        flexDirection: 'row',
+        gap: 14,
+        alignItems: 'flex-start',
+        paddingHorizontal: papirSpace.screen,
+        paddingVertical: 14,
+      }}
+    >
+      <View
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: papirRadius.sm + 2,
+          backgroundColor: papirColor.paper2,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <PaperText role="bodyStrong" color={papirColor.ink2}>
+          {mail.initials}
+        </PaperText>
+      </View>
+      <View style={{ flex: 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          {urgent ? <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: papirColor.red }} /> : null}
+          <PaperText role="bodyStrong" style={{ flex: 1 }} numberOfLines={1}>
+            {mail.from}
+          </PaperText>
+          <PaperText role="caption" color={papirColor.ink4}>
+            {mail.time}
+          </PaperText>
+        </View>
+        <PaperText role="body" style={{ marginTop: 2 }} numberOfLines={1}>
+          {mail.subject}
+        </PaperText>
+        {mail.aiDraft ? (
+          <PaperText role="caption" color={papirColor.ink3} style={{ marginTop: 2 }} numberOfLines={1}>
+            Udkast klar: {mail.aiDraft}
+          </PaperText>
+        ) : null}
+      </View>
+    </ScaleButton>
+  );
+}
+
+function Section({
+  label,
+  mails,
+  collapsible,
+  onOpen,
+}: {
+  label: string;
+  mails: InboxMail[];
+  collapsible?: boolean;
+  onOpen: (m: InboxMail) => void;
+}) {
+  const [open, setOpen] = useState(!collapsible);
+  if (mails.length === 0) return null;
+  return (
+    <View>
+      <ScaleButton
+        scaleTo={0.99}
+        haptic={collapsible ? 'light' : 'none'}
+        onPress={collapsible ? () => setOpen((o) => !o) : undefined}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+          paddingHorizontal: papirSpace.screen,
+          paddingTop: papirSpace.xl,
+          paddingBottom: papirSpace.sm,
+        }}
+      >
+        <PaperText role="eyebrow" color={papirColor.ink3} style={{ flex: 1 }}>
+          {label} · {mails.length}
+        </PaperText>
+        {collapsible ? (
+          <ChevronDown
+            size={15}
+            color={papirColor.ink3}
+            strokeWidth={2}
+            style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}
+          />
+        ) : null}
+      </ScaleButton>
+      {open
+        ? mails.map((m, i) => (
+            <View key={`${m.provider}:${m.id}`}>
+              <MailRow mail={m} onPress={() => onOpen(m)} />
+              {i < mails.length - 1 ? (
+                <View style={{ height: 1, backgroundColor: papirColor.line, marginHorizontal: papirSpace.screen }} />
+              ) : null}
+            </View>
+          ))
+        : null}
+    </View>
+  );
+}
 
 export function PapirInbox() {
+  const nav = usePapirNav();
+  const inbox = useInboxWaiting();
+  const hasProvider = useHasProvider();
+
+  const tiers = useMemo(() => {
+    const t: Record<0 | 1 | 2 | 3, InboxMail[]> = { 0: [], 1: [], 2: [], 3: [] };
+    inbox.data.forEach((m) => t[m.tier].push(m));
+    return t;
+  }, [inbox.data]);
+
+  const needsReply = tiers[0].length + tiers[1].length;
+
+  const openMail = (m: InboxMail) =>
+    nav.push('mailDetail', {
+      id: m.id,
+      provider: m.provider,
+      from: m.from,
+      subject: m.subject,
+      time: m.time,
+      aiDraft: m.aiDraft,
+    });
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: papirColor.paper }}
@@ -20,65 +146,43 @@ export function PapirInbox() {
       showsVerticalScrollIndicator={false}
     >
       <PushHeader title="Indbakke" />
-      <PaperText
-        role="eyebrow"
-        color={papirColor.red}
-        style={{ paddingHorizontal: papirSpace.screen, paddingBottom: 8 }}
-      >
-        3 kræver svar
-      </PaperText>
-      {MAILS.map((m, i) => (
-        <View key={m.from}>
-          <ScaleButton
-            scaleTo={0.99}
-            haptic="none"
-            accessibilityRole="button"
-            accessibilityLabel={`${m.from}: ${m.subj}`}
-            style={{
-              flexDirection: 'row',
-              gap: 14,
-              alignItems: 'flex-start',
-              paddingHorizontal: papirSpace.screen,
-              paddingVertical: 14,
-            }}
-          >
-            <View
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: papirRadius.sm + 2,
-                backgroundColor: papirColor.paper2,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <PaperText role="bodyStrong" color={papirColor.ink2}>
-                {m.initial}
-              </PaperText>
-            </View>
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                {m.urgent ? <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: papirColor.red }} /> : null}
-                <PaperText role="bodyStrong" style={{ flex: 1 }}>
-                  {m.from}
-                </PaperText>
-                <PaperText role="caption" color={papirColor.ink4}>
-                  {m.t}
-                </PaperText>
-              </View>
-              <PaperText role="body" style={{ marginTop: 2 }}>
-                {m.subj}
-              </PaperText>
-              <PaperText role="caption" color={papirColor.ink3} style={{ marginTop: 2 }} numberOfLines={1}>
-                {m.preview}
-              </PaperText>
-            </View>
-          </ScaleButton>
-          {i < MAILS.length - 1 ? (
-            <View style={{ height: 1, backgroundColor: papirColor.line, marginHorizontal: papirSpace.screen }} />
-          ) : null}
+
+      {inbox.loading && inbox.data.length === 0 ? (
+        <View style={{ alignItems: 'center', paddingTop: 60 }}>
+          <ActivityIndicator color={papirColor.red} />
         </View>
-      ))}
+      ) : !hasProvider ? (
+        <View style={{ alignItems: 'center', paddingTop: 60, paddingHorizontal: papirSpace.screen, gap: 8 }}>
+          <PaperText role="bodyStrong" color={papirColor.ink2}>
+            Ingen mail forbundet
+          </PaperText>
+          <PaperText role="body" color={papirColor.ink3} style={{ textAlign: 'center' }}>
+            Forbind Gmail, Outlook eller iCloud i Indstillinger for at se din indbakke.
+          </PaperText>
+        </View>
+      ) : inbox.data.length === 0 && inbox.read.length === 0 ? (
+        <View style={{ alignItems: 'center', paddingTop: 60, paddingHorizontal: papirSpace.screen, gap: 8 }}>
+          <PaperText role="bodyStrong" color={papirColor.ink2}>
+            Alt er klaret
+          </PaperText>
+          <PaperText role="body" color={papirColor.ink3} style={{ textAlign: 'center' }}>
+            Ingen mails venter på dig lige nu.
+          </PaperText>
+        </View>
+      ) : (
+        <>
+          {needsReply > 0 ? (
+            <PaperText role="eyebrow" color={papirColor.red} style={{ paddingHorizontal: papirSpace.screen, paddingBottom: 8 }}>
+              {needsReply} kræver svar
+            </PaperText>
+          ) : null}
+          <Section label="Haster" mails={tiers[0]} onOpen={openMail} />
+          <Section label="Venter på dig" mails={tiers[1]} onOpen={openMail} />
+          <Section label="Nyhedsbreve" mails={tiers[2]} collapsible onOpen={openMail} />
+          <Section label="Notifikationer" mails={tiers[3]} collapsible onOpen={openMail} />
+          <Section label="Læst" mails={inbox.read} collapsible onOpen={openMail} />
+        </>
+      )}
     </ScrollView>
   );
 }

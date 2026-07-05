@@ -1,10 +1,19 @@
 import { createContext, useContext } from 'react';
+import type { MailProvider } from '../../lib/types';
 import type { PapirTab } from './PapirBottomNav';
 
 export type PushScreen = 'briefing' | 'chat' | 'search' | 'settings' | 'inbox' | 'mailDetail';
 
-/** Per-push params. Only mailDetail uses them today (M4). */
-export type PushParams = { id?: string; provider?: string };
+/** Per-push params — mailDetail carries the list-row context so the detail
+ * screen can render header + AI draft instantly while the body fetches. */
+export type PushParams = {
+  id?: string;
+  provider?: MailProvider;
+  from?: string;
+  subject?: string;
+  time?: string;
+  aiDraft?: string | null;
+};
 
 export type PushEntry = { key: string; screen: PushScreen; params?: PushParams };
 
