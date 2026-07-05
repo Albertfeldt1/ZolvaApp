@@ -2772,6 +2772,55 @@ function describeTimedEvent(e: NormalizedEvent, tone: 'sage' | 'clay' | 'mist') 
   };
 }
 
+export type DayEvent = {
+  id: string;
+  title: string;
+  location?: string;
+  start: Date;
+  end: Date;
+  allDay: boolean;
+};
+
+/** Raw (non-slotted) events for one day, honoring the calendar visibility
+ * picker. Papir's DayTimeline needs exact times and overlapping events —
+ * the CalendarSlot hour-grid collapses same-hour events (one per slot). */
+export function useDayEvents(targetDate: Date): Result<DayEvent[]> {
+  const { user } = useAuth();
+  const bounds = dayBounds(targetDate);
+  const { items, loading, error } = useCalendarItems(
+    bounds.start.getTime(),
+    bounds.end.getTime(),
+    true,
+  );
+  if (isDemoUser(user)) {
+    // Reuse the demo slot data so demo mode shows a plausible day.
+    const day = new Date(targetDate);
+    const events = demoDaySchedule()
+      .filter((s) => s.event !== null)
+      .map((s) => {
+        const hour = parseInt(s.hour, 10);
+        const e = s.event!;
+        const start = new Date(day);
+        start.setHours(hour, e.startMinute, 0, 0);
+        const end = new Date(start.getTime() + e.durationMinutes * 60_000);
+        return { id: e.id, title: e.title, location: e.sub, start, end, allDay: false };
+      });
+    return { data: events, loading: false, error: null };
+  }
+  return {
+    data: items.map((e) => ({
+      id: e.id,
+      title: e.title,
+      location: e.location,
+      start: e.start,
+      end: e.end,
+      allDay: e.allDay,
+    })),
+    loading,
+    error,
+  };
+}
+
 export function useDaySchedule(targetDate?: Date): Result<CalendarSlot[]> {
   const { user } = useAuth();
   const bounds = targetDate ? dayBounds(targetDate) : undefined;

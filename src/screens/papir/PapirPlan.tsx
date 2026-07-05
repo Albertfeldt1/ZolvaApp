@@ -1,10 +1,15 @@
-import React, { useState } from 'react';
-import { ScrollView, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, ScrollView, View } from 'react-native';
 import { Check } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { PaperText, SegmentedControl, papirColor, papirRadius, papirSpace } from '../../design/papir';
+import { useDayEvents, useReminders } from '../../lib/hooks';
+import type { Reminder } from '../../lib/types';
 import { usePapirScreenPads } from './insets';
-import { DayTimeline } from './DayTimeline';
+import { DayTimeline, type TimelineEvent } from './DayTimeline';
+
+const WEEKDAY_LETTER = ['S', 'M', 'T', 'O', 'T', 'F', 'L'];
+const WEEKDAYS_SHORT = ['søn', 'man', 'tir', 'ons', 'tor', 'fre', 'lør'];
 
 function GroupLabel({ children }: { children: string }) {
   return (
@@ -18,13 +23,44 @@ function GroupLabel({ children }: { children: string }) {
   );
 }
 
-function TaskRow({ title, time, done: initial, muted }: { title: string; time: string; done?: boolean; muted?: boolean }) {
-  const [done, setDone] = useState(!!initial);
+function clockLabel(d: Date): string {
+  return `${String(d.getHours()).padStart(2, '0')}.${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** Due label per group: clock today, weekday within a week, date beyond. */
+function dueLabel(r: Reminder, now: Date): { text: string; muted: boolean } {
+  if (r.status === 'done') {
+    const d = r.doneAt ?? r.createdAt;
+    const sameDay = d.toDateString() === now.toDateString();
+    return { text: sameDay ? clockLabel(d) : WEEKDAYS_SHORT[d.getDay()], muted: true };
+  }
+  if (!r.dueAt) return { text: 'når du kan', muted: true };
+  const sameDay = r.dueAt.toDateString() === now.toDateString();
+  if (sameDay) return { text: clockLabel(r.dueAt), muted: false };
+  const days = Math.round((r.dueAt.getTime() - now.getTime()) / 86_400_000);
+  if (days < 7) return { text: WEEKDAYS_SHORT[r.dueAt.getDay()], muted: true };
+  return { text: `${r.dueAt.getDate()}/${r.dueAt.getMonth() + 1}`, muted: true };
+}
+
+function TaskRow({
+  reminder,
+  now,
+  onDone,
+  onRemove,
+}: {
+  reminder: Reminder;
+  now: Date;
+  onDone: (id: string) => void;
+  onRemove: (r: Reminder) => void;
+}) {
+  const done = reminder.status === 'done';
+  const label = dueLabel(reminder, now);
   return (
     <ScaleButton
       scaleTo={0.99}
       haptic="selection"
-      onPress={() => setDone((d) => !d)}
+      onPress={done ? undefined : () => onDone(reminder.id)}
+      onLongPress={() => onRemove(reminder)}
       style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14, paddingHorizontal: papirSpace.screen }}
     >
       <View
@@ -46,39 +82,75 @@ function TaskRow({ title, time, done: initial, muted }: { title: string; time: s
         color={done ? papirColor.ink4 : papirColor.ink}
         style={{ flex: 1, textDecorationLine: done ? 'line-through' : 'none' }}
       >
-        {title}
+        {reminder.text}
       </PaperText>
-      <PaperText role="caption" color={done ? papirColor.ink4 : muted ? papirColor.ink3 : papirColor.red} tabular>
-        {time}
+      <PaperText role="caption" color={done ? papirColor.ink4 : label.muted ? papirColor.ink3 : papirColor.red} tabular>
+        {label.text}
       </PaperText>
     </ScaleButton>
   );
 }
 
-const TASK_GROUPS = [
-  { label: 'I dag', items: [
-    { title: 'Aflever 2 dyr til Ole', time: '13.55' },
-    { title: 'Send tilbud til Hansen', time: 'før 16' },
-    { title: 'Ring til revisor om bilag', time: 'når du kan', muted: true },
-  ] },
-  { label: 'Kommende', items: [
-    { title: 'Forbered Instagram-uge', time: 'tor', muted: true },
-    { title: 'Book frisør', time: 'fre', muted: true },
-  ] },
-  { label: 'Klaret', items: [
-    { title: 'Bekræft møde med Sofie', time: '07.30', done: true },
-    { title: 'Betal faktura til leverandør', time: 'i går', done: true },
-  ] },
-];
-
 function TasksView() {
+  const reminders = useReminders();
+  const now = new Date();
+
+  const groups = useMemo(() => {
+    const endOfDay = new Date(now);
+    endOfDay.setHours(23, 59, 59, 999);
+    const pending = reminders.data.filter((r) => r.status === 'pending');
+    const today = pending
+      .filter((r) => r.dueAt === null || r.dueAt <= endOfDay)
+      .sort((a, b) => (a.dueAt?.getTime() ?? Infinity) - (b.dueAt?.getTime() ?? Infinity));
+    const upcoming = pending
+      .filter((r) => r.dueAt !== null && r.dueAt > endOfDay)
+      .sort((a, b) => (a.dueAt?.getTime() ?? 0) - (b.dueAt?.getTime() ?? 0));
+    const done = reminders.data
+      .filter((r) => r.status === 'done')
+      .sort((a, b) => (b.doneAt?.getTime() ?? 0) - (a.doneAt?.getTime() ?? 0))
+      .slice(0, 10);
+    return [
+      { label: 'I dag', items: today },
+      { label: 'Kommende', items: upcoming },
+      { label: 'Klaret', items: done },
+    ].filter((g) => g.items.length > 0);
+  }, [reminders.data, now]);
+
+  const confirmRemove = (r: Reminder) => {
+    Alert.alert('Slet opgave', `Slet "${r.text}"?`, [
+      { text: 'Annullér', style: 'cancel' },
+      { text: 'Slet', style: 'destructive', onPress: () => void reminders.remove(r.id) },
+    ]);
+  };
+
+  if (reminders.loading && reminders.data.length === 0) {
+    return (
+      <View style={{ alignItems: 'center', paddingTop: 60 }}>
+        <ActivityIndicator color={papirColor.red} />
+      </View>
+    );
+  }
+
+  if (groups.length === 0) {
+    return (
+      <View style={{ alignItems: 'center', paddingTop: 60, paddingHorizontal: papirSpace.screen, gap: 8 }}>
+        <PaperText role="bodyStrong" color={papirColor.ink2}>
+          Ingen opgaver
+        </PaperText>
+        <PaperText role="body" color={papirColor.ink3} style={{ textAlign: 'center' }}>
+          Opgaver fra dine stemme-noter og chatten samles her.
+        </PaperText>
+      </View>
+    );
+  }
+
   return (
     <View>
-      {TASK_GROUPS.map((g) => (
+      {groups.map((g) => (
         <View key={g.label}>
           <GroupLabel>{g.label}</GroupLabel>
-          {g.items.map((it) => (
-            <TaskRow key={it.title} title={it.title} time={it.time} done={'done' in it ? it.done : false} muted={'muted' in it ? it.muted : false} />
+          {g.items.map((r) => (
+            <TaskRow key={r.id} reminder={r} now={now} onDone={(id) => void reminders.markDone(id)} onRemove={confirmRemove} />
           ))}
         </View>
       ))}
@@ -86,26 +158,52 @@ function TasksView() {
   );
 }
 
-const WEEK = [
-  { wn: 'M', d: 10 },
-  { wn: 'T', d: 11 },
-  { wn: 'O', d: 12 },
-  { wn: 'T', d: 13 },
-  { wn: 'F', d: 14 },
-  { wn: 'L', d: 15 },
-  { wn: 'S', d: 16 },
-];
+/** The 7 days starting today — index 0 is always "i dag". */
+function weekDays(now: Date): Date[] {
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() + i);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+}
 
 function CalendarView() {
-  const [sel, setSel] = useState(1);
+  const now = new Date();
+  const days = useMemo(() => weekDays(now), []);
+  const [sel, setSel] = useState(0);
+  const selectedDay = days[sel];
+  const isToday = sel === 0;
+  const { data: events, loading, error } = useDayEvents(selectedDay);
+
+  const allDay = events.filter((e) => e.allDay);
+  const timed = events.filter((e) => !e.allDay);
+
+  const timelineEvents: TimelineEvent[] = timed.map((e) => {
+    const start = e.start.getHours() + e.start.getMinutes() / 60;
+    // Events crossing midnight get capped at 24 so they render to the bottom
+    // of the day instead of "ending before they start".
+    const sameDay = e.end.toDateString() === e.start.toDateString();
+    const end = sameDay ? e.end.getHours() + e.end.getMinutes() / 60 : 24;
+    return { id: e.id, start, end: Math.max(end, start + 0.25), title: e.title, place: e.location };
+  });
+
+  // Expand the visible window so early/late events keep a home (M86).
+  let startHour = 7;
+  let endHour = 22;
+  timelineEvents.forEach((e) => {
+    startHour = Math.min(startHour, Math.floor(e.start));
+    endHour = Math.max(endHour, Math.ceil(e.end ?? e.start + 1));
+  });
+
   return (
     <View style={{ marginTop: papirSpace.base }}>
       <View style={{ flexDirection: 'row', gap: 6, paddingHorizontal: papirSpace.screen }}>
-        {WEEK.map((w, i) => {
+        {days.map((day, i) => {
           const on = i === sel;
           return (
             <ScaleButton
-              key={w.d}
+              key={day.toISOString()}
               scaleTo={0.95}
               haptic="selection"
               onPress={() => setSel(i)}
@@ -118,18 +216,56 @@ function CalendarView() {
               }}
             >
               <PaperText role="caption" color={on ? papirColor.ink4 : papirColor.ink3}>
-                {w.wn}
+                {WEEKDAY_LETTER[day.getDay()]}
               </PaperText>
               <PaperText role="bodyStrong" color={on ? papirColor.onInk : papirColor.ink} style={{ marginTop: 5 }}>
-                {String(w.d)}
+                {String(day.getDate())}
               </PaperText>
             </ScaleButton>
           );
         })}
       </View>
-      <View style={{ marginTop: papirSpace.lg, paddingLeft: papirSpace.screen }}>
-        <DayTimeline />
-      </View>
+
+      {allDay.length > 0 ? (
+        <View style={{ paddingHorizontal: papirSpace.screen, marginTop: papirSpace.base, gap: 6 }}>
+          {allDay.map((e) => (
+            <View
+              key={e.id}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                backgroundColor: papirColor.paper2,
+                borderRadius: papirRadius.md,
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+              }}
+            >
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: papirColor.red }} />
+              <PaperText role="small" color={papirColor.ink2} style={{ flex: 1 }}>
+                {e.title}
+              </PaperText>
+              <PaperText role="caption" color={papirColor.ink3}>
+                Hele dagen
+              </PaperText>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      {loading && events.length === 0 ? (
+        <View style={{ alignItems: 'center', paddingTop: 60 }}>
+          <ActivityIndicator color={papirColor.red} />
+        </View>
+      ) : error ? (
+        <PaperText role="body" color={papirColor.ink3} style={{ paddingHorizontal: papirSpace.screen, paddingTop: 40, textAlign: 'center' }}>
+          Kalenderen kunne ikke hentes. Tjek din forbindelse.
+        </PaperText>
+      ) : (
+        <View style={{ marginTop: papirSpace.lg, paddingLeft: papirSpace.screen }}>
+          <DayTimeline events={timelineEvents} startHour={startHour} endHour={endHour} showNow={isToday} />
+        </View>
+      )}
     </View>
   );
 }
