@@ -7,8 +7,10 @@ import {
   Download,
   FileText,
   HelpCircle,
+  RotateCcw,
   Settings,
 } from 'lucide-react-native';
+import Purchases from 'react-native-purchases';
 import { ScaleButton } from '../../design/motion';
 import { Button, PaperText, papirColor, papirDarkSurface, papirRadius, papirSpace } from '../../design/papir';
 import { useAuth } from '../../lib/auth';
@@ -110,6 +112,21 @@ export function PapirProfile() {
     const result = await presentPaywall();
     if (result === null) {
       Alert.alert('Premium', 'Kunne ikke åbne Premium lige nu. Prøv igen senere.');
+    }
+  };
+
+  // Apple requires a reachable restore mechanism where purchases are offered
+  // (H4) — don't rely solely on the RevenueCat paywall UI having one.
+  const restorePurchases = async () => {
+    try {
+      const info = await Purchases.restorePurchases();
+      const active = Object.keys(info.entitlements.active);
+      Alert.alert(
+        'Gendan køb',
+        active.length > 0 ? 'Dine køb er gendannet.' : 'Ingen tidligere køb fundet på denne konto.',
+      );
+    } catch {
+      Alert.alert('Gendan køb', 'Kunne ikke gendanne køb. Tjek din forbindelse og prøv igen.');
     }
   };
 
@@ -242,6 +259,7 @@ export function PapirProfile() {
           divider
           onPress={openPremium}
         />
+        <MenuRow Icon={RotateCcw} label="Gendan køb" divider onPress={() => void restorePurchases()} />
         <MenuRow Icon={FileText} label="Mine noter" divider onPress={() => nav.setTab('history')} />
         {/* Parity backlog: data export + support get real destinations later. */}
         <MenuRow Icon={Download} label="Eksportér data" divider dimmed />

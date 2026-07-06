@@ -558,19 +558,9 @@ export default function App() {
     return <View style={[styles.root, { backgroundColor: '#FF8868' }]} />;
   }
 
-  // Papir UI (dev toggle): a different face on the same running app. Every
-  // boot effect above (auth, RevenueCat, push, deep links, widget snapshot)
-  // keeps running — only the rendered chrome changes. Classic path below is
-  // untouched when the flag is off.
-  if (papirEnabled) {
-    return (
-      <ThemeProvider>
-        <ErrorBoundary>
-          <PapirRoot loggedOut={loggedOut} />
-        </ErrorBoundary>
-      </ThemeProvider>
-    );
-  }
+  // NOTE: the Papir early-return lives further down (after the modal
+  // handlers) so it can render the SAME session overlays — onboarding,
+  // memory consent, iCloud setup, admin consent — as the classic path (K1).
 
   // Logged-out tracking is only used for downstream UX hints now (e.g. the
   // Today screen's "log ind for at se dine ting" banner). The bottom nav
@@ -718,6 +708,174 @@ export default function App() {
     setOpenMailAutoDraft(false);
   };
 
+  // Session overlays shared by BOTH UIs (K1): onboarding chain, iCloud
+  // setup, Microsoft admin consent, auth sheet and the memory-consent modal.
+  // In Papir mode the classic-only gates (chatOpen, openMail, …) are always
+  // false, so the conditions reduce to the overlay's own open-state.
+  const sessionOverlays = (
+    <>
+      {icloudSetupOpen && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && (
+        <Animated.View
+          key="icloud-setup"
+          style={StyleSheet.absoluteFill}
+          entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
+          exiting={SlideOutDown.duration(DURATION.modalExit)}
+        >
+          <IcloudSetupScreen
+            prefilledEmail={icloudPrefilledEmail}
+            onDone={closeIcloudSetup}
+            onCancel={closeIcloudSetup}
+          />
+        </Animated.View>
+      )}
+      {adminConsentOpen && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && (
+        <Animated.View
+          key="admin-consent"
+          style={StyleSheet.absoluteFill}
+          entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
+          exiting={SlideOutDown.duration(DURATION.modalExit)}
+        >
+          <MicrosoftAdminConsentScreen
+            prefilledEmail={adminConsentPrefilledEmail}
+            onCancel={closeAdminConsent}
+          />
+        </Animated.View>
+      )}
+      {authSheetOpen && loggedOut && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && (
+        <Animated.View
+          key="auth-sheet"
+          style={StyleSheet.absoluteFill}
+          entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
+          exiting={SlideOutDown.duration(DURATION.modalExit)}
+        >
+          <AuthSheet onClose={closeAuthSheet} />
+        </Animated.View>
+      )}
+      {/* V2 onboarding stage doesn't require auth — it's pure UI iteration.
+          Later stages (intro/progress/review) reference user.id, so they
+          stay gated on `user` being present. */}
+      {onboardingOpen && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && (
+        <Animated.View
+          key="onboarding-backfill"
+          style={StyleSheet.absoluteFill}
+          entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
+          exiting={SlideOutDown.duration(DURATION.modalExit)}
+        >
+          {onboardingStage === 'v2-intro' && (
+            <OnboardingFlowScreen
+              onOpenIcloudSetup={() => openIcloudSetup()}
+              onComplete={(collected) => {
+                if (__DEV__) {
+                  console.log('[onboarding-flow] collected state:', JSON.stringify(collected, null, 2));
+                }
+                // Mark V2 shown the moment the user finishes the flow so
+                // a mid-backfill app close doesn't replay the 7 steps on
+                // next launch — they'll resume the legacy chain via the
+                // Memory tab → Genscan path instead. Device flag persists
+                // across logout so cold launches stay non-login-wall.
+                if (user?.id) void markV2OnboardingShown(user.id);
+                void markV2OnboardingShownDevice();
+                // Persist onboarding selections. Connections fire eagerly
+                // (device-level, no uid needed) - that's what was getting
+                // lost when user.id hadn't propagated from a fresh
+                // mid-onboarding OAuth sign-in. Persona needs a uid so we
+                // hand it null-tolerantly: if user.id is set, write
+                // through; if not, stash and flushPendingPersona below
+                // picks it up once auth state catches up.
+                void persistOnboardingConnections({
+                  persona: collected.persona,
+                  connections: collected.connections,
+                });
+                void persistOnboardingPersona(user?.id ?? null, collected.persona);
+                // Auth precedes the wizard now, so user.id is always set
+                // here — advance straight into the backfill chain.
+                setOnboardingStage('intro');
+              }}
+            />
+          )}
+          {user?.id && onboardingStage === 'intro' && (
+            <OnboardingBackfillScreen
+              forceRerun={onboardingForceRerun}
+              onStart={() => {
+                setOnboardingFailedJobs([]);
+                setOnboardingStage('progress');
+              }}
+              onSkip={() => {
+                const uid = user.id;
+                void markOnboardingBackfillShown(uid);
+                setOnboardingOpen(false);
+                setOnboardingForceRerun(false);
+              }}
+              onConnectMore={() => {
+                // Mark as shown so the chain doesn't reopen on next launch -
+                // user is intentionally deferring. They'll re-trigger via
+                // Memory tab → Genscan once they're done connecting accounts.
+                const uid = user.id;
+                void markOnboardingBackfillShown(uid);
+                setOnboardingOpen(false);
+                setOnboardingForceRerun(false);
+                switchTab('settings');
+              }}
+            />
+          )}
+          {user?.id && onboardingStage === 'progress' && (
+            <OnboardingBackfillProgressScreen
+              onComplete={(failed) => {
+                setOnboardingFailedJobs(failed);
+                setOnboardingStage('review');
+              }}
+            />
+          )}
+          {user?.id && onboardingStage === 'review' && (
+            <OnboardingFactReviewScreen
+              failedJobs={onboardingFailedJobs}
+              onDone={() => {
+                const uid = user.id;
+                void markOnboardingBackfillShown(uid);
+                setOnboardingOpen(false);
+                setOnboardingForceRerun(false);
+                setOnboardingFailedJobs([]);
+              }}
+            />
+          )}
+        </Animated.View>
+      )}
+    </>
+  );
+
+  const memoryConsentModal = user?.id ? (
+    <MemoryConsentModal
+      visible={memoryConsentOpen}
+      userId={user.id}
+      onClose={() => {
+        const uid = user.id;
+        setMemoryConsentOpen(false);
+        void markMemoryConsentShown(uid);
+        // The chain trigger now lives in the memory-enabled transition
+        // watcher above - it fires regardless of which UI surface flipped
+        // memory ON, so we don't need to fire it again here.
+      }}
+    />
+  ) : null;
+
+  // Papir UI (dev toggle): a different face on the same running app. Every
+  // boot effect above (auth, RevenueCat, push, deep links, widget snapshot)
+  // keeps running — only the rendered chrome changes, and the session
+  // overlays above render on top of Papir exactly as they do on classic.
+  if (papirEnabled) {
+    return (
+      <ThemeProvider>
+        <ErrorBoundary>
+          <View style={{ flex: 1 }}>
+            <PapirRoot loggedOut={loggedOut} />
+            {sessionOverlays}
+            {memoryConsentModal}
+          </View>
+        </ErrorBoundary>
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider>
     <ErrorBoundary>
@@ -842,147 +1000,9 @@ export default function App() {
             <SentMailScreen onClose={() => setSentMailsOpen(false)} />
           </Animated.View>
         )}
-        {icloudSetupOpen && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && (
-          <Animated.View
-            key="icloud-setup"
-            style={StyleSheet.absoluteFill}
-            entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
-            exiting={SlideOutDown.duration(DURATION.modalExit)}
-          >
-            <IcloudSetupScreen
-              prefilledEmail={icloudPrefilledEmail}
-              onDone={closeIcloudSetup}
-              onCancel={closeIcloudSetup}
-            />
-          </Animated.View>
-        )}
-        {adminConsentOpen && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && (
-          <Animated.View
-            key="admin-consent"
-            style={StyleSheet.absoluteFill}
-            entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
-            exiting={SlideOutDown.duration(DURATION.modalExit)}
-          >
-            <MicrosoftAdminConsentScreen
-              prefilledEmail={adminConsentPrefilledEmail}
-              onCancel={closeAdminConsent}
-            />
-          </Animated.View>
-        )}
-        {authSheetOpen && loggedOut && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && (
-          <Animated.View
-            key="auth-sheet"
-            style={StyleSheet.absoluteFill}
-            entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
-            exiting={SlideOutDown.duration(DURATION.modalExit)}
-          >
-            <AuthSheet onClose={closeAuthSheet} />
-          </Animated.View>
-        )}
-        {/* V2 onboarding stage doesn't require auth — it's pure UI iteration.
-            Later stages (intro/progress/review) reference user.id, so they
-            stay gated on `user` being present. */}
-        {onboardingOpen && !chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && (
-          <Animated.View
-            key="onboarding-backfill"
-            style={StyleSheet.absoluteFill}
-            entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
-            exiting={SlideOutDown.duration(DURATION.modalExit)}
-          >
-            {onboardingStage === 'v2-intro' && (
-              <OnboardingFlowScreen
-                onOpenIcloudSetup={() => openIcloudSetup()}
-                onComplete={(collected) => {
-                  if (__DEV__) {
-                    console.log('[onboarding-flow] collected state:', JSON.stringify(collected, null, 2));
-                  }
-                  // Mark V2 shown the moment the user finishes the flow so
-                  // a mid-backfill app close doesn't replay the 7 steps on
-                  // next launch — they'll resume the legacy chain via the
-                  // Memory tab → Genscan path instead. Device flag persists
-                  // across logout so cold launches stay non-login-wall.
-                  if (user?.id) void markV2OnboardingShown(user.id);
-                  void markV2OnboardingShownDevice();
-                  // Persist onboarding selections. Connections fire eagerly
-                  // (device-level, no uid needed) - that's what was getting
-                  // lost when user.id hadn't propagated from a fresh
-                  // mid-onboarding OAuth sign-in. Persona needs a uid so we
-                  // hand it null-tolerantly: if user.id is set, write
-                  // through; if not, stash and flushPendingPersona below
-                  // picks it up once auth state catches up.
-                  void persistOnboardingConnections({
-                    persona: collected.persona,
-                    connections: collected.connections,
-                  });
-                  void persistOnboardingPersona(user?.id ?? null, collected.persona);
-                  // Auth precedes the wizard now, so user.id is always set
-                  // here — advance straight into the backfill chain.
-                  setOnboardingStage('intro');
-                }}
-              />
-            )}
-            {user?.id && onboardingStage === 'intro' && (
-              <OnboardingBackfillScreen
-                forceRerun={onboardingForceRerun}
-                onStart={() => {
-                  setOnboardingFailedJobs([]);
-                  setOnboardingStage('progress');
-                }}
-                onSkip={() => {
-                  const uid = user.id;
-                  void markOnboardingBackfillShown(uid);
-                  setOnboardingOpen(false);
-                  setOnboardingForceRerun(false);
-                }}
-                onConnectMore={() => {
-                  // Mark as shown so the chain doesn't reopen on next launch -
-                  // user is intentionally deferring. They'll re-trigger via
-                  // Memory tab → Genscan once they're done connecting accounts.
-                  const uid = user.id;
-                  void markOnboardingBackfillShown(uid);
-                  setOnboardingOpen(false);
-                  setOnboardingForceRerun(false);
-                  switchTab('settings');
-                }}
-              />
-            )}
-            {user?.id && onboardingStage === 'progress' && (
-              <OnboardingBackfillProgressScreen
-                onComplete={(failed) => {
-                  setOnboardingFailedJobs(failed);
-                  setOnboardingStage('review');
-                }}
-              />
-            )}
-            {user?.id && onboardingStage === 'review' && (
-              <OnboardingFactReviewScreen
-                failedJobs={onboardingFailedJobs}
-                onDone={() => {
-                  const uid = user.id;
-                  void markOnboardingBackfillShown(uid);
-                  setOnboardingOpen(false);
-                  setOnboardingForceRerun(false);
-                  setOnboardingFailedJobs([]);
-                }}
-              />
-            )}
-          </Animated.View>
-        )}
+        {sessionOverlays}
       </View>
-      {user?.id && (
-        <MemoryConsentModal
-          visible={memoryConsentOpen}
-          userId={user.id}
-          onClose={() => {
-            const uid = user.id;
-            setMemoryConsentOpen(false);
-            void markMemoryConsentShown(uid);
-            // The chain trigger now lives in the memory-enabled transition
-            // watcher above - it fires regardless of which UI surface flipped
-            // memory ON, so we don't need to fire it again here.
-          }}
-        />
-      )}
+      {memoryConsentModal}
       {!chatOpen && !openMail && !notificationsOpen && !sentMailsOpen && !icloudSetupOpen && !adminConsentOpen && !onboardingOpen && !authSheetOpen && (
         <View
           style={styles.chrome}

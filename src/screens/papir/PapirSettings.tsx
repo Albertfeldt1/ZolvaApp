@@ -1,5 +1,5 @@
 import React, { useEffect, useState, type ComponentType, type ReactNode } from 'react';
-import { Alert, Linking, Pressable, ScrollView, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import {
   ArrowLeftRight,
   Bell,
@@ -9,8 +9,10 @@ import {
   Lock,
   Mail,
   Sun,
+  Trash2,
   User,
 } from 'lucide-react-native';
+import { DeleteAccountScreen } from '../DeleteAccountScreen';
 import { PaperText, Toggle, papirColor, papirRadius, papirSpace } from '../../design/papir';
 import { useAuth } from '../../lib/auth';
 import { usePrivacyToggles, useWorkPreferences } from '../../lib/hooks';
@@ -95,6 +97,7 @@ export function PapirSettings() {
   const privacy = usePrivacyToggles();
   const workPrefs = useWorkPreferences();
   const [notif, setNotif] = useState<NotificationSettings>(() => getNotificationSettings());
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   useEffect(() => subscribeNotificationSettings(setNotif), []);
 
@@ -151,6 +154,25 @@ export function PapirSettings() {
     }
   };
 
+  // Enabling memory means Zolva reads mails/calendar to build a profile —
+  // that needs an informed yes FIRST, not a silent toggle (H3/GDPR). The
+  // other privacy toggles flip directly.
+  const flipPrivacy = (id: string) => {
+    const t = privacy.data.find((x) => x.id === id);
+    if (id === 'memory-enabled' && t && !t.enabled) {
+      Alert.alert(
+        'Lad Zolva lære dig at kende',
+        'Zolva bruger dine mails og din kalender til at huske fakta om dig (kontakter, aftaler, præferencer), så svar og briefinger bliver personlige. Du kan se og slette alt under Historik, og slå det fra igen når som helst.',
+        [
+          { text: 'Nej tak', style: 'cancel' },
+          { text: 'Slå til', onPress: () => void privacy.flip(id) },
+        ],
+      );
+      return;
+    }
+    void privacy.flip(id);
+  };
+
   const chevron = <ChevronRight size={16} color={papirColor.ink4} strokeWidth={2} />;
   const value = (s: string) => (
     <PaperText role="small" color={papirColor.ink3}>
@@ -159,6 +181,7 @@ export function PapirSettings() {
   );
 
   return (
+    <>
     <ScrollView
       style={{ flex: 1, backgroundColor: papirColor.paper }}
       contentContainerStyle={{ paddingBottom: 40 }}
@@ -199,11 +222,21 @@ export function PapirSettings() {
             key={t.id}
             Icon={Lock}
             label={t.label}
-            right={<Toggle value={t.enabled} onValueChange={() => void privacy.flip(t.id)} />}
+            right={<Toggle value={t.enabled} onValueChange={() => flipPrivacy(t.id)} />}
             divider={i > 0}
           />
         ))}
       </Group>
+
+      {/* Account deletion must be reachable in-app (Apple 5.1.1(v) + GDPR) —
+          reuses the classic confirm-flow screen (K2). */}
+      {user ? (
+        <Group label="Fare-zone">
+          <Pressable onPress={() => setDeleteOpen(true)} accessibilityRole="button" accessibilityLabel="Slet konto">
+            <SRow Icon={Trash2} label="Slet konto" danger right={chevron} divider={false} />
+          </Pressable>
+        </Group>
+      ) : null}
 
       {/* Dev: exit hatch back to the classic UI (the toggle lives in the
           classic Settings' dev cluster; without this Papir is a roach motel). */}
@@ -215,5 +248,11 @@ export function PapirSettings() {
         </Group>
       ) : null}
     </ScrollView>
+    {deleteOpen ? (
+      <View style={[StyleSheet.absoluteFill, { zIndex: 90, backgroundColor: papirColor.paper }]}>
+        <DeleteAccountScreen onClose={() => setDeleteOpen(false)} onDeleted={() => setDeleteOpen(false)} />
+      </View>
+    ) : null}
+    </>
   );
 }

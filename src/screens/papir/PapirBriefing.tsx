@@ -4,6 +4,7 @@ import { ArrowRight } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { Button, PaperText, papirColor, papirSpace } from '../../design/papir';
 import { useTodayBrief } from '../../lib/briefs';
+import { useWorkPreferences } from '../../lib/hooks';
 import { formatToday } from '../../lib/date';
 import { usePapirNav } from './nav';
 import { PushHeader } from './PushHeader';
@@ -43,6 +44,14 @@ const KIND_GREETING: Record<'morning' | 'midday' | 'evening', string> = {
 export function PapirBriefing() {
   const nav = usePapirNav();
   const { brief, loading, markRead, refresh } = useTodayBrief();
+  const { data: workPrefs } = useWorkPreferences();
+  // "Opdatér" only re-FETCHES — it can't generate a brief (H12). Tell the
+  // user when the next one actually lands instead of a dead-feeling button.
+  const morningTime = workPrefs.find((p) => p.id === 'morning-brief')?.value ?? '';
+  const scheduleLine =
+    morningTime && morningTime !== 'Fra'
+      ? `Din morgenbriefing lander her hver dag kl. ${morningTime}.`
+      : 'Din briefing lander her, når den er genereret.';
 
   // Opening the briefing = reading it (same semantics as the classic modal).
   useEffect(() => {
@@ -83,9 +92,9 @@ export function PapirBriefing() {
             Ingen briefing endnu
           </PaperText>
           <PaperText role="body" color={papirColor.ink3} style={{ textAlign: 'center', maxWidth: 280 }}>
-            Din morgenbriefing lander her hver dag på det tidspunkt, du har valgt.
+            {scheduleLine}
           </PaperText>
-          <Button label="Opdatér" variant="ghost" style={{ paddingHorizontal: 24 }} onPress={() => void refresh()} />
+          <Button label="Tjek igen" variant="ghost" style={{ paddingHorizontal: 24 }} onPress={() => void refresh()} />
         </View>
       ) : (
         <>
