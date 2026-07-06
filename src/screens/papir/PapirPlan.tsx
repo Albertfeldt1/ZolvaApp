@@ -1,9 +1,9 @@
-import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, View } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, RefreshControl, ScrollView, View } from 'react-native';
 import { Check } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { PaperText, SegmentedControl, papirColor, papirRadius, papirSpace } from '../../design/papir';
-import { useDayEvents, useReminders } from '../../lib/hooks';
+import { refreshCalendarNow, useDayEvents, useReminders } from '../../lib/hooks';
 import type { Reminder } from '../../lib/types';
 import { usePapirScreenPads } from './insets';
 import { DayTimeline, type TimelineEvent } from './DayTimeline';
@@ -37,6 +37,14 @@ function dueLabel(r: Reminder, now: Date): { text: string; muted: boolean } {
   if (!r.dueAt) return { text: 'når du kan', muted: true };
   const sameDay = r.dueAt.toDateString() === now.toDateString();
   if (sameDay) return { text: clockLabel(r.dueAt), muted: false };
+  // Overdue from an earlier day: a weekday label ("fre") would read as the
+  // COMING Friday (M6). Say it plainly instead.
+  if (r.dueAt < now) {
+    const y = new Date(now);
+    y.setDate(y.getDate() - 1);
+    if (r.dueAt.toDateString() === y.toDateString()) return { text: `i går ${clockLabel(r.dueAt)}`, muted: false };
+    return { text: `${r.dueAt.getDate()}/${r.dueAt.getMonth() + 1}`, muted: false };
+  }
   const days = Math.round((r.dueAt.getTime() - now.getTime()) / 86_400_000);
   if (days < 7) return { text: WEEKDAYS_SHORT[r.dueAt.getDay()], muted: true };
   return { text: `${r.dueAt.getDate()}/${r.dueAt.getMonth() + 1}`, muted: true };
@@ -273,11 +281,18 @@ function CalendarView() {
 export function PapirPlan() {
   const [view, setView] = useState(0);
   const pads = usePapirScreenPads();
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    refreshCalendarNow();
+    setTimeout(() => setRefreshing(false), 900);
+  }, []);
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: papirColor.paper }}
       contentContainerStyle={{ paddingTop: pads.top, paddingBottom: pads.bottom }}
       showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={papirColor.red} />}
     >
       <View style={{ paddingHorizontal: papirSpace.screen }}>
         <PaperText role="eyebrow" color={papirColor.ink3}>

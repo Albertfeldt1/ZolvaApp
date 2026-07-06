@@ -1,12 +1,27 @@
-import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, View } from 'react-native';
-import { ChevronDown } from 'lucide-react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-native';
+import { AlertTriangle, ChevronDown } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { PaperText, papirColor, papirRadius, papirSpace } from '../../design/papir';
-import { useHasProvider, useInboxWaiting } from '../../lib/hooks';
+import { refreshMailNow, useHasProvider, useInboxWaiting } from '../../lib/hooks';
 import type { InboxMail } from '../../lib/types';
 import { usePapirNav } from './nav';
 import { PushHeader } from './PushHeader';
+
+const PROVIDER_NAMES: Record<string, string> = {
+  google: 'Gmail',
+  microsoft: 'Outlook',
+  icloud: 'iCloud',
+};
+
+/** Auth-class errors need re-connect; everything else is transient. */
+function errorLine(provider: string, code: string): string {
+  const name = PROVIDER_NAMES[provider] ?? provider;
+  if (code.includes('auth') || code.includes('reauth') || code.includes('credential')) {
+    return `${name}-forbindelsen er udløbet. Genopret den under Indstillinger i den klassiske visning.`;
+  }
+  return `${name} kunne ikke hentes lige nu. Træk ned for at prøve igen.`;
+}
 
 function MailRow({ mail, onPress }: { mail: InboxMail; onPress: () => void }) {
   const urgent = mail.tier === 0;
@@ -120,6 +135,15 @@ export function PapirInbox() {
   const nav = usePapirNav();
   const inbox = useInboxWaiting();
   const hasProvider = useHasProvider();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    refreshMailNow();
+    // The refresh signal is fire-and-forget; hold the spinner briefly so the
+    // gesture reads as acknowledged, then let the list update as data lands.
+    setTimeout(() => setRefreshing(false), 900);
+  }, []);
 
   const tiers = useMemo(() => {
     const t: Record<0 | 1 | 2 | 3, InboxMail[]> = { 0: [], 1: [], 2: [], 3: [] };
@@ -144,8 +168,32 @@ export function PapirInbox() {
       style={{ flex: 1, backgroundColor: papirColor.paper }}
       contentContainerStyle={{ paddingBottom: 40 }}
       showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={papirColor.red} />}
     >
       <PushHeader title="Indbakke" />
+
+      {/* Provider errors: expired tokens / transient failures (K5). Without
+          this an expired Gmail login looks like an empty, healthy inbox. */}
+      {inbox.providerErrors.map((e) => (
+        <View
+          key={e.provider}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 10,
+            marginHorizontal: papirSpace.screen,
+            marginBottom: 10,
+            padding: 12,
+            borderRadius: papirRadius.md,
+            backgroundColor: papirColor.redSoft,
+          }}
+        >
+          <AlertTriangle size={16} color={papirColor.red} strokeWidth={1.8} />
+          <PaperText role="small" color={papirColor.ink2} style={{ flex: 1 }}>
+            {errorLine(e.provider, e.code)}
+          </PaperText>
+        </View>
+      ))}
 
       {inbox.loading && inbox.data.length === 0 ? (
         <View style={{ alignItems: 'center', paddingTop: 60 }}>

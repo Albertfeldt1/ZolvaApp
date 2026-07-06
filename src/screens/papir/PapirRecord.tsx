@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, View } from 'react-native';
+import { Alert, Linking, View } from 'react-native';
 import { Pause, Play, X } from 'lucide-react-native';
 import {
   RecordingPresets,
@@ -45,8 +45,18 @@ export function PapirRecord({ onStop, onClose }: Props) {
         const perm = await requestRecordingPermissionsAsync();
         if (cancelled) return;
         if (!perm.granted) {
-          Alert.alert('Mikrofon-adgang', 'Giv Zolva adgang til mikrofonen for at optage stemme-noter.');
-          onClose();
+          // Once denied, iOS never re-prompts — without a Settings link this
+          // is a dead end (H10).
+          Alert.alert('Mikrofon-adgang', 'Giv Zolva adgang til mikrofonen for at optage stemme-noter.', [
+            { text: 'Ikke nu', style: 'cancel', onPress: onClose },
+            {
+              text: 'Åbn indstillinger',
+              onPress: () => {
+                Linking.openSettings().catch(() => {});
+                onClose();
+              },
+            },
+          ]);
           return;
         }
         await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });

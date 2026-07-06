@@ -99,9 +99,18 @@ export function PapirProfile() {
     ];
   }, [notes.data, reminders.data]);
 
-  const openPremium = () => {
-    if (isPro) void presentCustomerCenter();
-    else void presentPaywall();
+  const openPremium = async () => {
+    if (isPro) {
+      void presentCustomerCenter();
+      return;
+    }
+    // null = the paywall could not even be presented (config/network) — the
+    // tap would otherwise look dead (M5). Purchase outcomes inside the
+    // paywall are RevenueCat's UI; the entitlement listener picks up success.
+    const result = await presentPaywall();
+    if (result === null) {
+      Alert.alert('Premium', 'Kunne ikke åbne Premium lige nu. Prøv igen senere.');
+    }
   };
 
   const confirmSignOut = () => {

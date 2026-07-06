@@ -34,7 +34,7 @@ const PROVIDER_LABELS: Record<CalendarProviderId, string> = {
 
 type AddState = 'idle' | 'pending' | 'done';
 
-function ActionCard({ action, onAdd }: { action: ExtractedAction; onAdd: () => Promise<void> }) {
+function ActionCard({ action, onAdd }: { action: ExtractedAction; onAdd: () => Promise<boolean> }) {
   const [state, setState] = useState<AddState>('idle');
   const Icon: IconCmp = action.kind === 'reminder' ? Clock : Calendar;
   const label = action.kind === 'reminder' ? 'Påmindelse' : 'Begivenhed';
@@ -43,8 +43,10 @@ function ActionCard({ action, onAdd }: { action: ExtractedAction; onAdd: () => P
     if (state !== 'idle') return;
     setState('pending');
     try {
-      await onAdd();
-      setState('done');
+      // false = user cancelled (e.g. dismissed the provider picker) — back to
+      // idle without an alert; cancelling is not an error (M2).
+      const added = await onAdd();
+      setState(added ? 'done' : 'idle');
     } catch (e) {
       setState('idle');
       const msg =
@@ -163,35 +165,38 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
     };
   }, [uri]);
 
-  const pickProvider = (): Promise<CalendarProviderId> => {
+  // Resolves null when the user dismisses the sheet — cancel, not error (M2).
+  const pickProvider = (): Promise<CalendarProviderId | null> => {
     if (calendarProviders.length === 1) return Promise.resolve(calendarProviders[0]);
-    return new Promise((resolve, reject) => {
-      // Sheet below resolves/rejects; storing the action only for display.
+    return new Promise((resolve) => {
       setPickFor({
         action: { kind: 'event', title: '' },
         resolve: (p) => {
           setPickFor(null);
           resolve(p);
         },
-        reject: (e) => {
+        reject: () => {
           setPickFor(null);
-          reject(e);
+          resolve(null);
         },
       });
     });
   };
 
-  const addAction = async (action: ExtractedAction): Promise<void> => {
+  /** Returns true when added, false when the user cancelled. */
+  const addAction = async (action: ExtractedAction): Promise<boolean> => {
     if (action.kind === 'reminder') {
       const due = action.whenISO ? new Date(action.whenISO) : undefined;
       await reminders.add(action.title, due && !Number.isNaN(due.getTime()) ? due : undefined);
-      return;
+      return true;
     }
     if (calendarProviders.length === 0) {
       throw new VoiceEventError('Ingen kalender forbundet. Forbind en kalender i Indstillinger.');
     }
     const provider = await pickProvider();
+    if (!provider) return false;
     await addVoiceEvent(ctx, provider, action);
+    return true;
   };
 
   const saveNote = async () => {
@@ -263,7 +268,7 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: papirColor.red }} />
                   <PaperText role="bodyStrong" style={{ fontSize: 13 }}>
-                    Zolva fandt {data.actions.length} {data.actions.length === 1 ? 'ting' : 'ting'}
+                    Zolva fandt {data.actions.length} {data.actions.length === 1 ? 'handling' : 'handlinger'}
                   </PaperText>
                 </View>
                 {data.actions.map((a, i) => (
@@ -285,7 +290,7 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
         <View style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end' }]}>
           <Pressable
             style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(27,26,23,0.35)' }]}
-            onPress={() => pickFor.reject(new VoiceEventError('Annulleret.'))}
+            onPress={() => pickFor.reject(new Error('cancelled'))}
             accessibilityLabel="Luk kalendervalg"
           />
           <View

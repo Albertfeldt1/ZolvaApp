@@ -17,15 +17,30 @@ type ProviderId = 'apple' | 'google' | 'microsoft';
 export function AuthSheet({ onClose }: Props) {
   const { signInWithApple, signInWithGoogle, signInWithMicrosoft, appleAvailable } = useAuth();
   const [busy, setBusy] = useState<ProviderId | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const run = async (id: ProviderId, fn: () => Promise<unknown>) => {
     if (busy) return;
     try {
       setBusy(id);
-      await fn();
+      setError(null);
+      // The Google/Microsoft sign-in helpers do NOT throw — they return
+      // { error } (see auth.ts). A user-cancelled browser flow returns
+      // { data: null, error: null }: no success, no failure → stay open
+      // silently. Only a real error gets surfaced.
+      const result = (await fn()) as { data?: unknown; error?: unknown } | undefined;
+      if (result && result.error) {
+        if (__DEV__) console.warn('[auth-sheet] sign-in failed:', result.error);
+        setError('Login mislykkedes. Prøv igen.');
+        return;
+      }
+      if (result && result.data === null && result.error === null) {
+        return; // user cancelled the browser flow — keep the sheet open, no scolding
+      }
       onClose();
     } catch (err) {
       if (__DEV__) console.warn('[auth-sheet] sign-in failed:', err);
+      setError('Login mislykkedes. Prøv igen.');
     } finally {
       setBusy(null);
     }
@@ -44,6 +59,7 @@ export function AuthSheet({ onClose }: Props) {
       </Pressable>
       <Text style={styles.title}>Log ind på Zolva</Text>
       <Text style={styles.subtitle}>Vælg hvordan du vil komme i gang.</Text>
+      {error ? <Text style={styles.error}>{error}</Text> : null}
       <View style={styles.buttons}>
         {providers.filter((p) => p.show).map((p) => (
           <Pressable
@@ -67,6 +83,7 @@ const styles = StyleSheet.create({
   dismissLabel: { fontSize: 16, color: '#6B6B66' },
   title: { fontSize: 28, fontWeight: '700', color: '#1C1C1A', marginTop: 16 },
   subtitle: { fontSize: 16, color: '#6B6B66', marginTop: 8, marginBottom: 32 },
+  error: { fontSize: 15, color: '#D14343', marginTop: -20, marginBottom: 20 },
   buttons: { gap: 12 },
   provider: {
     borderWidth: 1,

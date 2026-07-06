@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -38,17 +38,22 @@ export function PapirMailDetail({ params }: { params: PushParams }) {
   const { generate, loading: generating } = useGenerateDraftAction();
   const [draft, setDraft] = useState(params.aiDraft ?? '');
   const [bodyExpanded, setBodyExpanded] = useState(false);
+  // Gates the confirm dialog itself: `sending` flips asynchronously, so two
+  // fast taps could stack two alerts (M11).
+  const confirmingRef = useRef(false);
 
-  const from = detail?.from ?? params.from ?? '';
-  const subject = detail?.subject ?? params.subject ?? '';
+  const from = detail?.from || params.from || 'Ukendt afsender';
+  const subject = detail?.subject || params.subject || 'Uden emne';
 
   const handleSend = () => {
-    if (!detail || !draft.trim() || sending) return;
+    if (!detail || !draft.trim() || sending || confirmingRef.current) return;
+    confirmingRef.current = true;
     Alert.alert('Send svar?', `Til ${from}`, [
-      { text: 'Annullér', style: 'cancel' },
+      { text: 'Annullér', style: 'cancel', onPress: () => { confirmingRef.current = false; } },
       {
         text: 'Send',
         onPress: async () => {
+          confirmingRef.current = false;
           const ok = await send(detail.id, draft.trim(), detail.replyContext);
           if (!ok) {
             Alert.alert('Send', 'Svaret kunne ikke sendes. Tjek din forbindelse og prøv igen.');

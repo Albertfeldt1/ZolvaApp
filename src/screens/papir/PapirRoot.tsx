@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { BackHandler, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Animated, { SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -23,6 +23,19 @@ type Props = {
  */
 export function PapirRoot({ loggedOut }: Props) {
   const [authOpen, setAuthOpen] = useState(false);
+
+  // Android hardware back closes the auth sheet (K4). PapirRoot mounts
+  // before PapirShell, so React registers the shell's handler LAST — RN's
+  // BackHandler is LIFO, so this effect re-registers on every authOpen flip
+  // to jump the queue while the sheet is up.
+  useEffect(() => {
+    if (!authOpen) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setAuthOpen(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [authOpen]);
   // Papir screens request login via nav.openAuth() (e.g. Profil's "Log ind",
   // or actions that hit an auth wall). The sheet is the classic AuthSheet —
   // login is identical in both UIs by design.

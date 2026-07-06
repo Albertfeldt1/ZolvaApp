@@ -138,12 +138,17 @@ export function PapirSettings() {
 
   // Work preferences cycle through their options on tap (picker sheet is
   // parity backlog — cycling covers the 2-4 option prefs the classic has).
-  const cyclePref = (id: (typeof workPrefs.data)[number]['id']) => {
+  const cyclePref = async (id: (typeof workPrefs.data)[number]['id']) => {
     const pref = workPrefs.data.find((p) => p.id === id);
     if (!pref || pref.options.length === 0) return;
     const idx = pref.value ? pref.options.indexOf(pref.value) : -1;
     const next = pref.options[(idx + 1) % pref.options.length];
-    void workPrefs.setValue(id, next);
+    // Surface failures — otherwise the optimistic value silently reverts on
+    // next app start and the user's choice was never saved (M4).
+    const result = await workPrefs.setValue(id, next);
+    if (!result.ok) {
+      Alert.alert('Indstillinger', 'Ændringen kunne ikke gemmes. Tjek din forbindelse og prøv igen.');
+    }
   };
 
   const chevron = <ChevronRight size={16} color={papirColor.ink4} strokeWidth={2} />;
@@ -170,7 +175,7 @@ export function PapirSettings() {
 
       <Group label="Sådan arbejder jeg">
         {workPrefs.data.map((p, i) => (
-          <Pressable key={p.id} onPress={() => cyclePref(p.id)} accessibilityRole="button" accessibilityLabel={p.title}>
+          <Pressable key={p.id} onPress={() => void cyclePref(p.id)} accessibilityRole="button" accessibilityLabel={p.title}>
             <SRow Icon={BrainCircuit} label={p.title} right={value(p.value ?? '—')} divider={i > 0} />
           </Pressable>
         ))}

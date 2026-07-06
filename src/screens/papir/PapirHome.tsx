@@ -1,5 +1,5 @@
-import React, { useMemo, type ComponentType } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import React, { useCallback, useMemo, useState, type ComponentType } from 'react';
+import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { usePapirScreenPads } from './insets';
 import {
   AlignLeft,
@@ -18,7 +18,7 @@ import {
   papirRadius,
   papirSpace,
 } from '../../design/papir';
-import { useInboxCounts, useNotes, useReminders, useUpcoming, useUser } from '../../lib/hooks';
+import { refreshCalendarNow, refreshMailNow, useInboxCounts, useNotes, useReminders, useUpcoming, useUser } from '../../lib/hooks';
 import { useTodayBrief } from '../../lib/briefs';
 import { greeting, formatToday } from '../../lib/date';
 import type { Note, Reminder } from '../../lib/types';
@@ -82,12 +82,23 @@ function clockLabel(d: Date): string {
   return `${String(d.getHours()).padStart(2, '0')}.${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+/** Overdue tasks from earlier days must not masquerade as today (M6):
+ * a bare "14.30" on yesterday's task reads as today 14.30. */
+function taskTimeLabel(dueAt: Date | null, now: Date): string {
+  if (!dueAt) return '';
+  if (dueAt.toDateString() === now.toDateString()) return clockLabel(dueAt);
+  const y = new Date(now);
+  y.setDate(y.getDate() - 1);
+  if (dueAt.toDateString() === y.toDateString()) return `i går ${clockLabel(dueAt)}`;
+  return `${dueAt.getDate()}/${dueAt.getMonth() + 1} ${clockLabel(dueAt)}`;
+}
+
 function durationLabel(sec?: number): string {
   if (!sec || sec <= 0) return '';
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
 }
 
-function TaskRow({ reminder, onDone }: { reminder: Reminder; onDone: (id: string) => void }) {
+function TaskRow({ reminder, now, onDone }: { reminder: Reminder; now: Date; onDone: (id: string) => void }) {
   const done = reminder.status === 'done';
   return (
     <ScaleButton
@@ -124,15 +135,16 @@ function TaskRow({ reminder, onDone }: { reminder: Reminder; onDone: (id: string
         {reminder.text}
       </PaperText>
       <PaperText role="caption" color={done ? papirColor.ink4 : papirColor.red} tabular>
-        {reminder.dueAt ? clockLabel(reminder.dueAt) : ''}
+        {taskTimeLabel(reminder.dueAt, now)}
       </PaperText>
     </ScaleButton>
   );
 }
 
 /** Today's task list: pending due today/overdue first (by due time), then
- * reminders completed today — the visual "what I got done" tail. */
-function todaysTasks(reminders: Reminder[], now: Date): Reminder[] {
+ * reminders completed today — the visual "what I got done" tail. Returns the
+ * total before capping so the header can say "Se plan (8)" (M8). */
+function todaysTasks(reminders: Reminder[], now: Date): { shown: Reminder[]; total: number } {
   const endOfDay = new Date(now);
   endOfDay.setHours(23, 59, 59, 999);
   const pending = reminders
@@ -141,7 +153,8 @@ function todaysTasks(reminders: Reminder[], now: Date): Reminder[] {
   const doneToday = reminders
     .filter((r) => r.status === 'done' && r.doneAt !== null && r.doneAt.toDateString() === now.toDateString())
     .sort((a, b) => (b.doneAt?.getTime() ?? 0) - (a.doneAt?.getTime() ?? 0));
-  return [...pending, ...doneToday].slice(0, 5);
+  const all = [...pending, ...doneToday];
+  return { shown: all.slice(0, 5), total: all.length };
 }
 
 export function PapirHome() {
@@ -170,15 +183,25 @@ export function PapirHome() {
 
   const tasks = useMemo(() => todaysTasks(reminders.data, now), [reminders.data, now]);
 
-  const statusReady = !upcoming.loading && !inbox.loading;
+  const statusError = !!upcoming.error;
+  const statusReady = !upcoming.loading && !inbox.loading && !statusError;
   const meetings = upcoming.todayMeetingCount;
   const mails = inbox.unread;
+
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    refreshMailNow();
+    refreshCalendarNow();
+    setTimeout(() => setRefreshing(false), 900);
+  }, []);
 
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: papirColor.paper }}
       contentContainerStyle={{ paddingTop: pads.top, paddingBottom: pads.bottom }}
       showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={papirColor.red} />}
     >
       {/* Greeting */}
       <View
@@ -213,6 +236,10 @@ export function PapirHome() {
             {mails === 0 ? 'ingen nye mails' : mails === 1 ? '1 ny mail' : `${mails} nye mails`}
           </PaperText>
           {' '}i dag.
+        </PaperText>
+      ) : statusError ? (
+        <PaperText role="body" color={papirColor.ink3} style={{ marginTop: 12, paddingHorizontal: papirSpace.screen, maxWidth: 320 }}>
+          Kunne ikke hente dit overblik. Træk ned for at prøve igen.
         </PaperText>
       ) : (
         <PaperText role="body" color={papirColor.ink3} style={{ marginTop: 12, paddingHorizontal: papirSpace.screen, maxWidth: 320 }}>
@@ -297,13 +324,17 @@ export function PapirHome() {
       )}
 
       {/* Tasks today */}
-      <SectionHeader label="Opgaver i dag" action="Se plan" onAction={() => nav.setTab('plan')} />
-      {tasks.length === 0 ? (
+      <SectionHeader
+        label="Opgaver i dag"
+        action={tasks.total > tasks.shown.length ? `Se plan (${tasks.total})` : 'Se plan'}
+        onAction={() => nav.setTab('plan')}
+      />
+      {tasks.shown.length === 0 ? (
         <PaperText role="body" color={papirColor.ink3} style={{ paddingHorizontal: papirSpace.screen }}>
           Ingen opgaver i dag.
         </PaperText>
       ) : (
-        tasks.map((t) => <TaskRow key={t.id} reminder={t} onDone={(id) => void reminders.markDone(id)} />)
+        tasks.shown.map((t) => <TaskRow key={t.id} reminder={t} now={now} onDone={(id) => void reminders.markDone(id)} />)
       )}
     </ScrollView>
   );

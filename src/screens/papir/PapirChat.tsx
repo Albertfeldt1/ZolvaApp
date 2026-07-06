@@ -118,6 +118,20 @@ export function PapirChat() {
   const scrollRef = useRef<ScrollView>(null);
   const countRef = useRef(0);
 
+  // The quota banner must not outlive the quota: auto-clear when resetsAt
+  // passes so the composer unblocks without a restart (M10).
+  useEffect(() => {
+    if (!chat.chatCap?.resetsAt) return;
+    const check = () => {
+      const t = new Date(chat.chatCap?.resetsAt ?? '').getTime();
+      if (!Number.isNaN(t) && t <= Date.now()) chat.clearChatCap();
+    };
+    check();
+    const id = setInterval(check, 30_000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.chatCap?.resetsAt]);
+
   // Auto-scroll only when new content arrives (not on every keystroke).
   useEffect(() => {
     if (chat.data.length !== countRef.current) {
