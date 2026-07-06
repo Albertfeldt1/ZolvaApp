@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react';
 import type { MailProvider } from '../../lib/types';
 import type { PapirTab } from './PapirBottomNav';
 
-export type PushScreen = 'briefing' | 'chat' | 'search' | 'settings' | 'inbox' | 'mailDetail' | 'agent';
+export type PushScreen = 'briefing' | 'chat' | 'search' | 'settings' | 'inbox' | 'mailDetail' | 'agent' | 'notifications';
 
 /** Per-push params — mailDetail carries the list-row context so the detail
  * screen can render header + AI draft instantly while the body fetches. */

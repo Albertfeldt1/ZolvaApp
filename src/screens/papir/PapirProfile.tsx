@@ -2,6 +2,7 @@ import React, { useMemo, type ComponentType } from 'react';
 import { Alert, ScrollView, View } from 'react-native';
 import { usePapirScreenPads } from './insets';
 import {
+  Bell,
   Bot,
   ChevronRight,
   Crown,
@@ -15,7 +16,7 @@ import Purchases from 'react-native-purchases';
 import { ScaleButton } from '../../design/motion';
 import { Button, PaperText, papirColor, papirDarkSurface, papirRadius, papirSpace } from '../../design/papir';
 import { useAuth } from '../../lib/auth';
-import { useEntitlement, useNotes, useReminders, useUser } from '../../lib/hooks';
+import { useEntitlement, useNotes, useReminders, useUnreadNotificationCount, useUser } from '../../lib/hooks';
 import { presentCustomerCenter, presentPaywall } from '../../lib/paywall';
 import { usePapirNav } from './nav';
 import { requestHistorySegment } from './PapirHistory';
@@ -87,6 +88,7 @@ export function PapirProfile() {
   const entitlement = useEntitlement();
   const notes = useNotes();
   const reminders = useReminders();
+  const unreadNotifications = useUnreadNotificationCount();
 
   const loggedIn = !!user;
   const name = profile?.name ?? '';
@@ -260,6 +262,13 @@ export function PapirProfile() {
       >
         <MenuRow Icon={Settings} label="Indstillinger" divider={false} onPress={() => nav.push('settings')} />
         <MenuRow Icon={Bot} label="Zolva Agent" divider onPress={() => nav.push('agent')} />
+        <MenuRow
+          Icon={Bell}
+          label="Notifikationer"
+          value={unreadNotifications > 0 ? String(unreadNotifications) : undefined}
+          divider
+          onPress={() => nav.push('notifications')}
+        />
         <MenuRow
           Icon={Crown}
           label="Zolva Premium"
