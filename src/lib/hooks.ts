@@ -2032,7 +2032,9 @@ async function classifyNeedsReply(
       messages: [
         {
           role: 'user',
-          content: `From: ${mail.from}\nSubject: ${mail.subject}\n\n${preview}`,
+          // Include the address — "From: TikTok" hides exactly the signal
+          // (noreply@…) the classifier needs most.
+          content: `From: ${mail.from}${mail.fromEmail ? ` <${mail.fromEmail}>` : ''}\nSubject: ${mail.subject}\n\n${preview}`,
         },
       ],
       maxTokens: 80,
@@ -2169,17 +2171,6 @@ export function useInboxWaiting(): InboxWaitingResult {
     const maxDrafts = AUTONOMY_TARGETS[autonomy] ?? AUTONOMY_TARGETS['Lav udkast'];
     if (maxDrafts === 0) return;
 
-    const targets = items
-      .filter(
-        (m) =>
-          !m.isRead &&
-          !dismissed.has(m.id) &&
-          needsReply(m.from) &&
-          !looksLikeNonReplyContent(m.preview),
-      )
-      .slice(0, maxDrafts);
-    if (targets.length === 0) return;
-
     const controller = new AbortController();
     abortRef.current?.abort();
     abortRef.current = controller;
@@ -2196,6 +2187,35 @@ export function useInboxWaiting(): InboxWaitingResult {
     // new user's storage key (and clears the in-memory cache from the prior).
     void Promise.all([hydrateDraftCache(uid), hydrateVerdictCache(uid)]).then(async () => {
       if (controller.signal.aborted) return;
+
+      // Hydrated verdicts must ALSO retrigger the urgency sort. Without this
+      // bump, cached verdicts (e.g. yesterday's "no reply" on a newsletter)
+      // never reach the tier computation until some unrelated re-render —
+      // the inbox sat with everything in "Venter på dig" even though the
+      // cache knew better. The batch below only bumps for FRESH verdicts.
+      setVerdictTick((t) => t + 1);
+
+      // Target selection AFTER hydration — the verdict filter below reads the
+      // cache, and pre-hydration it is empty: the slice then grabs the newest
+      // 6 (all long-since condemned newsletters), the batch finds nothing to
+      // do, and mail #7+ never meets the classifier.
+      const targets = items
+        .filter(
+          (m) =>
+            !m.isRead &&
+            !dismissed.has(m.id) &&
+            // Address, not display name — "TikTok" never matches noreply@…,
+            // so the pipeline was paying to classify mails the sender pattern
+            // already condemns (same fix family as urgencyTier).
+            needsReply(m.fromEmail || m.from) &&
+            !looksLikeNonReplyContent(m.preview) &&
+            // Known no-reply verdicts must not occupy batch slots: skipping
+            // them lets each inbox visit work through the NEXT unclassified
+            // batch (still ≤maxDrafts classifier calls per run).
+            getVerdictFromCache(m.id) !== false,
+        )
+        .slice(0, maxDrafts);
+      if (targets.length === 0) return;
 
       // Classification pass: short-circuit cached verdicts, classify the rest
       // in parallel. Cached positives go straight into the draft pipeline
