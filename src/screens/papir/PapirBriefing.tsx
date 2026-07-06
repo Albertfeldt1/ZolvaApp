@@ -14,7 +14,10 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
     <>
       <View style={{ height: 1, backgroundColor: papirColor.line, marginHorizontal: papirSpace.screen, marginTop: 24 }} />
       <View style={{ paddingHorizontal: papirSpace.screen, paddingTop: 22 }}>
-        <PaperText role="eyebrow" color={papirColor.red}>
+        {/* ink3 like every other section eyebrow (Home, Historik) — red is
+            reserved for active/urgent/CTA per the token semantics, and a red
+            "VEJRET" label inflates the accent into meaninglessness. */}
+        <PaperText role="eyebrow" color={papirColor.ink3}>
           {label}
         </PaperText>
         <View style={{ marginTop: 10 }}>{children}</View>

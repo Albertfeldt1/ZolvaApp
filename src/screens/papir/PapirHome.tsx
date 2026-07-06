@@ -23,6 +23,7 @@ import { useTodayBrief } from '../../lib/briefs';
 import { greeting, formatToday } from '../../lib/date';
 import type { Note, Reminder } from '../../lib/types';
 import { usePapirNav } from './nav';
+import { requestHistorySegment } from './PapirHistory';
 import { useNow } from './useNow';
 import { barsFor, WaveGlyph } from './WaveGlyph';
 
@@ -35,7 +36,7 @@ function QuickButton({ Icon, label, onPress }: { Icon: IconCmp; label: string; o
       haptic="light"
       onPress={onPress}
       style={{
-        width: 88,
+        flex: 1,
         gap: 10,
         padding: 14,
         borderRadius: papirRadius.xl,
@@ -248,17 +249,22 @@ export function PapirHome() {
         </PaperText>
       )}
 
-      {/* Quick actions */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: 10, paddingHorizontal: papirSpace.screen, paddingTop: papirSpace.xl }}
-      >
+      {/* Quick actions — a plain flex row: 4×88pt cards overflowed a 402pt
+          screen (the 4th card clipped at the edge, reading as a bug, not a
+          scroll affordance). flex:1 cards fit every device width. */}
+      <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: papirSpace.screen, paddingTop: papirSpace.xl }}>
         <QuickButton Icon={AlignLeft} label="Briefing" onPress={() => nav.push('briefing')} />
-        <QuickButton Icon={FileText} label="Noter" onPress={() => nav.setTab('history')} />
+        <QuickButton
+          Icon={FileText}
+          label="Noter"
+          onPress={() => {
+            requestHistorySegment(1);
+            nav.setTab('history');
+          }}
+        />
         <QuickButton Icon={MessageSquare} label="Chat" onPress={() => nav.push('chat')} />
         <QuickButton Icon={Search} label="Søg" onPress={() => nav.push('search')} />
-      </ScrollView>
+      </View>
 
       {/* In focus: morning briefing card (dark surface) */}
       <SectionHeader label="I fokus" />
@@ -303,7 +309,14 @@ export function PapirHome() {
       </ScaleButton>
 
       {/* Recent recordings */}
-      <SectionHeader label="Seneste optagelser" action="Alle" onAction={() => nav.setTab('history')} />
+      <SectionHeader
+        label="Seneste optagelser"
+        action="Alle"
+        onAction={() => {
+          requestHistorySegment(0);
+          nav.setTab('history');
+        }}
+      />
       {recentRecordings.length === 0 ? (
         <PaperText role="body" color={papirColor.ink3} style={{ paddingHorizontal: papirSpace.screen }}>
           Ingen optagelser endnu — tryk på den røde knap for at starte.

@@ -258,6 +258,7 @@ export function PapirChat() {
               onChangeText={setInput}
               placeholder="Spørg Zolva"
               placeholderTextColor={papirColor.ink3}
+              selectionColor={papirColor.red}
               style={{ flex: 1, fontSize: 15, color: papirColor.ink, maxHeight: 96 }}
               multiline
               accessibilityLabel="Chat-besked"

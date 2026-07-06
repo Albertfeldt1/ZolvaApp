@@ -17,6 +17,7 @@ import { useAuth } from '../../lib/auth';
 import { useEntitlement, useNotes, useReminders, useUser } from '../../lib/hooks';
 import { presentCustomerCenter, presentPaywall } from '../../lib/paywall';
 import { usePapirNav } from './nav';
+import { requestHistorySegment } from './PapirHistory';
 
 type IconCmp = ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
 
@@ -142,6 +143,11 @@ export function PapirProfile() {
       style={{ flex: 1, backgroundColor: papirColor.paper }}
       contentContainerStyle={{ paddingTop: pads.top, paddingBottom: pads.bottom }}
       showsVerticalScrollIndicator={false}
+      // Fabric quirk: this ScrollView mounts scrolled to the END (identity
+      // block hidden behind the status bar) — the only Papir tab where content
+      // overflows the viewport at mount. Pin the initial offset explicitly;
+      // user scrolling afterwards is unaffected.
+      contentOffset={{ x: 0, y: 0 }}
     >
       {/* Identity */}
       <View style={{ alignItems: 'center', paddingHorizontal: papirSpace.screen }}>
@@ -260,7 +266,15 @@ export function PapirProfile() {
           onPress={openPremium}
         />
         <MenuRow Icon={RotateCcw} label="Gendan køb" divider onPress={() => void restorePurchases()} />
-        <MenuRow Icon={FileText} label="Mine noter" divider onPress={() => nav.setTab('history')} />
+        <MenuRow
+          Icon={FileText}
+          label="Mine noter"
+          divider
+          onPress={() => {
+            requestHistorySegment(1);
+            nav.setTab('history');
+          }}
+        />
         {/* Parity backlog: data export + support get real destinations later. */}
         <MenuRow Icon={Download} label="Eksportér data" divider dimmed />
         <MenuRow Icon={HelpCircle} label="Hjælp & support" divider dimmed />

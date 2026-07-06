@@ -210,6 +210,7 @@ export function PapirMailDetail({ params }: { params: PushParams }) {
               onChangeText={setDraft}
               placeholder="Skriv et svar…"
               placeholderTextColor={papirColor.ink4}
+              selectionColor={papirColor.red}
               multiline
               style={{
                 minHeight: 90,

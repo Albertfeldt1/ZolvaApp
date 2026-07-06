@@ -95,6 +95,7 @@ export function PapirSearch() {
           onChangeText={setQuery}
           placeholder="Søg i noter og opgaver"
           placeholderTextColor={papirColor.ink4}
+          selectionColor={papirColor.red}
           autoFocus
           style={{ flex: 1, fontSize: 15, color: papirColor.ink, paddingVertical: 12 }}
           accessibilityLabel="Søgefelt"

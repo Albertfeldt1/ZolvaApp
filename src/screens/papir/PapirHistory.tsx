@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, View } from 'react-native';
 import { FileText } from 'lucide-react-native';
 import { ListRow, PaperText, SegmentedControl, papirColor, papirSpace } from '../../design/papir';
@@ -21,6 +21,20 @@ function GroupLabel({ children }: { children: string }) {
 }
 
 const WEEKDAYS_SHORT = ['Søn', 'Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør'];
+
+// Cross-screen segment request (same module-store pattern as papir-flag):
+// "Noter"/"Mine noter" shortcuts land on THIS tab but must select the right
+// segment — nav.setTab carries no params, and the keep-alive tab may or may
+// not be mounted yet, so a pending value + listener covers both cases.
+export type HistorySegment = 0 | 1; // 0 = Optagelser, 1 = Noter
+let pendingSegment: HistorySegment | null = null;
+const segmentListeners = new Set<() => void>();
+
+/** Ask Historik to show a segment; call right before nav.setTab('history'). */
+export function requestHistorySegment(segment: HistorySegment): void {
+  pendingSegment = segment;
+  segmentListeners.forEach((l) => l());
+}
 
 function trailingFor(note: Note, now: Date): string {
   const d = note.createdAt;
@@ -66,6 +80,21 @@ export function PapirHistory() {
   const notes = useNotes();
   const [segment, setSegment] = useState(0);
   const now = useNow();
+
+  // Consume segment requests from shortcuts — both one that arrived before
+  // this tab first mounted (pending) and later ones while kept alive.
+  useEffect(() => {
+    const apply = () => {
+      if (pendingSegment === null) return;
+      setSegment(pendingSegment);
+      pendingSegment = null;
+    };
+    apply();
+    segmentListeners.add(apply);
+    return () => {
+      segmentListeners.delete(apply);
+    };
+  }, []);
 
   const shown = useMemo(() => {
     const wantVoice = segment === 0;
