@@ -147,7 +147,7 @@ function TasksView() {
           Ingen opgaver
         </PaperText>
         <PaperText role="body" color={papirColor.ink3} style={{ textAlign: 'center' }}>
-          Opgaver fra dine stemme-noter og chatten samles her.
+          Tryk på den røde knap og sig &ldquo;husk at…&rdquo; — eller bed chatten. Opgaverne samles her.
         </PaperText>
       </View>
     );

@@ -148,7 +148,7 @@ export function PapirRecord({ onStop, onClose }: Props) {
     return () => sub.remove();
   }, []);
 
-  const close = () => {
+  const discard = () => {
     if (startedRef.current && !stoppingRef.current) {
       stoppingRef.current = true;
       // Discard: stop, delete the temp take, restore the audio session.
@@ -162,6 +162,25 @@ export function PapirRecord({ onStop, onClose }: Props) {
         .finally(resetAudioMode);
     }
     onClose();
+  };
+
+  // X sits 30pt from the stop button and silently threw the take away — a
+  // misclick after a long take was the flow's worst possible ending. Under
+  // 10s a discard costs nothing; past that, confirm. Recording continues
+  // while the alert is up, so "Behold" simply resumes the flow.
+  const close = () => {
+    const secs = Math.floor((state.durationMillis ?? 0) / 1000);
+    if (secs < 10 || stoppingRef.current) {
+      discard();
+      return;
+    }
+    const mins = Math.floor(secs / 60);
+    const lengthLabel =
+      mins > 0 ? `${mins} ${mins === 1 ? 'minut' : 'minutters'}` : `${secs} sekunders`;
+    Alert.alert('Kassér optagelsen?', `${lengthLabel} tale slettes permanent.`, [
+      { text: 'Behold', style: 'cancel' },
+      { text: 'Kassér', style: 'destructive', onPress: discard },
+    ]);
   };
 
   const totalSecs = Math.floor((state.durationMillis ?? 0) / 1000);

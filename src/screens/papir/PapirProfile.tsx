@@ -275,9 +275,10 @@ export function PapirProfile() {
             nav.setTab('history');
           }}
         />
-        {/* Parity backlog: data export + support get real destinations later. */}
-        <MenuRow Icon={Download} label="Eksportér data" divider dimmed />
-        <MenuRow Icon={HelpCircle} label="Hjælp & support" divider dimmed />
+        {/* Parity backlog: data export + support get real destinations later.
+            "Kommer snart" so the dimmed rows read as roadmap, not breakage. */}
+        <MenuRow Icon={Download} label="Eksportér data" value="Kommer snart" divider dimmed />
+        <MenuRow Icon={HelpCircle} label="Hjælp & support" value="Kommer snart" divider dimmed />
       </View>
 
       <View style={{ paddingHorizontal: papirSpace.screen, marginTop: papirSpace.xl }}>

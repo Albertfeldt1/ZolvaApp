@@ -138,7 +138,7 @@ export function PapirHistory() {
           <PaperText role="body" color={papirColor.ink3} style={{ textAlign: 'center' }}>
             {segment === 0
               ? 'Tryk på den røde knap for at optage din første stemme-note.'
-              : 'Noter du gemmer, samles her.'}
+              : 'Bed Zolva i chatten om at gemme en note — de samles her.'}
           </PaperText>
         </View>
       ) : (
