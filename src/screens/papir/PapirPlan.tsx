@@ -7,6 +7,7 @@ import { refreshCalendarNow, useDayEvents, useReminders } from '../../lib/hooks'
 import type { Reminder } from '../../lib/types';
 import { usePapirScreenPads } from './insets';
 import { useNow } from './useNow';
+import { useUndoableDone } from './useUndoableDone';
 import { DayTimeline, type TimelineEvent } from './DayTimeline';
 import { PapirLoader } from './PapirLoader';
 
@@ -57,13 +58,16 @@ function TaskRow({
   now,
   onDone,
   onRemove,
+  doneOverride,
 }: {
   reminder: Reminder;
   now: Date;
   onDone: (id: string) => void;
   onRemove: (r: Reminder) => void;
+  /** Visually done while the undo window is open (M7). */
+  doneOverride?: boolean;
 }) {
-  const done = reminder.status === 'done';
+  const done = reminder.status === 'done' || !!doneOverride;
   const label = dueLabel(reminder, now);
   return (
     <ScaleButton
@@ -101,8 +105,13 @@ function TaskRow({
   );
 }
 
-function TasksView() {
-  const reminders = useReminders();
+function TasksView({
+  reminders,
+  undoable,
+}: {
+  reminders: ReturnType<typeof useReminders>;
+  undoable: ReturnType<typeof useUndoableDone>;
+}) {
   const now = useNow();
 
   const groups = useMemo(() => {
@@ -160,7 +169,14 @@ function TasksView() {
         <View key={g.label}>
           <GroupLabel>{g.label}</GroupLabel>
           {g.items.map((r) => (
-            <TaskRow key={r.id} reminder={r} now={now} onDone={(id) => void reminders.markDone(id)} onRemove={confirmRemove} />
+            <TaskRow
+              key={r.id}
+              reminder={r}
+              now={now}
+              onDone={undoable.markDone}
+              onRemove={confirmRemove}
+              doneOverride={undoable.pendingDoneIds.has(r.id)}
+            />
           ))}
         </View>
       ))}
@@ -276,6 +292,12 @@ function CalendarView() {
         </PaperText>
       ) : (
         <View style={{ marginTop: papirSpace.lg, paddingLeft: papirSpace.screen }}>
+          {/* An empty grid is ambiguous — say it plainly (QA L9). */}
+          {timelineEvents.length === 0 && allDay.length === 0 ? (
+            <PaperText role="body" color={papirColor.ink3} style={{ paddingTop: 26, paddingRight: papirSpace.screen, textAlign: 'center' }}>
+              {isToday ? 'Ingen begivenheder i dag — dagen er din.' : 'Ingen begivenheder denne dag.'}
+            </PaperText>
+          ) : null}
           <DayTimeline events={timelineEvents} startHour={startHour} endHour={endHour} showNow={isToday} />
         </View>
       )}
@@ -292,9 +314,15 @@ export function PapirPlan() {
     refreshCalendarNow();
     setTimeout(() => setRefreshing(false), 900);
   }, []);
+  // Reminders + undo live HERE (not in TasksView): the snackbar must sit
+  // outside the ScrollView or it would scroll away with the content (M7).
+  const reminders = useReminders();
+  const commitDone = useCallback((id: string) => void reminders.markDone(id), [reminders.markDone]);
+  const undoable = useUndoableDone(commitDone);
   return (
+    <View style={{ flex: 1, backgroundColor: papirColor.paper }}>
     <ScrollView
-      style={{ flex: 1, backgroundColor: papirColor.paper }}
+      style={{ flex: 1 }}
       contentContainerStyle={{ paddingTop: pads.top, paddingBottom: pads.bottom }}
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={papirColor.red} />}
@@ -310,7 +338,9 @@ export function PapirPlan() {
       <View style={{ paddingHorizontal: papirSpace.screen, marginTop: 14 }}>
         <SegmentedControl options={['Opgaver', 'Kalender']} value={view} onChange={setView} />
       </View>
-      {view === 0 ? <TasksView /> : <CalendarView />}
+      {view === 0 ? <TasksView reminders={reminders} undoable={undoable} /> : <CalendarView />}
     </ScrollView>
+    {undoable.snackbar}
+    </View>
   );
 }

@@ -28,11 +28,15 @@ const WEEKDAYS_SHORT = ['Søn', 'Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør'];
 // not be mounted yet, so a pending value + listener covers both cases.
 export type HistorySegment = 0 | 1; // 0 = Optagelser, 1 = Noter
 let pendingSegment: HistorySegment | null = null;
+let pendingHighlightId: string | null = null;
 const segmentListeners = new Set<() => void>();
 
-/** Ask Historik to show a segment; call right before nav.setTab('history'). */
-export function requestHistorySegment(segment: HistorySegment): void {
+/** Ask Historik to show a segment; call right before nav.setTab('history').
+ * Pass a note id to flash that row so the user lands ON the item they tapped
+ * (QA M9 — search results used to dump them at the top of the list). */
+export function requestHistorySegment(segment: HistorySegment, highlightId?: string): void {
   pendingSegment = segment;
+  pendingHighlightId = highlightId ?? null;
   segmentListeners.forEach((l) => l());
 }
 
@@ -79,6 +83,7 @@ export function PapirHistory() {
   const pads = usePapirScreenPads();
   const notes = useNotes();
   const [segment, setSegment] = useState(0);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
   const now = useNow();
 
   // Consume segment requests from shortcuts — both one that arrived before
@@ -88,6 +93,10 @@ export function PapirHistory() {
       if (pendingSegment === null) return;
       setSegment(pendingSegment);
       pendingSegment = null;
+      if (pendingHighlightId !== null) {
+        setHighlightId(pendingHighlightId);
+        pendingHighlightId = null;
+      }
     };
     apply();
     segmentListeners.add(apply);
@@ -95,6 +104,13 @@ export function PapirHistory() {
       segmentListeners.delete(apply);
     };
   }, []);
+
+  // The flash is transient by design — a lasting tint would read as a state.
+  useEffect(() => {
+    if (!highlightId) return;
+    const t = setTimeout(() => setHighlightId(null), 2_200);
+    return () => clearTimeout(t);
+  }, [highlightId]);
 
   const shown = useMemo(() => {
     const wantVoice = segment === 0;
@@ -148,7 +164,10 @@ export function PapirHistory() {
             {g.items.map((note, i) => {
               const dur = durationLabel(note.durationSec);
               return (
-                <View key={note.id}>
+                <View
+                  key={note.id}
+                  style={highlightId === note.id ? { backgroundColor: papirColor.redSoft, borderRadius: 12 } : null}
+                >
                   <Pressable
                     onLongPress={() => confirmDelete(note)}
                     accessibilityLabel={note.title ?? note.text.slice(0, 40)}

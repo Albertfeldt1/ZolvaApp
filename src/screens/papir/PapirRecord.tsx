@@ -183,9 +183,12 @@ export function PapirRecord({ onStop, onClose }: Props) {
     ]);
   };
 
+  // Past an hour "73:12" reads wrong — switch to H:MM:SS (QA L5).
   const totalSecs = Math.floor((state.durationMillis ?? 0) / 1000);
-  const mm = String(Math.floor(totalSecs / 60)).padStart(2, '0');
+  const hh = Math.floor(totalSecs / 3600);
+  const mm = String(Math.floor((totalSecs % 3600) / 60)).padStart(2, '0');
   const ss = String(totalSecs % 60).padStart(2, '0');
+  const timerLabel = hh > 0 ? `${hh}:${mm}:${ss}` : `${mm}:${ss}`;
 
   const side = {
     width: 54,
@@ -204,7 +207,7 @@ export function PapirRecord({ onStop, onClose }: Props) {
         Optager
       </PaperText>
       <PaperText role="price" tabular style={{ marginTop: 80 }}>
-        {mm}:{ss}
+        {timerLabel}
       </PaperText>
       <PaperText role="body" color={papirColor.ink2} style={{ marginTop: 8 }}>
         {paused ? 'Pause' : 'Lytter…'}
@@ -238,7 +241,7 @@ export function PapirRecord({ onStop, onClose }: Props) {
           scaleTo={0.92}
           haptic="medium"
           onPress={stop}
-          accessibilityLabel="Stop optagelse"
+          accessibilityLabel={`Stop optagelse, ${timerLabel}`}
           style={[
             { width: 78, height: 78, borderRadius: 39, backgroundColor: papirColor.ink, alignItems: 'center', justifyContent: 'center' },
             papirShadow.ink,

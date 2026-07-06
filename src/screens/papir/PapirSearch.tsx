@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, TextInput, View } from 'react-native';
 import { CheckCircle2, FileText, Search } from 'lucide-react-native';
 import { Chip, ListRow, PaperText, papirColor, papirRadius, papirSpace } from '../../design/papir';
 import { useNotes, useReminders } from '../../lib/hooks';
 import type { Note, Reminder } from '../../lib/types';
 import { usePapirNav } from './nav';
+import { requestHistorySegment } from './PapirHistory';
 import { PushHeader } from './PushHeader';
 import { useNow } from './useNow';
 import { barsFor, WaveGlyph } from './WaveGlyph';
@@ -30,12 +31,23 @@ export function PapirSearch() {
   const nav = usePapirNav();
   const [filter, setFilter] = useState(0);
   const [query, setQuery] = useState('');
+  // Filtering runs at background priority so fast typing never blocks the
+  // keyboard on large datasets (QA L12).
+  const deferredQuery = useDeferredValue(query);
   const notes = useNotes();
   const reminders = useReminders();
   const now = useNow();
 
+  // Focus AFTER the push animation lands — autoFocus fires the keyboard
+  // mid-slide and janks the transition on slower devices (QA L10).
+  const inputRef = useRef<TextInput>(null);
+  useEffect(() => {
+    const t = setTimeout(() => inputRef.current?.focus(), 450);
+    return () => clearTimeout(t);
+  }, []);
+
   const hits = useMemo<Hit[]>(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     if (!q) return [];
     const f = FILTERS[filter];
     const out: Hit[] = [];
@@ -60,11 +72,19 @@ export function PapirSearch() {
       const db = b.kind === 'task' ? b.reminder.createdAt : b.note.createdAt;
       return db.getTime() - da.getTime();
     });
-  }, [query, filter, notes.data, reminders.data]);
+  }, [deferredQuery, filter, notes.data, reminders.data]);
 
   const openHit = (h: Hit) => {
-    // Results live in Historik (notes/recordings) or Plan (tasks).
-    nav.setTab(h.kind === 'task' ? 'plan' : 'history');
+    // Results live in Historik (notes/recordings) or Plan (tasks). Hand the
+    // target over so Historik lands on the right segment AND flashes the row
+    // (QA M9) — dumping the user at the top of a list they must re-search
+    // made results feel broken.
+    if (h.kind === 'task') {
+      nav.setTab('plan');
+      return;
+    }
+    requestHistorySegment(h.kind === 'voice' ? 0 : 1, h.note.id);
+    nav.setTab('history');
   };
 
   return (
@@ -96,7 +116,7 @@ export function PapirSearch() {
           placeholder="Søg i noter og opgaver"
           placeholderTextColor={papirColor.ink4}
           selectionColor={papirColor.red}
-          autoFocus
+          ref={inputRef}
           style={{ flex: 1, fontSize: 15, color: papirColor.ink, paddingVertical: 12 }}
           accessibilityLabel="Søgefelt"
         />

@@ -43,11 +43,14 @@ function Lines({ lines }: { lines: string[] }) {
   );
 }
 
-const KIND_GREETING: Record<'morning' | 'midday' | 'evening', string> = {
-  morning: 'Godmorgen,\nher er din dag.',
-  midday: 'Goddag,\nher er status.',
-  evening: 'Godaften,\nher er din dag i morgen.',
-};
+// Greeting follows the CLOCK, subtitle follows the brief's kind — an evening
+// brief left open past midnight must not say "Godaften" at 06:00 (QA L15).
+function greetingFor(now: Date, kind: 'morning' | 'midday' | 'evening'): string {
+  const h = now.getHours();
+  const hello = h < 10 ? 'Godmorgen' : h < 17 ? 'Goddag' : 'Godaften';
+  const line = kind === 'morning' ? 'her er din dag.' : kind === 'midday' ? 'her er status.' : 'her er din dag i morgen.';
+  return `${hello},\n${line}`;
+}
 
 export function PapirBriefing() {
   const nav = usePapirNav();
@@ -111,7 +114,7 @@ export function PapirBriefing() {
               {eyebrow}
             </PaperText>
             <PaperText role="displayM" style={{ marginTop: 12 }}>
-              {KIND_GREETING[brief.kind]}
+              {greetingFor(now, brief.kind)}
             </PaperText>
             <PaperText role="bodySerif" color={papirColor.ink2} style={{ marginTop: 20 }}>
               {brief.headline}

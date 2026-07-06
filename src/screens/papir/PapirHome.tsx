@@ -25,6 +25,7 @@ import type { Note, Reminder } from '../../lib/types';
 import { usePapirNav } from './nav';
 import { requestHistorySegment } from './PapirHistory';
 import { useNow } from './useNow';
+import { useUndoableDone } from './useUndoableDone';
 import { barsFor, WaveGlyph } from './WaveGlyph';
 
 type IconCmp = ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
@@ -100,8 +101,19 @@ function durationLabel(sec?: number): string {
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
 }
 
-function TaskRow({ reminder, now, onDone }: { reminder: Reminder; now: Date; onDone: (id: string) => void }) {
-  const done = reminder.status === 'done';
+function TaskRow({
+  reminder,
+  now,
+  onDone,
+  doneOverride,
+}: {
+  reminder: Reminder;
+  now: Date;
+  onDone: (id: string) => void;
+  /** Visually done while the undo window is open (M7). */
+  doneOverride?: boolean;
+}) {
+  const done = reminder.status === 'done' || !!doneOverride;
   return (
     <ScaleButton
       scaleTo={0.99}
@@ -198,9 +210,14 @@ export function PapirHome() {
     setTimeout(() => setRefreshing(false), 900);
   }, []);
 
+  // Delayed-commit undo for the task checkboxes (M7).
+  const commitDone = useCallback((id: string) => void reminders.markDone(id), [reminders.markDone]);
+  const undoable = useUndoableDone(commitDone);
+
   return (
+    <View style={{ flex: 1, backgroundColor: papirColor.paper }}>
     <ScrollView
-      style={{ flex: 1, backgroundColor: papirColor.paper }}
+      style={{ flex: 1 }}
       contentContainerStyle={{ paddingTop: pads.top, paddingBottom: pads.bottom }}
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={papirColor.red} />}
@@ -358,8 +375,18 @@ export function PapirHome() {
           Ingen opgaver i dag.
         </PaperText>
       ) : (
-        tasks.shown.map((t) => <TaskRow key={t.id} reminder={t} now={now} onDone={(id) => void reminders.markDone(id)} />)
+        tasks.shown.map((t) => (
+          <TaskRow
+            key={t.id}
+            reminder={t}
+            now={now}
+            onDone={undoable.markDone}
+            doneOverride={undoable.pendingDoneIds.has(t.id)}
+          />
+        ))
       )}
     </ScrollView>
+    {undoable.snackbar}
+    </View>
   );
 }
