@@ -3,7 +3,8 @@ import { RefreshControl, ScrollView, View } from 'react-native';
 import { AlertTriangle, ChevronDown } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { PaperText, papirColor, papirRadius, papirSpace } from '../../design/papir';
-import { refreshMailNow, useHasProvider, useInboxWaiting } from '../../lib/hooks';
+import { useAuth } from '../../lib/auth';
+import { refreshMailNow, useHasProvider, useInboxWaiting, useMicrosoftLinked } from '../../lib/hooks';
 import type { InboxMail } from '../../lib/types';
 import { usePapirNav } from './nav';
 import { PapirLoader } from './PapirLoader';
@@ -138,6 +139,32 @@ export function PapirInbox() {
   const hasProvider = useHasProvider();
   const [refreshing, setRefreshing] = useState(false);
 
+  // Provider-linked-but-no-token (same detection as classic InboxScreen):
+  // the silent refresh 404'ed because the stored grant is gone, so the
+  // provider's mails are silently absent until the user re-authenticates.
+  // Without this banner there is no recovery path in Papir at all.
+  const {
+    user,
+    initializing,
+    googleAccessToken,
+    microsoftAccessToken,
+    googleRefreshingAtBoot,
+    microsoftRefreshingAtBoot,
+    signInWithGoogle,
+    signInWithMicrosoft,
+  } = useAuth();
+  const providers = (user?.app_metadata?.providers as string[] | undefined) ?? [];
+  // useMicrosoftLinked instead of providers.includes('azure'): new-flow
+  // Microsoft users bypass gotrue and won't appear in app_metadata.providers.
+  const microsoftLinked = useMicrosoftLinked(user?.id ?? null);
+  const reauths: { provider: string; name: string; onPress: () => void }[] = [];
+  if (!initializing && !microsoftRefreshingAtBoot && microsoftLinked && !microsoftAccessToken) {
+    reauths.push({ provider: 'microsoft', name: 'Outlook', onPress: () => void signInWithMicrosoft() });
+  }
+  if (!initializing && !googleRefreshingAtBoot && providers.includes('google') && !googleAccessToken) {
+    reauths.push({ provider: 'google', name: 'Gmail', onPress: () => void signInWithGoogle() });
+  }
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     refreshMailNow();
@@ -173,9 +200,43 @@ export function PapirInbox() {
     >
       <PushHeader title="Indbakke" />
 
+      {reauths.map(({ provider, name, onPress }) => (
+        <View
+          key={`reauth:${provider}`}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 10,
+            marginHorizontal: papirSpace.screen,
+            marginBottom: 10,
+            padding: 12,
+            borderRadius: papirRadius.md,
+            backgroundColor: papirColor.redSoft,
+          }}
+        >
+          <AlertTriangle size={16} color={papirColor.red} strokeWidth={1.8} />
+          <PaperText role="small" color={papirColor.ink2} style={{ flex: 1 }}>
+            {name} mistede forbindelsen — dine {name}-mails vises ikke.
+          </PaperText>
+          <ScaleButton
+            scaleTo={0.97}
+            haptic="light"
+            onPress={onPress}
+            accessibilityRole="button"
+            accessibilityLabel={`Forbind ${name} igen`}
+            style={{ paddingVertical: 4, paddingLeft: 6 }}
+          >
+            <PaperText role="bodyStrong" color={papirColor.red}>
+              Forbind igen
+            </PaperText>
+          </ScaleButton>
+        </View>
+      ))}
+
       {/* Provider errors: expired tokens / transient failures (K5). Without
-          this an expired Gmail login looks like an empty, healthy inbox. */}
-      {inbox.providerErrors.map((e) => (
+          this an expired Gmail login looks like an empty, healthy inbox.
+          Skip providers already covered by a re-auth banner above. */}
+      {inbox.providerErrors.filter((e) => !reauths.some((r) => r.provider === e.provider)).map((e) => (
         <View
           key={e.provider}
           style={{
