@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, RefreshControl, ScrollView, View } from 'react-native';
 import { Check } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { PaperText, SegmentedControl, papirColor, papirRadius, papirSpace } from '../../design/papir';
@@ -294,12 +294,13 @@ function CalendarView() {
         <View style={{ marginTop: papirSpace.lg, paddingLeft: papirSpace.screen }}>
           <DayTimeline events={timelineEvents} startHour={startHour} endHour={endHour} showNow={isToday} />
           {/* An empty grid is ambiguous — say it plainly (QA L9). Floats as a
-              centered pill OVER the quiet grid; inline flow collided with the
-              absolutely-positioned hour rows. */}
+              pill over the quiet grid, anchored near the TOP so it's visible
+              without scrolling — centering in the ~960pt-tall timeline put it
+              at random mid-afternoon, below the fold. */}
           {timelineEvents.length === 0 && allDay.length === 0 ? (
             <View
               pointerEvents="none"
-              style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', paddingLeft: papirSpace.screen }]}
+              style={{ position: 'absolute', top: 84, left: 0, right: 0, alignItems: 'center', paddingLeft: papirSpace.screen }}
             >
               <View
                 style={{
