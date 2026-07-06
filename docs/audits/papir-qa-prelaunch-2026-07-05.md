@@ -6,7 +6,7 @@
 
 **Optælling:** 🔴 5 · 🟠 14 · 🟡 17 · 🟢 15 = **51 fund**
 
-**✅ STATUS (2026-07-06):** Fase A gennemført i commit `eb55cbe` — K4, K5, H2, H8, H9, H10, M2, M4, M5, M6, M8, M10, M11, L6, L13 fikset; M17 verificeret allerede-korrekt (agent-fejllæsning). **Fase B gennemført i commit `cc4061e`** — K3, H5, H6, H7, H11 (inkl. det klassiske sentinel-fix i reminders.ts), H13, H14, M3, M14 fikset. **M1 udskudt** med begrundelse: legacy `uploadAsync` har intet abort-signal; et skifte til moderne upload-API skal undersøges separat (den pålidelige upload-sti byttes ikke væk for en kant-case). Udestår: Fase C (⚖️-fundene: K1, K2, H1, H3, H4, H12) og Fase D.
+**✅ STATUS (2026-07-06):** Fase A gennemført i commit `eb55cbe` — K4, K5, H2, H8, H9, H10, M2, M4, M5, M6, M8, M10, M11, L6, L13 fikset; M17 verificeret allerede-korrekt (agent-fejllæsning). **Fase B gennemført i commit `cc4061e`** — K3, H5, H6, H7, H11 (inkl. det klassiske sentinel-fix i reminders.ts), H13, H14, M3, M14 fikset. **M1 udskudt** med begrundelse: legacy `uploadAsync` har intet abort-signal; et skifte til moderne upload-API skal undersøges separat (den pålidelige upload-sti byttes ikke væk for en kant-case). **Fase C gennemført i commit `c785960`** — K1 (delte session-overlays over begge UI'er), K2 (Slet konto i Papir), H1 (LoginCta-bar), H3 (memory-consent-dialog), H4 (Gendan køb), H12 (ærlig briefing-tom-tilstand). Udestår: Fase D (polish: resterende 🟡/🟢 + M1) og den kendte paritets-backlog. **Simulator-verifikation af overlay-flowene (K1) anbefales før merge** — onboarding-kæden er kun typechecket, ikke gennemklikket.
 
 ---
 
