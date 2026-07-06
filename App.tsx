@@ -33,7 +33,6 @@ import { ChromeInsetsContext, PhoneChrome, TabId } from './src/components/PhoneC
 import { TabPane } from './src/components/TabPane';
 import { GlassHaloLayer } from './src/design/primitives/GlassHaloLayer';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
-import { IntroVideo } from './src/components/IntroVideo';
 import { OfflineBanner } from './src/components/OfflineBanner';
 import { StatusBarScrim } from './src/components/StatusBarScrim';
 import { CalendarScreen } from './src/screens/CalendarScreen';
@@ -95,12 +94,6 @@ import { writeSnapshotFromSources } from './src/lib/widget-bridge';
 import { usePapirEnabled } from './src/lib/papir-flag';
 import { PapirRoot } from './src/screens/papir/PapirRoot';
 
-// Module-level flag - persists across component re-renders and across
-// background/foreground transitions (JS VM stays warm), but resets on cold
-// start (new VM → module re-evaluated). That's exactly "play once per
-// cold launch, skip on resume from background".
-let introShownThisSession = false;
-
 // Bumped on every fix iteration so we can verify in Metro which bundle
 // the device is actually running. Logged once at module eval (cold-start
 // or JS reload), so the most recent line tells us the live commit.
@@ -159,11 +152,6 @@ export default function App() {
   // launches and only does real work on the first connect of each
   // provider (or every 14 days thereafter).
   useStyleSummaryRefresh();
-  const [introPlaying, setIntroPlaying] = useState(!introShownThisSession);
-  const dismissIntro = () => {
-    introShownThisSession = true;
-    setIntroPlaying(false);
-  };
   const pendingProposalCount = usePendingProposalCount(user?.id);
 
   const [tab, setTab] = useState<TabId>('today');
@@ -555,7 +543,7 @@ export default function App() {
   if (!fraunces || !playfair || !inter || !mono || !designFonts || !migrationsDone) {
     // Match app.json splash.backgroundColor so the pre-bundle native splash
     // and this fallback view share a seam-free color while fonts load.
-    return <View style={[styles.root, { backgroundColor: '#FF8868' }]} />;
+    return <View style={[styles.root, { backgroundColor: '#FBFAF6' }]} />;
   }
 
   // NOTE: the Papir early-return lives further down (after the modal
@@ -1026,7 +1014,6 @@ export default function App() {
         />
       )}
       <StatusBarScrim />
-      {introPlaying && <IntroVideo onEnd={dismissIntro} />}
     </View>
     </ChromeInsetsContext.Provider>
     </ErrorBoundary>
