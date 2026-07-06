@@ -23,6 +23,7 @@ import { useTodayBrief } from '../../lib/briefs';
 import { greeting, formatToday } from '../../lib/date';
 import type { Note, Reminder } from '../../lib/types';
 import { usePapirNav } from './nav';
+import { useNow } from './useNow';
 import { barsFor, WaveGlyph } from './WaveGlyph';
 
 type IconCmp = ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
@@ -165,7 +166,7 @@ export function PapirHome() {
   const notes = useNotes();
   const reminders = useReminders();
   const { brief } = useTodayBrief();
-  const now = new Date();
+  const now = useNow();
   const d = formatToday(now);
   // Match the prototype's eyebrow style: "Tirsdag · 11. juni".
   const eyebrow = `${d.weekdayFull} · ${d.day}. ${d.monthFull}`;

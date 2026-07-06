@@ -6,7 +6,7 @@
 //
 // The OpenAI key NEVER lives in the app — only in the edge function, exactly
 // like ANTHROPIC_API_KEY behind claude-proxy.
-import { uploadAsync, FileSystemUploadType } from 'expo-file-system/legacy';
+import { getInfoAsync, uploadAsync, FileSystemUploadType } from 'expo-file-system/legacy';
 import { supabase } from './supabase';
 import { completeJson } from './claude';
 
@@ -16,10 +16,26 @@ const TRANSCRIBE_URL = `${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/transcri
 
 export class TranscribeError extends Error {}
 
-// Upload cap: recordings are minutes of m4a (≈1 MB/min) — a healthy upload
-// finishes long before this. The legacy uploadAsync API has no abort signal,
-// so a race is the only way to stop the UI from hanging forever (M82).
-const UPLOAD_TIMEOUT_MS = 60_000;
+// Upload timeout: the legacy uploadAsync API has no abort signal, so a race
+// is the only way to stop the UI from hanging forever (M82). A FIXED 60s was
+// too aggressive (QA K3): a 10-min take (~10 MB) on slow mobile data needs
+// several minutes and would fail on every retry. Scale with file size at a
+// pessimistic ~40 KB/s floor, min 60s, capped at 6 minutes.
+const UPLOAD_MIN_TIMEOUT_MS = 60_000;
+const UPLOAD_MAX_TIMEOUT_MS = 360_000;
+const UPLOAD_WORST_BYTES_PER_SEC = 40_000;
+
+async function uploadTimeoutFor(uri: string): Promise<number> {
+  try {
+    const info = await getInfoAsync(uri);
+    const size = info.exists && typeof info.size === 'number' ? info.size : 0;
+    if (size <= 0) return UPLOAD_MIN_TIMEOUT_MS;
+    const scaled = (size / UPLOAD_WORST_BYTES_PER_SEC) * 1000 + 15_000;
+    return Math.min(UPLOAD_MAX_TIMEOUT_MS, Math.max(UPLOAD_MIN_TIMEOUT_MS, Math.round(scaled)));
+  } catch {
+    return UPLOAD_MIN_TIMEOUT_MS;
+  }
+}
 
 const MIME_BY_EXT: Record<string, string> = {
   m4a: 'audio/m4a',
@@ -69,8 +85,9 @@ export async function transcribeAudio(uri: string): Promise<string> {
         apikey: SUPABASE_ANON,
       },
     });
+    const timeoutMs = await uploadTimeoutFor(uri);
     const timeout = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new TranscribeError('Transskriberingen tog for lang tid. Prøv igen.')), UPLOAD_TIMEOUT_MS);
+      setTimeout(() => reject(new TranscribeError('Transskriberingen tog for lang tid. Prøv igen.')), timeoutMs);
     });
     res = await Promise.race([upload, timeout]);
   } catch (e) {

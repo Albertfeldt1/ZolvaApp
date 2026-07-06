@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Linking, View } from 'react-native';
+import { Alert, AppState, Linking, View } from 'react-native';
 import { Pause, Play, X } from 'lucide-react-native';
 import {
   RecordingPresets,
@@ -132,6 +132,21 @@ export function PapirRecord({ onStop, onClose }: Props) {
     if (uri) onStop(uri, durationMillis);
     else onClose();
   };
+
+  // Backgrounding mid-recording: iOS suspends the JS thread and the native
+  // recorder state comes back inconsistent — the take could die silently
+  // (H14). Auto-stop and hand the captured audio to transcription instead,
+  // so the user returns to their take rather than a broken recorder.
+  const stopRef = useRef(stop);
+  stopRef.current = stop;
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'background' && startedRef.current && !stoppingRef.current) {
+        void stopRef.current();
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   const close = () => {
     if (startedRef.current && !stoppingRef.current) {

@@ -60,6 +60,9 @@ export function PapirShell({ openAuth }: { openAuth?: () => void }) {
     setTab(t);
   }, []);
 
+  // Unsaved-state guard for hardware back (H6) — see nav.setBackGuard.
+  const backGuardRef = useRef<(() => boolean) | null>(null);
+
   const nav = useMemo(
     () => ({
       push: (s: PushScreen, params?: PushParams) => {
@@ -73,6 +76,9 @@ export function PapirShell({ openAuth }: { openAuth?: () => void }) {
         selectTab(t);
       },
       openAuth: openAuth ?? (() => {}),
+      setBackGuard: (guard: (() => boolean) | null) => {
+        backGuardRef.current = guard;
+      },
     }),
     [openAuth, selectTab],
   );
@@ -90,6 +96,8 @@ export function PapirShell({ openAuth }: { openAuth?: () => void }) {
         return true;
       }
       if (stack.length > 0) {
+        // A screen with unsaved state (mail draft) gets to intercept (H6).
+        if (backGuardRef.current?.()) return true;
         setStack((st) => st.slice(0, -1));
         return true;
       }

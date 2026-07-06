@@ -5,6 +5,7 @@ import { ListRow, PaperText, SegmentedControl, papirColor, papirSpace } from '..
 import { useNotes } from '../../lib/hooks';
 import type { Note } from '../../lib/types';
 import { usePapirScreenPads } from './insets';
+import { useNow } from './useNow';
 import { barsFor, WaveGlyph } from './WaveGlyph';
 
 function GroupLabel({ children }: { children: string }) {
@@ -64,7 +65,7 @@ export function PapirHistory() {
   const pads = usePapirScreenPads();
   const notes = useNotes();
   const [segment, setSegment] = useState(0);
-  const now = new Date();
+  const now = useNow();
 
   const shown = useMemo(() => {
     const wantVoice = segment === 0;

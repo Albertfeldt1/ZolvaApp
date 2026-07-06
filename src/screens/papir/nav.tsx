@@ -23,6 +23,11 @@ type Nav = {
   setTab: (t: PapirTab) => void;
   /** Opens the shared AuthSheet overlay (wired in PapirRoot). */
   openAuth: () => void;
+  /** Screens with unsaved state (e.g. a mail draft) register a guard the
+   * shell consults before hardware-back pops the stack. Return true to
+   * consume the event (the guard shows its own confirm). Unregister with
+   * null on unmount (H6). */
+  setBackGuard: (guard: (() => boolean) | null) => void;
 };
 
 const NavCtx = createContext<Nav>({
@@ -30,6 +35,7 @@ const NavCtx = createContext<Nav>({
   back: () => {},
   setTab: () => {},
   openAuth: () => {},
+  setBackGuard: () => {},
 });
 
 export const usePapirNav = () => useContext(NavCtx);

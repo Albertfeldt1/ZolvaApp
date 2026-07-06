@@ -85,6 +85,13 @@ function ActionCard({ action, onAdd }: { action: ExtractedAction; onAdd: () => P
         <PaperText role="bodyStrong" style={{ fontSize: 14 }}>
           {label}
           {action.time ? ` ${action.time}` : ''}
+          {/* No resolvable time: say so BEFORE the tap — an event will refuse
+              and a reminder lands without a due time (H11). */}
+          {!action.whenISO ? (
+            <PaperText role="caption" color={papirColor.ink3}>
+              {'  · uden tidspunkt'}
+            </PaperText>
+          ) : null}
         </PaperText>
         <PaperText role="caption" color={papirColor.ink3} style={{ marginTop: 2 }}>
           {action.title}
@@ -140,6 +147,12 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
     (async () => {
       try {
         const transcript = await transcribeAudio(uri);
+        // Whisper on silence returns empty/junk — don't offer to save a
+        // meaningless "Tom optagelse" note (M14).
+        if (!transcript.trim()) {
+          if (!cancelled) setError('Optagelsen var tom. Prøv igen, og tal tæt på telefonen.');
+          return;
+        }
         const { title, actions } = await extractActions(transcript);
         if (!cancelled) setData({ title, transcript, actions });
       } catch (e) {
@@ -211,7 +224,13 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
       onDone();
     } catch (e) {
       setSaving(false);
-      Alert.alert('Gem note', e instanceof Error ? e.message : 'Noten kunne ikke gemmes. Prøv igen.');
+      // The store's errors are internal English strings — translate the one
+      // real user-cause (signed out) and keep the rest generic (M3).
+      const raw = e instanceof Error ? e.message : '';
+      const msg = raw.includes('No active user')
+        ? 'Du skal være logget ind for at gemme noter.'
+        : 'Noten kunne ikke gemmes. Prøv igen.';
+      Alert.alert('Gem note', msg);
     }
   };
 

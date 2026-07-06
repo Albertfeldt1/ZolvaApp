@@ -6,6 +6,7 @@ import { PaperText, SegmentedControl, papirColor, papirRadius, papirSpace } from
 import { refreshCalendarNow, useDayEvents, useReminders } from '../../lib/hooks';
 import type { Reminder } from '../../lib/types';
 import { usePapirScreenPads } from './insets';
+import { useNow } from './useNow';
 import { DayTimeline, type TimelineEvent } from './DayTimeline';
 
 const WEEKDAY_LETTER = ['S', 'M', 'T', 'O', 'T', 'F', 'L'];
@@ -101,7 +102,7 @@ function TaskRow({
 
 function TasksView() {
   const reminders = useReminders();
-  const now = new Date();
+  const now = useNow();
 
   const groups = useMemo(() => {
     const endOfDay = new Date(now);
@@ -177,8 +178,11 @@ function weekDays(now: Date): Date[] {
 }
 
 function CalendarView() {
-  const now = new Date();
-  const days = useMemo(() => weekDays(now), []);
+  const now = useNow();
+  // Rebuild the strip when the DAY changes (not every minute-tick).
+  const dayKey = now.toDateString();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const days = useMemo(() => weekDays(now), [dayKey]);
   const [sel, setSel] = useState(0);
   const selectedDay = days[sel];
   const isToday = sel === 0;

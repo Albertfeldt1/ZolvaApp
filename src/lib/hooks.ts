@@ -5714,6 +5714,17 @@ export function useChat() {
     setMessages([]);
     if (userId && !demo) {
       AsyncStorage.removeItem(chatHistoryKey(userId)).catch(() => {});
+      // Server copy too — "Ryd samtalen" must mean deleted, not hidden
+      // (QA H13). No-op for local-only users (nothing was synced). Failures
+      // are logged, not surfaced: local state is already cleared and the
+      // next clear retries the delete.
+      supabase
+        .from('chat_messages')
+        .delete()
+        .eq('user_id', userId)
+        .then(({ error }) => {
+          if (error && __DEV__) console.warn('[useChat] server clear failed:', error.message);
+        });
     }
   }, [userId, demo]);
 

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -114,8 +114,9 @@ export function PapirMailDetail({ params }: { params: PushParams }) {
   };
 
   // Back with an unsent draft → same guard as archive (don't silently lose it).
+  const draftDirty = draft.trim().length > 0 && draft.trim() !== (params.aiDraft ?? '').trim();
   const handleBack = () => {
-    if (draft.trim().length === 0 || draft.trim() === (params.aiDraft ?? '').trim()) {
+    if (!draftDirty) {
       nav.back();
       return;
     }
@@ -124,6 +125,24 @@ export function PapirMailDetail({ params }: { params: PushParams }) {
       { text: 'Forlad', style: 'destructive', onPress: () => nav.back() },
     ]);
   };
+
+  // Android hardware back must hit the same guard as the header button —
+  // without this the shell pops the stack directly and the draft dies
+  // silently (H6).
+  const draftDirtyRef = useRef(draftDirty);
+  draftDirtyRef.current = draftDirty;
+  useEffect(() => {
+    nav.setBackGuard(() => {
+      if (!draftDirtyRef.current) return false; // let the shell pop normally
+      Alert.alert('Forlad udkast?', 'Dit svar bliver ikke sendt eller gemt.', [
+        { text: 'Annullér', style: 'cancel' },
+        { text: 'Forlad', style: 'destructive', onPress: () => nav.back() },
+      ]);
+      return true;
+    });
+    return () => nav.setBackGuard(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleGenerate = async () => {
     if (!detail || generating) return;

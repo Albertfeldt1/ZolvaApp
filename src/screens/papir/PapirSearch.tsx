@@ -6,6 +6,7 @@ import { useNotes, useReminders } from '../../lib/hooks';
 import type { Note, Reminder } from '../../lib/types';
 import { usePapirNav } from './nav';
 import { PushHeader } from './PushHeader';
+import { useNow } from './useNow';
 import { barsFor, WaveGlyph } from './WaveGlyph';
 
 const FILTERS = ['Alt', 'Optagelser', 'Noter', 'Opgaver'] as const;
@@ -31,7 +32,7 @@ export function PapirSearch() {
   const [query, setQuery] = useState('');
   const notes = useNotes();
   const reminders = useReminders();
-  const now = new Date();
+  const now = useNow();
 
   const hits = useMemo<Hit[]>(() => {
     const q = query.trim().toLowerCase();

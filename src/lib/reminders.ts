@@ -24,11 +24,20 @@ type Row = {
   scheduled_for_tz: string | null;
 };
 
+/** "No due time" is stored as 2099-12-31 (NOT NULL column + sort order).
+ * Map it back to null on read — otherwise timeless reminders surface with a
+ * fictional 31.12.2099 deadline in every list and in what the model sees (H11). */
+function sentinelToNull(dueAtIso: string | null): Date | null {
+  if (!dueAtIso) return null;
+  const d = new Date(dueAtIso);
+  return d.getUTCFullYear() >= 2099 ? null : d;
+}
+
 function rowToReminder(row: Row): Reminder {
   return {
     id: row.id,
     text: row.title,
-    dueAt: row.due_at ? new Date(row.due_at) : null,
+    dueAt: sentinelToNull(row.due_at),
     status: row.completed ? 'done' : 'pending',
     createdAt: new Date(row.created_at),
     doneAt: row.completed ? new Date(row.created_at) : null,

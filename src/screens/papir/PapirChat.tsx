@@ -10,18 +10,21 @@ import {
 } from 'react-native';
 import { ArrowUp, Trash2 } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
-import { Chip, IconButton, PaperText, papirColor, papirRadius, papirSpace } from '../../design/papir';
+import { Chip, IconButton, PaperText, papirColor, papirFont, papirRadius, papirSpace } from '../../design/papir';
+import { renderInlineMd } from '../../components/inline-md';
 import { useChat, useChatSuggestions } from '../../lib/hooks';
 import type { ChatMessage, SendDraftAction } from '../../lib/types';
 import { PushHeader } from './PushHeader';
 
 function ZolvaMsg({ text }: { text: string }) {
+  // Model replies use **bold** markdown — render it instead of showing raw
+  // asterisks (H5). Same helper as the classic ChatScreen.
   return (
     <View style={{ maxWidth: '84%', alignSelf: 'flex-start' }}>
       <PaperText role="eyebrow" color={papirColor.ink3} style={{ marginBottom: 6 }}>
         Zolva
       </PaperText>
-      <PaperText role="body">{text}</PaperText>
+      <PaperText role="body">{renderInlineMd(text, papirFont.uiSemi)}</PaperText>
     </View>
   );
 }
@@ -149,7 +152,7 @@ export function PapirChat() {
 
   const confirmClear = () => {
     if (chat.data.length === 0) return;
-    Alert.alert('Ryd samtalen?', 'Historikken slettes fra denne enhed.', [
+    Alert.alert('Ryd samtalen?', 'Historikken slettes fra denne enhed og din konto.', [
       { text: 'Annullér', style: 'cancel' },
       { text: 'Ryd', style: 'destructive', onPress: chat.clear },
     ]);
