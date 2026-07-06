@@ -228,17 +228,27 @@ export function PapirHome() {
       </View>
 
       {statusReady ? (
-        <PaperText role="body" color={papirColor.ink2} style={{ marginTop: 12, paddingHorizontal: papirSpace.screen, maxWidth: 320 }}>
-          Du har{' '}
-          <PaperText role="bodyStrong" color={papirColor.ink}>
-            {meetings === 0 ? 'ingen møder' : meetings === 1 ? '1 møde' : `${meetings} møder`}
-          </PaperText>{' '}
-          og{' '}
-          <PaperText role="bodyStrong" color={papirColor.ink}>
-            {mails === 0 ? 'ingen nye mails' : mails === 1 ? '1 ny mail' : `${mails} nye mails`}
+        // The status line names the day's mail but used to be dead text — the
+        // only route to the inbox went THROUGH the briefing screen. Tapping
+        // it is the direct path (mails > 0; with zero there's nothing to open).
+        <Pressable
+          onPress={mails > 0 ? () => nav.push('inbox') : undefined}
+          disabled={mails === 0}
+          accessibilityRole={mails > 0 ? 'button' : undefined}
+          accessibilityLabel={mails > 0 ? 'Åbn indbakken' : undefined}
+        >
+          <PaperText role="body" color={papirColor.ink2} style={{ marginTop: 12, paddingHorizontal: papirSpace.screen, maxWidth: 320 }}>
+            Du har{' '}
+            <PaperText role="bodyStrong" color={papirColor.ink}>
+              {meetings === 0 ? 'ingen møder' : meetings === 1 ? '1 møde' : `${meetings} møder`}
+            </PaperText>{' '}
+            og{' '}
+            <PaperText role="bodyStrong" color={mails > 0 ? papirColor.red : papirColor.ink}>
+              {mails === 0 ? 'ingen nye mails' : mails === 1 ? '1 ny mail' : `${mails} nye mails`}
+            </PaperText>
+            {' '}i dag.
           </PaperText>
-          {' '}i dag.
-        </PaperText>
+        </Pressable>
       ) : statusError ? (
         <PaperText role="body" color={papirColor.ink3} style={{ marginTop: 12, paddingHorizontal: papirSpace.screen, maxWidth: 320 }}>
           Kunne ikke hente dit overblik. Træk ned for at prøve igen.

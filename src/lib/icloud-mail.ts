@@ -27,7 +27,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { loadCredential, markInvalid } from './icloud-credentials';
-import { parseFromHeader } from './gmail';
+import { extractEmail, parseFromHeader } from './gmail';
 import { buildOutgoingBody } from './mail-signature';
 import type { InlineAttachmentSpec } from './mail-signature';
 
@@ -62,6 +62,9 @@ const KNOWN_WIRE_CODES: ReadonlySet<IcloudErrorCode> = new Set([
 export type IcloudMessage = {
   uid: number;
   from: string;
+  /** Bare sender address — the no-reply/marketing classifiers match on this;
+   * `from` is the display name and never contains the address. */
+  fromEmail: string;
   subject: string;
   date: Date;
   unread: boolean;
@@ -362,6 +365,7 @@ async function listInboxImpl(
       // or just "addr"). Strip the bracketed address so the inbox row
       // shows just the display name, matching Gmail/Graph behavior.
       from: parseFromHeader(m.from),
+      fromEmail: extractEmail(m.from),
       subject: m.subject,
       date: new Date(m.date),
       unread: m.unread,
@@ -404,6 +408,7 @@ export async function searchInbox(
     data: res.data.messages.map((m) => ({
       uid: m.uid,
       from: parseFromHeader(m.from),
+      fromEmail: extractEmail(m.from),
       subject: m.subject,
       date: new Date(m.date),
       unread: m.unread,

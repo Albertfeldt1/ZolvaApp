@@ -70,6 +70,9 @@ const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 export type GmailMessage = {
   id: string;
   from: string;
+  /** Bare sender address — the no-reply/marketing classifiers match on this;
+   * `from` is the display name and never contains the address. */
+  fromEmail: string;
   subject: string;
   date: Date;
   snippet: string;
@@ -275,6 +278,7 @@ async function fetchMessageMeta(
   return {
     id: data.id,
     from: parseFromHeader(get('From')),
+    fromEmail: extractEmail(get('From')),
     subject: get('Subject') || '(intet emne)',
     date: parseGmailDate(get('Date'), data.internalDate),
     snippet: data.snippet ?? '',
@@ -705,7 +709,7 @@ function encodeHeader(value: string): string {
   return `=?UTF-8?B?${globalThis.btoa(bin)}?=`;
 }
 
-function extractEmail(raw: string): string {
+export function extractEmail(raw: string): string {
   if (!raw) return '';
   const m = raw.match(/<([^>]+)>/);
   if (m) return m[1].trim();

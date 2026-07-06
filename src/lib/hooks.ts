@@ -702,6 +702,10 @@ type NormalizedMail = {
   id: string;
   provider: MailProvider;
   from: string;
+  /** Bare sender address. `from` is the display name only ("TikTok") — the
+   * no-reply/marketing sender patterns can never match it, which used to
+   * dump every pretty-named notification into tier 1 ("Venter på dig"). */
+  fromEmail: string;
   subject: string;
   receivedAt: Date;
   isRead: boolean;
@@ -1260,6 +1264,7 @@ function useMailItems(): {
               id: m.id,
               provider: 'google' as const,
               from: m.from,
+              fromEmail: m.fromEmail,
               subject: m.subject,
               receivedAt: m.date,
               isRead: !m.unread,
@@ -1277,6 +1282,7 @@ function useMailItems(): {
               id: m.id,
               provider: 'microsoft' as const,
               from: m.from,
+              fromEmail: m.fromEmail,
               subject: m.subject,
               receivedAt: m.receivedAt,
               isRead: m.isRead,
@@ -1298,6 +1304,7 @@ function useMailItems(): {
               id: `icloud:${m.uid}`,
               provider: 'icloud' as const,
               from: m.from,
+              fromEmail: m.fromEmail,
               subject: m.subject,
               receivedAt: m.date,
               isRead: !m.unread,
@@ -1826,7 +1833,9 @@ const MARKETING_BODY_PATTERN = new RegExp(
 );
 
 function looksLikeMarketing(m: NormalizedMail): boolean {
-  if (MARKETING_SENDER_PATTERN.test(m.from)) return true;
+  // The sender pattern anchors on '@', so only the address can match —
+  // m.from is the bare display name; keep it as a defensive fallback.
+  if (MARKETING_SENDER_PATTERN.test(m.fromEmail || m.from)) return true;
   if (m.subject && MARKETING_SUBJECT_PATTERN.test(m.subject)) return true;
   if (m.preview && MARKETING_BODY_PATTERN.test(m.preview.slice(0, 1500))) return true;
   return false;
@@ -1841,7 +1850,10 @@ function urgencyTier(m: NormalizedMail): 0 | 1 | 2 | 3 {
   if (verdict === true) return 0;
   if (hasUrgentSubject(m.subject)) return 0;
   // Bottom tier: hard no-reply sender - mail will never deserve a reply.
-  if (!needsReply(m.from)) return 3;
+  // Match on the ADDRESS: m.from is the display name ("TikTok"), which the
+  // noreply@… patterns can never hit — that blindness made tier 3
+  // unreachable and piled every notification into "Venter på dig".
+  if (!needsReply(m.fromEmail || m.from)) return 3;
   // Middle-low: classifier or body markers say "no reply", or our broader
   // marketing heuristic catches a newsletter-shaped mail.
   if (verdict === false) return 2;
@@ -2560,6 +2572,9 @@ export function useGenerateDraftAction() {
           id: 'detail',
           provider: 'google',
           from: input.from,
+          // Draft generation never touches the tier classifiers, so no
+          // address is needed here — callers only pass the display name.
+          fromEmail: '',
           subject: input.subject,
           receivedAt: new Date(),
           isRead: true,

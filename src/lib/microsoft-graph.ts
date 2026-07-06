@@ -32,6 +32,9 @@ const BASE = 'https://graph.microsoft.com/v1.0';
 export type GraphMessage = {
   id: string;
   from: string;
+  /** Bare sender address — the no-reply/marketing classifiers match on this;
+   * `from` is the display name and never contains the address. */
+  fromEmail: string;
   subject: string;
   receivedAt: Date;
   preview: string;
@@ -266,6 +269,7 @@ export async function listInboxMessages(top = 12): Promise<GraphMessage[]> {
         m.from?.emailAddress?.name ??
         m.from?.emailAddress?.address ??
         '(ukendt afsender)',
+      fromEmail: m.from?.emailAddress?.address ?? '',
       subject: m.subject || '(intet emne)',
       receivedAt: new Date(m.receivedDateTime),
       preview: m.bodyPreview ?? '',
@@ -296,6 +300,7 @@ export async function searchInboxMessages(
         m.from?.emailAddress?.name ??
         m.from?.emailAddress?.address ??
         '(ukendt afsender)',
+      fromEmail: m.from?.emailAddress?.address ?? '',
       subject: m.subject || '(intet emne)',
       receivedAt: new Date(m.receivedDateTime),
       preview: m.bodyPreview ?? '',
