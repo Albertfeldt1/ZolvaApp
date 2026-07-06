@@ -2,6 +2,7 @@ import React, { useMemo, type ComponentType } from 'react';
 import { Alert, ScrollView, View } from 'react-native';
 import { usePapirScreenPads } from './insets';
 import {
+  Bot,
   ChevronRight,
   Crown,
   Download,
@@ -258,6 +259,7 @@ export function PapirProfile() {
         }}
       >
         <MenuRow Icon={Settings} label="Indstillinger" divider={false} onPress={() => nav.push('settings')} />
+        <MenuRow Icon={Bot} label="Zolva Agent" divider onPress={() => nav.push('agent')} />
         <MenuRow
           Icon={Crown}
           label="Zolva Premium"

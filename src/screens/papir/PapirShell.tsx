@@ -13,6 +13,7 @@ import { PapirBriefing } from './PapirBriefing';
 import { PapirChat } from './PapirChat';
 import { PapirSearch } from './PapirSearch';
 import { PapirSettings } from './PapirSettings';
+import { PapirAgent } from './PapirAgent';
 import { PapirInbox } from './PapirInbox';
 import { PapirMailDetail } from './PapirMailDetail';
 import { PapirBottomNav, type PapirTab } from './PapirBottomNav';
@@ -31,6 +32,8 @@ function PushView({ screen, params }: { screen: PushScreen; params?: PushParams 
       return <PapirInbox />;
     case 'mailDetail':
       return <PapirMailDetail params={params ?? {}} />;
+    case 'agent':
+      return <PapirAgent />;
   }
 }
 
