@@ -70,6 +70,8 @@ export type InboxMail = {
   provider: MailProvider;
   from: string;
   subject: string;
+  /** First line of the body — the inbox row's snippet line. */
+  preview: string;
   time: string;
   tone: 'sage' | 'clay' | 'mist';
   initials: string;
