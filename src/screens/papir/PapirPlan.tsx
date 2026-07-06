@@ -290,34 +290,22 @@ function CalendarView() {
         <PaperText role="body" color={papirColor.ink3} style={{ paddingHorizontal: papirSpace.screen, paddingTop: 40, textAlign: 'center' }}>
           Kalenderen kunne ikke hentes. Tjek din forbindelse.
         </PaperText>
+      ) : timelineEvents.length === 0 && allDay.length === 0 ? (
+        // Empty day: no 15-hour ghost grid to scroll through, and no pill
+        // colliding with rails/labels (QA L9, third attempt — overlaying the
+        // grid looked accidental no matter the anchor). Same empty-state
+        // pattern as the Opgaver tab.
+        <View style={{ alignItems: 'center', paddingTop: 60, paddingHorizontal: papirSpace.screen, gap: 8 }}>
+          <PaperText role="bodyStrong" color={papirColor.ink2}>
+            {isToday ? 'Ingen begivenheder i dag' : 'Ingen begivenheder'}
+          </PaperText>
+          <PaperText role="body" color={papirColor.ink3} style={{ textAlign: 'center' }}>
+            {isToday ? 'Dagen er din — kalenderen er helt fri.' : 'Denne dag er helt fri.'}
+          </PaperText>
+        </View>
       ) : (
         <View style={{ marginTop: papirSpace.lg, paddingLeft: papirSpace.screen }}>
           <DayTimeline events={timelineEvents} startHour={startHour} endHour={endHour} showNow={isToday} />
-          {/* An empty grid is ambiguous — say it plainly (QA L9). Floats as a
-              pill over the quiet grid, anchored near the TOP so it's visible
-              without scrolling — centering in the ~960pt-tall timeline put it
-              at random mid-afternoon, below the fold. */}
-          {timelineEvents.length === 0 && allDay.length === 0 ? (
-            <View
-              pointerEvents="none"
-              style={{ position: 'absolute', top: 84, left: 0, right: 0, alignItems: 'center', paddingLeft: papirSpace.screen }}
-            >
-              <View
-                style={{
-                  backgroundColor: papirColor.card,
-                  borderWidth: 1,
-                  borderColor: papirColor.line,
-                  borderRadius: papirRadius.pill,
-                  paddingVertical: 10,
-                  paddingHorizontal: 18,
-                }}
-              >
-                <PaperText role="body" color={papirColor.ink3}>
-                  {isToday ? 'Ingen begivenheder i dag — dagen er din.' : 'Ingen begivenheder denne dag.'}
-                </PaperText>
-              </View>
-            </View>
-          ) : null}
         </View>
       )}
     </View>
