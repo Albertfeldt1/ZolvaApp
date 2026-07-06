@@ -227,13 +227,20 @@ async function mintAccessToken(
   }
 
   const clientId = Deno.env.get('MICROSOFT_OAUTH_CLIENT_ID');
-  const clientSecret = Deno.env.get('MICROSOFT_OAUTH_CLIENT_SECRET');
   const tenant = Deno.env.get('MICROSOFT_OAUTH_TENANT') ?? 'common';
-  if (!clientId || !clientSecret) throw new Error('microsoft oauth env missing');
+  if (!clientId) throw new Error('microsoft oauth env missing');
   const scope = opts.microsoftScope ?? DEFAULT_MICROSOFT_SCOPE;
+  // PUBLIC client: the app's redirect URI is registered under Azure's "Mobile
+  // and desktop applications" platform, so Microsoft HARD-REJECTS any
+  // client_secret on the token endpoint with `AADSTS700025: Client is public
+  // so neither 'client_assertion' nor 'client_secret' should be presented`.
+  // This applies to the refresh_token grant too - not just authorization_code
+  // (see exchangeAuthorizationCode). Sending the secret here silently broke
+  // every Microsoft refresh, surfacing as Outlook "disconnecting" after a few
+  // days. Do NOT re-add client_secret unless the Azure app is reconfigured as
+  // a confidential client with a "Web" platform.
   const body = new URLSearchParams({
     client_id: clientId,
-    client_secret: clientSecret,
     refresh_token: refreshToken,
     grant_type: 'refresh_token',
     scope,
@@ -288,9 +295,9 @@ async function parseTokenResponse(
 // grant as a public client and HARD-REJECTS any client_secret with
 // `AADSTS700025: Client is public so neither 'client_assertion' nor
 // 'client_secret' should be presented`. PKCE (code_verifier) is the proof of
-// possession here - the secret must NOT be sent. (The refresh_token grant in
-// mintAccessToken still sends the secret; Microsoft accepts it there because
-// that grant carries no redirect_uri / public-client context.)
+// possession here - the secret must NOT be sent. The refresh_token grant in
+// mintAccessToken is subject to the same public-client rule and likewise
+// sends no secret; the client is public for ALL grants, not just this one.
 export async function exchangeAuthorizationCode(
   provider: Provider,
   code: string,
