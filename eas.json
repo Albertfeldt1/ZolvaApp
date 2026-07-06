@@ -36,6 +36,14 @@
       "android": {
         "buildType": "app-bundle"
       }
+    },
+    "papir-preview": {
+      "extends": "production",
+      "channel": "papir-preview",
+      "autoIncrement": false,
+      "env": {
+        "EXPO_PUBLIC_PAPIR_PREVIEW": "1"
+      }
     }
   },
   "submit": {
