@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, RefreshControl, ScrollView, View } from 'react-native';
+import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Check } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { PaperText, SegmentedControl, papirColor, papirRadius, papirSpace } from '../../design/papir';
@@ -292,13 +292,31 @@ function CalendarView() {
         </PaperText>
       ) : (
         <View style={{ marginTop: papirSpace.lg, paddingLeft: papirSpace.screen }}>
-          {/* An empty grid is ambiguous — say it plainly (QA L9). */}
-          {timelineEvents.length === 0 && allDay.length === 0 ? (
-            <PaperText role="body" color={papirColor.ink3} style={{ paddingTop: 26, paddingRight: papirSpace.screen, textAlign: 'center' }}>
-              {isToday ? 'Ingen begivenheder i dag — dagen er din.' : 'Ingen begivenheder denne dag.'}
-            </PaperText>
-          ) : null}
           <DayTimeline events={timelineEvents} startHour={startHour} endHour={endHour} showNow={isToday} />
+          {/* An empty grid is ambiguous — say it plainly (QA L9). Floats as a
+              centered pill OVER the quiet grid; inline flow collided with the
+              absolutely-positioned hour rows. */}
+          {timelineEvents.length === 0 && allDay.length === 0 ? (
+            <View
+              pointerEvents="none"
+              style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', paddingLeft: papirSpace.screen }]}
+            >
+              <View
+                style={{
+                  backgroundColor: papirColor.card,
+                  borderWidth: 1,
+                  borderColor: papirColor.line,
+                  borderRadius: papirRadius.pill,
+                  paddingVertical: 10,
+                  paddingHorizontal: 18,
+                }}
+              >
+                <PaperText role="body" color={papirColor.ink3}>
+                  {isToday ? 'Ingen begivenheder i dag — dagen er din.' : 'Ingen begivenheder denne dag.'}
+                </PaperText>
+              </View>
+            </View>
+          ) : null}
         </View>
       )}
     </View>
