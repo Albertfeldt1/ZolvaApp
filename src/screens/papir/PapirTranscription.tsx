@@ -70,17 +70,24 @@ function ActionCard({ action, onAdd }: { action: ExtractedAction; onAdd: () => P
         marginTop: 12,
       }}
     >
+      {/* Approved-design category colors: reminders are red (spoken/urgent
+          family), events green (agreement family) — same duos as the Home
+          ribbon and Historik tags. */}
       <View
         style={{
           width: 34,
           height: 34,
           borderRadius: papirRadius.sm,
-          backgroundColor: papirColor.redSoft,
+          backgroundColor: action.kind === 'reminder' ? papirColor.redSoft : papirColor.greenSoft,
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
-        <Icon size={17} color={papirColor.red} strokeWidth={1.8} />
+        <Icon
+          size={17}
+          color={action.kind === 'reminder' ? papirColor.red : papirColor.green}
+          strokeWidth={1.8}
+        />
       </View>
       <View style={{ flex: 1 }}>
         <PaperText role="bodyStrong" style={{ fontSize: 14 }}>

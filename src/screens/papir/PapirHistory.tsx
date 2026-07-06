@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, View } from 'react-native';
-import { Check, FileText, MessageSquare, Sparkles, X } from 'lucide-react-native';
+import { Check, MessageSquare, Sparkles, X } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
-import { Button, ListRow, PaperText, SegmentedControl, papirColor, papirRadius, papirSpace } from '../../design/papir';
+import { Button, PaperText, SegmentedControl, papirColor, papirRadius, papirSpace } from '../../design/papir';
 import { useAuth } from '../../lib/auth';
 import { useMemoryEnabled, useNotes } from '../../lib/hooks';
 import {
@@ -20,8 +20,8 @@ import {
 import type { ChatMessageRow, Fact, Note } from '../../lib/types';
 import { usePapirScreenPads } from './insets';
 import { PapirLoader } from './PapirLoader';
+import { PapirTag } from './PapirTag';
 import { useNow } from './useNow';
-import { barsFor, WaveGlyph } from './WaveGlyph';
 
 function GroupLabel({ children }: { children: string }) {
   return (
@@ -512,23 +512,28 @@ export function PapirHistory() {
                   key={note.id}
                   style={highlightId === note.id ? { backgroundColor: papirColor.redSoft, borderRadius: 12 } : null}
                 >
+                  {/* Approved-design row anatomy: category tag + time header,
+                      note text underneath — the tag color IS the row's type
+                      signal (talenote red, note slate), so no leading icon. */}
                   <Pressable
                     onLongPress={() => confirmDelete(note)}
                     accessibilityLabel={note.title ?? note.text.slice(0, 40)}
                     accessibilityHint="Hold nede for at slette"
+                    style={{ paddingHorizontal: papirSpace.screen, paddingVertical: 14 }}
                   >
-                    <ListRow
-                      leading={
-                        note.source === 'voice' ? (
-                          <WaveGlyph heights={barsFor(note.id)} color={papirColor.ink2} />
-                        ) : (
-                          <FileText size={18} color={papirColor.ink2} strokeWidth={1.7} />
-                        )
-                      }
-                      title={note.title ?? note.text.slice(0, 48)}
-                      subtitle={dur ? `${note.text.slice(0, 52)} · ${dur}` : note.text.slice(0, 60)}
-                      trailing={trailingFor(note, now)}
-                    />
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <PapirTag
+                        label={note.source === 'voice' ? 'Talenote' : 'Note'}
+                        kind={note.source === 'voice' ? 'talenote' : 'note'}
+                      />
+                      <PaperText role="caption" color={papirColor.ink4} tabular>
+                        {trailingFor(note, now)}
+                        {dur ? ` · ${dur}` : ''}
+                      </PaperText>
+                    </View>
+                    <PaperText role="body" color={papirColor.ink2} style={{ marginTop: 8 }} numberOfLines={2}>
+                      {note.title ?? note.text}
+                    </PaperText>
                   </Pressable>
                   {i < g.items.length - 1 ? (
                     <View style={{ height: 1, backgroundColor: papirColor.line, marginHorizontal: papirSpace.screen }} />

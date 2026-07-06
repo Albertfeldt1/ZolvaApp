@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
-import { AlertTriangle, ChevronDown } from 'lucide-react-native';
+import { AlertTriangle, Check, ChevronDown } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { PaperText, papirColor, papirRadius, papirSpace } from '../../design/papir';
 import { useAuth } from '../../lib/auth';
@@ -69,10 +69,28 @@ function MailRow({ mail, onPress }: { mail: InboxMail; onPress: () => void }) {
         <PaperText role="body" style={{ marginTop: 2 }} numberOfLines={1}>
           {mail.subject}
         </PaperText>
+        {/* Green "Svar klar" badge (approved design) — the AI draft is ready
+            and one tap away; the old draft-text preview added noise without
+            adding certainty. */}
         {mail.aiDraft ? (
-          <PaperText role="caption" color={papirColor.ink3} style={{ marginTop: 2 }} numberOfLines={1}>
-            Udkast klar: {mail.aiDraft}
-          </PaperText>
+          <View
+            style={{
+              alignSelf: 'flex-start',
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 4,
+              marginTop: 5,
+              backgroundColor: papirColor.greenSoft,
+              borderRadius: 999,
+              paddingVertical: 2.5,
+              paddingHorizontal: 8,
+            }}
+          >
+            <Check size={11} color={papirColor.green} strokeWidth={2.4} />
+            <PaperText role="caption" color={papirColor.green} style={{ fontSize: 11.5 }}>
+              Svar klar
+            </PaperText>
+          </View>
         ) : null}
       </View>
     </ScaleButton>

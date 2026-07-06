@@ -21,7 +21,7 @@ import {
 import { refreshCalendarNow, refreshMailNow, useInboxCounts, useNotes, useReminders, useUpcoming, useUser } from '../../lib/hooks';
 import { useTodayBrief } from '../../lib/briefs';
 import { greeting, formatToday } from '../../lib/date';
-import type { Note, Reminder } from '../../lib/types';
+import type { Note, Reminder, UpcomingEvent } from '../../lib/types';
 import { usePapirNav } from './nav';
 import { requestHistorySegment } from './PapirHistory';
 import { useNow } from './useNow';
@@ -99,6 +99,57 @@ function taskTimeLabel(dueAt: Date | null, now: Date): string {
 function durationLabel(sec?: number): string {
   if (!sec || sec <= 0) return '';
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+}
+
+// "Din dag" ribbon colors — the approved design rotates the three category
+// duos in order (purely aesthetic, no meaning): green → slate → rust.
+const RIBBON_DUOS = [
+  { color: papirColor.green, bg: papirColor.greenSoft },
+  { color: papirColor.slate, bg: papirColor.slateSoft },
+  { color: papirColor.rust, bg: papirColor.rustSoft },
+] as const;
+
+/** Horizontal ribbon of today's timed events. Renders nothing when the day
+ * is meeting-free — the greeting already says "ingen møder". */
+function DayRibbon({ events, onSeePlan }: { events: UpcomingEvent[]; onSeePlan: () => void }) {
+  const timed = events
+    .filter((e) => !e.allDay)
+    .sort((a, b) => a.start.getTime() - b.start.getTime());
+  if (timed.length === 0) return null;
+  return (
+    <>
+      <SectionHeader label="Din dag" action="Se plan" onAction={onSeePlan} />
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ gap: 10, paddingHorizontal: papirSpace.screen }}
+      >
+        {timed.map((e, i) => {
+          const duo = RIBBON_DUOS[i % RIBBON_DUOS.length];
+          return (
+            <View
+              key={e.id}
+              style={{
+                minWidth: 158,
+                maxWidth: 220,
+                backgroundColor: duo.bg,
+                borderRadius: papirRadius.lg,
+                paddingVertical: 14,
+                paddingHorizontal: 16,
+              }}
+            >
+              <PaperText role="small" color={duo.color} tabular>
+                {clockLabel(e.start)}–{clockLabel(e.end)}
+              </PaperText>
+              <PaperText role="bodyStrong" style={{ fontSize: 14, marginTop: 5 }} numberOfLines={2}>
+                {e.title}
+              </PaperText>
+            </View>
+          );
+        })}
+      </ScrollView>
+    </>
+  );
 }
 
 function TaskRow({
@@ -334,6 +385,9 @@ export function PapirHome() {
           <ArrowRight size={18} color={papirColor.onInk} strokeWidth={2} />
         </View>
       </ScaleButton>
+
+      {/* Today's events — the approved design's color ribbon */}
+      <DayRibbon events={upcoming.todayEvents} onSeePlan={() => nav.setTab('plan')} />
 
       {/* Recent recordings */}
       <SectionHeader

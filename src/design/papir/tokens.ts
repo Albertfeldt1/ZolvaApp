@@ -25,6 +25,16 @@ export const papirColor = {
   redSoft: '#F7E9E4', // accent surface behind red icons
   green: '#5E7A52', // success, toggle-on, "online"
   onInk: '#FBFAF6', // text on a dark surface
+
+  // Category accent duos (deep text on soft surface) — from the 2026-07-06
+  // Claude-design exploration Oscar approved: event-ribbon rotation, content
+  // tags (TALENOTE/NOTE) and the "Svar klar" badge. Always use a duo as a
+  // PAIR; deep-on-soft is what keeps them readable on paper.
+  greenSoft: '#E9EFE4', // surface under green (events, "Svar klar")
+  slate: '#5D6B7A', // calm blue-grey (notes, drafts, second event color)
+  slateSoft: '#E7EAEE',
+  rust: '#B0603F', // warm third accent — softer than red, never urgent
+  rustSoft: '#F4E5DD',
 } as const;
 
 // Dark surfaces used WITHIN light mode (brief-card / upsell gradient) — these
