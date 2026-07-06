@@ -1,11 +1,12 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-native';
+import { RefreshControl, ScrollView, View } from 'react-native';
 import { AlertTriangle, ChevronDown } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { PaperText, papirColor, papirRadius, papirSpace } from '../../design/papir';
 import { refreshMailNow, useHasProvider, useInboxWaiting } from '../../lib/hooks';
 import type { InboxMail } from '../../lib/types';
 import { usePapirNav } from './nav';
+import { PapirLoader } from './PapirLoader';
 import { PushHeader } from './PushHeader';
 
 const PROVIDER_NAMES: Record<string, string> = {
@@ -197,7 +198,7 @@ export function PapirInbox() {
 
       {inbox.loading && inbox.data.length === 0 ? (
         <View style={{ alignItems: 'center', paddingTop: 60 }}>
-          <ActivityIndicator color={papirColor.red} />
+          <PapirLoader />
         </View>
       ) : !hasProvider ? (
         <View style={{ alignItems: 'center', paddingTop: 60, paddingHorizontal: papirSpace.screen, gap: 8 }}>

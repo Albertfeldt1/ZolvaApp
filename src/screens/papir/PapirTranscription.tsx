@@ -12,6 +12,7 @@ import {
   VoiceEventError,
   type CalendarProviderId,
 } from '../../lib/voice-actions';
+import { PapirLoader } from './PapirLoader';
 import { PushHeader } from './PushHeader';
 
 type Props = {
@@ -245,7 +246,9 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
 
         {loading ? (
           <View style={{ alignItems: 'center', paddingTop: 80, gap: 14 }}>
-            <ActivityIndicator color={papirColor.red} />
+            {/* The waveform loader is at its most literal here: the app is
+                actively listening back through the take. */}
+            <PapirLoader size={28} />
             <PaperText role="body" color={papirColor.ink2}>
               Skriver din optagelse ned…
             </PaperText>

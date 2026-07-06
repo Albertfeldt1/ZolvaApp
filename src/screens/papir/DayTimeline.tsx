@@ -109,8 +109,11 @@ export function DayTimeline({ events, startHour = 7, endHour = 22, showNow = tru
             <View
               style={[
                 styles.node,
+                // Past nodes are "spent", not urgent: a column of solid-red
+                // dots down the morning read as eight alarms. The filled rail
+                // already tells the progress story — keep red for NOW alone.
                 past
-                  ? { backgroundColor: papirColor.red, borderColor: papirColor.red }
+                  ? { backgroundColor: papirColor.line, borderColor: papirColor.line }
                   : { backgroundColor: papirColor.paper, borderColor: papirColor.line },
               ]}
             />

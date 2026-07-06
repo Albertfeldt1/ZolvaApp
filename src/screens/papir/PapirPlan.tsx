@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, RefreshControl, ScrollView, View } from 'react-native';
+import { Alert, RefreshControl, ScrollView, View } from 'react-native';
 import { Check } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { PaperText, SegmentedControl, papirColor, papirRadius, papirSpace } from '../../design/papir';
@@ -8,6 +8,7 @@ import type { Reminder } from '../../lib/types';
 import { usePapirScreenPads } from './insets';
 import { useNow } from './useNow';
 import { DayTimeline, type TimelineEvent } from './DayTimeline';
+import { PapirLoader } from './PapirLoader';
 
 const WEEKDAY_LETTER = ['S', 'M', 'T', 'O', 'T', 'F', 'L'];
 const WEEKDAYS_SHORT = ['søn', 'man', 'tir', 'ons', 'tor', 'fre', 'lør'];
@@ -135,7 +136,7 @@ function TasksView() {
   if (reminders.loading && reminders.data.length === 0) {
     return (
       <View style={{ alignItems: 'center', paddingTop: 60 }}>
-        <ActivityIndicator color={papirColor.red} />
+        <PapirLoader />
       </View>
     );
   }
@@ -267,7 +268,7 @@ function CalendarView() {
 
       {loading && events.length === 0 ? (
         <View style={{ alignItems: 'center', paddingTop: 60 }}>
-          <ActivityIndicator color={papirColor.red} />
+          <PapirLoader />
         </View>
       ) : error ? (
         <PaperText role="body" color={papirColor.ink3} style={{ paddingHorizontal: papirSpace.screen, paddingTop: 40, textAlign: 'center' }}>

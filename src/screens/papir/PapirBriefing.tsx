@@ -1,5 +1,5 @@
 import React, { useEffect, type ReactNode } from 'react';
-import { ActivityIndicator, ScrollView, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { ArrowRight } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { Button, PaperText, papirColor, papirSpace } from '../../design/papir';
@@ -7,6 +7,7 @@ import { useTodayBrief } from '../../lib/briefs';
 import { useWorkPreferences } from '../../lib/hooks';
 import { formatToday } from '../../lib/date';
 import { usePapirNav } from './nav';
+import { PapirLoader } from './PapirLoader';
 import { PushHeader } from './PushHeader';
 
 function Section({ label, children }: { label: string; children: ReactNode }) {
@@ -26,11 +27,15 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+// Editorial principle: the whole briefing is Zolva's SPOKEN morning-paper
+// voice, so section content is serif throughout (eyebrows/meta stay sans).
+// Before this, VEJRET/INDBAKKE were sans while AT HUSKE was serif — two
+// typographic voices on one page.
 function Lines({ lines }: { lines: string[] }) {
   return (
     <>
       {lines.map((line, i) => (
-        <PaperText key={`${i}-${line.slice(0, 24)}`} role="body" color={papirColor.ink2} style={{ paddingVertical: 4 }}>
+        <PaperText key={`${i}-${line.slice(0, 24)}`} role="bodySerif" color={papirColor.ink2} style={{ paddingVertical: 4 }}>
           {line}
         </PaperText>
       ))}
@@ -87,7 +92,7 @@ export function PapirBriefing() {
 
       {loading && !brief ? (
         <View style={{ alignItems: 'center', paddingTop: 80 }}>
-          <ActivityIndicator color={papirColor.red} />
+          <PapirLoader />
         </View>
       ) : !brief ? (
         <View style={{ alignItems: 'center', paddingTop: 70, paddingHorizontal: papirSpace.screen, gap: 12 }}>
@@ -143,8 +148,10 @@ export function PapirBriefing() {
 
               {s.followups.length > 0 || s.focus.length > 0 ? (
                 <Section label="At huske">
+                  {/* Full-ink serif (no size override): same voice as the other
+                      sections, weight carried by color alone. */}
                   {[...s.followups, ...s.focus].map((line, i) => (
-                    <PaperText key={`${i}-${line.slice(0, 24)}`} role="bodySerif" style={{ fontSize: 19, lineHeight: 28, paddingVertical: 4 }}>
+                    <PaperText key={`${i}-${line.slice(0, 24)}`} role="bodySerif" style={{ paddingVertical: 4 }}>
                       {line}
                     </PaperText>
                   ))}
@@ -155,7 +162,7 @@ export function PapirBriefing() {
             // Legacy briefs (pre-structured rebuild): prose paragraphs.
             <Section label="Din dag">
               {brief.body.map((p, i) => (
-                <PaperText key={`${i}-${p.slice(0, 24)}`} role="body" color={papirColor.ink2} style={{ paddingVertical: 6 }}>
+                <PaperText key={`${i}-${p.slice(0, 24)}`} role="bodySerif" color={papirColor.ink2} style={{ paddingVertical: 6 }}>
                   {p}
                 </PaperText>
               ))}

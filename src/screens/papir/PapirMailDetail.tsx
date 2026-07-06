@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -17,6 +16,7 @@ import { recordMailEvent } from '../../lib/mail-events';
 import { runExtractor } from '../../lib/profile-extractor';
 import type { MailProvider, ReplyContext } from '../../lib/types';
 import { usePapirNav, type PushParams } from './nav';
+import { PapirLoader } from './PapirLoader';
 import { PushHeader } from './PushHeader';
 
 function replyContextThreadId(ctx: ReplyContext): string {
@@ -173,7 +173,7 @@ export function PapirMailDetail({ params }: { params: PushParams }) {
 
           {loading && !detail ? (
             <View style={{ alignItems: 'center', paddingTop: 50 }}>
-              <ActivityIndicator color={papirColor.red} />
+              <PapirLoader />
             </View>
           ) : (
             <View style={{ paddingHorizontal: papirSpace.screen, marginTop: 18 }}>
