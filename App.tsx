@@ -26,8 +26,8 @@ import { useDesignFonts } from './src/design/fonts';
 import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppState, Linking, StyleSheet, View } from 'react-native';
-import Animated, { SlideInDown, SlideOutDown } from 'react-native-reanimated';
+import { Alert, AppState, Image, Linking, StyleSheet, View } from 'react-native';
+import Animated, { FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { DURATION } from './src/design/motion';
 import { ChromeInsetsContext, PhoneChrome, TabId } from './src/components/PhoneChrome';
 import { TabPane } from './src/components/TabPane';
@@ -100,6 +100,26 @@ import { PapirRoot } from './src/screens/papir/PapirRoot';
 // or JS reload), so the most recent line tells us the live commit.
 const APP_BOOT_TAG = 'onboarding-pal-strip-v1';
 console.log(`[BOOT] ${APP_BOOT_TAG}`);
+
+// The native splash auto-hides as soon as the first JS frame renders, which
+// on a warm device is well under a second — too fast to register the logo.
+// This JS overlay shows the exact same image (same asset, same background)
+// so the handoff is invisible, then holds it for a minimum time before
+// fading out. Measured from JS module eval, so native init time comes on top.
+const SPLASH_MIN_VISIBLE_MS = 1600;
+const SPLASH_FADE_MS = 400;
+
+function BootSplash() {
+  return (
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: '#FBFAF6' }]}>
+      <Image
+        source={require('./assets/splash.png')}
+        style={StyleSheet.absoluteFill}
+        resizeMode="cover"
+      />
+    </View>
+  );
+}
 
 export default function App() {
   const [fraunces] = useFraunces({
@@ -548,6 +568,18 @@ export default function App() {
   // other hooks so the early return below stays hook-safe.
   const papirEnabled = usePapirEnabled();
 
+  // Keep the boot splash up for a minimum time once the app is ready, so the
+  // logo doesn't blink away after half a second on fast launches.
+  const bootAtRef = useRef(Date.now());
+  const [splashDone, setSplashDone] = useState(false);
+  const bootReady = !!(fraunces && playfair && inter && mono && designFonts && migrationsDone);
+  useEffect(() => {
+    if (!bootReady || splashDone) return;
+    const elapsed = Date.now() - bootAtRef.current;
+    const t = setTimeout(() => setSplashDone(true), Math.max(0, SPLASH_MIN_VISIBLE_MS - elapsed));
+    return () => clearTimeout(t);
+  }, [bootReady, splashDone]);
+
   // Shadow from the tab bar bleeds a few pixels above its measured box;
   // a small buffer keeps the last line of content clear of it. When logged
   // out, the persistent login CTA bar sits above the tab chrome, so content
@@ -558,10 +590,15 @@ export default function App() {
     return { bottom: chromeHeight + 12 + ctaClearance };
   }, [chromeHeight, loggedOut, ctaBarHeight]);
 
-  if (!fraunces || !playfair || !inter || !mono || !designFonts || !migrationsDone) {
-    // Match app.json splash.backgroundColor so the pre-bundle native splash
-    // and this fallback view share a seam-free color while fonts load.
-    return <View style={[styles.root, { backgroundColor: '#FBFAF6' }]} />;
+  if (!bootReady) {
+    // Render the same splash image as the native splash screen so the
+    // handoff is seam-free while fonts load — the native splash auto-hides
+    // on this very frame.
+    return (
+      <View style={[styles.root, { backgroundColor: '#FBFAF6' }]}>
+        <BootSplash />
+      </View>
+    );
   }
 
   // NOTE: the Papir early-return lives further down (after the modal
@@ -876,6 +913,11 @@ export default function App() {
             <PapirRoot loggedOut={loggedOut} />
             {sessionOverlays}
             {memoryConsentModal}
+            {!splashDone && (
+              <Animated.View style={StyleSheet.absoluteFill} exiting={FadeOut.duration(SPLASH_FADE_MS)}>
+                <BootSplash />
+              </Animated.View>
+            )}
           </View>
         </ErrorBoundary>
       </ThemeProvider>
@@ -1032,6 +1074,14 @@ export default function App() {
         />
       )}
       <StatusBarScrim />
+      {!splashDone && (
+        <Animated.View
+          style={[StyleSheet.absoluteFill, { zIndex: 20, elevation: 20 }]}
+          exiting={FadeOut.duration(SPLASH_FADE_MS)}
+        >
+          <BootSplash />
+        </Animated.View>
+      )}
     </View>
     </ChromeInsetsContext.Provider>
     </ErrorBoundary>

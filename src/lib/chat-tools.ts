@@ -713,12 +713,13 @@ export type WriteEventInput = {
 // fall back to "no conflicts found there" rather than blocking the create:
 // the user explicitly asked for the event, and a flaky CalDAV reachability
 // problem is the wrong reason to refuse.
-type Conflict = {
+export type CalendarConflict = {
   source: CalendarSource;
   title: string;
   start: Date;
   end: Date;
 };
+type Conflict = CalendarConflict;
 
 async function findConflicts(
   ctx: ChatCtx,
@@ -820,11 +821,14 @@ export async function createCalendarEvent(
   ctx: ChatCtx,
   provider: string,
   input: WriteEventInput,
-): Promise<{ text: string; isError: boolean }> {
+): Promise<{ text: string; isError: boolean; conflicts?: CalendarConflict[] }> {
   if (!input.allDay && !input.forceOverlap) {
     const conflicts = await findConflicts(ctx, input.start, input.end);
     if (conflicts.length > 0) {
-      return { text: formatConflictsMessage(conflicts, input.start, input.end), isError: true };
+      // `text` is the model-facing refusal for the chat flow; `conflicts`
+      // lets non-chat callers (voice actions) build their own user-facing UI
+      // instead of showing this instruction blob to a human.
+      return { text: formatConflictsMessage(conflicts, input.start, input.end), isError: true, conflicts };
     }
   }
   // Resolve human names to provider-specific ids so the model can sloppily

@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react';
 import type { MailProvider } from '../../lib/types';
 import type { PapirTab } from './PapirBottomNav';
 
-export type PushScreen = 'briefing' | 'chat' | 'search' | 'settings' | 'inbox' | 'mailDetail' | 'agent' | 'notifications';
+export type PushScreen = 'briefing' | 'chat' | 'search' | 'settings' | 'inbox' | 'mailDetail' | 'agent' | 'notifications' | 'signature';
 
 /** Per-push params — mailDetail carries the list-row context so the detail
  * screen can render header + AI draft instantly while the body fetches. */
@@ -20,7 +20,10 @@ export type PushEntry = { key: string; screen: PushScreen; params?: PushParams }
 type Nav = {
   push: (s: PushScreen, params?: PushParams) => void;
   back: () => void;
-  setTab: (t: PapirTab) => void;
+  /** slide: animate the tab pane in from the right — use when navigating
+   * from CONTENT (shortcuts, "Se alle" links) so it matches the push
+   * transition; plain bottom-nav switches stay instant. */
+  setTab: (t: PapirTab, opts?: { slide?: boolean }) => void;
   /** Opens the shared AuthSheet overlay (wired in PapirRoot). */
   openAuth: () => void;
   /** Screens with unsaved state (e.g. a mail draft) register a guard the

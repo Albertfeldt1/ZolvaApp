@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, View } from 'react-native';
 import { Check } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
@@ -13,6 +13,20 @@ import { PapirLoader } from './PapirLoader';
 
 const WEEKDAY_LETTER = ['S', 'M', 'T', 'O', 'T', 'F', 'L'];
 const WEEKDAYS_SHORT = ['søn', 'man', 'tir', 'ons', 'tor', 'fre', 'lør'];
+
+// Cross-screen segment request (same module-store pattern as PapirHistory):
+// the Home "Påmindelser" shortcut lands on THIS tab but must select the right
+// segment — nav.setTab carries no params, and the keep-alive tab may or may
+// not be mounted yet, so a pending value + listener covers both cases.
+export type PlanSegment = 0 | 1; // Påmindelser · Kalender
+let pendingSegment: PlanSegment | null = null;
+const segmentListeners = new Set<() => void>();
+
+/** Ask Plan to show a segment; call right before nav.setTab('plan'). */
+export function requestPlanSegment(segment: PlanSegment): void {
+  pendingSegment = segment;
+  segmentListeners.forEach((l) => l());
+}
 
 function GroupLabel({ children }: { children: string }) {
   return (
@@ -136,7 +150,7 @@ function TasksView({
   }, [reminders.data, now]);
 
   const confirmRemove = (r: Reminder) => {
-    Alert.alert('Slet opgave', `Slet "${r.text}"?`, [
+    Alert.alert('Slet påmindelse', `Slet "${r.text}"?`, [
       { text: 'Annullér', style: 'cancel' },
       { text: 'Slet', style: 'destructive', onPress: () => void reminders.remove(r.id) },
     ]);
@@ -154,10 +168,10 @@ function TasksView({
     return (
       <View style={{ alignItems: 'center', paddingTop: 60, paddingHorizontal: papirSpace.screen, gap: 8 }}>
         <PaperText role="bodyStrong" color={papirColor.ink2}>
-          Ingen opgaver
+          Ingen påmindelser
         </PaperText>
         <PaperText role="body" color={papirColor.ink3} style={{ textAlign: 'center' }}>
-          Tryk på den røde knap og sig &ldquo;husk at…&rdquo; — eller bed chatten. Opgaverne samles her.
+          Tryk på den røde knap og sig &ldquo;husk at…&rdquo; — eller bed chatten. Påmindelserne samles her.
         </PaperText>
       </View>
     );
@@ -184,11 +198,18 @@ function TasksView({
   );
 }
 
-/** The 7 days starting today — index 0 is always "i dag". */
-function weekDays(now: Date): Date[] {
-  return Array.from({ length: 7 }, (_, i) => {
+// The day strip reaches into the past so yesterday doesn't vanish at
+// midnight — you can always page back and see what the day looked like.
+const STRIP_DAYS_BACK = 14;
+const STRIP_DAYS_FORWARD = 14;
+// Fixed chip metrics so we can scroll the strip straight to "today".
+const DAY_CHIP_WIDTH = 46;
+const DAY_CHIP_GAP = 6;
+
+function stripDays(now: Date): Date[] {
+  return Array.from({ length: STRIP_DAYS_BACK + 1 + STRIP_DAYS_FORWARD }, (_, i) => {
     const d = new Date(now);
-    d.setDate(d.getDate() + i);
+    d.setDate(d.getDate() + (i - STRIP_DAYS_BACK));
     d.setHours(0, 0, 0, 0);
     return d;
   });
@@ -199,10 +220,14 @@ function CalendarView() {
   // Rebuild the strip when the DAY changes (not every minute-tick).
   const dayKey = now.toDateString();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const days = useMemo(() => weekDays(now), [dayKey]);
-  const [sel, setSel] = useState(0);
-  const selectedDay = days[sel];
-  const isToday = sel === 0;
+  const days = useMemo(() => stripDays(now), [dayKey]);
+  // Select by date key (not index): at midnight the strip shifts one day,
+  // and the selection should stay on the SAME calendar day, not jump.
+  const [selKey, setSelKey] = useState(dayKey);
+  const selectedDay = days.find((d) => d.toDateString() === selKey) ?? days[STRIP_DAYS_BACK];
+  const isToday = selectedDay.toDateString() === dayKey;
+  const isPast = selectedDay < days[STRIP_DAYS_BACK];
+  const stripRef = useRef<ScrollView>(null);
   const { data: events, loading, error } = useDayEvents(selectedDay);
 
   const allDay = events.filter((e) => e.allDay);
@@ -214,7 +239,14 @@ function CalendarView() {
     // of the day instead of "ending before they start".
     const sameDay = e.end.toDateString() === e.start.toDateString();
     const end = sameDay ? e.end.getHours() + e.end.getMinutes() / 60 : 24;
-    return { id: e.id, start, end: Math.max(end, start + 0.25), title: e.title, place: e.location };
+    return {
+      id: e.id,
+      start,
+      end: Math.max(end, start + 0.25),
+      title: e.title,
+      place: e.location,
+      timeLabel: `${clockLabel(e.start)}–${clockLabel(e.end)}`,
+    };
   });
 
   // Expand the visible window so early/late events keep a home (M86).
@@ -227,17 +259,30 @@ function CalendarView() {
 
   return (
     <View style={{ marginTop: papirSpace.base }}>
-      <View style={{ flexDirection: 'row', gap: 6, paddingHorizontal: papirSpace.screen }}>
+      <ScrollView
+        ref={stripRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ gap: DAY_CHIP_GAP, paddingHorizontal: papirSpace.screen }}
+        // Open with today as the first visible chip; the past sits one swipe
+        // to the left instead of being cut off.
+        onLayout={() =>
+          stripRef.current?.scrollTo({ x: STRIP_DAYS_BACK * (DAY_CHIP_WIDTH + DAY_CHIP_GAP), animated: false })
+        }
+      >
         {days.map((day, i) => {
-          const on = i === sel;
+          const key = day.toDateString();
+          const on = key === selectedDay.toDateString();
+          const today = key === dayKey;
+          const past = i < STRIP_DAYS_BACK;
           return (
             <ScaleButton
               key={day.toISOString()}
               scaleTo={0.95}
               haptic="selection"
-              onPress={() => setSel(i)}
+              onPress={() => setSelKey(key)}
               style={{
-                flex: 1,
+                width: DAY_CHIP_WIDTH,
                 alignItems: 'center',
                 paddingVertical: 10,
                 borderRadius: papirRadius.md,
@@ -247,13 +292,27 @@ function CalendarView() {
               <PaperText role="caption" color={on ? papirColor.ink4 : papirColor.ink3}>
                 {WEEKDAY_LETTER[day.getDay()]}
               </PaperText>
-              <PaperText role="bodyStrong" color={on ? papirColor.onInk : papirColor.ink} style={{ marginTop: 5 }}>
+              <PaperText
+                role="bodyStrong"
+                color={on ? papirColor.onInk : past ? papirColor.ink3 : papirColor.ink}
+                style={{ marginTop: 5 }}
+              >
                 {String(day.getDate())}
               </PaperText>
+              {/* Today keeps a mark even when another day is selected. */}
+              <View
+                style={{
+                  width: 4,
+                  height: 4,
+                  borderRadius: 2,
+                  marginTop: 4,
+                  backgroundColor: today ? (on ? papirColor.onInk : papirColor.red) : 'transparent',
+                }}
+              />
             </ScaleButton>
           );
         })}
-      </View>
+      </ScrollView>
 
       {allDay.length > 0 ? (
         <View style={{ paddingHorizontal: papirSpace.screen, marginTop: papirSpace.base, gap: 6 }}>
@@ -300,7 +359,11 @@ function CalendarView() {
             {isToday ? 'Ingen begivenheder i dag' : 'Ingen begivenheder'}
           </PaperText>
           <PaperText role="body" color={papirColor.ink3} style={{ textAlign: 'center' }}>
-            {isToday ? 'Dagen er din — kalenderen er helt fri.' : 'Denne dag er helt fri.'}
+            {isToday
+              ? 'Dagen er din — kalenderen er helt fri.'
+              : isPast
+                ? 'Denne dag var helt fri.'
+                : 'Denne dag er helt fri.'}
           </PaperText>
         </View>
       ) : (
@@ -315,6 +378,20 @@ function CalendarView() {
 export function PapirPlan() {
   const [view, setView] = useState(0);
   const pads = usePapirScreenPads();
+  // Consume segment requests from shortcuts — both one that arrived before
+  // this tab first mounted (pending) and later ones while kept alive.
+  useEffect(() => {
+    const apply = () => {
+      if (pendingSegment === null) return;
+      setView(pendingSegment);
+      pendingSegment = null;
+    };
+    apply();
+    segmentListeners.add(apply);
+    return () => {
+      segmentListeners.delete(apply);
+    };
+  }, []);
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -343,7 +420,7 @@ export function PapirPlan() {
         </PaperText>
       </View>
       <View style={{ paddingHorizontal: papirSpace.screen, marginTop: 14 }}>
-        <SegmentedControl options={['Opgaver', 'Kalender']} value={view} onChange={setView} />
+        <SegmentedControl options={['Påmindelser', 'Kalender']} value={view} onChange={setView} />
       </View>
       {view === 0 ? <TasksView reminders={reminders} undoable={undoable} /> : <CalendarView />}
     </ScrollView>

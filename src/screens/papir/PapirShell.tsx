@@ -1,6 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, StyleSheet, View } from 'react-native';
-import Animated, { SlideInRight, SlideInDown, SlideOutDown, SlideOutRight } from 'react-native-reanimated';
+import { BackHandler, Dimensions, StyleSheet, View } from 'react-native';
+import Animated, {
+  SlideInRight,
+  SlideInDown,
+  SlideOutDown,
+  SlideOutRight,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { papirColor, papirDuration } from '../../design/papir';
 import { PapirNavProvider, type PushEntry, type PushParams, type PushScreen } from './nav';
 import { PapirRecord } from './PapirRecord';
@@ -17,6 +25,7 @@ import { PapirAgent } from './PapirAgent';
 import { PapirInbox } from './PapirInbox';
 import { PapirNotifications } from './PapirNotifications';
 import { PapirMailDetail } from './PapirMailDetail';
+import { PapirSignature } from './PapirSignature';
 import { PapirBottomNav, type PapirTab } from './PapirBottomNav';
 
 function PushView({ screen, params }: { screen: PushScreen; params?: PushParams }) {
@@ -37,6 +46,8 @@ function PushView({ screen, params }: { screen: PushScreen; params?: PushParams 
       return <PapirAgent />;
     case 'notifications':
       return <PapirNotifications />;
+    case 'signature':
+      return <PapirSignature />;
   }
 }
 
@@ -61,10 +72,40 @@ export function PapirShell({ openAuth }: { openAuth?: () => void }) {
   const [recording, setRecording] = useState(false);
   const [transcribe, setTranscribe] = useState<Recording | null>(null);
 
-  const selectTab = useCallback((t: PapirTab) => {
-    setMountedTabs((m) => (m.includes(t) ? m : [...m, t]));
-    setTab(t);
+  // Content-initiated tab switches (Home shortcuts, "Se alle" links) slide
+  // the pane in from the right so they read like the push screens they sit
+  // next to; bottom-nav switches stay instant. The panes are keep-alive, so
+  // this is an imperative one-shot on a shared value — an `entering`
+  // animation would only fire on first mount.
+  const paneSlideX = useSharedValue(0);
+  const paneSlideStyle = useAnimatedStyle(() => ({ transform: [{ translateX: paneSlideX.value }] }));
+  // The tab we're sliding AWAY from stays visible beneath the incoming pane
+  // for the duration — exactly like a push slides over the still-visible
+  // screen. Without this the slide reveals blank paper, which reads wrong.
+  const [slideUnderlay, setSlideUnderlay] = useState<PapirTab | null>(null);
+  const slideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (slideTimer.current) clearTimeout(slideTimer.current);
   }, []);
+
+  const selectTab = useCallback(
+    (t: PapirTab, opts?: { slide?: boolean }) => {
+      setMountedTabs((m) => (m.includes(t) ? m : [...m, t]));
+      if (opts?.slide && t !== tab) {
+        // EXACTLY the push-screen transition (SlideInRight.duration(pushIn)):
+        // same distance (window width), same duration, and withTiming's
+        // default easing — SlideInRight sets no explicit easing, so a custom
+        // curve here would make the two feel different.
+        setSlideUnderlay(tab);
+        if (slideTimer.current) clearTimeout(slideTimer.current);
+        slideTimer.current = setTimeout(() => setSlideUnderlay(null), papirDuration.pushIn + 50);
+        paneSlideX.value = Dimensions.get('window').width;
+        paneSlideX.value = withTiming(0, { duration: papirDuration.pushIn });
+      }
+      setTab(t);
+    },
+    [tab, paneSlideX],
+  );
 
   // Unsaved-state guard for hardware back (H6) — see nav.setBackGuard.
   const backGuardRef = useRef<(() => boolean) | null>(null);
@@ -76,10 +117,10 @@ export function PapirShell({ openAuth }: { openAuth?: () => void }) {
         setStack((st) => [...st, { key: `${s}-${pushSeq.current}`, screen: s, params }]);
       },
       back: () => setStack((st) => st.slice(0, -1)),
-      setTab: (t: PapirTab) => {
+      setTab: (t: PapirTab, opts?: { slide?: boolean }) => {
         // Navigating to a tab from a pushed screen implies leaving the stack.
         setStack([]);
-        selectTab(t);
+        selectTab(t, opts);
       },
       openAuth: openAuth ?? (() => {}),
       setBackGuard: (guard: (() => boolean) | null) => {
@@ -119,15 +160,26 @@ export function PapirShell({ openAuth }: { openAuth?: () => void }) {
   return (
     <PapirNavProvider value={nav}>
       <View style={{ flex: 1, backgroundColor: papirColor.paper }}>
-        {TABS.filter((t) => mountedTabs.includes(t.key)).map(({ key, Screen }) => (
-          <View
-            key={key}
-            style={[StyleSheet.absoluteFill, { display: tab === key ? 'flex' : 'none' }]}
-            pointerEvents={tab === key ? 'auto' : 'none'}
-          >
-            <Screen />
-          </View>
-        ))}
+        {TABS.filter((t) => mountedTabs.includes(t.key)).map(({ key, Screen }) => {
+          const active = tab === key;
+          const underlay = slideUnderlay === key;
+          // Stacking is render-order based (no zIndex — that would fight the
+          // bottom nav): slides start from Home, TABS[0], so the incoming
+          // pane always renders later and lands on top of the underlay.
+          return (
+            <Animated.View
+              key={key}
+              style={[
+                StyleSheet.absoluteFill,
+                { display: active || underlay ? 'flex' : 'none', backgroundColor: papirColor.paper },
+                active ? paneSlideStyle : null,
+              ]}
+              pointerEvents={active ? 'auto' : 'none'}
+            >
+              <Screen />
+            </Animated.View>
+          );
+        })}
         <PapirBottomNav active={tab} onChange={selectTab} onRecord={() => setRecording(true)} />
 
         {/* Push stack: each entry is its own keyed layer so push-over-push

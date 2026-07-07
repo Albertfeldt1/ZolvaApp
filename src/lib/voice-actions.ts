@@ -6,7 +6,7 @@
 // (createCalendarEvent in chat-tools.ts) — google/microsoft/icloud incl.
 // conflict check — so voice gets exactly the same calendar behavior as chat.
 import { useAuth } from './auth';
-import { createCalendarEvent, type ChatCtx, type WriteEventInput } from './chat-tools';
+import { createCalendarEvent, type CalendarConflict, type ChatCtx, type WriteEventInput } from './chat-tools';
 import { refreshCalendarNow, useIcloudConnected } from './hooks';
 import { isIntegrationEffectivelyEnabled } from './integration-flags';
 import type { ExtractedAction } from './transcribe';
@@ -47,12 +47,42 @@ const DEFAULT_EVENT_MINUTES = 60;
 
 export class VoiceEventError extends Error {}
 
+/** The slot is taken by existing events. Not a hard failure: the caller can
+ * ask the user and retry with `forceOverlap: true`. `message` is a ready
+ * user-facing Danish listing of what's in the way. */
+export class VoiceEventConflictError extends VoiceEventError {
+  constructor(readonly conflicts: CalendarConflict[], newStart: Date) {
+    super(formatConflictsForHumans(conflicts, newStart));
+  }
+}
+
+const CONFLICT_SOURCE_LABELS: Record<CalendarConflict['source'], string> = {
+  google: 'Google Kalender',
+  microsoft: 'Outlook',
+  icloud: 'iCloud',
+};
+
+function formatConflictsForHumans(conflicts: CalendarConflict[], newStart: Date): string {
+  const time = (d: Date) => d.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
+  const day = (d: Date) => d.toLocaleDateString('da-DK', { weekday: 'long', day: 'numeric', month: 'long' });
+  const lines = conflicts.map((c) => {
+    // Conflicts always overlap the new slot, but a long event can have
+    // started on an earlier day — spell the day out when it differs.
+    const prefix = c.start.toDateString() === newStart.toDateString() ? '' : `${day(c.start)} `;
+    return `• "${c.title}" ${prefix}kl. ${time(c.start)}–${time(c.end)} (${CONFLICT_SOURCE_LABELS[c.source]})`;
+  });
+  return ['Du har allerede noget i kalenderen på det tidspunkt:', '', ...lines].join('\n');
+}
+
 /** Create a calendar event from an extracted voice action. Throws
- * VoiceEventError with a user-facing Danish message on refusal/failure. */
+ * VoiceEventError with a user-facing Danish message on refusal/failure —
+ * VoiceEventConflictError specifically when the slot is taken, so the UI
+ * can offer "opret alligevel" and retry with `forceOverlap`. */
 export async function addVoiceEvent(
   ctx: ChatCtx,
   provider: CalendarProviderId,
   action: Extract<ExtractedAction, { kind: 'event' }>,
+  opts?: { forceOverlap?: boolean },
 ): Promise<void> {
   if (!action.whenISO) {
     throw new VoiceEventError('Tidspunktet er for upræcist til en kalender-begivenhed.');
@@ -67,11 +97,13 @@ export async function addVoiceEvent(
     start,
     end: Number.isNaN(end.getTime()) || end <= start ? new Date(start.getTime() + DEFAULT_EVENT_MINUTES * 60_000) : end,
     ...(action.place ? { location: action.place } : {}),
+    ...(opts?.forceOverlap ? { forceOverlap: true } : {}),
   };
   const r = await createCalendarEvent(ctx, provider, input);
   if (r.isError) {
-    // createCalendarEvent's messages are model-facing but Danish and short —
-    // conflict refusals in particular read fine to a human.
+    if (r.conflicts?.length) throw new VoiceEventConflictError(r.conflicts, start);
+    // Remaining refusals (provider disconnected, API errors) are Danish and
+    // short — they read fine to a human.
     throw new VoiceEventError(r.text);
   }
   refreshCalendarNow();

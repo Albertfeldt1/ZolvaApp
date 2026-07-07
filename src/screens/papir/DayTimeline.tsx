@@ -1,14 +1,15 @@
-// Papir day-timeline: every hour labelled, a gridline per hour, and a single
-// continuous rail that fills (terracotta) up to NOW so you can see how far into
-// the day you are — with a pulsing now-node. Ported from the prototype
-// reference; root is a plain View (the parent screen owns the scroll).
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+// Papir day-timeline, aligned with the approved 2026-07-07 mock: a quiet
+// hour grid (label + hairline per hour), a single red now-line with a dot,
+// and events as soft tinted cards with a deep accent bar. No rail, no hour
+// nodes, no time pill — the grid itself carries the day. Root is a plain
+// View (the parent screen owns the scroll).
+import React, { useEffect, useMemo, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import { papirColor, papirFont } from '../../design/papir';
 
-const HOUR_HEIGHT = 64; // px per hour — the whole scale derives from this
-const RAIL_X = 58; // rail x-position (after the time column)
-const NODE = 11; // hour-node diameter
+const HOUR_HEIGHT = 76; // px per hour — the whole scale derives from this
+const GUTTER = 56; // time-label column width; grid + events start after it
+const CARD_INSET = 8; // extra indent of cards relative to the gridlines
 
 export type TimelineEvent = {
   id: string;
@@ -16,6 +17,9 @@ export type TimelineEvent = {
   end?: number;
   title: string;
   place?: string;
+  /** Preformatted "09.30–10.30" (parent has the real Dates — midnight-
+   * crossing events would otherwise render a bogus "24.00"). */
+  timeLabel?: string;
 };
 
 type Props = {
@@ -23,10 +27,18 @@ type Props = {
   /** Visible hour window. Parent expands it to cover out-of-range events. */
   startHour?: number;
   endHour?: number;
-  /** Fill the rail / show the now-node — only meaningful for "today". */
+  /** Show the red now-line — only meaningful for "today". */
   showNow?: boolean;
   now?: Date;
 };
+
+// Category duos (deep text/bar on soft surface) rotated per event — same
+// trio as the Home ribbon. Deep-on-soft keeps them readable on paper.
+const EVENT_DUOS = [
+  { deep: papirColor.green, soft: papirColor.greenSoft },
+  { deep: papirColor.slate, soft: papirColor.slateSoft },
+  { deep: papirColor.rust, soft: papirColor.rustSoft },
+] as const;
 
 /** Assign overlapping events to two columns (simple alternating layout —
  * enough visual separation without a full interval-graph coloring). */
@@ -50,7 +62,7 @@ function layoutColumns(events: TimelineEvent[]): { ev: TimelineEvent; col: numbe
 }
 
 export function DayTimeline({ events, startHour = 7, endHour = 22, showNow = true, now: nowProp }: Props) {
-  // Re-render every 30s so the rail grows in real time.
+  // Re-render every 30s so the now-line moves in real time.
   const [, setTick] = useState(0);
   useEffect(() => {
     if (!showNow) return;
@@ -62,8 +74,8 @@ export function DayTimeline({ events, startHour = 7, endHour = 22, showNow = tru
 
   const now = nowProp ?? new Date();
   const nowDecimal = now.getHours() + now.getMinutes() / 60;
-  const nowClamped = Math.min(Math.max(nowDecimal, startHour), endHour);
-  const nowY = yFor(nowClamped);
+  const nowVisible = showNow && nowDecimal >= startHour && nowDecimal <= endHour;
+  const nowY = yFor(nowDecimal);
 
   const totalHeight = (endHour - startHour) * HOUR_HEIGHT + 40;
   const hours = useMemo(
@@ -73,96 +85,58 @@ export function DayTimeline({ events, startHour = 7, endHour = 22, showNow = tru
 
   const laidOut = useMemo(() => layoutColumns(events), [events]);
 
-  // Soft pulse on the now-node.
-  const pulse = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (!showNow) return;
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 1400, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 0, useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [pulse, showNow]);
-  const ringScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 2.4] });
-  const ringOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0] });
-
   return (
     <View style={{ height: totalHeight, paddingTop: 8 }}>
-      {/* Faint base rail (the whole day) */}
-      <View style={[styles.rail, { top: 0, bottom: 16, backgroundColor: papirColor.line }]} />
-      {/* Filled rail up to NOW */}
-      {showNow ? <View style={[styles.rail, { top: 0, height: Math.max(nowY, 0), backgroundColor: papirColor.red }]} /> : null}
-
-      {/* Hour rows: timestamp + gridline + node */}
-      {hours.map((h) => {
-        const y = yFor(h);
-        const past = showNow && h <= nowDecimal;
-        return (
-          <View key={h} style={[styles.row, { top: y }]}>
-            <Text style={[styles.hourLabel, past ? { color: papirColor.ink2 } : null]}>
-              {String(h % 24).padStart(2, '0')}.00
-            </Text>
-            <View style={styles.gridline} />
-            <View
-              style={[
-                styles.node,
-                // Past nodes are "spent", not urgent: a column of solid-red
-                // dots down the morning read as eight alarms. The filled rail
-                // already tells the progress story — keep red for NOW alone.
-                past
-                  ? { backgroundColor: papirColor.line, borderColor: papirColor.line }
-                  : { backgroundColor: papirColor.paper, borderColor: papirColor.line },
-              ]}
-            />
-          </View>
-        );
-      })}
+      {/* Hour rows: timestamp + hairline */}
+      {hours.map((h) => (
+        <View key={h} style={[styles.row, { top: yFor(h) }]}>
+          <Text style={styles.hourLabel}>{String(h % 24).padStart(2, '0')}.00</Text>
+          <View style={styles.gridline} />
+        </View>
+      ))}
 
       {/* Events (clamped to the visible window; overlaps share the row 50/50) */}
-      {laidOut.map(({ ev, col, cols }) => {
+      {laidOut.map(({ ev, col, cols }, i) => {
+        const duo = EVENT_DUOS[i % EVENT_DUOS.length];
         const evEnd = ev.end ?? ev.start + 0.75;
         const clampedStart = Math.min(Math.max(ev.start, startHour), endHour);
         const clampedEnd = Math.min(Math.max(evEnd, startHour), endHour);
         if (clampedEnd <= startHour || clampedStart >= endHour) return null;
         const top = yFor(clampedStart);
-        const height = Math.max((clampedEnd - clampedStart) * HOUR_HEIGHT - 10, 46);
+        const height = Math.max((clampedEnd - clampedStart) * HOUR_HEIGHT - 8, 56);
         const half = cols === 2;
+        const meta = [ev.timeLabel, ev.place].filter(Boolean).join(' · ');
         return (
           <View
             key={ev.id}
             style={[
               styles.event,
-              { top, height },
+              { top, height, backgroundColor: duo.soft },
               // Overlapping pair: split the event area roughly 50/50 (offsets
               // are relative to parent width — close enough to the midpoint).
               half ? (col === 0 ? { right: '52%' } : { left: '50%' }) : null,
             ]}
           >
-            <Text style={styles.eventTitle} numberOfLines={half ? 2 : 1}>
-              {ev.title}
-            </Text>
-            {ev.place ? (
-              <Text style={styles.eventPlace} numberOfLines={1}>
-                {ev.place}
+            <View style={[styles.eventBar, { backgroundColor: duo.deep }]} />
+            <View style={{ flex: 1, paddingVertical: 10, paddingRight: 12 }}>
+              <Text style={[styles.eventTitle, { color: papirColor.ink }]} numberOfLines={half ? 2 : 1}>
+                {ev.title}
               </Text>
-            ) : null}
+              {meta ? (
+                <Text style={[styles.eventMeta, { color: duo.deep }]} numberOfLines={1}>
+                  {meta}
+                </Text>
+              ) : null}
+            </View>
           </View>
         );
       })}
 
-      {/* Now-node with pulse + time pill */}
-      {showNow ? (
-        <View style={[styles.nowWrap, { top: nowY }]} pointerEvents="none">
-          <Animated.View style={[styles.nowRing, { transform: [{ scale: ringScale }], opacity: ringOpacity }]} />
+      {/* Now: a single red line with a dot at its left end */}
+      {nowVisible ? (
+        <View style={[styles.nowLineWrap, { top: nowY }]} pointerEvents="none">
           <View style={styles.nowDot} />
-          <View style={styles.nowPill}>
-            <Text style={styles.nowPillText}>
-              {String(now.getHours()).padStart(2, '0')}.{String(now.getMinutes()).padStart(2, '0')}
-            </Text>
-          </View>
+          <View style={styles.nowLine} />
         </View>
       ) : null}
     </View>
@@ -170,102 +144,67 @@ export function DayTimeline({ events, startHour = 7, endHour = 22, showNow = tru
 }
 
 const styles = StyleSheet.create({
-  rail: {
-    position: 'absolute',
-    left: RAIL_X + NODE / 2 - 1,
-    width: 2,
-    borderRadius: 2,
-    zIndex: 1,
-  },
   row: {
     position: 'absolute',
     left: 0,
     right: 22,
     height: HOUR_HEIGHT,
-    zIndex: 2,
   },
   hourLabel: {
     position: 'absolute',
     left: 0,
     top: -8,
-    width: 46,
+    width: GUTTER - 10,
     fontFamily: papirFont.uiMedium,
-    fontSize: 11,
-    color: papirColor.ink3,
+    fontSize: 12,
+    color: papirColor.ink4,
     fontVariant: ['tabular-nums'],
   },
   gridline: {
     position: 'absolute',
-    left: RAIL_X + NODE + 8,
+    left: GUTTER,
     right: 0,
     top: 0,
     height: 1,
     backgroundColor: papirColor.lineSoft,
   },
-  node: {
-    position: 'absolute',
-    left: RAIL_X,
-    top: -NODE / 2,
-    width: NODE,
-    height: NODE,
-    borderRadius: NODE / 2,
-    borderWidth: 2,
-    zIndex: 3,
-  },
   event: {
     position: 'absolute',
-    left: RAIL_X + NODE + 14,
+    left: GUTTER + CARD_INSET,
     right: 22,
-    backgroundColor: papirColor.card,
-    borderRadius: 13,
-    borderLeftWidth: 3,
-    borderLeftColor: papirColor.red,
-    paddingVertical: 10,
-    paddingHorizontal: 13,
-    zIndex: 4,
-    shadowColor: papirColor.ink,
-    shadowOpacity: 0.04,
-    shadowRadius: 2,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    borderRadius: 14,
+    flexDirection: 'row',
+    overflow: 'hidden',
+    zIndex: 2,
   },
-  eventTitle: { fontFamily: papirFont.uiSemi, fontSize: 14, color: papirColor.ink },
-  eventPlace: { fontFamily: papirFont.ui, fontSize: 12, color: papirColor.ink2, marginTop: 3 },
+  eventBar: {
+    width: 4,
+    borderRadius: 2,
+    marginVertical: 6,
+    marginLeft: 6,
+    marginRight: 10,
+  },
+  eventTitle: { fontFamily: papirFont.uiSemi, fontSize: 15, letterSpacing: -0.1 },
+  eventMeta: { fontFamily: papirFont.uiMedium, fontSize: 13, marginTop: 3, opacity: 0.85 },
 
-  nowWrap: { position: 'absolute', left: RAIL_X + NODE / 2 - 8, zIndex: 6 },
-  nowRing: {
+  nowLineWrap: {
     position: 'absolute',
-    left: 0,
-    top: -8,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: papirColor.red,
+    left: GUTTER - 4,
+    right: 22,
+    flexDirection: 'row',
+    alignItems: 'center',
+    zIndex: 3,
   },
   nowDot: {
-    position: 'absolute',
-    left: 1,
-    top: -7,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
     backgroundColor: papirColor.red,
-    borderWidth: 2.5,
-    borderColor: papirColor.paper,
   },
-  nowPill: {
-    position: 'absolute',
-    left: 22,
-    top: -11,
+  nowLine: {
+    flex: 1,
+    height: 2,
+    borderRadius: 1,
     backgroundColor: papirColor.red,
-    borderRadius: 100,
-    paddingVertical: 3,
-    paddingHorizontal: 9,
-  },
-  nowPillText: {
-    fontFamily: papirFont.uiBold,
-    fontSize: 11,
-    color: '#FFFFFF',
-    fontVariant: ['tabular-nums'],
   },
 });

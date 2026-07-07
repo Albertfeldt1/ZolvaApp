@@ -5,7 +5,9 @@ import {
   AlignLeft,
   ArrowRight,
   Check,
+  Clock,
   FileText,
+  Mail,
   MessageSquare,
   Search,
 } from 'lucide-react-native';
@@ -24,6 +26,7 @@ import { greeting, formatToday } from '../../lib/date';
 import type { Note, Reminder, UpcomingEvent } from '../../lib/types';
 import { usePapirNav } from './nav';
 import { requestHistorySegment } from './PapirHistory';
+import { requestPlanSegment } from './PapirPlan';
 import { useNow } from './useNow';
 import { useUndoableDone } from './useUndoableDone';
 import { barsFor, WaveGlyph } from './WaveGlyph';
@@ -37,7 +40,7 @@ function QuickButton({ Icon, label, onPress }: { Icon: IconCmp; label: string; o
       haptic="light"
       onPress={onPress}
       style={{
-        flex: 1,
+        minWidth: 88,
         gap: 10,
         padding: 14,
         borderRadius: papirRadius.xl,
@@ -47,7 +50,9 @@ function QuickButton({ Icon, label, onPress }: { Icon: IconCmp; label: string; o
       }}
     >
       <Icon size={20} color={papirColor.ink} strokeWidth={1.7} />
-      <PaperText role="bodyStrong" style={{ fontSize: 13 }}>
+      {/* Cards size to their label — long ones ("Påmindelser") used to wrap
+          mid-word in the old equal-width grid. */}
+      <PaperText role="bodyStrong" style={{ fontSize: 13 }} numberOfLines={1}>
         {label}
       </PaperText>
     </ScaleButton>
@@ -327,22 +332,38 @@ export function PapirHome() {
         </PaperText>
       )}
 
-      {/* Quick actions — a plain flex row: 4×88pt cards overflowed a 402pt
-          screen (the 4th card clipped at the edge, reading as a bug, not a
-          scroll affordance). flex:1 cards fit every device width. */}
-      <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: papirSpace.screen, paddingTop: papirSpace.xl }}>
+      {/* Quick actions — horizontally swipeable (2026-07-07: Oscar wants ALL
+          shortcuts kept, most important first, Søg last). With 6 cards the
+          cut-off card at the screen edge IS the scroll affordance — the old
+          "clipped card reads as a bug" concern only applied when everything
+          was meant to fit. */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ flexDirection: 'row', gap: 10, paddingHorizontal: papirSpace.screen }}
+        style={{ marginTop: papirSpace.xl }}
+      >
         <QuickButton Icon={AlignLeft} label="Briefing" onPress={() => nav.push('briefing')} />
+        <QuickButton Icon={Mail} label="Indbakke" onPress={() => nav.push('inbox')} />
+        <QuickButton
+          Icon={Clock}
+          label="Påmindelser"
+          onPress={() => {
+            requestPlanSegment(0);
+            nav.setTab('plan', { slide: true });
+          }}
+        />
+        <QuickButton Icon={MessageSquare} label="Chat" onPress={() => nav.push('chat')} />
         <QuickButton
           Icon={FileText}
           label="Noter"
           onPress={() => {
             requestHistorySegment(1);
-            nav.setTab('history');
+            nav.setTab('history', { slide: true });
           }}
         />
-        <QuickButton Icon={MessageSquare} label="Chat" onPress={() => nav.push('chat')} />
         <QuickButton Icon={Search} label="Søg" onPress={() => nav.push('search')} />
-      </View>
+      </ScrollView>
 
       {/* In focus: morning briefing card (dark surface) */}
       <SectionHeader label="I fokus" />
@@ -386,8 +407,15 @@ export function PapirHome() {
         </View>
       </ScaleButton>
 
-      {/* Today's events — the approved design's color ribbon */}
-      <DayRibbon events={upcoming.todayEvents} onSeePlan={() => nav.setTab('plan')} />
+      {/* Today's events — the approved design's color ribbon. "Se plan" on a
+          row of events means the calendar, not the reminder list. */}
+      <DayRibbon
+        events={upcoming.todayEvents}
+        onSeePlan={() => {
+          requestPlanSegment(1);
+          nav.setTab('plan', { slide: true });
+        }}
+      />
 
       {/* Recent recordings */}
       <SectionHeader
@@ -395,7 +423,7 @@ export function PapirHome() {
         action="Alle"
         onAction={() => {
           requestHistorySegment(0);
-          nav.setTab('history');
+          nav.setTab('history', { slide: true });
         }}
       />
       {recentRecordings.length === 0 ? (
@@ -418,15 +446,18 @@ export function PapirHome() {
         ))
       )}
 
-      {/* Tasks today */}
+      {/* Reminders today */}
       <SectionHeader
-        label="Opgaver i dag"
-        action={tasks.total > tasks.shown.length ? `Se plan (${tasks.total})` : 'Se plan'}
-        onAction={() => nav.setTab('plan')}
+        label="Påmindelser i dag"
+        action={tasks.total > tasks.shown.length ? `Se alle (${tasks.total})` : 'Se alle'}
+        onAction={() => {
+          requestPlanSegment(0);
+          nav.setTab('plan', { slide: true });
+        }}
       />
       {tasks.shown.length === 0 ? (
         <PaperText role="body" color={papirColor.ink3} style={{ paddingHorizontal: papirSpace.screen }}>
-          Ingen opgaver i dag.
+          Ingen påmindelser i dag.
         </PaperText>
       ) : (
         tasks.shown.map((t) => (

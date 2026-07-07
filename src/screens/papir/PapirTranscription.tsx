@@ -9,6 +9,7 @@ import { extractActions, transcribeAudio, TranscribeError, type ExtractedAction 
 import {
   addVoiceEvent,
   useVoiceActionCtx,
+  VoiceEventConflictError,
   VoiceEventError,
   type CalendarProviderId,
 } from '../../lib/voice-actions';
@@ -34,6 +35,21 @@ const PROVIDER_LABELS: Record<CalendarProviderId, string> = {
 };
 
 type AddState = 'idle' | 'pending' | 'done';
+
+/** "Slot taken" → let the user decide. Resolves true on "Opret alligevel". */
+function confirmOverlap(message: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    Alert.alert(
+      'Tidspunktet er optaget',
+      `${message}\n\nVil du oprette begivenheden alligevel?`,
+      [
+        { text: 'Annullér', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Opret alligevel', onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  });
+}
 
 function ActionCard({ action, onAdd }: { action: ExtractedAction; onAdd: () => Promise<boolean> }) {
   const [state, setState] = useState<AddState>('idle');
@@ -216,7 +232,16 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
     }
     const provider = await pickProvider();
     if (!provider) return false;
-    await addVoiceEvent(ctx, provider, action);
+    try {
+      await addVoiceEvent(ctx, provider, action);
+    } catch (e) {
+      // Slot taken → ask instead of failing; declining is a cancel, not an
+      // error. On confirm, retry the exact same event past the conflict check.
+      if (!(e instanceof VoiceEventConflictError)) throw e;
+      const overlap = await confirmOverlap(e.message);
+      if (!overlap) return false;
+      await addVoiceEvent(ctx, provider, action, { forceOverlap: true });
+    }
     return true;
   };
 
