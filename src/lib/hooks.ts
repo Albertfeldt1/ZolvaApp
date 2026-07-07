@@ -2090,6 +2090,9 @@ function draftSystemPrompt(
     'virksomhed/team i denne specifikke samtale (fx en kunde der spørger ind ' +
     "til virksomhedens politik). Ved tvivl: brug 'jeg'. " +
     'Lov aldrig konkrete datoer, tidspunkter, priser eller oplysninger du ikke kender. ' +
+    'Brugerens egen mail-signatur tilføjes automatisk efter udkastet, så afslut ALDRIG ' +
+    "med afskedshilsen eller navn - ingen 'Venlig hilsen', 'Bedste hilsner', 'Mvh' el.lign., " +
+    'heller ikke selvom brugerens skrivestil normalt gør det. ' +
     'Undgå hilsen og underskrift - skriv kun selve svaret. Returnér kun udkastet, uden anførselstegn eller kommentarer.'
   );
 }

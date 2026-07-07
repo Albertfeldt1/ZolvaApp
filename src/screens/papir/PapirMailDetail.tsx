@@ -11,13 +11,53 @@ import { Archive, Send, Sparkles } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { Button, PaperText, papirColor, papirRadius, papirSpace } from '../../design/papir';
 import { useAuth } from '../../lib/auth';
+import { getGmailSignature } from '../../lib/gmail';
 import { useGenerateDraftAction, useMailDetail, useSendReply } from '../../lib/hooks';
+import { loadSignature, renderImported, renderSignature, subscribeSignature } from '../../lib/mail-signature';
 import { recordMailEvent } from '../../lib/mail-events';
 import { runExtractor } from '../../lib/profile-extractor';
 import type { MailProvider, ReplyContext } from '../../lib/types';
 import { usePapirNav, type PushParams } from './nav';
 import { PapirLoader } from './PapirLoader';
 import { PushHeader } from './PushHeader';
+
+/** Plain-text preview of the signature the send path will append - the
+ * append itself is invisible in the editor, which read as "my signature is
+ * missing". Gmail replies get the server-side sendAs signature (see
+ * appendGmailSignature); Outlook/iCloud get the local one via
+ * buildOutgoingBody. Mirrors that branching so the preview is truthful. */
+function useSignaturePreview(provider: MailProvider | null): string | null {
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        if (provider === 'google') {
+          const sig = await getGmailSignature();
+          if (!cancelled) setText(sig);
+          return;
+        }
+        const data = await loadSignature();
+        if (cancelled) return;
+        if (!data) {
+          setText(null);
+          return;
+        }
+        const rendered = data.kind === 'imported' ? renderImported(data) : renderSignature(data);
+        setText(rendered?.plaintext?.trim() || null);
+      } catch {
+        if (!cancelled) setText(null);
+      }
+    };
+    void load();
+    const unsub = provider === 'google' ? null : subscribeSignature(() => void load());
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
+  }, [provider]);
+  return text;
+}
 
 function replyContextThreadId(ctx: ReplyContext): string {
   if (ctx.provider === 'google') return ctx.threadId;
@@ -34,6 +74,7 @@ export function PapirMailDetail({ params }: { params: PushParams }) {
   const id = params.id ?? null;
   const provider = (params.provider ?? null) as MailProvider | null;
   const { data: detail, loading } = useMailDetail(id, provider);
+  const signaturePreview = useSignaturePreview(provider);
   const { send, archive, sending } = useSendReply();
   const { generate, loading: generating } = useGenerateDraftAction();
   const [draft, setDraft] = useState(params.aiDraft ?? '');
@@ -229,6 +270,23 @@ export function PapirMailDetail({ params }: { params: PushParams }) {
                 onPress={handleGenerate}
                 disabled={generating || !detail}
               />
+            ) : null}
+            {signaturePreview ? (
+              <View
+                style={{
+                  borderTopWidth: 1,
+                  borderTopColor: papirColor.lineSoft,
+                  marginTop: 12,
+                  paddingTop: 10,
+                }}
+              >
+                <PaperText role="small" color={papirColor.ink3}>
+                  {signaturePreview}
+                </PaperText>
+                <PaperText role="caption" color={papirColor.ink4} style={{ marginTop: 5 }}>
+                  Din signatur — tilføjes automatisk når du sender
+                </PaperText>
+              </View>
             ) : null}
           </View>
         </ScrollView>

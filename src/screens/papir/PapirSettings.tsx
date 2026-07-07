@@ -10,6 +10,7 @@ import {
   Link2,
   Lock,
   Mail,
+  PenLine,
   RefreshCw,
   Sun,
   Trash2,
@@ -371,6 +372,12 @@ export function PapirSettings() {
       </Group>
 
       <ConnectionsGroup />
+
+      <Group label="Mail">
+        <Pressable onPress={() => nav.push('signature')} accessibilityRole="button" accessibilityLabel="Signatur">
+          <SRow Icon={PenLine} label="Signatur" right={chevron} divider={false} />
+        </Pressable>
+      </Group>
 
       <Group label="Sådan arbejder jeg">
         {workPrefs.data.map((p, i) => (

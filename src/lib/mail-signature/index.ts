@@ -38,3 +38,10 @@ export {
 } from './use-screenshot';
 export type { UseScreenshotResult } from './use-screenshot';
 export { sanitizeSignatureHtml } from './sanitize';
+export {
+  importSignatureFromGmail,
+  importSignatureFromOutlook,
+  providerImportMessage,
+} from './import-from-provider';
+export type { ProviderImportResult } from './import-from-provider';
+export { buildPreviewHtml, formatImportedDate } from './preview-html';

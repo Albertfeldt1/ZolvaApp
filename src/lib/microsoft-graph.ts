@@ -221,6 +221,57 @@ async function listFetchWithRetry<T>(token: string, path: string): Promise<T> {
   }
 }
 
+// Recent sent mails with HTML bodies - the signature import scans these
+// for Outlook's <div id="Signature"> marker. Read-only, so retry is safe.
+export async function listSentMessageBodies(
+  top = 10,
+): Promise<Array<{ id: string; html: string }>> {
+  return tryWithRefresh('microsoft', async (token) => {
+    const data = await listFetchWithRetry<{ value?: RawMessageFull[] }>(
+      token,
+      `/me/mailFolders/sentitems/messages?$select=body&$orderby=sentDateTime desc&$top=${top}`,
+    );
+    const out: Array<{ id: string; html: string }> = [];
+    for (const m of data.value ?? []) {
+      if (m.body?.contentType?.toLowerCase() === 'html' && m.body.content) {
+        out.push({ id: m.id, html: m.body.content });
+      }
+    }
+    return out;
+  });
+}
+
+type RawAttachment = {
+  '@odata.type'?: string;
+  contentId?: string;
+  contentType?: string;
+  contentBytes?: string;
+  isInline?: boolean;
+};
+
+// Resolve an inline cid: image from a message (signature logos in sent
+// mail reference their bytes as file attachments keyed by contentId).
+export async function getInlineImageAttachment(
+  messageId: string,
+  contentId: string,
+): Promise<{ contentBytes: string; contentType: string } | null> {
+  return tryWithRefresh('microsoft', async (token) => {
+    const data = await listFetchWithRetry<{ value?: RawAttachment[] }>(
+      token,
+      `/me/messages/${encodeURIComponent(messageId)}/attachments`,
+    );
+    const match = (data.value ?? []).find(
+      (a) =>
+        a['@odata.type'] === '#microsoft.graph.fileAttachment' &&
+        a.contentId === contentId &&
+        typeof a.contentBytes === 'string' &&
+        a.contentBytes.length > 0,
+    );
+    if (!match) return null;
+    return { contentBytes: match.contentBytes!, contentType: match.contentType ?? '' };
+  });
+}
+
 // Server-reported INBOX counts. Total is the all-time totalItemCount from
 // /mailFolders/inbox; unread is scoped to "Focused" inbox + the past 7
 // days so the "venter pa dig" stat matches the user's mental model.

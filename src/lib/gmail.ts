@@ -538,7 +538,9 @@ let cachedSignature: string | null | undefined;
 let cachedSignatureFetchedAt = 0;
 const SIGNATURE_TTL_MS = 6 * 60 * 60 * 1000; // 6h - refreshes once per day-ish without paying for it on every send
 
-async function fetchPrimarySignature(): Promise<string | null> {
+// Raw sendAs signature HTML - used by the signature editor's
+// "Hent fra Gmail" import. The send pipeline below strips to plain text.
+export async function fetchGmailSignatureHtml(): Promise<string | null> {
   return tryWithRefresh('google', async (accessToken) => {
     const res = await fetchWithTimeout('google', `${BASE}/settings/sendAs`, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -556,13 +558,19 @@ async function fetchPrimarySignature(): Promise<string | null> {
     const list = data.sendAs ?? [];
     const primary =
       list.find((s) => s.isPrimary) ?? list.find((s) => s.isDefault) ?? list[0];
-    const html = primary?.signature?.trim();
-    if (!html) return null;
-    return stripHtml(html).trim() || null;
+    return primary?.signature?.trim() || null;
   });
 }
 
-async function getGmailSignature(): Promise<string | null> {
+async function fetchPrimarySignature(): Promise<string | null> {
+  const html = await fetchGmailSignatureHtml();
+  if (!html) return null;
+  return stripHtml(html).trim() || null;
+}
+
+// Exported for the reply editor's signature preview - shows the user what
+// appendGmailSignature will add at send time (plain text, 6h cache).
+export async function getGmailSignature(): Promise<string | null> {
   const now = Date.now();
   // Only cache POSITIVE hits. A null result means "no signature found right
   // now" - could be a fresh account that hasn't configured one yet, or a
@@ -685,7 +693,15 @@ function stripHtml(html: string): string {
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<head[\s\S]*?<\/head>/gi, '')
     .replace(/<br\s*\/?>/gi, '\n')
+    // Adjacent close+open of block containers is ONE line break - without
+    // this collapse, both tags below emit \n and every line in a
+    // div-per-line signature/body ends up double-spaced.
+    .replace(/<\/(?:p|div|h[1-6]|li|tr|td|section|article)>\s*<(?:p|div|h[1-6]|li|tr|section|article)\b[^>]*>/gi, '\n')
     .replace(/<\/(p|div|h[1-6]|li|tr|td|section|article)>/gi, '\n')
+    // Opening block tags break too: Gmail signatures are shaped like
+    // "Venlig hilsen.<div>Oscar</div>" - only breaking on the CLOSE glued
+    // the salutation onto the name ("Venlig hilsen.Oscar").
+    .replace(/<(?:p|div|h[1-6]|li|tr|section|article)\b[^>]*>/gi, '\n')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
