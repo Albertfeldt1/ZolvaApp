@@ -92,6 +92,7 @@ import { syncUserProfile } from './src/lib/user-profile';
 import { registerPresenceListener } from './src/lib/presence';
 import { writeSnapshotFromSources } from './src/lib/widget-bridge';
 import { usePapirEnabled } from './src/lib/papir-flag';
+import { subscribeAppOverlays } from './src/lib/app-overlay-bridge';
 import { PapirRoot } from './src/screens/papir/PapirRoot';
 
 // Bumped on every fix iteration so we can verify in Metro which bundle
@@ -521,6 +522,23 @@ export default function App() {
     void Linking.getInitialURL().then(handle);
     const sub = Linking.addEventListener('url', ({ url }) => handle(url));
     return () => sub.remove();
+  }, []);
+
+  // Papir screens request App-level overlays (iCloud setup / MS admin
+  // consent) via the module bridge — they can't be prop-drilled through
+  // PapirShell. Must live ABOVE the font-gate early-return with the other
+  // boot hooks; state setters are stable so subscribing once is safe.
+  useEffect(() => {
+    return subscribeAppOverlays((req) => {
+      Haptics.selectionAsync();
+      if (req.kind === 'icloud-setup') {
+        setIcloudPrefilledEmail(req.prefilledEmail);
+        setIcloudSetupOpen(true);
+      } else {
+        setAdminConsentPrefilledEmail(req.prefilledEmail);
+        setAdminConsentOpen(true);
+      }
+    });
   }, []);
 
   // Computed early so the chrome-inset memo can account for the login CTA bar.

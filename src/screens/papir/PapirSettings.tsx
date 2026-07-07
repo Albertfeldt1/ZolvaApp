@@ -1,21 +1,27 @@
-import React, { useEffect, useState, type ComponentType, type ReactNode } from 'react';
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useState, type ComponentType, type ReactNode } from 'react';
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import {
   ArrowLeftRight,
   Bell,
   BrainCircuit,
   ChevronRight,
+  Cloud,
   Globe,
+  Link2,
   Lock,
   Mail,
+  RefreshCw,
   Sun,
   Trash2,
   User,
 } from 'lucide-react-native';
 import { DeleteAccountScreen } from '../DeleteAccountScreen';
 import { PaperText, Toggle, papirColor, papirRadius, papirSpace } from '../../design/papir';
+import { requestAppOverlay } from '../../lib/app-overlay-bridge';
 import { useAuth } from '../../lib/auth';
-import { usePrivacyToggles, useWorkPreferences } from '../../lib/hooks';
+import { clearCredential, loadCredential, type IcloudCredentialState } from '../../lib/icloud-credentials';
+import { useIntegrationFlags } from '../../lib/integration-flags';
+import { useConnections, useMemoryEnabled, usePrivacyToggles, useWorkPreferences } from '../../lib/hooks';
 import { ensurePermission, syncOnAppForeground } from '../../lib/notifications';
 import {
   getNotificationSettings,
@@ -23,8 +29,10 @@ import {
   subscribeNotificationSettings,
   type NotificationSettings,
 } from '../../lib/notification-settings';
+import { triggerBackfillRerun } from '../../lib/onboarding-backfill';
 import { setPapirEnabled } from '../../lib/papir-flag';
 import { registerPushToken, setMailWatchersEnabled, unregisterPushToken } from '../../lib/push';
+import type { Connection } from '../../lib/types';
 import { usePapirNav } from './nav';
 import { PushHeader } from './PushHeader';
 
@@ -84,6 +92,171 @@ function Group({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+const STATUS_LABEL: Record<string, string> = {
+  expired: 'Udløbet',
+  stale: 'Genopretter…',
+};
+
+/** Forbundet: providers + per-integration toggles — parity with the classic
+ * Settings' integrations section. Connected rows toggle the software flag
+ * (grant stays); disconnected rows run OAuth (incl. admin-consent detection);
+ * iCloud opens the shared App-level setup overlay via the bridge. Long-press
+ * a provider row for the full log-out escape hatch. */
+function ConnectionsGroup() {
+  const { user } = useAuth();
+  const connections = useConnections();
+  const { flags } = useIntegrationFlags();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [icloudCred, setIcloudCred] = useState<IcloudCredentialState>({ kind: 'absent' });
+
+  const reloadIcloud = useCallback(() => {
+    if (!user?.id) {
+      setIcloudCred({ kind: 'absent' });
+      return;
+    }
+    void loadCredential(user.id).then(setIcloudCred).catch(() => {});
+  }, [user?.id]);
+
+  useEffect(() => {
+    reloadIcloud();
+  }, [reloadIcloud]);
+
+  const icloudFlagOff = flags['icloud'] === false;
+  const icloudStatus =
+    icloudCred.kind === 'valid' && !icloudFlagOff ? 'connected'
+    : icloudCred.kind === 'invalid' ? 'expired'
+    : 'disconnected';
+
+  const connect = async (c: Connection) => {
+    if (busyId) return;
+    setBusyId(c.id);
+    try {
+      const r = await connections.connect(c.id);
+      if (r.adminConsent) {
+        // Work account whose tenant blocks user consent — hand over to the
+        // shared admin-consent overlay with the tenant hint prefilled.
+        requestAppOverlay({ kind: 'admin-consent', prefilledEmail: r.adminConsent.tenantHint });
+        return;
+      }
+      if (r.error && !r.cancelled) {
+        Alert.alert(c.title, 'Kunne ikke forbinde. Prøv igen.');
+      }
+      // cancelled → user closed the browser; stay silent.
+    } catch {
+      Alert.alert(c.title, 'Ingen forbindelse. Prøv igen.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const confirmDisconnect = (c: Connection) => {
+    Alert.alert(
+      `Log helt ud af ${c.title}?`,
+      'Adgangen tilbagekaldes for alle tilhørende integrationer. Du kan forbinde igen når som helst.',
+      [
+        { text: 'Annullér', style: 'cancel' },
+        {
+          text: 'Log ud',
+          style: 'destructive',
+          onPress: async () => {
+            setBusyId(c.id);
+            try {
+              const r = await connections.disconnect(c.id);
+              if (r.error) Alert.alert(c.title, 'Kunne ikke logge ud. Prøv igen.');
+            } finally {
+              setBusyId(null);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const confirmDisconnectIcloud = () => {
+    if (!user?.id || icloudCred.kind === 'absent') return;
+    const uid = user.id;
+    Alert.alert('Log helt ud af iCloud?', 'Dit app-specifikke kodeord fjernes fra enheden.', [
+      { text: 'Annullér', style: 'cancel' },
+      {
+        text: 'Log ud',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await clearCredential(uid);
+          } finally {
+            reloadIcloud();
+          }
+        },
+      },
+    ]);
+  };
+
+  const rowRight = (c: Connection) => {
+    if (busyId === c.id) return <ActivityIndicator size="small" color={papirColor.ink3} />;
+    if (c.status === 'connected') {
+      return <Toggle value onValueChange={() => void connections.setEnabled(c.id, false)} />;
+    }
+    if (c.status === 'disconnected' && flags[c.id] === false) {
+      // Grant intact, integration switched off — flip back on locally.
+      return <Toggle value={false} onValueChange={() => void connections.setEnabled(c.id, true)} />;
+    }
+    return (
+      <PaperText role="small" color={c.status === 'stale' ? papirColor.ink3 : papirColor.red}>
+        {STATUS_LABEL[c.status] ?? 'Forbind'}
+      </PaperText>
+    );
+  };
+
+  return (
+    <Group label="Forbundet">
+      {connections.data.map((c, i) => (
+        <Pressable
+          key={c.id}
+          onPress={c.status === 'connected' ? undefined : () => void connect(c)}
+          onLongPress={c.status === 'connected' || c.status === 'stale' ? () => confirmDisconnect(c) : undefined}
+          accessibilityRole="button"
+          accessibilityLabel={c.title}
+          accessibilityHint={c.status === 'connected' ? 'Hold nede for at logge helt ud' : 'Tryk for at forbinde'}
+        >
+          <SRow Icon={Link2} label={c.title} right={rowRight(c)} divider={i > 0} />
+        </Pressable>
+      ))}
+      <Pressable
+        onPress={
+          icloudStatus === 'connected'
+            ? undefined
+            : () =>
+                requestAppOverlay({
+                  kind: 'icloud-setup',
+                  prefilledEmail: icloudCred.kind !== 'absent' ? icloudCred.credential.email : undefined,
+                })
+        }
+        onLongPress={icloudCred.kind !== 'absent' ? confirmDisconnectIcloud : undefined}
+        accessibilityRole="button"
+        accessibilityLabel="iCloud"
+        accessibilityHint={icloudStatus === 'connected' ? 'Hold nede for at logge helt ud' : 'Tryk for at forbinde'}
+      >
+        <SRow
+          Icon={Cloud}
+          label="iCloud"
+          right={
+            icloudStatus === 'connected' ? (
+              <PaperText role="small" color={papirColor.ink3}>
+                {icloudCred.kind !== 'absent' ? icloudCred.credential.email : 'Forbundet'}
+              </PaperText>
+            ) : (
+              <PaperText role="small" color={papirColor.red}>
+                {icloudStatus === 'expired' ? 'Kodeord afvist' : 'Forbind'}
+              </PaperText>
+            )
+          }
+          divider
+        />
+      </Pressable>
+    </Group>
+  );
+}
+
 const NOTIF_ROWS: { key: keyof NotificationSettings; label: string; Icon: IconCmp }[] = [
   { key: 'reminders', label: 'Påmindelser', Icon: Bell },
   { key: 'digest', label: 'Dagligt overblik', Icon: Sun },
@@ -96,6 +269,7 @@ export function PapirSettings() {
   const { user } = useAuth();
   const privacy = usePrivacyToggles();
   const workPrefs = useWorkPreferences();
+  const memoryEnabled = useMemoryEnabled();
   const [notif, setNotif] = useState<NotificationSettings>(() => getNotificationSettings());
   const [deleteOpen, setDeleteOpen] = useState(false);
 
@@ -196,6 +370,8 @@ export function PapirSettings() {
         <SRow Icon={Globe} label="Sprog" right={value('Dansk')} divider />
       </Group>
 
+      <ConnectionsGroup />
+
       <Group label="Sådan arbejder jeg">
         {workPrefs.data.map((p, i) => (
           <Pressable key={p.id} onPress={() => void cyclePref(p.id)} accessibilityRole="button" accessibilityLabel={p.title}>
@@ -227,6 +403,25 @@ export function PapirSettings() {
           />
         ))}
       </Group>
+
+      {/* Genscan: re-run the mail/calendar backfill so Zolva's memory catches
+          up — reuses the shared onboarding-backfill overlay chain (K1). */}
+      {user && memoryEnabled ? (
+        <Group label="Hukommelse">
+          <Pressable
+            onPress={() =>
+              Alert.alert('Genscan mails og kalender?', 'Zolva gennemgår dine kilder igen og finder nye fakta.', [
+                { text: 'Annullér', style: 'cancel' },
+                { text: 'Start genscan', onPress: () => triggerBackfillRerun() },
+              ])
+            }
+            accessibilityRole="button"
+            accessibilityLabel="Genscan"
+          >
+            <SRow Icon={RefreshCw} label="Genscan mails og kalender" right={chevron} divider={false} />
+          </Pressable>
+        </Group>
+      ) : null}
 
       {/* Account deletion must be reachable in-app (Apple 5.1.1(v) + GDPR) —
           reuses the classic confirm-flow screen (K2). */}
