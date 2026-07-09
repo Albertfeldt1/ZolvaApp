@@ -6,6 +6,7 @@ import { allDayDateHyphenated } from './calendar-date';
 import { buildOutgoingBody } from './mail-signature';
 import type { InlineAttachmentSpec, OutgoingBody } from './mail-signature';
 import { fetchWithTimeout, NetworkTimeoutError } from './network-errors';
+import { stripHtml } from './html-text';
 
 type GraphFileAttachment = {
   '@odata.type': '#microsoft.graph.fileAttachment';
@@ -47,6 +48,7 @@ export type GraphMessageBody = {
   fromEmail: string;
   subject: string;
   text: string;
+  attachments: { id: string; name: string; mimeType: string; sizeBytes: number }[];
 };
 
 export type GraphAttendeeStatus = 'none' | 'accepted' | 'tentativelyAccepted' | 'declined' | 'notResponded' | 'organizer';
@@ -382,9 +384,15 @@ export async function listSentSamples(top = 12): Promise<string[]> {
 
 export async function getMessageBody(id: string): Promise<GraphMessageBody> {
   return tryWithRefresh('microsoft', async (token) => {
-    const data = await graphFetch<RawMessageFull>(
+    // $expand henter vedhæftnings-metadata i samme kald (M12) — contentBytes
+    // er bevidst IKKE med; bytes hentes først når brugeren trykker på rækken.
+    const data = await graphFetch<
+      RawMessageFull & {
+        attachments?: { id: string; name?: string; contentType?: string; size?: number; isInline?: boolean }[];
+      }
+    >(
       token,
-      `/me/messages/${id}?$select=id,subject,from,body,bodyPreview`,
+      `/me/messages/${id}?$select=id,subject,from,body,bodyPreview&$expand=attachments($select=id,name,contentType,size,isInline)`,
     );
     const rawBody = data.body?.content ?? '';
     const text =
@@ -400,7 +408,27 @@ export async function getMessageBody(id: string): Promise<GraphMessageBody> {
       fromEmail: data.from?.emailAddress?.address ?? '',
       subject: data.subject || '(intet emne)',
       text,
+      attachments: (data.attachments ?? [])
+        .filter((a) => !a.isInline)
+        .map((a) => ({
+          id: a.id,
+          name: a.name ?? 'vedhæftning',
+          mimeType: a.contentType ?? 'application/octet-stream',
+          sizeBytes: a.size ?? 0,
+        })),
     };
+  });
+}
+
+/** Hent en vedhæftnings bytes som base64 (fileAttachment.contentBytes). */
+export async function downloadAttachment(messageId: string, attachmentId: string): Promise<string> {
+  return tryWithRefresh('microsoft', async (token) => {
+    const data = await graphFetch<{ contentBytes?: string }>(
+      token,
+      `/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    );
+    if (!data.contentBytes) throw new Error('attachment has no contentBytes (item/reference attachment)');
+    return data.contentBytes;
   });
 }
 
@@ -623,28 +651,6 @@ export async function listCalendarEventsForCalendars(
   });
 }
 
-function stripHtml(html: string): string {
-  return html
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<head[\s\S]*?<\/head>/gi, '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|h[1-6]|li|tr|td|section|article)>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&apos;/gi, "'")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
-    .replace(/[ \t]+/g, ' ')
-    .replace(/ *\n */g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
 
 // ─── Calendar writes ──────────────────────────────────────────────────────
 //

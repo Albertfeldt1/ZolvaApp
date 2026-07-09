@@ -6,7 +6,7 @@
 //
 // The OpenAI key NEVER lives in the app — only in the edge function, exactly
 // like ANTHROPIC_API_KEY behind claude-proxy.
-import { getInfoAsync, uploadAsync, FileSystemUploadType } from 'expo-file-system/legacy';
+import { getInfoAsync, createUploadTask, FileSystemUploadType } from 'expo-file-system/legacy';
 import { supabase } from './supabase';
 import { completeJson } from './claude';
 
@@ -15,6 +15,35 @@ const SUPABASE_ANON = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 const TRANSCRIBE_URL = `${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/transcribe-proxy`;
 
 export class TranscribeError extends Error {}
+/** Kastet når kalderen afbryder (Kassér/back) — behandles som stilhed, ikke fejl. */
+export class TranscribeCancelled extends TranscribeError {}
+
+/** 429 fra proxyen bærer `retry_after` (sek.) og årsag ("rate_limit_daily" /
+ * "rate_limit_rpm") — vis hvornår der kan prøves igen i stedet for et vagt
+ * "senere", og hint til Pro ved det daglige loft (L7). */
+function quotaMessage(body: string): string {
+  let retryAfterSec = 0;
+  let reason = '';
+  try {
+    const parsed = JSON.parse(body) as { retry_after?: number; error?: string };
+    retryAfterSec = Math.max(0, Number(parsed.retry_after ?? 0));
+    reason = String(parsed.error ?? '');
+  } catch {
+    // Uparselig krop → generisk besked nedenfor.
+  }
+  if (reason.includes('daily')) {
+    const reset = new Date(Date.now() + retryAfterSec * 1000);
+    const clock = `${String(reset.getHours()).padStart(2, '0')}.${String(reset.getMinutes()).padStart(2, '0')}`;
+    const when = retryAfterSec > 0 ? ` Grænsen nulstilles kl. ${clock}.` : ' Grænsen nulstilles ved midnat.';
+    return `Du har nået dagens grænse for transskribering.${when} Zolva Pro giver et højere dagligt loft.`;
+  }
+  if (retryAfterSec > 0) {
+    const wait =
+      retryAfterSec >= 90 ? `${Math.ceil(retryAfterSec / 60)} minutter` : `${Math.max(5, retryAfterSec)} sekunder`;
+    return `Mange optagelser på kort tid — prøv igen om ${wait}.`;
+  }
+  return 'Du har nået din grænse for nu. Prøv igen senere.';
+}
 
 // Upload timeout: the legacy uploadAsync API has no abort signal, so a race
 // is the only way to stop the UI from hanging forever (M82). A FIXED 60s was
@@ -59,44 +88,61 @@ function mimeTypeFor(uri: string): string {
 /**
  * Upload a recorded audio file to the transcribe-proxy and return the Danish
  * transcript. `uri` is the local file URI from expo-audio's recorder.
+ * `signal` (M1): afbryder den native upload — uden den fortsatte uploaden i
+ * baggrunden efter Kassér og forbrændte transskriberings-kvote.
  */
-export async function transcribeAudio(uri: string): Promise<string> {
+export async function transcribeAudio(uri: string, signal?: AbortSignal): Promise<string> {
   if (!SUPABASE_URL || !SUPABASE_ANON) {
     throw new TranscribeError('Mangler Supabase-konfiguration.');
   }
+  if (signal?.aborted) throw new TranscribeCancelled('Annulleret.');
   const { data: sessionData } = await supabase.auth.getSession();
   const accessToken = sessionData.session?.access_token;
   if (!accessToken) {
     throw new TranscribeError('Du skal være logget ind for at transskribere.');
   }
+  if (signal?.aborted) throw new TranscribeCancelled('Annulleret.');
 
   // Use expo-file-system's native multipart upload — far more reliable on iOS
   // than fetch + FormData with a file part (which dropped uploads intermittently).
-  let res: { status: number; body: string };
+  // createUploadTask = samme native sti som uploadAsync, men med cancelAsync,
+  // så både Kassér (signal) og timeout faktisk stopper uploaden (M1/M82).
+  const task = createUploadTask(TRANSCRIBE_URL, uri, {
+    httpMethod: 'POST',
+    uploadType: FileSystemUploadType.MULTIPART,
+    fieldName: 'file',
+    mimeType: mimeTypeFor(uri),
+    parameters: { language: 'da' },
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      apikey: SUPABASE_ANON,
+    },
+  });
+  const onAbort = () => {
+    void task.cancelAsync().catch(() => {});
+  };
+  signal?.addEventListener('abort', onAbort);
+
+  // cancelAsync løser uploadAsync med null/undefined — normalisér til Cancelled.
+  let res: { status: number; body: string } | null | undefined;
   try {
-    const upload = uploadAsync(TRANSCRIBE_URL, uri, {
-      httpMethod: 'POST',
-      uploadType: FileSystemUploadType.MULTIPART,
-      fieldName: 'file',
-      mimeType: mimeTypeFor(uri),
-      parameters: { language: 'da' },
-      headers: {
-        authorization: `Bearer ${accessToken}`,
-        apikey: SUPABASE_ANON,
-      },
-    });
     const timeoutMs = await uploadTimeoutFor(uri);
     const timeout = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new TranscribeError('Transskriberingen tog for lang tid. Prøv igen.')), timeoutMs);
     });
-    res = await Promise.race([upload, timeout]);
+    res = await Promise.race([task.uploadAsync(), timeout]);
   } catch (e) {
+    if (signal?.aborted) throw new TranscribeCancelled('Annulleret.');
+    onAbort(); // timeout/netværksfejl: stop den native upload i stedet for at lade den løbe
     if (e instanceof TranscribeError) throw e;
     throw new TranscribeError('Kunne ikke nå serveren. Tjek din forbindelse.');
+  } finally {
+    signal?.removeEventListener('abort', onAbort);
   }
+  if (!res || signal?.aborted) throw new TranscribeCancelled('Annulleret.');
 
   if (res.status === 429) {
-    throw new TranscribeError('Du har nået din grænse for nu. Prøv igen senere.');
+    throw new TranscribeError(quotaMessage(res.body));
   }
   if (res.status < 200 || res.status >= 300) {
     console.warn(`[voice] proxy ${res.status}: ${(res.body ?? '').slice(0, 300)}`);

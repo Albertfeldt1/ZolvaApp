@@ -107,6 +107,15 @@ export type ReplyContext =
       references?: string;
     };
 
+/** Vedhæftning på en åbnet mail (M12). `id` er provider-specifikt
+ * (Gmail attachmentId / Graph attachment id); bytes hentes først ved tryk. */
+export type MailAttachment = {
+  id: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+};
+
 export type MailDetail = {
   id: string;
   provider: MailProvider;
@@ -114,6 +123,9 @@ export type MailDetail = {
   subject: string;
   body: string;
   replyContext: ReplyContext;
+  /** Ikke-inline vedhæftninger; udelades hvor provideren ikke understøtter
+   * det endnu (iCloud-edge-funktionen kan ikke levere dem). */
+  attachments?: MailAttachment[];
 };
 
 export type DoneMail = {

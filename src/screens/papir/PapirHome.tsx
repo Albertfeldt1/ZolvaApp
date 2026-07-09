@@ -365,7 +365,7 @@ export function PapirHome() {
         <QuickButton Icon={Search} label="Søg" onPress={() => nav.push('search')} />
       </ScrollView>
 
-      {/* In focus: morning briefing card (dark surface) */}
+      {/* In focus: briefing card (dark surface) — label follows the freshest brief's kind */}
       <SectionHeader label="I fokus" />
       <ScaleButton
         scaleTo={0.985}
@@ -379,10 +379,20 @@ export function PapirHome() {
         }}
       >
         <PaperText role="caption" color={papirColor.ink4} style={{ letterSpacing: 2, textTransform: 'uppercase' }}>
-          Morgenbriefing
+          {brief
+            ? brief.kind === 'midday'
+              ? 'Middagsbriefing'
+              : brief.kind === 'evening'
+                ? 'Aftenbriefing'
+                : 'Morgenbriefing'
+            : 'Briefing'}
         </PaperText>
         <PaperText role="titleSerif" color={papirColor.onInk} style={{ fontSize: 22, marginTop: 10, maxWidth: 240 }}>
-          Din dag på 3 minutter
+          {brief?.kind === 'midday'
+            ? 'Status på din dag'
+            : brief?.kind === 'evening'
+              ? 'Din dag i morgen'
+              : 'Din dag på 3 minutter'}
         </PaperText>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14 }}>
           <WaveGlyph heights={[6, 11, 8, 13]} color={papirColor.ink4} />
@@ -438,6 +448,7 @@ export function PapirHome() {
               title={r.title ?? r.text.slice(0, 48)}
               subtitle={r.text.slice(0, 52)}
               trailing={durationLabel(r.durationSec)}
+              onPress={() => nav.push('noteDetail', { id: r.id })}
             />
             {i < recentRecordings.length - 1 ? (
               <View style={{ height: 1, backgroundColor: papirColor.line, marginHorizontal: papirSpace.screen }} />

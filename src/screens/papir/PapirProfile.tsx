@@ -10,6 +10,7 @@ import {
   FileText,
   HelpCircle,
   RotateCcw,
+  Send,
   Settings,
 } from 'lucide-react-native';
 import Purchases from 'react-native-purchases';
@@ -269,6 +270,7 @@ export function PapirProfile() {
           divider
           onPress={() => nav.push('notifications')}
         />
+        <MenuRow Icon={Send} label="Sendte mails" divider onPress={() => nav.push('sentMails')} />
         <MenuRow
           Icon={Crown}
           label="Zolva Premium"

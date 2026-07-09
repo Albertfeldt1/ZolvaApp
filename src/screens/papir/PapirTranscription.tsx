@@ -5,7 +5,13 @@ import { deleteAsync } from 'expo-file-system/legacy';
 import { ScaleButton } from '../../design/motion';
 import { Button, PaperText, papirColor, papirRadius, papirSpace } from '../../design/papir';
 import { useReminders, useNotes } from '../../lib/hooks';
-import { extractActions, transcribeAudio, TranscribeError, type ExtractedAction } from '../../lib/transcribe';
+import {
+  extractActions,
+  transcribeAudio,
+  TranscribeCancelled,
+  TranscribeError,
+  type ExtractedAction,
+} from '../../lib/transcribe';
 import {
   addVoiceEvent,
   useVoiceActionCtx,
@@ -166,11 +172,14 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
 
   useEffect(() => {
     let cancelled = false;
+    // Kassér/back afmonterer skærmen → abort stopper den native upload, så
+    // kvoten ikke forbrændes på en optagelse brugeren har smidt væk (M1).
+    const abort = new AbortController();
     setLoading(true);
     setError(null);
     (async () => {
       try {
-        const transcript = await transcribeAudio(uri);
+        const transcript = await transcribeAudio(uri, abort.signal);
         // Whisper on silence returns empty/junk — don't offer to save a
         // meaningless "Tom optagelse" note (M14).
         if (!transcript.trim()) {
@@ -180,6 +189,7 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
         const { title, actions } = await extractActions(transcript);
         if (!cancelled) setData({ title, transcript, actions });
       } catch (e) {
+        if (e instanceof TranscribeCancelled) return; // brugerens eget valg — ingen fejl
         // Show the real failure — never invent content the user didn't record.
         const msg =
           e instanceof TranscribeError ? e.message : 'Transskriberingen fejlede. Prøv igen.';
@@ -191,6 +201,7 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
     })();
     return () => {
       cancelled = true;
+      abort.abort();
     };
   }, [uri, attempt]);
 

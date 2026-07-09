@@ -40,24 +40,45 @@ const EVENT_DUOS = [
   { deep: papirColor.rust, soft: papirColor.rustSoft },
 ] as const;
 
-/** Assign overlapping events to two columns (simple alternating layout —
- * enough visual separation without a full interval-graph coloring). */
+const endOf = (ev: TimelineEvent) => ev.end ?? ev.start + 0.75;
+
+/** Fuld kolonnetildeling (M15): events grupperes i klynger af transitivt
+ * overlappende intervaller; inden for en klynge får hvert event den lavest
+ * ledige kolonne (grådig interval-farvning), og hele klyngen deler bredden
+ * på max-kolonnetallet. Tidligere alternerede vi bare mellem 2 kolonner, så
+ * event nr. 3 i samme tidsrum blev tegnet OVENPÅ nr. 1. */
 function layoutColumns(events: TimelineEvent[]): { ev: TimelineEvent; col: number; cols: number }[] {
-  const sorted = [...events].sort((a, b) => a.start - b.start);
+  const sorted = [...events].sort((a, b) => a.start - b.start || endOf(b) - endOf(a));
   const out: { ev: TimelineEvent; col: number; cols: number }[] = [];
+  let clusterFrom = 0; // indeks på klyngens første event i `out`
+  let clusterEnd = -Infinity; // seneste sluttid i klyngen
+  let colEnds: number[] = []; // pr. kolonne: sluttid for sidst placerede event
+
+  const sealCluster = (to: number) => {
+    const cols = Math.max(1, colEnds.length);
+    for (let i = clusterFrom; i < to; i++) out[i].cols = cols;
+  };
+
   sorted.forEach((ev) => {
-    const evEnd = ev.end ?? ev.start + 0.75;
-    const prev = out[out.length - 1];
-    if (prev) {
-      const prevEnd = prev.ev.end ?? prev.ev.start + 0.75;
-      if (ev.start < prevEnd && prev.ev.start < evEnd) {
-        prev.cols = 2;
-        out.push({ ev, col: prev.col === 0 ? 1 : 0, cols: 2 });
-        return;
-      }
+    const s = ev.start;
+    const e = endOf(ev);
+    if (out.length > 0 && s >= clusterEnd) {
+      sealCluster(out.length);
+      clusterFrom = out.length;
+      colEnds = [];
+      clusterEnd = -Infinity;
     }
-    out.push({ ev, col: 0, cols: 1 });
+    let col = colEnds.findIndex((end) => s >= end);
+    if (col === -1) {
+      col = colEnds.length;
+      colEnds.push(e);
+    } else {
+      colEnds[col] = Math.max(colEnds[col], e);
+    }
+    clusterEnd = Math.max(clusterEnd, e);
+    out.push({ ev, col, cols: 1 });
   });
+  sealCluster(out.length);
   return out;
 }
 
@@ -85,8 +106,17 @@ export function DayTimeline({ events, startHour = 7, endHour = 22, showNow = tru
 
   const laidOut = useMemo(() => layoutColumns(events), [events]);
 
+  // Målt bredde → kolonner kan lægges præcist i pixels uanset antal (M15).
+  const [width, setWidth] = useState(0);
+  const COL_GAP = 6;
+  const areaLeft = GUTTER + CARD_INSET;
+  const areaWidth = Math.max(0, width - areaLeft - 22);
+
   return (
-    <View style={{ height: totalHeight, paddingTop: 8 }}>
+    <View
+      style={{ height: totalHeight, paddingTop: 8 }}
+      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+    >
       {/* Hour rows: timestamp + hairline */}
       {hours.map((h) => (
         <View key={h} style={[styles.row, { top: yFor(h) }]}>
@@ -95,42 +125,44 @@ export function DayTimeline({ events, startHour = 7, endHour = 22, showNow = tru
         </View>
       ))}
 
-      {/* Events (clamped to the visible window; overlaps share the row 50/50) */}
-      {laidOut.map(({ ev, col, cols }, i) => {
-        const duo = EVENT_DUOS[i % EVENT_DUOS.length];
-        const evEnd = ev.end ?? ev.start + 0.75;
-        const clampedStart = Math.min(Math.max(ev.start, startHour), endHour);
-        const clampedEnd = Math.min(Math.max(evEnd, startHour), endHour);
-        if (clampedEnd <= startHour || clampedStart >= endHour) return null;
-        const top = yFor(clampedStart);
-        const height = Math.max((clampedEnd - clampedStart) * HOUR_HEIGHT - 8, 56);
-        const half = cols === 2;
-        const meta = [ev.timeLabel, ev.place].filter(Boolean).join(' · ');
-        return (
-          <View
-            key={ev.id}
-            style={[
-              styles.event,
-              { top, height, backgroundColor: duo.soft },
-              // Overlapping pair: split the event area roughly 50/50 (offsets
-              // are relative to parent width — close enough to the midpoint).
-              half ? (col === 0 ? { right: '52%' } : { left: '50%' }) : null,
-            ]}
-          >
-            <View style={[styles.eventBar, { backgroundColor: duo.deep }]} />
-            <View style={{ flex: 1, paddingVertical: 10, paddingRight: 12 }}>
-              <Text style={[styles.eventTitle, { color: papirColor.ink }]} numberOfLines={half ? 2 : 1}>
-                {ev.title}
-              </Text>
-              {meta ? (
-                <Text style={[styles.eventMeta, { color: duo.deep }]} numberOfLines={1}>
-                  {meta}
+      {/* Events (clamped to the visible window; overlap-klynger deler bredden
+          ligeligt mellem klyngens kolonner) */}
+      {width > 0 &&
+        laidOut.map(({ ev, col, cols }, i) => {
+          const duo = EVENT_DUOS[i % EVENT_DUOS.length];
+          const evEnd = endOf(ev);
+          const clampedStart = Math.min(Math.max(ev.start, startHour), endHour);
+          const clampedEnd = Math.min(Math.max(evEnd, startHour), endHour);
+          if (clampedEnd <= startHour || clampedStart >= endHour) return null;
+          const top = yFor(clampedStart);
+          const height = Math.max((clampedEnd - clampedStart) * HOUR_HEIGHT - 8, 56);
+          const colWidth = areaWidth / cols;
+          const left = areaLeft + col * colWidth;
+          const cardWidth = colWidth - (col < cols - 1 ? COL_GAP : 0);
+          const narrow = cols > 1;
+          const meta = [ev.timeLabel, ev.place].filter(Boolean).join(' · ');
+          return (
+            <View
+              key={ev.id}
+              style={[
+                styles.event,
+                { top, height, backgroundColor: duo.soft, left, width: cardWidth, right: undefined },
+              ]}
+            >
+              <View style={[styles.eventBar, { backgroundColor: duo.deep }]} />
+              <View style={{ flex: 1, paddingVertical: 10, paddingRight: 12 }}>
+                <Text style={[styles.eventTitle, { color: papirColor.ink }]} numberOfLines={narrow ? 2 : 1}>
+                  {ev.title}
                 </Text>
-              ) : null}
+                {meta ? (
+                  <Text style={[styles.eventMeta, { color: duo.deep }]} numberOfLines={1}>
+                    {meta}
+                  </Text>
+                ) : null}
+              </View>
             </View>
-          </View>
-        );
-      })}
+          );
+        })}
 
       {/* Now: a single red line with a dot at its left end */}
       {nowVisible ? (

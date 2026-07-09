@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, View } from 'react-native';
+import { Alert, FlatList, Pressable, View, type ListRenderItemInfo } from 'react-native';
 import { Check, MessageSquare, Sparkles, X } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { Button, PaperText, SegmentedControl, papirColor, papirRadius, papirSpace } from '../../design/papir';
@@ -19,6 +19,7 @@ import {
 } from '../../lib/profile-store';
 import type { ChatMessageRow, Fact, Note } from '../../lib/types';
 import { usePapirScreenPads } from './insets';
+import { usePapirNav } from './nav';
 import { PapirLoader } from './PapirLoader';
 import { PapirTag } from './PapirTag';
 import { useNow } from './useNow';
@@ -421,6 +422,7 @@ function relTime(d: Date, now: Date): string {
 
 export function PapirHistory() {
   const pads = usePapirScreenPads();
+  const nav = usePapirNav();
   const notes = useNotes();
   const [segment, setSegment] = useState(0);
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -468,12 +470,61 @@ export function PapirHistory() {
     ]);
   };
 
-  return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: papirColor.paper }}
-      contentContainerStyle={{ paddingTop: pads.top, paddingBottom: pads.bottom }}
-      showsVerticalScrollIndicator={false}
-    >
+  // Fladgjorte rækker til FlatList (L11): ScrollView + .map jankede ved 500+
+  // noter. Labels og noter er hver sin rækketype; Fakta/Samtaler og
+  // tom-tilstanden bor i ListHeaderComponent, så segmentskift beholder én
+  // scroll-container og dermed scroll-position pr. mount.
+  type Row = { kind: 'label'; label: string } | { kind: 'note'; note: Note; divider: boolean };
+  const rows = useMemo<Row[]>(() => {
+    if (segment >= 2) return [];
+    const out: Row[] = [];
+    for (const g of groups) {
+      out.push({ kind: 'label', label: g.label });
+      g.items.forEach((note, i) => out.push({ kind: 'note', note, divider: i < g.items.length - 1 }));
+    }
+    return out;
+  }, [groups, segment]);
+
+  const renderRow = ({ item }: ListRenderItemInfo<Row>) => {
+    if (item.kind === 'label') return <GroupLabel>{item.label}</GroupLabel>;
+    const { note, divider } = item;
+    const dur = durationLabel(note.durationSec);
+    return (
+      <View style={highlightId === note.id ? { backgroundColor: papirColor.redSoft, borderRadius: 12 } : null}>
+        {/* Approved-design row anatomy: category tag + time header,
+            note text underneath — the tag color IS the row's type
+            signal (talenote red, note slate), so no leading icon. */}
+        <Pressable
+          onPress={() => nav.push('noteDetail', { id: note.id })}
+          onLongPress={() => confirmDelete(note)}
+          accessibilityRole="button"
+          accessibilityLabel={note.title ?? note.text.slice(0, 40)}
+          accessibilityHint="Tryk for at åbne, hold nede for at slette"
+          style={{ paddingHorizontal: papirSpace.screen, paddingVertical: 14 }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <PapirTag
+              label={note.source === 'voice' ? 'Talenote' : 'Note'}
+              kind={note.source === 'voice' ? 'talenote' : 'note'}
+            />
+            <PaperText role="caption" color={papirColor.ink4} tabular>
+              {trailingFor(note, now)}
+              {dur ? ` · ${dur}` : ''}
+            </PaperText>
+          </View>
+          <PaperText role="body" color={papirColor.ink2} style={{ marginTop: 8 }} numberOfLines={2}>
+            {note.title ?? note.text}
+          </PaperText>
+        </Pressable>
+        {divider ? (
+          <View style={{ height: 1, backgroundColor: papirColor.line, marginHorizontal: papirSpace.screen }} />
+        ) : null}
+      </View>
+    );
+  };
+
+  const header = (
+    <>
       <View style={{ paddingHorizontal: papirSpace.screen }}>
         <PaperText role="eyebrow" color={papirColor.ink3}>
           Alt du har sagt
@@ -501,49 +552,21 @@ export function PapirHistory() {
               : 'Bed Zolva i chatten om at gemme en note — de samles her.'}
           </PaperText>
         </View>
-      ) : (
-        groups.map((g) => (
-          <View key={g.label}>
-            <GroupLabel>{g.label}</GroupLabel>
-            {g.items.map((note, i) => {
-              const dur = durationLabel(note.durationSec);
-              return (
-                <View
-                  key={note.id}
-                  style={highlightId === note.id ? { backgroundColor: papirColor.redSoft, borderRadius: 12 } : null}
-                >
-                  {/* Approved-design row anatomy: category tag + time header,
-                      note text underneath — the tag color IS the row's type
-                      signal (talenote red, note slate), so no leading icon. */}
-                  <Pressable
-                    onLongPress={() => confirmDelete(note)}
-                    accessibilityLabel={note.title ?? note.text.slice(0, 40)}
-                    accessibilityHint="Hold nede for at slette"
-                    style={{ paddingHorizontal: papirSpace.screen, paddingVertical: 14 }}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <PapirTag
-                        label={note.source === 'voice' ? 'Talenote' : 'Note'}
-                        kind={note.source === 'voice' ? 'talenote' : 'note'}
-                      />
-                      <PaperText role="caption" color={papirColor.ink4} tabular>
-                        {trailingFor(note, now)}
-                        {dur ? ` · ${dur}` : ''}
-                      </PaperText>
-                    </View>
-                    <PaperText role="body" color={papirColor.ink2} style={{ marginTop: 8 }} numberOfLines={2}>
-                      {note.title ?? note.text}
-                    </PaperText>
-                  </Pressable>
-                  {i < g.items.length - 1 ? (
-                    <View style={{ height: 1, backgroundColor: papirColor.line, marginHorizontal: papirSpace.screen }} />
-                  ) : null}
-                </View>
-              );
-            })}
-          </View>
-        ))
-      )}
-    </ScrollView>
+      ) : null}
+    </>
+  );
+
+  return (
+    <FlatList
+      style={{ flex: 1, backgroundColor: papirColor.paper }}
+      contentContainerStyle={{ paddingTop: pads.top, paddingBottom: pads.bottom }}
+      showsVerticalScrollIndicator={false}
+      data={rows}
+      renderItem={renderRow}
+      keyExtractor={(item) => (item.kind === 'label' ? `g:${item.label}` : `n:${item.note.id}`)}
+      ListHeaderComponent={header}
+      extraData={highlightId}
+      initialNumToRender={16}
+    />
   );
 }

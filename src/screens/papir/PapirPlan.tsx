@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, RefreshControl, ScrollView, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, FlatList, RefreshControl, ScrollView, View } from 'react-native';
 import { Check } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { PaperText, SegmentedControl, papirColor, papirRadius, papirSpace } from '../../design/papir';
@@ -200,8 +200,10 @@ function TasksView({
 
 // The day strip reaches into the past so yesterday doesn't vanish at
 // midnight — you can always page back and see what the day looked like.
-const STRIP_DAYS_BACK = 14;
-const STRIP_DAYS_FORWARD = 14;
+// ±52 uger matcher klassisk kalender (M16); striben er virtualiseret
+// (FlatList), så de 729 chips koster ikke noget at mounte.
+const STRIP_DAYS_BACK = 364;
+const STRIP_DAYS_FORWARD = 364;
 // Fixed chip metrics so we can scroll the strip straight to "today".
 const DAY_CHIP_WIDTH = 46;
 const DAY_CHIP_GAP = 6;
@@ -227,7 +229,6 @@ function CalendarView() {
   const selectedDay = days.find((d) => d.toDateString() === selKey) ?? days[STRIP_DAYS_BACK];
   const isToday = selectedDay.toDateString() === dayKey;
   const isPast = selectedDay < days[STRIP_DAYS_BACK];
-  const stripRef = useRef<ScrollView>(null);
   const { data: events, loading, error } = useDayEvents(selectedDay);
 
   const allDay = events.filter((e) => e.allDay);
@@ -259,25 +260,30 @@ function CalendarView() {
 
   return (
     <View style={{ marginTop: papirSpace.base }}>
-      <ScrollView
-        ref={stripRef}
+      <FlatList
         horizontal
         showsHorizontalScrollIndicator={false}
+        data={days}
+        keyExtractor={(day) => day.toISOString()}
         contentContainerStyle={{ gap: DAY_CHIP_GAP, paddingHorizontal: papirSpace.screen }}
         // Open with today as the first visible chip; the past sits one swipe
-        // to the left instead of being cut off.
-        onLayout={() =>
-          stripRef.current?.scrollTo({ x: STRIP_DAYS_BACK * (DAY_CHIP_WIDTH + DAY_CHIP_GAP), animated: false })
-        }
-      >
-        {days.map((day, i) => {
+        // to the left instead of being cut off. Fixed chip metrics → instant
+        // initialScrollIndex without measurement.
+        initialScrollIndex={STRIP_DAYS_BACK}
+        getItemLayout={(_data, index) => ({
+          length: DAY_CHIP_WIDTH,
+          offset: index * (DAY_CHIP_WIDTH + DAY_CHIP_GAP),
+          index,
+        })}
+        initialNumToRender={21}
+        windowSize={5}
+        renderItem={({ item: day, index: i }) => {
           const key = day.toDateString();
           const on = key === selectedDay.toDateString();
           const today = key === dayKey;
           const past = i < STRIP_DAYS_BACK;
           return (
             <ScaleButton
-              key={day.toISOString()}
               scaleTo={0.95}
               haptic="selection"
               onPress={() => setSelKey(key)}
@@ -311,8 +317,8 @@ function CalendarView() {
               />
             </ScaleButton>
           );
-        })}
-      </ScrollView>
+        }}
+      />
 
       {allDay.length > 0 ? (
         <View style={{ paddingHorizontal: papirSpace.screen, marginTop: papirSpace.base, gap: 6 }}>

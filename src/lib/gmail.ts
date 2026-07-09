@@ -2,6 +2,7 @@
 
 import { ProviderAuthError, subscribeUserId, tryWithRefresh } from './auth';
 import { fetchWithTimeout, NetworkTimeoutError } from './network-errors';
+import { stripHtml } from './html-text';
 
 // 429 (rate-limited) and 5xx are transient — worth a retry, not a silent drop.
 // Listing the inbox returns ~50 ids, then EACH needs its own metadata GET;
@@ -88,6 +89,7 @@ export type GmailMessageBody = {
   text: string;
   messageIdHeader: string;
   references: string;
+  attachments: { id: string; name: string; mimeType: string; sizeBytes: number }[];
 };
 
 type RawHeader = { name: string; value: string };
@@ -96,7 +98,8 @@ type RawMessageList = { messages?: { id: string; threadId?: string }[] };
 
 type RawMessagePart = {
   mimeType?: string;
-  body?: { data?: string; size?: number };
+  filename?: string;
+  body?: { data?: string; size?: number; attachmentId?: string };
   parts?: RawMessagePart[];
 };
 
@@ -367,7 +370,51 @@ export async function getMessageBody(id: string): Promise<GmailMessageBody> {
       text: extractBody(data.payload) || data.snippet || '',
       messageIdHeader: get('Message-ID') || get('Message-Id'),
       references: get('References'),
+      attachments: collectAttachments(data.payload),
     };
+  });
+}
+
+/** Ikke-inline vedhæftninger fra message-payloadens part-træ (M12): en part
+ * med filnavn + attachmentId er en rigtig vedhæftning; inline-billeder uden
+ * filnavn springes over. */
+function collectAttachments(
+  part: RawMessagePart | undefined,
+): { id: string; name: string; mimeType: string; sizeBytes: number }[] {
+  if (!part) return [];
+  const out: { id: string; name: string; mimeType: string; sizeBytes: number }[] = [];
+  const walk = (p: RawMessagePart) => {
+    if (p.filename && p.body?.attachmentId) {
+      out.push({
+        id: p.body.attachmentId,
+        name: p.filename,
+        mimeType: p.mimeType ?? 'application/octet-stream',
+        sizeBytes: p.body.size ?? 0,
+      });
+    }
+    p.parts?.forEach(walk);
+  };
+  walk(part);
+  return out;
+}
+
+/** Hent en vedhæftnings bytes som standard-base64 (klar til fil-skrivning). */
+export async function downloadAttachment(messageId: string, attachmentId: string): Promise<string> {
+  return tryWithRefresh('google', async (accessToken) => {
+    const res = await fetchWithTimeout(
+      'google',
+      `${BASE}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (res.status === 401 || res.status === 403) {
+      throw new ProviderAuthError('google', `Gmail afvist (${res.status}).`);
+    }
+    if (!res.ok) {
+      throw new Error(`Gmail attachment fetch failed: ${res.status}`);
+    }
+    const data = (await res.json()) as { data?: string };
+    // Gmail leverer base64url — konvertér til standard-base64 til FileSystem.
+    return (data.data ?? '').replace(/-/g, '+').replace(/_/g, '/');
   });
 }
 
@@ -686,36 +733,6 @@ function base64UrlEncode(str: string): string {
     .replace(/=+$/, '');
 }
 
-function stripHtml(html: string): string {
-  return html
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<head[\s\S]*?<\/head>/gi, '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    // Adjacent close+open of block containers is ONE line break - without
-    // this collapse, both tags below emit \n and every line in a
-    // div-per-line signature/body ends up double-spaced.
-    .replace(/<\/(?:p|div|h[1-6]|li|tr|td|section|article)>\s*<(?:p|div|h[1-6]|li|tr|section|article)\b[^>]*>/gi, '\n')
-    .replace(/<\/(p|div|h[1-6]|li|tr|td|section|article)>/gi, '\n')
-    // Opening block tags break too: Gmail signatures are shaped like
-    // "Venlig hilsen.<div>Oscar</div>" - only breaking on the CLOSE glued
-    // the salutation onto the name ("Venlig hilsen.Oscar").
-    .replace(/<(?:p|div|h[1-6]|li|tr|section|article)\b[^>]*>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&apos;/gi, "'")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
-    .replace(/[ \t]+/g, ' ')
-    .replace(/ *\n */g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
 
 function encodeHeader(value: string): string {
   if (/^[\x20-\x7E]*$/.test(value)) return value;

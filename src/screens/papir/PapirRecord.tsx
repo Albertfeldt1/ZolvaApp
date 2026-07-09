@@ -10,8 +10,14 @@ import {
 } from 'expo-audio';
 import { deleteAsync } from 'expo-file-system/legacy';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  type SharedValue,
+} from 'react-native-reanimated';
 import { ScaleButton } from '../../design/motion';
-import { PaperText, papirColor, papirDuration, papirShadow } from '../../design/papir';
+import { PaperText, papirColor, papirShadow } from '../../design/papir';
 
 type Props = {
   /** Called with the recorded file URI + duration when the user stops. */
@@ -20,6 +26,30 @@ type Props = {
 };
 
 const BAR_COUNT = 34;
+const BAR_MIN = 6;
+const BAR_MAX = 84;
+// Recorder-state poll — også waveformens fremdrift: hvert tick skubber ét
+// nyt niveau ind fra højre, så vinduet ruller gennem de seneste ~3,4 s tale.
+const METER_INTERVAL_MS = 100;
+
+/** dB (typisk -160..0) → søjlehøjde. -50 dB regnes som stilhedsgulv; en let
+ * kurve giver talens dynamik mere udsving end lineær mapping. */
+function heightForDb(db: number | undefined): number {
+  if (db == null || !Number.isFinite(db)) return BAR_MIN;
+  const t = Math.min(1, Math.max(0, (db + 50) / 50));
+  return BAR_MIN + Math.pow(t, 1.3) * (BAR_MAX - BAR_MIN);
+}
+
+/** Én søjle i den levende waveform (L4/L61): højden læses fra den delte
+ * niveau-liste og animeres på UI-tråden — JS skriver kun listen 10×/sek. */
+function WaveBar({ levels, index, paused }: { levels: SharedValue<number[]>; index: number; paused: boolean }) {
+  const style = useAnimatedStyle(() => ({
+    height: withTiming(paused ? BAR_MIN : levels.value[index], { duration: 90 }),
+  }));
+  return (
+    <Animated.View style={[{ width: 3.5, borderRadius: 4, backgroundColor: papirColor.red }, style]} />
+  );
+}
 
 /** Leave the iOS audio session in playback mode — recording mode mutes other
  * apps' audio and must never outlive this screen. Best-effort. */
@@ -30,10 +60,10 @@ function resetAudioMode(): void {
 /** Full-screen record overlay: real expo-audio recording + live UI. */
 export function PapirRecord({ onStop, onClose }: Props) {
   const insets = useSafeAreaInsets();
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const state = useAudioRecorderState(recorder);
+  const recorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
+  const state = useAudioRecorderState(recorder, METER_INTERVAL_MS);
   const [paused, setPaused] = useState(false);
-  const [bars, setBars] = useState<number[]>(() => Array(BAR_COUNT).fill(8));
+  const levels = useSharedValue<number[]>(Array(BAR_COUNT).fill(BAR_MIN));
   const startedRef = useRef(false);
   const stoppingRef = useRef(false);
 
@@ -92,15 +122,14 @@ export function PapirRecord({ onStop, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Decorative live waveform while recording (the real meter API is flaky
-  // across devices; the recording itself is real, this is just the visual).
+  // Levende waveform drevet af det FAKTISKE lydniveau (L4): hvert
+  // recorder-state-tick skubber det målte dB-niveau ind som ny søjle, så
+  // brugeren kan se om mikrofonen fanger noget. Tidligere var søjlerne
+  // Math.random()-dekoration, som kunne vildlede om optagekvaliteten.
   useEffect(() => {
-    if (paused) return;
-    const w = setInterval(() => {
-      setBars(Array.from({ length: BAR_COUNT }, () => 6 + Math.round(Math.random() * 78)));
-    }, papirDuration.waveTick);
-    return () => clearInterval(w);
-  }, [paused]);
+    if (paused || !state.isRecording) return;
+    levels.value = [...levels.value.slice(1), heightForDb(state.metering)];
+  }, [state.metering, state.isRecording, paused, levels]);
 
   const togglePause = () => {
     if (!startedRef.current || stoppingRef.current) return;
@@ -224,8 +253,8 @@ export function PapirRecord({ onStop, onClose }: Props) {
           paddingHorizontal: 30,
         }}
       >
-        {bars.map((h, i) => (
-          <View key={i} style={{ width: 3.5, height: paused ? 6 : h, borderRadius: 4, backgroundColor: papirColor.red }} />
+        {Array.from({ length: BAR_COUNT }, (_, i) => (
+          <WaveBar key={i} levels={levels} index={i} paused={paused} />
         ))}
       </View>
 

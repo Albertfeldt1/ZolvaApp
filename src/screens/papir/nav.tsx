@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react';
 import type { MailProvider } from '../../lib/types';
 import type { PapirTab } from './PapirBottomNav';
 
-export type PushScreen = 'briefing' | 'chat' | 'search' | 'settings' | 'inbox' | 'mailDetail' | 'agent' | 'notifications' | 'signature';
+export type PushScreen = 'briefing' | 'chat' | 'search' | 'settings' | 'inbox' | 'mailDetail' | 'agent' | 'notifications' | 'signature' | 'noteDetail' | 'sentMails';
 
 /** Per-push params — mailDetail carries the list-row context so the detail
  * screen can render header + AI draft instantly while the body fetches. */
@@ -43,3 +43,33 @@ const NavCtx = createContext<Nav>({
 
 export const usePapirNav = () => useContext(NavCtx);
 export const PapirNavProvider = NavCtx.Provider;
+
+// ---------------------------------------------------------------------------
+// Routing-bro for kald UDEN FOR shellen (App.tsx: notifikationstryk og
+// zolva://-deep links). Bufferet med "seneste vinder": et tryk ved koldstart
+// kan fyre før PapirShell er mounted — shellen forbruger den ventende rute
+// ved mount og lytter derefter live.
+
+export type PapirRouteRequest =
+  | { kind: 'tab'; tab: PapirTab }
+  | { kind: 'push'; screen: PushScreen; params?: PushParams };
+
+let pendingRoute: PapirRouteRequest | null = null;
+const routeListeners = new Set<() => void>();
+
+export function requestPapirRoute(req: PapirRouteRequest): void {
+  pendingRoute = req;
+  routeListeners.forEach((l) => l());
+}
+
+/** Shell-side: hent og ryd den ventende rute (null hvis ingen). */
+export function consumePapirRoute(): PapirRouteRequest | null {
+  const r = pendingRoute;
+  pendingRoute = null;
+  return r;
+}
+
+export function subscribePapirRoute(listener: () => void): () => void {
+  routeListeners.add(listener);
+  return () => routeListeners.delete(listener);
+}

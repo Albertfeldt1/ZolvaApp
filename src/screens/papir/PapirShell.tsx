@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, Dimensions, StyleSheet, View } from 'react-native';
+import { BackHandler, Dimensions, PanResponder, StyleSheet, View } from 'react-native';
 import Animated, {
+  runOnJS,
   SlideInRight,
   SlideInDown,
   SlideOutDown,
@@ -10,7 +11,14 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { papirColor, papirDuration } from '../../design/papir';
-import { PapirNavProvider, type PushEntry, type PushParams, type PushScreen } from './nav';
+import {
+  consumePapirRoute,
+  PapirNavProvider,
+  subscribePapirRoute,
+  type PushEntry,
+  type PushParams,
+  type PushScreen,
+} from './nav';
 import { PapirRecord } from './PapirRecord';
 import { PapirTranscription } from './PapirTranscription';
 import { PapirHome } from './PapirHome';
@@ -25,6 +33,8 @@ import { PapirAgent } from './PapirAgent';
 import { PapirInbox } from './PapirInbox';
 import { PapirNotifications } from './PapirNotifications';
 import { PapirMailDetail } from './PapirMailDetail';
+import { PapirNoteDetail } from './PapirNoteDetail';
+import { PapirSentMails } from './PapirSentMails';
 import { PapirSignature } from './PapirSignature';
 import { PapirBottomNav, type PapirTab } from './PapirBottomNav';
 
@@ -48,7 +58,79 @@ function PushView({ screen, params }: { screen: PushScreen; params?: PushParams 
       return <PapirNotifications />;
     case 'signature':
       return <PapirSignature />;
+    case 'noteDetail':
+      return <PapirNoteDetail id={params?.id} />;
+    case 'sentMails':
+      return <PapirSentMails />;
   }
+}
+
+/** Kant-swipe-back på push-skærme (M13): venstre-kant-pan følger fingeren og
+ * popper stakken ved slip forbi tærsklen — ellers fjedrer laget tilbage.
+ * PanResponder (ikke gesture-handler) så vi ikke tilføjer et native-modul;
+ * shared value opdateres fra JS, hvilket er rigeligt til en kantswipe. */
+const EDGE_WIDTH = 36;
+
+function PushLayer({
+  topMost,
+  canPopNow,
+  pop,
+  children,
+}: {
+  topMost: boolean;
+  /** Konsulterer back-guarden (mail-kladde H6). False = guarden viser sin egen confirm. */
+  canPopNow: () => boolean;
+  pop: () => void;
+  children: React.ReactNode;
+}) {
+  const x = useSharedValue(0);
+  const style = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
+
+  // Refs så responderen (skabt én gang) altid ser friske props.
+  const topMostRef = useRef(topMost);
+  topMostRef.current = topMost;
+  const canPopRef = useRef(canPopNow);
+  canPopRef.current = canPopNow;
+  const popRef = useRef(pop);
+  popRef.current = pop;
+
+  const responder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_e, gs) =>
+          topMostRef.current && gs.x0 < EDGE_WIDTH && gs.dx > 10 && Math.abs(gs.dy) < Math.abs(gs.dx),
+        onPanResponderMove: (_e, gs) => {
+          x.value = Math.max(0, gs.dx);
+        },
+        onPanResponderRelease: (_e, gs) => {
+          const w = Dimensions.get('window').width;
+          const shouldPop = gs.dx > w * 0.3 || gs.vx > 0.8;
+          if (shouldPop && canPopRef.current()) {
+            x.value = withTiming(w, { duration: 160 }, (finished) => {
+              'worklet';
+              if (finished) runOnJS(popRef.current)();
+            });
+          } else {
+            x.value = withTiming(0, { duration: 180 });
+          }
+        },
+        onPanResponderTerminate: () => {
+          x.value = withTiming(0, { duration: 180 });
+        },
+      }),
+    [x],
+  );
+
+  return (
+    <Animated.View
+      entering={SlideInRight.duration(papirDuration.pushIn)}
+      exiting={SlideOutRight.duration(papirDuration.pushIn - 100)}
+      style={[StyleSheet.absoluteFill, { backgroundColor: papirColor.paper, zIndex: 70 }, style]}
+      {...responder.panHandlers}
+    >
+      {children}
+    </Animated.View>
+  );
 }
 
 const TABS: { key: PapirTab; Screen: React.ComponentType }[] = [
@@ -130,6 +212,26 @@ export function PapirShell({ openAuth }: { openAuth?: () => void }) {
     [openAuth, selectTab],
   );
 
+  // Ruter fra App.tsx (notifikationstryk / deep links): forbrug ved mount
+  // (koldstart-tryk kan ligge og vente) og lyt derefter live. Et tryk er en
+  // eksplicit destination, så voice-flow og push-stak forlades først.
+  useEffect(() => {
+    const apply = () => {
+      const req = consumePapirRoute();
+      if (!req) return;
+      setRecording(false);
+      setTranscribe(null);
+      if (req.kind === 'tab') {
+        nav.setTab(req.tab);
+      } else {
+        setStack([]);
+        nav.push(req.screen, req.params);
+      }
+    };
+    apply();
+    return subscribePapirRoute(apply);
+  }, [nav]);
+
   // Android hardware back: recorder → transcription → push stack → home tab →
   // default (minimize). Ordering matters: never minimize mid-recording.
   useEffect(() => {
@@ -184,15 +286,15 @@ export function PapirShell({ openAuth }: { openAuth?: () => void }) {
 
         {/* Push stack: each entry is its own keyed layer so push-over-push
             animates in and back pops just the top screen. */}
-        {stack.map((entry) => (
-          <Animated.View
+        {stack.map((entry, idx) => (
+          <PushLayer
             key={entry.key}
-            entering={SlideInRight.duration(papirDuration.pushIn)}
-            exiting={SlideOutRight.duration(papirDuration.pushIn - 100)}
-            style={[StyleSheet.absoluteFill, { backgroundColor: papirColor.paper, zIndex: 70 }]}
+            topMost={idx === stack.length - 1}
+            canPopNow={() => backGuardRef.current?.() !== true}
+            pop={() => setStack((st) => st.slice(0, -1))}
           >
             <PushView screen={entry.screen} params={entry.params} />
-          </Animated.View>
+          </PushLayer>
         ))}
 
         {/* Transcription screen for a captured recording */}

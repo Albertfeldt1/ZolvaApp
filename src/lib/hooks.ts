@@ -2486,6 +2486,7 @@ export function useMailDetail(
               replyTo: b.fromEmail,
               subject: b.subject,
             },
+            attachments: b.attachments,
           }))
         : provider === 'microsoft'
         ? graphGetMessageBody(id).then((b): MailDetail => ({
@@ -2495,6 +2496,7 @@ export function useMailDetail(
             subject: b.subject,
             body: b.text,
             replyContext: { provider: 'microsoft', messageId: b.id, subject: b.subject, replyTo: b.fromEmail },
+            attachments: b.attachments,
           }))
         : (async (): Promise<MailDetail> => {
             // 'icloud' branch - id format is `icloud:<uid>` from useMailItems.

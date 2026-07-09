@@ -7,16 +7,17 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Archive, Send, Sparkles } from 'lucide-react-native';
+import { Check, Paperclip, Send, Sparkles } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { Button, PaperText, papirColor, papirRadius, papirSpace } from '../../design/papir';
 import { useAuth } from '../../lib/auth';
 import { getGmailSignature } from '../../lib/gmail';
 import { useGenerateDraftAction, useMailDetail, useSendReply } from '../../lib/hooks';
+import { openMailAttachment } from '../../lib/mail-attachments';
 import { loadSignature, renderImported, renderSignature, subscribeSignature } from '../../lib/mail-signature';
 import { recordMailEvent } from '../../lib/mail-events';
 import { runExtractor } from '../../lib/profile-extractor';
-import type { MailProvider, ReplyContext } from '../../lib/types';
+import type { MailAttachment, MailProvider, ReplyContext } from '../../lib/types';
 import { usePapirNav, type PushParams } from './nav';
 import { PapirLoader } from './PapirLoader';
 import { PushHeader } from './PushHeader';
@@ -63,6 +64,77 @@ function replyContextThreadId(ctx: ReplyContext): string {
   if (ctx.provider === 'google') return ctx.threadId;
   if (ctx.provider === 'microsoft') return ctx.messageId;
   return `icloud:${ctx.uid}`;
+}
+
+function sizeLabel(bytes: number): string {
+  if (bytes <= 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`;
+}
+
+/** Vedhæftningsrækker (M12): metadata vises straks; bytes hentes først ved
+ * tryk og løftes i iOS-delearket, så filen kan gemmes/åbnes i anden app. */
+function AttachmentRows({
+  provider,
+  messageId,
+  attachments,
+}: {
+  provider: MailProvider;
+  messageId: string;
+  attachments: MailAttachment[];
+}) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  if (attachments.length === 0) return null;
+  const open = async (att: MailAttachment) => {
+    if (busyId) return;
+    setBusyId(att.id);
+    try {
+      await openMailAttachment(provider, messageId, att);
+    } catch (e) {
+      console.warn('[mail] attachment open failed:', e instanceof Error ? e.message : String(e));
+      Alert.alert('Vedhæftning', 'Vedhæftningen kunne ikke hentes. Prøv igen.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+  return (
+    <View style={{ paddingHorizontal: papirSpace.screen, marginTop: 18, gap: 8 }}>
+      <PaperText role="eyebrow" color={papirColor.ink3}>
+        Vedhæftninger
+      </PaperText>
+      {attachments.map((att) => (
+        <ScaleButton
+          key={att.id}
+          scaleTo={0.98}
+          haptic="light"
+          onPress={() => void open(att)}
+          accessibilityRole="button"
+          accessibilityLabel={`Åbn vedhæftning ${att.name}`}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 10,
+            borderWidth: 1,
+            borderColor: papirColor.line,
+            borderRadius: papirRadius.lg,
+            backgroundColor: papirColor.card,
+            paddingVertical: 10,
+            paddingHorizontal: 12,
+            opacity: busyId && busyId !== att.id ? 0.5 : 1,
+          }}
+        >
+          <Paperclip size={15} color={papirColor.ink3} strokeWidth={1.8} />
+          <PaperText role="small" style={{ flex: 1 }} numberOfLines={1}>
+            {att.name}
+          </PaperText>
+          <PaperText role="caption" color={papirColor.ink4} tabular>
+            {busyId === att.id ? 'Henter…' : sizeLabel(att.sizeBytes)}
+          </PaperText>
+        </ScaleButton>
+      ))}
+    </View>
+  );
 }
 
 /** Papir mail detail: body + reply editor. Reply/draft/archive behavior is
@@ -126,7 +198,7 @@ export function PapirMailDetail({ params }: { params: PushParams }) {
     if (!id || !provider) return;
     const ok = await archive(id, provider);
     if (!ok) {
-      Alert.alert('Arkivér', 'Mailen kunne ikke arkiveres. Prøv igen.');
+      Alert.alert('Håndteret', 'Mailen kunne ikke markeres som håndteret. Prøv igen.');
       return;
     }
     if (user?.id) {
@@ -148,9 +220,9 @@ export function PapirMailDetail({ params }: { params: PushParams }) {
       void performArchive();
       return;
     }
-    Alert.alert('Arkivér udkast?', 'Dit svar bliver ikke sendt eller gemt.', [
+    Alert.alert('Markér som håndteret?', 'Dit svar bliver ikke sendt eller gemt.', [
       { text: 'Annullér', style: 'cancel' },
-      { text: 'Arkivér', style: 'destructive', onPress: () => void performArchive() },
+      { text: 'Håndtér', style: 'destructive', onPress: () => void performArchive() },
     ]);
   };
 
@@ -231,6 +303,10 @@ export function PapirMailDetail({ params }: { params: PushParams }) {
             </View>
           )}
 
+          {detail && provider ? (
+            <AttachmentRows provider={provider} messageId={detail.id} attachments={detail.attachments ?? []} />
+          ) : null}
+
           {/* Reply editor */}
           <View
             style={{
@@ -303,9 +379,9 @@ export function PapirMailDetail({ params }: { params: PushParams }) {
           }}
         >
           <Button
-            label="Arkivér"
+            label="Håndteret"
             variant="ghost"
-            left={<Archive size={15} color={papirColor.ink} strokeWidth={1.8} />}
+            left={<Check size={15} color={papirColor.ink} strokeWidth={1.8} />}
             style={{ paddingHorizontal: 20 }}
             onPress={handleArchive}
             disabled={sending}
