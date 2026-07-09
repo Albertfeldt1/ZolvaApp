@@ -24,10 +24,11 @@ import {
 } from '@expo-google-fonts/playfair-display';
 import { useDesignFonts } from './src/design/fonts';
 import * as Haptics from 'expo-haptics';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppState, Image, Linking, StyleSheet, View } from 'react-native';
-import Animated, { FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
+import { Alert, AppState, Linking, StyleSheet, View } from 'react-native';
+import Animated, { SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { DURATION } from './src/design/motion';
 import { ChromeInsetsContext, PhoneChrome, TabId } from './src/components/PhoneChrome';
 import { TabPane } from './src/components/TabPane';
@@ -91,34 +92,40 @@ import { usePendingProposalCount } from './src/lib/agent-proposals';
 import { syncUserProfile } from './src/lib/user-profile';
 import { registerPresenceListener } from './src/lib/presence';
 import { writeSnapshotFromSources } from './src/lib/widget-bridge';
-import { usePapirEnabled } from './src/lib/papir-flag';
+import { isPapirEnabled, usePapirEnabled } from './src/lib/papir-flag';
 import { subscribeAppOverlays } from './src/lib/app-overlay-bridge';
 import { PapirRoot } from './src/screens/papir/PapirRoot';
+import { requestPapirRoute } from './src/screens/papir/nav';
+import { requestHistorySegment } from './src/screens/papir/PapirHistory';
 
 // Bumped on every fix iteration so we can verify in Metro which bundle
 // the device is actually running. Logged once at module eval (cold-start
 // or JS reload), so the most recent line tells us the live commit.
-const APP_BOOT_TAG = 'onboarding-pal-strip-v1';
+const APP_BOOT_TAG = 'boot-splash-native-hold-v1';
 console.log(`[BOOT] ${APP_BOOT_TAG}`);
 
-// The native splash auto-hides as soon as the first JS frame renders, which
-// on a warm device is well under a second — too fast to register the logo.
-// This JS overlay shows the exact same image (same asset, same background)
-// so the handoff is invisible, then holds it for a minimum time before
-// fading out. Measured from JS module eval, so native init time comes on top.
+// Without expo-splash-screen the native splash vanished as soon as the RN
+// root view appeared — before the JS bundle had even loaded — leaving a
+// white gap until boot finished. preventAutoHideAsync keeps the ONE native
+// splash up through bundle load, font load and the minimum-visible hold, and
+// hideAsync then fades it straight into the ready app. No JS mirror image:
+// a JS overlay handoff proved fragile (it could be covered mid-boot), and a
+// single native splash can't seam or flash by construction.
+// All SplashScreen calls are wrapped: an OTA-updated bundle can land on a
+// binary that predates the native module, and must degrade to the old
+// auto-hide behavior instead of crashing (runtimeVersion is appVersion).
 const SPLASH_MIN_VISIBLE_MS = 1600;
 const SPLASH_FADE_MS = 400;
 
-function BootSplash() {
-  return (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: '#FBFAF6' }]}>
-      <Image
-        source={require('./assets/splash.png')}
-        style={StyleSheet.absoluteFill}
-        resizeMode="cover"
-      />
-    </View>
-  );
+try {
+  SplashScreen.setOptions({ fade: true, duration: SPLASH_FADE_MS });
+  void SplashScreen.preventAutoHideAsync().catch(() => {});
+} catch {}
+
+function hideNativeSplash() {
+  try {
+    void SplashScreen.hideAsync().catch(() => {});
+  } catch {}
 }
 
 export default function App() {
@@ -254,7 +261,9 @@ export default function App() {
     if (inV2Onboarding) return;
     let cancelled = false;
     void shouldShowV2Onboarding(uid).then((v2Pending) => {
-      if (cancelled || v2Pending) return;
+      // I Papir kører ingen V2-wizard, så et evigt-pending V2-flag må ikke
+      // blokere memory-consent (den ville ellers aldrig vises for nye brugere).
+      if (cancelled || (v2Pending && !isPapirEnabled())) return;
       void shouldShowMemoryConsent(uid).then((show) => {
         if (cancelled || !show) return;
         setMemoryConsentOpen(true);
@@ -270,6 +279,11 @@ export default function App() {
   useEffect(() => {
     if (authInitializing) return;
     if (onboardingOpen) return;
+    // Produktbeslutning 2026-07-09: Papir kører UDEN onboarding-wizard.
+    // Nye brugere lander direkte i appen; backfill dækkes af Genscan i
+    // Settings (subscribeBackfillRerun nedenfor), som fortsat må åbne
+    // kædens intro/progress/review-stadier. Kun V2-wizarden skippes.
+    if (isPapirEnabled()) return;
     const uid = user?.id;
     if (!uid) return;
     let cancelled = false;
@@ -461,6 +475,42 @@ export default function App() {
       setIcloudSetupOpen(false);
       setAdminConsentOpen(false);
       void markFeedByPayload(payload);
+      // Papir har sin egen navigation — oversæt til en Papir-rute i stedet
+      // for at flytte klassiske tabs, som er usynlige når Papir er aktiv.
+      // Mapping matcher PapirNotifications' destinationFor.
+      if (isPapirEnabled()) {
+        switch (payload.type) {
+          case 'reminder':
+          case 'digest':
+          case 'reminderAdded':
+          case 'calendarPreAlert':
+            requestPapirRoute({ kind: 'tab', tab: 'plan' });
+            break;
+          case 'brief':
+            requestPapirRoute({ kind: 'push', screen: 'briefing' });
+            break;
+          case 'newMail':
+            requestPapirRoute({ kind: 'push', screen: 'inbox' });
+            break;
+          case 'factDecay':
+            requestHistorySegment(2); // Fakta
+            requestPapirRoute({ kind: 'tab', tab: 'history' });
+            break;
+          case 'chatReply':
+            requestPapirRoute({ kind: 'push', screen: 'chat' });
+            break;
+          case 'agent_proposal':
+            requestPapirRoute({ kind: 'push', screen: 'agent' });
+            break;
+          case 'microsoftConsentGranted':
+            requestPapirRoute({ kind: 'push', screen: 'settings' });
+            break;
+          case 'trialEnding':
+            void presentPaywall();
+            break;
+        }
+        return;
+      }
       switch (payload.type) {
         case 'reminder':
         case 'digest':
@@ -512,6 +562,20 @@ export default function App() {
   useEffect(() => {
     const handle = (url: string | null) => {
       if (!url) return;
+      // Papir-rute for deep links — samme oversættelse som notifikationstryk.
+      if (isPapirEnabled()) {
+        if (url.startsWith('zolva://chat')) {
+          requestPapirRoute({ kind: 'push', screen: 'chat' });
+        } else if (url.startsWith('zolva://today')) {
+          if (url.includes('#brief')) requestPapirRoute({ kind: 'push', screen: 'briefing' });
+          else requestPapirRoute({ kind: 'tab', tab: 'home' });
+        } else if (url.startsWith('zolva://calendar/event/')) {
+          requestPapirRoute({ kind: 'tab', tab: 'plan' });
+        } else if (url.startsWith('zolva://settings')) {
+          requestPapirRoute({ kind: 'push', screen: 'settings' });
+        }
+        return;
+      }
       if (url.startsWith('zolva://chat')) {
         setChatOpen(true);
         return;
@@ -568,15 +632,20 @@ export default function App() {
   // other hooks so the early return below stays hook-safe.
   const papirEnabled = usePapirEnabled();
 
-  // Keep the boot splash up for a minimum time once the app is ready, so the
-  // logo doesn't blink away after half a second on fast launches.
+  // Keep the native splash up for a minimum time once the app is ready, so
+  // the logo doesn't blink away after half a second on fast launches. The
+  // minimum counts from App's first render; native init before that only
+  // adds visible logo time.
   const bootAtRef = useRef(Date.now());
   const [splashDone, setSplashDone] = useState(false);
   const bootReady = !!(fraunces && playfair && inter && mono && designFonts && migrationsDone);
   useEffect(() => {
     if (!bootReady || splashDone) return;
     const elapsed = Date.now() - bootAtRef.current;
-    const t = setTimeout(() => setSplashDone(true), Math.max(0, SPLASH_MIN_VISIBLE_MS - elapsed));
+    const t = setTimeout(() => {
+      setSplashDone(true);
+      hideNativeSplash();
+    }, Math.max(0, SPLASH_MIN_VISIBLE_MS - elapsed));
     return () => clearTimeout(t);
   }, [bootReady, splashDone]);
 
@@ -591,14 +660,10 @@ export default function App() {
   }, [chromeHeight, loggedOut, ctaBarHeight]);
 
   if (!bootReady) {
-    // Render the same splash image as the native splash screen so the
-    // handoff is seam-free while fonts load — the native splash auto-hides
-    // on this very frame.
-    return (
-      <View style={[styles.root, { backgroundColor: '#FBFAF6' }]}>
-        <BootSplash />
-      </View>
-    );
+    // The native splash (preventAutoHideAsync) covers this while fonts load;
+    // the paper backdrop only shows on binaries without the splash module
+    // (pre-module OTA targets), where the splash auto-hides early.
+    return <View style={[styles.root, { backgroundColor: '#FBFAF6' }]} />;
   }
 
   // NOTE: the Papir early-return lives further down (after the modal
@@ -913,11 +978,6 @@ export default function App() {
             <PapirRoot loggedOut={loggedOut} />
             {sessionOverlays}
             {memoryConsentModal}
-            {!splashDone && (
-              <Animated.View style={StyleSheet.absoluteFill} exiting={FadeOut.duration(SPLASH_FADE_MS)}>
-                <BootSplash />
-              </Animated.View>
-            )}
           </View>
         </ErrorBoundary>
       </ThemeProvider>
@@ -1074,14 +1134,6 @@ export default function App() {
         />
       )}
       <StatusBarScrim />
-      {!splashDone && (
-        <Animated.View
-          style={[StyleSheet.absoluteFill, { zIndex: 20, elevation: 20 }]}
-          exiting={FadeOut.duration(SPLASH_FADE_MS)}
-        >
-          <BootSplash />
-        </Animated.View>
-      )}
     </View>
     </ChromeInsetsContext.Provider>
     </ErrorBoundary>
