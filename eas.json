@@ -52,6 +52,9 @@
         "ascAppId": "6762557826",
         "appleTeamId": "N6WPH3FPFA"
       }
+    },
+    "papir-preview": {
+      "extends": "production"
     }
   }
 }
