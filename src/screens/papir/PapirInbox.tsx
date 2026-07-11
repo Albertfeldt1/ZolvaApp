@@ -25,10 +25,14 @@ const PROVIDER_AVATAR: Record<MailProvider, { letter: string; bg: string; color:
 };
 
 /** Auth-class errors need re-connect; everything else is transient. */
+function isAuthError(code: string): boolean {
+  return code.includes('auth') || code.includes('reauth') || code.includes('credential');
+}
+
 function errorLine(provider: string, code: string): string {
   const name = PROVIDER_NAMES[provider] ?? provider;
-  if (code.includes('auth') || code.includes('reauth') || code.includes('credential')) {
-    return `${name}-forbindelsen er udløbet. Genopret den under Indstillinger i den klassiske visning.`;
+  if (isAuthError(code)) {
+    return `${name}-forbindelsen er udløbet. Genopret den under Indstillinger.`;
   }
   return `${name} kunne ikke hentes lige nu. Træk ned for at prøve igen.`;
 }
@@ -286,6 +290,22 @@ export function PapirInbox() {
           <PaperText role="small" color={papirColor.ink2} style={{ flex: 1 }}>
             {errorLine(e.provider, e.code)}
           </PaperText>
+          {/* Expired auth is only recoverable from Settings — hand the user
+              a direct route instead of a dead-end description. */}
+          {isAuthError(e.code) ? (
+            <ScaleButton
+              scaleTo={0.97}
+              haptic="light"
+              onPress={() => nav.push('settings')}
+              accessibilityRole="button"
+              accessibilityLabel="Åbn Indstillinger"
+              style={{ paddingVertical: 4, paddingLeft: 6 }}
+            >
+              <PaperText role="bodyStrong" color={papirColor.red}>
+                Åbn Indstillinger
+              </PaperText>
+            </ScaleButton>
+          ) : null}
         </View>
       ))}
 

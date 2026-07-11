@@ -459,15 +459,14 @@ export function PapirSettings() {
         </Group>
       ) : null}
 
-      {/* Dev: exit hatch back to the classic UI (the toggle lives in the
-          classic Settings' dev cluster; without this Papir is a roach motel). */}
-      {__DEV__ ? (
-        <Group label="Udvikler">
-          <Pressable onPress={() => void setPapirEnabled(false)} accessibilityRole="button" accessibilityLabel="Skift til klassisk UI">
-            <SRow Icon={ArrowLeftRight} label="Skift til klassisk UI" right={chevron} divider={false} />
-          </Pressable>
-        </Group>
-      ) : null}
+      {/* Escape hatch to the classic UI — visible in all builds while the
+          classic UI still exists (Papir became the default 2026-07-11).
+          The classic Settings has the matching row back. */}
+      <Group label="Design">
+        <Pressable onPress={() => void setPapirEnabled(false)} accessibilityRole="button" accessibilityLabel="Skift til klassisk design">
+          <SRow Icon={ArrowLeftRight} label="Skift til klassisk design" right={chevron} divider={false} />
+        </Pressable>
+      </Group>
     </ScrollView>
     {deleteOpen ? (
       <View style={[StyleSheet.absoluteFill, { zIndex: 90, backgroundColor: papirColor.paper }]}>

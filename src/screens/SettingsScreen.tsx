@@ -74,7 +74,7 @@ import { listWritableCalendars, type ProviderCalendar } from '../lib/calendar-pr
 import { useIntegrationFlags, clearIntegrationFlags } from '../lib/integration-flags';
 import type { CalendarLabelKey } from '../lib/calendar-labels';
 import { supabase } from '../lib/supabase';
-import { PAPIR_PREVIEW_BUILD, setPapirEnabled } from '../lib/papir-flag';
+import { setPapirEnabled } from '../lib/papir-flag';
 import type { Connection, IntegrationStatus, WorkPreference } from '../lib/types';
 import { clearCredential, loadCredential } from '../lib/icloud-credentials';
 import { clearDiscoveryCacheFor } from '../lib/icloud-calendar';
@@ -2203,18 +2203,19 @@ export function SettingsScreen({
                 </Pressable>
               </SettingsSectionCard>
 
-              {/* Dev/preview: switch to the Papir UI (runtime toggle; store
-                  builds ignore the flag entirely — see src/lib/papir-flag.ts). */}
-              {(__DEV__ || PAPIR_PREVIEW_BUILD) && (
-                <Pressable
-                  onPress={() => {
-                    void setPapirEnabled(true);
-                  }}
-                  style={{ padding: 16, backgroundColor: '#333', borderRadius: 8, marginTop: 24, marginHorizontal: spacing.screenPad }}
-                >
-                  <Text style={{ color: '#fff' }}>Papir UI (dev)</Text>
-                </Pressable>
-              )}
+              {/* Papir is the default UI (2026-07-11); classic is the escape
+                  hatch. This row is the way back for users who switched —
+                  must stay visible in ALL builds while classic exists. */}
+              <Pressable
+                onPress={() => {
+                  void setPapirEnabled(true);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Skift til det nye design"
+                style={{ padding: 16, backgroundColor: '#333', borderRadius: 8, marginTop: 24, marginHorizontal: spacing.screenPad }}
+              >
+                <Text style={{ color: '#fff' }}>Skift til det nye design</Text>
+              </Pressable>
 
               {/* Dev buttons - only visible for albertfeldt1; keep dark style */}
               {user?.email === 'albertfeldt1@gmail.com' && (

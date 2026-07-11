@@ -1,30 +1,25 @@
-// Dev-only runtime toggle for the Papir UI.
+// Runtime toggle for the Papir UI.
 //
-// Replaces the old PAPIR_PREVIEW boolean in index.ts: instead of swapping the
-// root component at bundle time (which bypassed auth/providers entirely),
+// 2026-07-11: Papir is the DEFAULT UI in all builds (parity audit passed;
+// voice-calendar labels intentionally dropped — replaced by our own flow).
+// The classic UI remains as a user-reachable escape hatch via the
+// "Skift til klassisk UI" row in PapirSettings; the classic SettingsScreen
+// offers the way back. Remove the flag entirely when classic is deleted.
+//
 // App.tsx reads this flag AFTER boot and renders PapirRoot inside the real
-// provider/auth tree. The flag is device-level (not per-user) because it is a
-// developer switch, not user data.
-//
-// SAFETY: usePapirEnabled()/isPapirEnabled() hard-return false in release
-// builds no matter what AsyncStorage says — same guarantee the __DEV__-gated
-// PAPIR_PREVIEW flag had — UNLESS the build was made with the papir-preview
-// profile (see PAPIR_PREVIEW_BUILD below). Store builds from the production
-// profile can never ship Papir-only.
+// provider/auth tree. The flag is device-level (not per-user): it is a UI
+// preference/escape hatch, not user data.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSyncExternalStore } from 'react';
 
-// Preview builds: eas.json's "papir-preview" profile bakes
-// EXPO_PUBLIC_PAPIR_PREVIEW=1 into the bundle so TestFlight can exercise
-// Papir. No other profile sets it, so store builds keep the release
-// guarantee above. Papir defaults ON in preview builds (that's their whole
-// purpose); the PapirSettings "Skift til klassisk UI" switch still works
-// and sticks across restarts.
+// Kept for the (now redundant) papir-preview eas profile; existing TestFlight
+// builds on that channel still bake this in. Harmless since Papir defaults on.
 export const PAPIR_PREVIEW_BUILD = process.env.EXPO_PUBLIC_PAPIR_PREVIEW === '1';
 
 const KEY = 'zolva.dev.papirEnabled';
 
-let cached = PAPIR_PREVIEW_BUILD;
+// Papir on by default; AsyncStorage '0' (user chose classic) overrides.
+let cached = true;
 let hydrated = false;
 const listeners = new Set<() => void>();
 
@@ -37,25 +32,25 @@ async function hydrate(): Promise<void> {
   hydrated = true;
   try {
     const raw = await AsyncStorage.getItem(KEY);
-    // '0' must override the preview-build default so "Skift til klassisk
-    // UI" survives a restart; missing key keeps the build default.
+    // '0' must override the default so "Skift til klassisk UI" survives a
+    // restart; missing key keeps the Papir default.
     const next = raw === '1' ? true : raw === '0' ? false : cached;
     if (next !== cached) {
       cached = next;
       emit();
     }
   } catch {
-    // Unreadable storage → stay on the build default; the Settings toggle
+    // Unreadable storage → stay on the default; the Settings toggle
     // still works.
   }
 }
 
-/** Synchronous read (module cache; false until hydrated). Dev/preview-only. */
+/** Synchronous read (module cache; defaults to Papir until hydrated). */
 export function isPapirEnabled(): boolean {
-  return (__DEV__ || PAPIR_PREVIEW_BUILD) && cached;
+  return cached;
 }
 
-/** Flip the Papir UI on/off. Persists across restarts (dev builds only). */
+/** Flip the Papir UI on/off. Persists across restarts. */
 export async function setPapirEnabled(value: boolean): Promise<void> {
   cached = value;
   emit();
@@ -72,8 +67,7 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-/** Reactive flag for App.tsx. Always false in store/release builds. */
+/** Reactive flag for App.tsx. */
 export function usePapirEnabled(): boolean {
-  const value = useSyncExternalStore(subscribe, () => cached);
-  return (__DEV__ || PAPIR_PREVIEW_BUILD) && value;
+  return useSyncExternalStore(subscribe, () => cached);
 }
