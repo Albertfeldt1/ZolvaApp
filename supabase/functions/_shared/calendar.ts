@@ -341,7 +341,7 @@ async function fetchGoogleCalendarEvents(
       return [];
     }
     return [{
-      title: (e.summary ?? '').trim() || 'Møde uden titel',
+      title: (e.summary ?? '').trim() || 'Uden titel',
       startIso: startIsoRaw,
       endIso: endIsoRaw,
       location: e.location || undefined,
@@ -400,7 +400,7 @@ async function fetchMicrosoftCalendarEvents(
       return [];
     }
     return [{
-      title: (e.subject ?? '').trim() || 'Møde uden titel',
+      title: (e.subject ?? '').trim() || 'Uden titel',
       startIso: startIsoRaw,
       endIso: endIsoRaw,
       location: e.location?.displayName || undefined,

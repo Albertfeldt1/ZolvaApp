@@ -355,7 +355,7 @@ function parseVcalendarEvents(
 function toSummary(source: ICAL.Event, start: Date, end: Date): EventSummary {
   const isAllDay = !!source.startDate?.isDate;
   return {
-    title: (source.summary ?? '').trim() || 'Møde uden titel',
+    title: (source.summary ?? '').trim() || 'Uden titel',
     startIso: start.toISOString(),
     endIso: end.toISOString(),
     location: source.location || undefined,

@@ -109,13 +109,15 @@ async function sendPush(
   tokens: string[],
   reminders: Array<{ id: string; title: string }>,
 ): Promise<{ submitted: boolean; deadTokens: string[] }> {
+  // The reminder's own text is the headline - "Ring til banken" beats a
+  // generic "Påmindelse fra Zolva" the user has to expand to understand.
   const headline = reminders[0].title;
   const body = reminders.length === 1
-    ? headline
-    : `${headline}\n+ ${reminders.length - 1} flere påmindelser`;
+    ? 'Påmindelse'
+    : `+ ${reminders.length - 1} flere påmindelser`;
   const messages = tokens.map((token) => ({
     to: token,
-    title: 'Påmindelse fra Zolva',
+    title: headline,
     body,
     sound: 'default',
     data: {

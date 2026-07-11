@@ -355,6 +355,7 @@ async function generateOneBrief(
     brief.headline,
     inserted.id as string,
     sections.focus[0] ?? sections.calendar[0] ?? body[0] ?? null,
+    brief.tone ?? null,
   );
   await client
     .from('briefs')
@@ -369,7 +370,7 @@ async function assembleInputs(
   kind: 'morning' | 'midday' | 'evening',
   timezone: string,
 ): Promise<BriefInputs> {
-  const [commitmentsRes, mailRes, weather, events] = await Promise.all([
+  const [commitmentsRes, mailRes, weather, events, name] = await Promise.all([
     client
       .from('facts')
       .select('text')
@@ -387,6 +388,7 @@ async function assembleInputs(
       .limit(3),
     fetchWeather(DEFAULT_LAT, DEFAULT_LNG),
     fetchCalendarForUser(client, userId, timezone),
+    fetchUserName(client, userId),
   ]);
 
   // Reminders are still local-only (AsyncStorage on the phone). The Today
@@ -394,7 +396,7 @@ async function assembleInputs(
 
   return {
     kind,
-    name: null,
+    name,
     timezone,
     events,
     unread: (mailRes.data ?? []).map((r) => ({
@@ -407,6 +409,23 @@ async function assembleInputs(
     reminders: [],
     weather,
   };
+}
+
+// User's display name from auth metadata (same source as the client greeting:
+// user_metadata.name ?? full_name). Nullable - the composer omits the line.
+async function fetchUserName(
+  client: SupabaseClient,
+  userId: string,
+): Promise<string | null> {
+  try {
+    const { data, error } = await client.auth.admin.getUserById(userId);
+    if (error || !data.user) return null;
+    const meta = (data.user.user_metadata ?? {}) as { name?: string; full_name?: string };
+    const name = (meta.name ?? meta.full_name ?? '').trim();
+    return name || null;
+  } catch {
+    return null;
+  }
 }
 
 async function composeWithClaude(
@@ -475,6 +494,7 @@ async function sendPush(
   headline: string,
   briefId: string,
   firstLine: string | null,
+  tone: string | null,
 ): Promise<void> {
   const { data: tokens } = await client
     .from('push_tokens')
@@ -494,7 +514,9 @@ async function sendPush(
     title,
     body,
     sound: 'default',
-    data: { type: 'brief', briefId },
+    // tone rides along so the client can style the notification/brief card
+    // (calm/busy/heads-up) without an extra fetch.
+    data: { type: 'brief', briefId, ...(tone ? { tone } : {}) },
   }));
 
   try {
