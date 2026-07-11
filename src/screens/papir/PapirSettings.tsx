@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState, type ComponentType, type ReactNode } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, StyleSheet, View, type ImageSourcePropType } from 'react-native';
 import {
   ArrowLeftRight,
   Bell,
@@ -39,14 +39,28 @@ import { PushHeader } from './PushHeader';
 
 type IconCmp = ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
 
+// Provider logos for the "Forbundet" rows — keyed by Connection.logo, same
+// filenames as the classic SettingsScreen's LOGOS map.
+const LOGOS: Record<string, ImageSourcePropType> = {
+  'google-calendar.png': require('../../../assets/logos/google-calendar.png'),
+  'gmail.png': require('../../../assets/logos/gmail.png'),
+  'google-drive.png': require('../../../assets/logos/google-drive.png'),
+  'outlook-calendar.png': require('../../../assets/logos/outlook-calendar.png'),
+  'outlook-mail.png': require('../../../assets/logos/outlook-mail.png'),
+  'onedrive.png': require('../../../assets/logos/onedrive.png'),
+  'icloud.png': require('../../../assets/logos/icloud.png'),
+};
+
 function SRow({
   Icon,
+  logo,
   label,
   right,
   danger,
   divider,
 }: {
   Icon: IconCmp;
+  logo?: ImageSourcePropType;
   label: string;
   right?: ReactNode;
   danger?: boolean;
@@ -63,7 +77,11 @@ function SRow({
         borderTopColor: papirColor.line,
       }}
     >
-      <Icon size={19} color={danger ? papirColor.red : papirColor.ink2} strokeWidth={1.7} />
+      {logo ? (
+        <Image source={logo} style={{ width: 19, height: 19 }} resizeMode="contain" />
+      ) : (
+        <Icon size={19} color={danger ? papirColor.red : papirColor.ink2} strokeWidth={1.7} />
+      )}
       <PaperText role="bodyStrong" color={danger ? papirColor.red : papirColor.ink} style={{ flex: 1 }}>
         {label}
       </PaperText>
@@ -219,7 +237,7 @@ function ConnectionsGroup() {
           accessibilityLabel={c.title}
           accessibilityHint={c.status === 'connected' ? 'Hold nede for at logge helt ud' : 'Tryk for at forbinde'}
         >
-          <SRow Icon={Link2} label={c.title} right={rowRight(c)} divider={i > 0} />
+          <SRow Icon={Link2} logo={LOGOS[c.logo]} label={c.title} right={rowRight(c)} divider={i > 0} />
         </Pressable>
       ))}
       <Pressable
@@ -239,6 +257,7 @@ function ConnectionsGroup() {
       >
         <SRow
           Icon={Cloud}
+          logo={LOGOS['icloud.png']}
           label="iCloud"
           right={
             icloudStatus === 'connected' ? (
