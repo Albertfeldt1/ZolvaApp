@@ -145,6 +145,7 @@ function setupSuggestions() {
     data: [],
     loading: false,
     error: null,
+    waitingMailCount: 0,
   });
 }
 

@@ -72,6 +72,7 @@ import {
   resolveGoogleEventColor,
 } from './google-calendar';
 import { listAllCalendars } from './calendar-providers';
+import { noteTodayCalendarEvents } from './calendar-today-snapshot';
 import { useCalendarVisibility } from './calendar-visibility';
 import {
   createDraft as gmailCreateDraft,
@@ -1104,6 +1105,17 @@ function useCalendarItems(
           .filter((e) => e.start >= todayStart && e.start < todayEnd)
           .map((e) => ({ id: e.id, start: e.start, end: e.end, title: e.title }));
         void writeSnapshotFromSources({ userId, events: todayEvents });
+        // Mirror into the in-memory today-snapshot (chat chips + memory
+        // preamble read it synchronously). Only when the fetched range fully
+        // covers today - a Plan-tab browse of another day must not blank
+        // today's context with its (correctly) empty today-filter.
+        if (start.getTime() <= todayStart.getTime() && end.getTime() >= todayEnd.getTime()) {
+          noteTodayCalendarEvents(
+            fulfilled
+              .filter((e) => e.start >= todayStart && e.start < todayEnd)
+              .map((e) => ({ id: e.id, title: e.title, start: e.start, end: e.end, allDay: e.allDay })),
+          );
+        }
       });
 
     return () => {
@@ -5104,13 +5116,24 @@ function selectSuggestionMails(items: NormalizedMail[]): MailForSuggestion[] {
     }));
 }
 
-export function useChatSuggestions(): Result<string[]> {
+export function useChatSuggestions(): Result<string[]> & { waitingMailCount: number } {
   const { items, loading, error } = useMailItems();
+  const dismissed = useDismissedMailIds();
   const [state, setState] = useState<Result<string[]>>({
     data: padSuggestions([]),
     loading: false,
     error: null,
   });
+
+  // Cheap "Venter på dig"-count for the chat's contextual chips: unread,
+  // not swiped away, and in the human tiers (0-1). Reuses the mail items
+  // this hook already fetches plus the free urgencyTier heuristics - no
+  // classifier calls, no extra network. 0 while loading/errored so the
+  // chip degrades silently.
+  const waitingMailCount =
+    loading || error
+      ? 0
+      : items.filter((m) => !m.isRead && !dismissed.has(m.id) && urgencyTier(m) <= 1).length;
 
   useEffect(() => {
     if (!hasClaudeKey()) {
@@ -5163,7 +5186,12 @@ export function useChatSuggestions(): Result<string[]> {
     };
   }, [items, loading, error]);
 
-  return { data: state.data.slice(0, CHAT_SUGGESTION_COUNT), loading: state.loading, error: state.error };
+  return {
+    data: state.data.slice(0, CHAT_SUGGESTION_COUNT),
+    loading: state.loading,
+    error: state.error,
+    waitingMailCount,
+  };
 }
 
 export function useChat() {
@@ -5414,8 +5442,14 @@ export function useChat() {
         // to avoid doubling it.
         const systemBlocks: ClaudeSystemBlock[] = [];
         const sessionUser = user ?? null;
-        if (userId && sessionUser && getPrivacyFlag('memory-enabled')) {
-          const preamble = await buildProfilePreamble(userId, { user: sessionUser });
+        // memory-enabled gates only the memory-derived sections inside
+        // buildProfilePreamble; today's calendar context attaches regardless
+        // (it isn't memory - see profile.ts).
+        if (userId && sessionUser) {
+          const preamble = await buildProfilePreamble(userId, {
+            user: sessionUser,
+            memoryEnabled: getPrivacyFlag('memory-enabled'),
+          });
           if (preamble) {
             systemBlocks.push({
               type: 'text',

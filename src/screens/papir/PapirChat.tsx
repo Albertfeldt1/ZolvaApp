@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -9,12 +9,20 @@ import {
   View,
 } from 'react-native';
 import { ArrowUp, Trash2 } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 import { ScaleButton } from '../../design/motion';
 import { Chip, IconButton, PaperText, papirColor, papirFont, papirRadius, papirSpace } from '../../design/papir';
 import { renderInlineMd } from '../../components/inline-md';
+import {
+  getTodayCalendarEvents,
+  subscribeTodayCalendarEvents,
+  type TodayCalendarEvent,
+} from '../../lib/calendar-today-snapshot';
 import { useChat, useChatSuggestions } from '../../lib/hooks';
+import { subscribeFactExtracted } from '../../lib/profile-extractor';
 import type { ChatMessage, SendDraftAction } from '../../lib/types';
 import { PushHeader } from './PushHeader';
+import { useNow } from './useNow';
 
 function ZolvaMsg({ text }: { text: string }) {
   // Model replies use **bold** markdown — render it instead of showing raw
@@ -114,12 +122,106 @@ function capResetLabel(resetsAt: string | null): string {
   return `${String(d.getHours()).padStart(2, '0')}.${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+const MAX_CHIPS = 4;
+const MAX_CONTEXT_CHIPS = 3; // keep at least one familiar fallback in the row
+const PREP_WINDOW_MS = 90 * 60 * 1000;
+const CHIP_TITLE_CHAR_CAP = 28;
+
+function chipClock(d: Date): string {
+  return `${String(d.getHours()).padStart(2, '0')}.${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function truncateTitle(title: string): string {
+  const t = title.trim().replace(/\s+/g, ' ');
+  return t.length > CHIP_TITLE_CHAR_CAP ? t.slice(0, CHIP_TITLE_CHAR_CAP - 1).trimEnd() + '…' : t;
+}
+
+// Context-driven suggestion chips for the empty state. Simple client-side
+// rules over data that's already in memory (calendar snapshot + the mail
+// items the suggestion hook fetches anyway) - a source that hasn't loaded
+// just skips its chip. Fallbacks from the existing suggestion list fill the
+// row so it's never empty.
+function buildContextChips(opts: {
+  now: Date;
+  todayEvents: TodayCalendarEvent[];
+  waitingMailCount: number;
+  fallbacks: string[];
+}): string[] {
+  const { now, todayEvents, waitingMailCount, fallbacks } = opts;
+  const contextual: string[] = [];
+  const nowMs = now.getTime();
+
+  const upcoming = todayEvents.find(
+    (e) => !e.allDay && e.start.getTime() > nowMs && e.start.getTime() - nowMs <= PREP_WINDOW_MS,
+  );
+  if (upcoming) {
+    contextual.push(`Forbered mig til ${truncateTitle(upcoming.title)} kl. ${chipClock(upcoming.start)}`);
+  }
+  if (waitingMailCount >= 2) contextual.push(`Gennemgå de ${waitingMailCount} mails der venter`);
+  else if (waitingMailCount === 1) contextual.push('Hvad venter i min indbakke?');
+  if (now.getDay() === 5 && now.getHours() >= 14) contextual.push('Opsummér min uge');
+  if (now.getHours() < 10) contextual.push('Hvad er vigtigst i dag?');
+
+  const out = contextual.slice(0, MAX_CONTEXT_CHIPS);
+  for (const s of fallbacks) {
+    if (out.length >= MAX_CHIPS) break;
+    if (out.some((c) => c.trim().toLowerCase() === s.trim().toLowerCase())) continue;
+    out.push(s);
+  }
+  return out.slice(0, MAX_CHIPS);
+}
+
 export function PapirChat() {
   const chat = useChat();
   const suggestions = useChatSuggestions();
   const [input, setInput] = useState('');
   const scrollRef = useRef<ScrollView>(null);
   const countRef = useRef(0);
+  // Ticks per minute (and on foreground) so the time-of-day chip rules stay
+  // fresh - the tab is keep-alive mounted, a bare new Date() would freeze.
+  const now = useNow();
+
+  // Calendar snapshot for the "Forbered mig til …"-chip. Populated as a side
+  // effect of the calendar fetches other screens already run; the tick just
+  // re-renders when a fetch lands so the chip can appear without one here.
+  const [calTick, setCalTick] = useState(0);
+  useEffect(() => subscribeTodayCalendarEvents(() => setCalTick((t) => t + 1)), []);
+  const chips = useMemo(
+    () =>
+      buildContextChips({
+        now,
+        todayEvents: getTodayCalendarEvents(now),
+        waitingMailCount: suggestions.waitingMailCount,
+        fallbacks: suggestions.data,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [now, calTick, suggestions.waitingMailCount, suggestions.data],
+  );
+
+  // "Noteret" micro-confirmation: when the fact-extractor lands a new pending
+  // fact for a turn in THIS conversation, show a discreet line under the
+  // assistant reply that produced it. Session-only - never persisted, and it
+  // clears again on the next send.
+  const [noted, setNoted] = useState<{ msgId: string; text: string } | null>(null);
+  const messagesRef = useRef<ChatMessage[]>(chat.data);
+  messagesRef.current = chat.data;
+  useEffect(
+    () =>
+      subscribeFactExtracted((e) => {
+        const msgId = e.source?.startsWith('chat:') ? e.source.slice('chat:'.length) : null;
+        if (!msgId) return;
+        if (!messagesRef.current.some((m) => m.id === msgId)) return;
+        setNoted({ msgId, text: e.text });
+        Haptics.selectionAsync().catch(() => {});
+      }),
+    [],
+  );
+  // The line lands under the last bubble seconds after the reply - nudge the
+  // scroll so it isn't hidden behind the composer.
+  useEffect(() => {
+    if (!noted) return;
+    requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+  }, [noted]);
 
   // The quota banner must not outlive the quota: auto-clear when resetsAt
   // passes so the composer unblocks without a restart (M10).
@@ -147,6 +249,7 @@ export function PapirChat() {
     const trimmed = text.trim();
     if (!trimmed || chat.typing) return;
     setInput('');
+    setNoted(null); // the confirmation belongs to the previous turn only
     chat.send(trimmed);
   };
 
@@ -161,13 +264,20 @@ export function PapirChat() {
   const renderMessage = (m: ChatMessage) => {
     const bubble = m.from === 'user' ? <MeMsg text={m.text} /> : <ZolvaMsg text={m.text} />;
     const drafts = m.drafts ?? [];
-    if (drafts.length === 0) return <View key={m.id}>{bubble}</View>;
+    const notedLine =
+      noted && noted.msgId === m.id ? (
+        <PaperText role="small" color={papirColor.ink3} style={{ maxWidth: '84%', alignSelf: 'flex-start' }}>
+          Noteret – jeg husker: {noted.text}
+        </PaperText>
+      ) : null;
+    if (drafts.length === 0 && !notedLine) return <View key={m.id}>{bubble}</View>;
     return (
       <View key={m.id} style={{ gap: 12 }}>
         {bubble}
         {drafts.map((d, i) => (
           <DraftCard key={`${m.id}-draft-${i}`} draft={d} onSend={() => chat.sendDraft(d).then((r) => r.ok)} />
         ))}
+        {notedLine}
       </View>
     );
   };
@@ -234,7 +344,7 @@ export function PapirChat() {
         <View style={{ paddingHorizontal: papirSpace.screen, paddingTop: 12, paddingBottom: 28, gap: 12 }}>
           {chat.data.length === 0 ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-              {suggestions.data.map((s) => (
+              {chips.map((s) => (
                 <Chip key={s} label={s} onPress={() => sendText(s)} />
               ))}
             </ScrollView>

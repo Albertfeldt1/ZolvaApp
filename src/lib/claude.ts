@@ -134,8 +134,14 @@ export async function completeRaw(opts: CompleteOptions): Promise<ClaudeCompleti
 
   const attach = opts.attachProfile !== false && userId;
   let systemBlocks: ClaudeSystemBlock[] = [];
-  if (attach && getPrivacyFlag('memory-enabled')) {
-    const preamble = await buildProfilePreamble(userId, { user: sessionData.session!.user });
+  // memory-enabled gates only the memory-derived sections inside
+  // buildProfilePreamble; today's calendar context attaches regardless
+  // (it isn't memory - see profile.ts).
+  if (attach) {
+    const preamble = await buildProfilePreamble(userId, {
+      user: sessionData.session!.user,
+      memoryEnabled: getPrivacyFlag('memory-enabled'),
+    });
     if (preamble) {
       systemBlocks.push({ type: 'text', text: preamble, cache_control: { type: 'ephemeral' } });
     }

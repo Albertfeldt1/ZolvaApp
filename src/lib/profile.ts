@@ -17,12 +17,19 @@ import {
   listRecentChatMessages,
   listRecentMailEvents,
 } from './profile-store';
+import { getTodayCalendarEvents } from './calendar-today-snapshot';
 import { DEMO_PROFILE_PREAMBLE } from './profile-demo';
 import { isDemoUser } from './demo';
 import { subscribeUserId } from './auth';
 
 const PREAMBLE_TOKEN_CAP = 800;
 const CONTEXT_LINE_CHAR_CAP = 120;
+// "Dagens kalender" is a compact tail section: hard-capped on lines and
+// tokens of its own, and the first thing trimmed when the combined
+// preamble would blow PREAMBLE_TOKEN_CAP (facts are load-bearing).
+const CALENDAR_LINE_CAP = 6;
+const CALENDAR_TOKEN_CAP = 150;
+const CALENDAR_TITLE_CHAR_CAP = 60;
 
 // Rough char -> token ratio. Anthropic tokenizer averages ~4 chars/token for Danish text.
 function approxTokenCount(s: string): number {
@@ -145,6 +152,50 @@ export async function buildProfilePreambleFromData(data: {
   return text;
 }
 
+function clockHM(d: Date): string {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// Today's timed events as "• HH:MM–HH:MM Titel" lines, from the in-memory
+// snapshot the calendar fetches already populate (no fetch of its own -
+// empty snapshot just means no section). Capped on lines + tokens.
+function renderTodayCalendarLines(): string[] {
+  const lines = getTodayCalendarEvents()
+    .filter((e) => !e.allDay)
+    .slice(0, CALENDAR_LINE_CAP)
+    .map((e) => {
+      const title = e.title.trim().replace(/\s+/g, ' ');
+      const truncated = title.length > CALENDAR_TITLE_CHAR_CAP
+        ? title.slice(0, CALENDAR_TITLE_CHAR_CAP - 1) + '…'
+        : title;
+      return `• ${clockHM(e.start)}–${clockHM(e.end)} ${truncated}`;
+    });
+  while (lines.length > 0 && approxTokenCount(lines.join('\n')) > CALENDAR_TOKEN_CAP) {
+    lines.pop();
+  }
+  return lines;
+}
+
+// Appends "Dagens kalender" to the memory preamble. The calendar section is
+// deliberately OUTSIDE the memory gates (kill switch + memory-enabled
+// toggle): it is fetched-fresh context, not something Zolva has remembered
+// about the user. When the combined text exceeds the token cap, calendar
+// lines are dropped first - the memory part already fit on its own.
+function appendTodayCalendar(memory: string): string {
+  let lines = renderTodayCalendarLines();
+  if (lines.length === 0) return memory;
+  const render = (ls: string[]) =>
+    [memory, ls.length > 0 ? `Dagens kalender:\n${ls.join('\n')}` : '']
+      .filter(Boolean)
+      .join('\n\n');
+  let text = render(lines);
+  while (approxTokenCount(text) > PREAMBLE_TOKEN_CAP && lines.length > 0) {
+    lines = lines.slice(0, -1);
+    text = render(lines);
+  }
+  return text;
+}
+
 type CachedPreamble = { signature: string; value: string };
 const preambleCache = new Map<string, CachedPreamble>();
 
@@ -158,12 +209,26 @@ export function invalidatePreamble(userId: string): void {
 
 export async function buildProfilePreamble(
   userId: string,
-  opts?: { user?: { id: string; isDemo?: boolean } },
+  opts?: { user?: { id: string; isDemo?: boolean }; memoryEnabled?: boolean },
 ): Promise<string> {
   // Demo users get a pre-baked preamble; never touches Supabase.
   if (opts?.user && isDemoUser(opts.user as never)) return DEMO_PROFILE_PREAMBLE;
+  // Calendar context is appended AFTER the (cached) memory part so a fresh
+  // schedule never gets baked into the facts-signature cache.
+  return appendTodayCalendar(await buildMemorySections(userId, opts));
+}
+
+// The memory-derived sections (facts + recent chat/mail context). Doubly
+// gated: the app-level kill switch and the caller-supplied per-user
+// memory-enabled privacy toggle (undefined = enabled, preserving the old
+// behavior for call sites that gated externally).
+async function buildMemorySections(
+  userId: string,
+  opts?: { memoryEnabled?: boolean },
+): Promise<string> {
   // App-level kill switch - see PROFILE_MEMORY_ENABLED comment at module top.
   if (!PROFILE_MEMORY_ENABLED) return '';
+  if (opts?.memoryEnabled === false) return '';
 
   try {
     const signature = await getFactsSignature(userId);

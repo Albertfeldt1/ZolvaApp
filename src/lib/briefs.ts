@@ -43,6 +43,12 @@ function rowToSections(raw: unknown): BriefSections | null {
   };
 }
 
+// The server composes `tone`; guard against unknown/future values so the UI's
+// tone styling degrades to the neutral default instead of styling on garbage.
+function rowToTone(raw: unknown): Brief['tone'] {
+  return raw === 'calm' || raw === 'busy' || raw === 'heads-up' ? raw : null;
+}
+
 function rowToBrief(r: Record<string, unknown>): Brief {
   return {
     id: r.id as string,
@@ -51,7 +57,7 @@ function rowToBrief(r: Record<string, unknown>): Brief {
     body: Array.isArray(r.body) ? (r.body as string[]) : [],
     sections: rowToSections(r.sections),
     weather: (r.weather as Brief['weather']) ?? null,
-    tone: (r.tone as Brief['tone']) ?? null,
+    tone: rowToTone(r.tone),
     generatedAt: new Date(r.generated_at as string),
     readAt: r.read_at ? new Date(r.read_at as string) : null,
   };

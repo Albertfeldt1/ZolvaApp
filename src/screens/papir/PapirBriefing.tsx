@@ -7,8 +7,10 @@ import { useTodayBrief } from '../../lib/briefs';
 import { useWorkPreferences } from '../../lib/hooks';
 import { formatToday } from '../../lib/date';
 import { usePapirNav } from './nav';
+import { BRIEF_TONE } from './PapirHome';
 import { PapirLoader } from './PapirLoader';
 import { PushHeader } from './PushHeader';
+import { useNow } from './useNow';
 
 function Section({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -52,6 +54,24 @@ function greetingFor(now: Date, kind: 'morning' | 'midday' | 'evening'): string 
   return `${hello},\n${line}`;
 }
 
+/** "Næste briefing om 2 t 14 min" — countdown to the next scheduled brief.
+ * `value` is the work-pref time ("08.00"; same format isMorningBriefReady
+ * accepts). Already-passed times roll to tomorrow; unparsable → null so the
+ * empty state keeps today's copy. */
+function nextBriefCountdown(value: string, now: Date): string | null {
+  const m = value.match(/^(\d{1,2})\.(\d{2})$/);
+  if (!m) return null;
+  const next = new Date(now);
+  next.setHours(parseInt(m[1], 10), parseInt(m[2], 10), 0, 0);
+  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
+  const mins = Math.ceil((next.getTime() - now.getTime()) / 60_000);
+  const h = Math.floor(mins / 60);
+  const min = mins % 60;
+  if (h === 0) return `Næste briefing om ${min} min`;
+  if (min === 0) return `Næste briefing om ${h} t`;
+  return `Næste briefing om ${h} t ${min} min`;
+}
+
 export function PapirBriefing() {
   const nav = usePapirNav();
   const { brief, loading, markRead, refresh } = useTodayBrief();
@@ -69,7 +89,10 @@ export function PapirBriefing() {
     if (brief && !brief.readAt) void markRead();
   }, [brief, markRead]);
 
-  const now = new Date();
+  // Ticks per minute: keeps the empty-state countdown live and the greeting
+  // honest if the screen is left open across a threshold.
+  const now = useNow();
+  const countdown = morningTime && morningTime !== 'Fra' ? nextBriefCountdown(morningTime, now) : null;
   const d = formatToday(now);
   const genTime = brief
     ? `${String(brief.generatedAt.getHours()).padStart(2, '0')}.${String(brief.generatedAt.getMinutes()).padStart(2, '0')}`
@@ -77,6 +100,10 @@ export function PapirBriefing() {
   const eyebrow = brief
     ? `${d.weekdayFull} · ${d.day}. ${d.monthFull} · ${genTime}`
     : `${d.weekdayFull} · ${d.day}. ${d.monthFull}`;
+
+  // Tone tag in the eyebrow — additive and restrained: calm IS the default
+  // look (no tag), busy gets rust, only heads-up may borrow the red accent.
+  const toneMeta = brief?.tone && brief.tone !== 'calm' ? BRIEF_TONE[brief.tone] : null;
 
   const s = brief?.sections ?? null;
   const weatherLines = s?.weather?.length
@@ -102,6 +129,13 @@ export function PapirBriefing() {
           <PaperText role="bodyStrong" color={papirColor.ink2}>
             Ingen briefing endnu
           </PaperText>
+          {/* Live countdown (per-minute via useNow); the schedule sentence
+              drops to secondary. No parseable time → today's copy as-is. */}
+          {countdown ? (
+            <PaperText role="body" color={papirColor.ink2} style={{ textAlign: 'center' }}>
+              {countdown}
+            </PaperText>
+          ) : null}
           <PaperText role="body" color={papirColor.ink3} style={{ textAlign: 'center', maxWidth: 280 }}>
             {scheduleLine}
           </PaperText>
@@ -112,6 +146,9 @@ export function PapirBriefing() {
           <View style={{ paddingHorizontal: papirSpace.screen }}>
             <PaperText role="eyebrow" color={papirColor.ink3}>
               {eyebrow}
+              {toneMeta ? (
+                <PaperText role="eyebrow" color={toneMeta.color}>{` · ${toneMeta.label}`}</PaperText>
+              ) : null}
             </PaperText>
             <PaperText role="displayM" style={{ marginTop: 12 }}>
               {greetingFor(now, brief.kind)}

@@ -158,6 +158,27 @@ const DEBOUNCE_MS = 2000;
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const inflight = new Set<string>();
 
+// Extraction is fire-and-forget (debounce + background network), so the UI
+// has no natural callback when a fact lands. Module-level listeners (same
+// pattern as requestPlanSegment in papir) let the chat screen show its
+// "Noteret" micro-confirmation without coupling the extractor to any screen.
+export type ExtractedFactEvent = {
+  userId: string;
+  text: string;
+  // e.g. 'chat:a-1234…' - lets the chat screen match the fact to the
+  // assistant message whose turn produced it.
+  source: string | null;
+};
+
+const factExtractedListeners = new Set<(e: ExtractedFactEvent) => void>();
+
+export function subscribeFactExtracted(listener: (e: ExtractedFactEvent) => void): () => void {
+  factExtractedListeners.add(listener);
+  return () => {
+    factExtractedListeners.delete(listener);
+  };
+}
+
 export function runExtractor(payload: ExtractionPayload): void {
   if (!PROFILE_MEMORY_ENABLED) return;
   if (!getPrivacyFlag('memory-enabled')) return;
@@ -237,6 +258,12 @@ async function runNow(payload: ExtractionPayload): Promise<void> {
       confirmed: autoConfirm,
     });
     invalidatePreamble(payload.userId);
+    const event: ExtractedFactEvent = {
+      userId: payload.userId,
+      text: c.text.trim(),
+      source: payload.source,
+    };
+    factExtractedListeners.forEach((l) => l(event));
   } catch (err) {
     if (__DEV__) console.warn('[profile-extractor] run failed:', err);
   }

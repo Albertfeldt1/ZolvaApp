@@ -21,7 +21,7 @@ import {
   papirSpace,
 } from '../../design/papir';
 import { refreshCalendarNow, refreshMailNow, useInboxCounts, useNotes, useReminders, useUpcoming, useUser } from '../../lib/hooks';
-import { useTodayBrief } from '../../lib/briefs';
+import { useTodayBrief, type Brief } from '../../lib/briefs';
 import { greeting, formatToday } from '../../lib/date';
 import type { Note, Reminder, UpcomingEvent } from '../../lib/types';
 import { usePapirNav } from './nav';
@@ -105,6 +105,16 @@ function durationLabel(sec?: number): string {
   if (!sec || sec <= 0) return '';
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
 }
+
+// Server-composed day-tone → one quiet dot + word on the brief card (shared
+// with PapirBriefing's header). Colors follow the token semantics: sage green
+// for calm, rust (warm, never urgent) for busy — red stays reserved for the
+// only tone that actually demands the user.
+export const BRIEF_TONE: Record<NonNullable<Brief['tone']>, { label: string; color: string }> = {
+  calm: { label: 'Rolig dag', color: papirColor.green },
+  busy: { label: 'Travl dag', color: papirColor.rust },
+  'heads-up': { label: 'Kræver dig', color: papirColor.red },
+};
 
 // "Din dag" ribbon colors — the approved design rotates the three category
 // duos in order (purely aesthetic, no meaning): green → slate → rust.
@@ -235,6 +245,7 @@ export function PapirHome() {
   const notes = useNotes();
   const reminders = useReminders();
   const { brief } = useTodayBrief();
+  const toneMeta = brief?.tone ? BRIEF_TONE[brief.tone] : null;
   const now = useNow();
   const d = formatToday(now);
   // Match the prototype's eyebrow style: "Tirsdag · 11. juni".
@@ -378,15 +389,27 @@ export function PapirHome() {
           backgroundColor: papirColor.ink,
         }}
       >
-        <PaperText role="caption" color={papirColor.ink4} style={{ letterSpacing: 2, textTransform: 'uppercase' }}>
-          {brief
-            ? brief.kind === 'midday'
-              ? 'Middagsbriefing'
-              : brief.kind === 'evening'
-                ? 'Aftenbriefing'
-                : 'Morgenbriefing'
-            : 'Briefing'}
-        </PaperText>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <PaperText role="caption" color={papirColor.ink4} style={{ letterSpacing: 2, textTransform: 'uppercase' }}>
+            {brief
+              ? brief.kind === 'midday'
+                ? 'Middagsbriefing'
+                : brief.kind === 'evening'
+                  ? 'Aftenbriefing'
+                  : 'Morgenbriefing'
+              : 'Briefing'}
+          </PaperText>
+          {/* Tone signal: only the dot carries the hue (quiet on the dark
+              card); the word stays in the same ink4 as the kind label. */}
+          {toneMeta ? (
+            <>
+              <View style={{ width: 5, height: 5, borderRadius: 999, backgroundColor: toneMeta.color }} />
+              <PaperText role="caption" color={papirColor.ink4}>
+                {toneMeta.label}
+              </PaperText>
+            </>
+          ) : null}
+        </View>
         <PaperText role="titleSerif" color={papirColor.onInk} style={{ fontSize: 22, marginTop: 10, maxWidth: 240 }}>
           {brief?.kind === 'midday'
             ? 'Status på din dag'
