@@ -933,6 +933,22 @@ export async function updateCalendarEvent(
   return { text: `Ukendt provider "${source}".`, isError: true };
 }
 
+// Pre-flight for the delete-confirmation card: same provider/shape checks as
+// deleteCalendarEvent, run BEFORE the "Slet"-button is offered, so the model
+// hears "ikke forbundet"/"ugyldigt ID" in-band instead of the user tapping a
+// button that can only fail. Returns null when the target looks deletable.
+export function validateDeleteEventTarget(ctx: ChatCtx, unifiedId: string): string | null {
+  const idx = unifiedId.indexOf(':');
+  if (idx < 1) return 'Ugyldigt ID.';
+  const source = unifiedId.slice(0, idx);
+  const id = unifiedId.slice(idx + 1);
+  if (!id) return 'Mangler event-ID.';
+  if (source === 'google') return ctx.googleCalendar ? null : 'Google Kalender ikke forbundet.';
+  if (source === 'microsoft') return ctx.outlookCalendar ? null : 'Outlook ikke forbundet.';
+  if (source === 'icloud') return ctx.userId ? null : 'Ingen bruger-session.';
+  return `Ukendt provider "${source}".`;
+}
+
 export async function deleteCalendarEvent(
   ctx: ChatCtx,
   unifiedId: string,

@@ -180,6 +180,21 @@ export type SendDraftAction = {
   references?: string;
 };
 
+// `confirm_delete_event` mirrors the draft flow for calendar deletions: the
+// delete tool never deletes directly - the chat renders a "Slet"-button the
+// user must confirm, and only the tap executes the deletion. Carries the
+// title/when the model supplied so the confirm card reads like the event,
+// not like an opaque provider-ID.
+export type ConfirmDeleteEventAction = {
+  kind: 'confirm_delete_event';
+  label: string;
+  // Unified id ("google:...", "microsoft:...", "icloud:...") exactly as the
+  // model passed it to delete_calendar_event.
+  unifiedId: string;
+  title: string;
+  when?: string;
+};
+
 export type ChatMessageAction =
   | { kind: 'pick_drive_files'; label: string }
   | SendDraftAction;
@@ -201,6 +216,10 @@ export type ChatMessage = {
   // user can review and send them individually. Session-only like `action`:
   // stripped before disk (carries draft bodies + one-tap send).
   drafts?: SendDraftAction[];
+  // Pending calendar deletions awaiting the user's confirm tap. Session-only
+  // like `drafts` - a stale one-tap delete surviving a reload would fire
+  // without the conversation context that justified it.
+  deletes?: ConfirmDeleteEventAction[];
 };
 
 export type IntegrationKey =

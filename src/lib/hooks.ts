@@ -115,6 +115,7 @@ import {
   createCalendarEvent,
   updateCalendarEvent,
   deleteCalendarEvent,
+  validateDeleteEventTarget,
   searchDriveFilesTool,
   listDriveFolderTool,
   readDriveFile,
@@ -168,6 +169,7 @@ import type {
   ReplyContext,
   Result,
   SendDraftAction,
+  ConfirmDeleteEventAction,
   Subscription,
   UpcomingEvent,
   UserProfile,
@@ -3628,6 +3630,26 @@ export function useUnreadNotificationCount(): number {
 
 const chatHistoryKey = (uid: string) => `zolva.${uid}.chat.history`;
 const CHAT_HISTORY_LIMIT = 50;
+
+/** The locally persisted chat history ("Gem samtaler lokalt"). Historik →
+ * Samtaler shows this alongside the server-synced copy — a local-only user's
+ * conversations exist ONLY here, so without it that view was always empty. */
+export async function loadLocalChatHistory(userId: string): Promise<ChatMessage[]> {
+  try {
+    const raw = await AsyncStorage.getItem(chatHistoryKey(userId));
+    if (!raw) return [];
+    const saved = JSON.parse(raw) as ChatMessage[];
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function deleteLocalChatHistory(userId: string): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(chatHistoryKey(userId));
+  } catch {}
+}
 // The model can't meaningfully use the full 50-message window. Only the most
 // recent turns carry context the next reply depends on - cap what we send to
 // Claude to keep input tokens flat as the local transcript grows.
@@ -3753,8 +3775,13 @@ function pickChatModel(userMessage: string): ChatModel {
   return CHAT_MODEL_DEFAULT;
 }
 
-function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
-  const intro = name ? `Brugerens navn er ${name}.` : '';
+// Time context lives in its OWN system block (not inside the big prompt):
+// it embeds the current time down to the second, so baking it into the main
+// prompt would invalidate the Anthropic prompt cache on every single round.
+// Split out, the ~6k-token static prompt + tools prefix caches across rounds
+// and turns (90% discount on cached reads) and only this tiny block is
+// re-processed at full price.
+function buildChatTimeContext(): string {
   const now = new Date();
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const tzOffsetMin = -now.getTimezoneOffset();
@@ -3773,7 +3800,7 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
   // passed - left to the model, it queries from today forward and misses
   // earlier events (e.g. Monday's meeting when asked on a Saturday).
   const { start: weekStart, end: weekEnd } = currentWeekBounds(now);
-  const timeContext =
+  return (
     `Nuværende lokaltid er ${localIso} (tidszone: ${tz}). ` +
     `Den aktuelle uge (mandag-søndag) går fra ${fmtLocal(weekStart)} til ${fmtLocal(weekEnd)} ` +
     '(slut eksklusivt). Når brugeren spørger om kalenderen "denne uge", "ugen" eller "i denne uge", ' +
@@ -3790,10 +3817,27 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
     'fra beskedens sendt-tidspunkt - ikke fra nuværende lokaltid. Sig fx "for tre ' +
     'dage siden kl. 17.30", ikke "i dag kl. 17.30", når en gammel besked refererer ' +
     'til "i dag" på et tidspunkt der allerede er passeret. Skriv ALDRIG selv ' +
-    '"[sendt: ...]" i dine svar - præfikset gælder kun historiske brugerbeskeder.';
+    '"[sendt: ...]" i dine svar - præfikset gælder kun historiske brugerbeskeder.'
+  );
+}
+
+function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
+  const intro = name ? `Brugerens navn er ${name}.` : '';
   return [
     'Du er Zolva, en venlig og omsorgsfuld dansk personlig assistent.',
     'Du svarer altid på dansk i en varm, jordnær og let uformel tone.',
+    'GENERELLE SPØRGSMÅL OG OPGAVER - LIGE SÅ VIGTIGT SOM VÆRKTØJERNE: Ud over at være ' +
+      'personlig assistent er du en fuldt kompetent generel AI-assistent på niveau med ' +
+      'ChatGPT og Claude. Videns-spørgsmål ("hvad er hovedstaden i Italien?", "hvad betyder ' +
+      'EBITDA?"), forklaringer ("forklar kvantefysik som om jeg er 10"), oversættelser, ' +
+      'korrektur og omskrivning af tekst, opskrifter, madplaner, regnestykker, råd, ' +
+      'brainstorming og alle andre almene opgaver: svar DIREKTE og fyldestgørende med din ' +
+      'egen viden. Afvis ALDRIG et alment spørgsmål, sig aldrig at det ligger uden for ' +
+      'hvad du kan hjælpe med, og bøj det aldrig ind i en kalender/mail-ramme det ikke ' +
+      'har. Værktøjerne herunder bruger du KUN når spørgsmålet handler om personens egne ' +
+      'data og handlinger (kalender, mail, noter, påmindelser, filer) - et alment spørgsmål ' +
+      'kræver ingen værktøjer og skal ikke handle om dem. Reglen "hold svar korte" viger ' +
+      'her for indholdet: en forklaring eller opskrift må fylde det den kræver.',
     'ADRESSERINGSKRAV: Skriv ALTID direkte med "du"/"dig"/"din". ' +
       'Omtal ALDRIG personen i 3. person ved navn eller pronomen - skriv ' +
       '"Du har et møde kl. 14", IKKE "Albert har et møde" eller "Han har et møde". ' +
@@ -3805,7 +3849,6 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       'også systemmeddelelser, fejltekster og bekræftelser.',
     intro,
     buildDisabledIntegrationsBlock(ctx),
-    timeContext,
     'HANDL FREM FOR AT SPØRGE (overordnet princip - vigtigere end de fleste regler herunder): ' +
       'Du er en assistent der GØR tingene, ikke en der interviewer brugeren. Standarden er ALTID ' +
       'at udføre opgaven med det samme ud fra konteksten og rimelige antagelser: kald værktøjet, ' +
@@ -4321,13 +4364,15 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'delete_calendar_event',
     description:
-      'Slet en kalenderbegivenhed. BEKRÆFT MED BRUGEREN FØRST - sletning kan ikke fortrydes via Zolva. Brug unified-ID.',
+      'Slet en kalenderbegivenhed. Værktøjet sletter IKKE direkte: brugeren får en Slet-knap i chatten og skal selv bekræfte, før noget slettes. Brug unified-ID fra list_calendar_events, og send altid `title` (og gerne `when`) med, så bekræftelsen tydeligt viser hvilken begivenhed det gælder. Sig kort at sletningen ligger klar og venter på deres bekræftelse; påstå ALDRIG at den allerede er slettet.',
     input_schema: {
       type: 'object',
       properties: {
         id: { type: 'string' },
+        title: { type: 'string', description: 'Begivenhedens titel, ordret som den står i kalenderen.' },
+        when: { type: 'string', description: 'Menneskelæsbart tidspunkt, fx "torsdag 13.00-14.00".' },
       },
-      required: ['id'],
+      required: ['id', 'title'],
     },
   },
   {
@@ -4421,7 +4466,7 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
   {
     name: 'send_mail',
     description:
-      'Send en mail med det samme. Brug KUN når brugeren udtrykkeligt siger "send", "afsend" eller "send afsted" - IKKE ved "udkast", "skriv", eller "lav et svar". Når i tvivl, brug create_draft. Kald værktøjet UDEN at spørge når brugeren har givet modtager + indhold; skriv selv et passende emne hvis det mangler. Brugerens signatur tilføjes automatisk. Sig kort hvad du sendte så brugeren kan se det er afgået korrekt.',
+      'Klargør en mail til afsendelse. Brug KUN når brugeren udtrykkeligt siger "send", "afsend" eller "send afsted" - IKKE ved "udkast", "skriv", eller "lav et svar". Når i tvivl, brug create_draft. Kald værktøjet UDEN at spørge når brugeren har givet modtager + indhold; skriv selv et passende emne hvis det mangler. Brugerens signatur tilføjes automatisk. VIGTIGT: Mailen afsendes IKKE direkte - den lægges klar med en Send-knap i chatten, som brugeren selv skal bekræfte. Sig derfor kort at mailen er klar og venter på deres tryk på Send; påstå ALDRIG at den er sendt.',
     input_schema: {
       type: 'object',
       properties: {
@@ -4599,6 +4644,21 @@ function mapIcloudComposeError(code: IcloudErrorCode): string {
   }
 }
 
+// send_mail used to hit the provider send-endpoints directly - the only
+// barrier between a misread intent ("svar Rikke at det er fint" tolket som
+// send-ordre) and real outgoing mail was the prompt rule about explicit
+// "send". Both compose tools now create a provider draft and surface the
+// in-chat Send-button; the actual send happens in sendChatDraft on the
+// user's confirm tap. The tool result tells the model the mail is pending
+// so it can't truthfully claim "sendt".
+const SEND_AWAITS_CONFIRM_TEXT =
+  'Mailen er klargjort som udkast, men IKKE sendt endnu - brugeren har fået en Send-knap i chatten og skal selv bekræfte afsendelsen. ' +
+  'Sig kort at mailen ligger klar og venter på deres tryk på Send. Påstå ALDRIG at den er sendt.';
+
+function composeDraftLabel(name: 'create_draft' | 'send_mail', isReply: boolean): string {
+  return name === 'send_mail' && !isReply ? 'Send mail' : 'Send svar';
+}
+
 async function runMailComposeTool(
   name: 'create_draft' | 'send_mail',
   input: Record<string, unknown>,
@@ -4677,33 +4737,28 @@ async function runMailComposeTool(
         }
       }
 
-      if (name === 'create_draft') {
-        const r = await gmailCreateDraft({ to, cc, subject, body, ...threadHeaders });
-        return {
-          text: `Udkast oprettet i Gmail (id: ${r.id || 'ukendt'}).`,
-          isError: false,
-          draft: {
-            kind: 'send_draft',
-            label: 'Send svar',
-            provider: 'google',
-            draftId: r.id || null,
-            to,
-            cc,
-            subject,
-            body,
-            replyToUnifiedId,
-            threadId: threadHeaders.threadId,
-            inReplyTo: threadHeaders.inReplyTo,
-            references: threadHeaders.references,
-          },
-        };
-      }
-      await gmailSendMail({ to, cc, subject, body, ...threadHeaders });
-      void recordSentMailSafe(ctx.userId, { provider: 'google', to, cc, subject, body, replyToId: replyToUnifiedId });
-      // Mirror useSendReply's UX: replies dismiss the original from the
-      // inbox so it exits "Venter på dig" and lands in "Læst".
-      if (replyToUnifiedId) markMailReplied(replyToUnifiedId);
-      return { text: 'Mailen er sendt fra Gmail.', isError: false };
+      const r = await gmailCreateDraft({ to, cc, subject, body, ...threadHeaders });
+      return {
+        text:
+          name === 'create_draft'
+            ? `Udkast oprettet i Gmail (id: ${r.id || 'ukendt'}).`
+            : SEND_AWAITS_CONFIRM_TEXT,
+        isError: false,
+        draft: {
+          kind: 'send_draft',
+          label: composeDraftLabel(name, !!replyToUnifiedId),
+          provider: 'google',
+          draftId: r.id || null,
+          to,
+          cc,
+          subject,
+          body,
+          replyToUnifiedId,
+          threadId: threadHeaders.threadId,
+          inReplyTo: threadHeaders.inReplyTo,
+          references: threadHeaders.references,
+        },
+      };
     }
 
     if (provider === 'icloud') {
@@ -4727,38 +4782,7 @@ async function runMailComposeTool(
           // Fall through - still send, just falling back to UID threading.
         }
       }
-      if (name === 'create_draft') {
-        const r = await icloudAppendDraft(ctx.userId, {
-          to,
-          cc,
-          subject,
-          body,
-          replyToUid: providerReplyIdNum,
-          inReplyTo: icloudInReplyTo,
-          references: icloudReferences,
-        });
-        if (!r.ok) return { text: mapIcloudComposeError(r.error), isError: true };
-        return {
-          text: 'Udkast oprettet i iCloud.',
-          isError: false,
-          draft: {
-            kind: 'send_draft',
-            label: 'Send svar',
-            provider: 'icloud',
-            // iCloud's append-draft returns no id, so send re-posts the body.
-            draftId: null,
-            to,
-            cc,
-            subject,
-            body,
-            replyToUnifiedId,
-            replyToUid: providerReplyIdNum,
-            inReplyTo: icloudInReplyTo,
-            references: icloudReferences,
-          },
-        };
-      }
-      const r = await icloudSendMail(ctx.userId, {
+      const r = await icloudAppendDraft(ctx.userId, {
         to,
         cc,
         subject,
@@ -4768,49 +4792,48 @@ async function runMailComposeTool(
         references: icloudReferences,
       });
       if (!r.ok) return { text: mapIcloudComposeError(r.error), isError: true };
-      void recordSentMailSafe(ctx.userId, { provider: 'icloud', to, cc, subject, body, replyToId: replyToUnifiedId });
-      if (replyToUnifiedId) markMailReplied(replyToUnifiedId);
       return {
-        text: providerReplyIdNum
-          ? 'Svaret er sendt fra iCloud.'
-          : 'Mailen er sendt fra iCloud.',
-        isError: false,
-      };
-    }
-
-    // Microsoft
-    if (name === 'create_draft') {
-      const r = await graphCreateDraft({ to, cc, subject, body, replyToId: providerReplyId });
-      return {
-        text: `Udkast oprettet i Outlook (id: ${r.id || 'ukendt'}).`,
+        text: name === 'create_draft' ? 'Udkast oprettet i iCloud.' : SEND_AWAITS_CONFIRM_TEXT,
         isError: false,
         draft: {
           kind: 'send_draft',
-          label: 'Send svar',
-          provider: 'microsoft',
-          draftId: r.id || null,
+          label: composeDraftLabel(name, !!replyToUnifiedId),
+          provider: 'icloud',
+          // iCloud's append-draft returns no id, so send re-posts the body.
+          draftId: null,
           to,
           cc,
           subject,
           body,
           replyToUnifiedId,
+          replyToUid: providerReplyIdNum,
+          inReplyTo: icloudInReplyTo,
+          references: icloudReferences,
         },
       };
     }
-    if (providerReplyId) {
-      // Use the existing reply endpoint for sends so threading is preserved
-      // server-side. graphSendMail with replyToId routes here too, but going
-      // direct keeps the call shorter.
-      await graphReplyToMessage(providerReplyId, body);
-      void recordSentMailSafe(ctx.userId, { provider: 'microsoft', to, cc, subject, body, replyToId: replyToUnifiedId });
-      // Outlook's reply endpoint already archives server-side; the local
-      // dismiss makes the disappear immediate (before the inbox re-fetches).
-      if (replyToUnifiedId) markMailReplied(replyToUnifiedId);
-      return { text: 'Svaret er sendt fra Outlook.', isError: false };
-    }
-    await graphSendMail({ to, cc, subject, body });
-    void recordSentMailSafe(ctx.userId, { provider: 'microsoft', to, cc, subject, body, replyToId: replyToUnifiedId });
-    return { text: 'Mailen er sendt fra Outlook.', isError: false };
+
+    // Microsoft. The draft carries replyToId server-side, so the confirmed
+    // send (graphSendDraftById in sendChatDraft) keeps the thread intact.
+    const r = await graphCreateDraft({ to, cc, subject, body, replyToId: providerReplyId });
+    return {
+      text:
+        name === 'create_draft'
+          ? `Udkast oprettet i Outlook (id: ${r.id || 'ukendt'}).`
+          : SEND_AWAITS_CONFIRM_TEXT,
+      isError: false,
+      draft: {
+        kind: 'send_draft',
+        label: composeDraftLabel(name, !!replyToUnifiedId),
+        provider: 'microsoft',
+        draftId: r.id || null,
+        to,
+        cc,
+        subject,
+        body,
+        replyToUnifiedId,
+      },
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { text: `Mail-værktøjet fejlede: ${msg}`, isError: true };
@@ -4876,7 +4899,13 @@ async function runChatTool(
   name: string,
   input: Record<string, unknown>,
   ctx: ChatCtx,
-): Promise<{ content: string; isError: boolean; suggestPicker?: boolean; draft?: SendDraftAction }> {
+): Promise<{
+  content: string;
+  isError: boolean;
+  suggestPicker?: boolean;
+  draft?: SendDraftAction;
+  deleteAction?: ConfirmDeleteEventAction;
+}> {
   try {
     if (name === 'list_calendars') {
       const r = await listCalendarsAcrossProviders(ctx);
@@ -4939,9 +4968,22 @@ async function runChatTool(
     if (name === 'delete_calendar_event') {
       const id = typeof input.id === 'string' ? input.id : '';
       if (!id) return { content: 'Mangler `id`.', isError: true };
-      const r = await deleteCalendarEvent(ctx, id);
-      if (!r.isError) refreshCalendarNow();
-      return { content: r.text, isError: r.isError };
+      // Never delete here. Validate the target, then hand the chat a
+      // confirm-card; deleteCalendarEvent runs first on the user's tap
+      // (useChat.confirmDeleteEvent). Mirrors the send_mail draft guard.
+      const invalid = validateDeleteEventTarget(ctx, id);
+      if (invalid) return { content: invalid, isError: true };
+      const title =
+        typeof input.title === 'string' && input.title.trim() ? input.title.trim() : 'begivenheden';
+      const when = typeof input.when === 'string' && input.when.trim() ? input.when.trim() : undefined;
+      return {
+        content:
+          'Sletningen er IKKE udført endnu - brugeren har fået en Slet-knap i chatten og skal selv bekræfte. ' +
+          'Sig kort hvilken begivenhed der ligger klar til sletning og at du venter på deres bekræftelse. ' +
+          'Påstå ALDRIG at den allerede er slettet.',
+        isError: false,
+        deleteAction: { kind: 'confirm_delete_event', label: 'Slet begivenhed', unifiedId: id, title, when },
+      };
     }
     if (name === 'search_drive_files') {
       const query = typeof input.query === 'string' ? input.query : '';
@@ -5203,6 +5245,18 @@ export function useChat() {
   const clearChatCap = useCallback(() => setChatCap(null), []);
   const [typing, setTyping] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  // "Gem samtaler lokalt" must apply the moment it flips — write the current
+  // conversation to disk / delete the stored copy right away. Without this
+  // tick the persist effect below only re-reads the flag on the NEXT message,
+  // so toggle-then-restart lost the conversation.
+  const [privacyTick, setPrivacyTick] = useState(0);
+  useEffect(() => {
+    const bump = () => setPrivacyTick((t) => t + 1);
+    privacyListeners.add(bump);
+    return () => {
+      privacyListeners.delete(bump);
+    };
+  }, []);
   const { data: profile } = useUser();
   const { user, googleAccessToken, microsoftAccessToken } = useAuth();
   const demo = isDemoUser(user);
@@ -5277,13 +5331,16 @@ export function useChat() {
     // outgoing mail to local storage and risk a double-send of drafts that
     // have usually already gone out. Keep them session-only. Covers both the
     // current `drafts[]` field and the legacy single `action` send_draft.
+    // Pending delete-confirms are stripped for the same reason: a one-tap
+    // destructive button shouldn't survive a reload without its context.
     const capped = messages.slice(-CHAT_HISTORY_LIMIT).map((m) => {
-      if (!m.drafts && m.action?.kind !== 'send_draft') return m;
-      const { drafts: _drafts, ...rest } = m;
+      if (!m.drafts && !m.deletes && m.action?.kind !== 'send_draft') return m;
+      const { drafts: _drafts, deletes: _deletes, ...rest } = m;
       return rest.action?.kind === 'send_draft' ? { ...rest, action: undefined } : rest;
     });
     AsyncStorage.setItem(key, JSON.stringify(capped)).catch(() => {});
-  }, [messages, hydrated, userId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, hydrated, userId, privacyTick]);
 
   // Foreground reconciliation: pick up answers that landed while the app
   // was backgrounded. chat-run writes status='done' + output_text to the
@@ -5410,6 +5467,9 @@ export function useChat() {
       // needs to send it. Closure-scoped so it survives runTurn's multiple
       // return points and accumulates across tool-call rounds.
       const draftsCreatedThisTurn: SendDraftAction[] = [];
+      // Same pattern for delete_calendar_event: the tool never deletes, it
+      // queues a confirm-card; the tap in ChatScreen runs the real deletion.
+      const deletesRequestedThisTurn: ConfirmDeleteEventAction[] = [];
       // Set when add_reminder succeeds this turn. A reminder already captures
       // the user's intent in the reminders table, so we must NOT also run it
       // through the fact extractor - otherwise "påmind mig kl 20 om at ringe
@@ -5435,12 +5495,24 @@ export function useChat() {
         const working: ClaudeMessage[] = toClaudeMessages(nextHistory, toolCtx);
         let correctionAttempted = false;
 
-        // Build system blocks once - memory preamble + chat system prompt.
-        // Round 0 (chat-run, server) and rounds 1..N (claude-proxy, server)
-        // both see identical context. completeRaw normally stitches the
-        // preamble itself; we pass attachProfile:false on subsequent rounds
-        // to avoid doubling it.
-        const systemBlocks: ClaudeSystemBlock[] = [];
+        // Build system blocks once - chat system prompt + memory preamble +
+        // time context. Round 0 (chat-run, server) and rounds 1..N
+        // (claude-proxy, server) both see identical context. completeRaw
+        // normally stitches the preamble itself; we pass attachProfile:false
+        // on subsequent rounds to avoid doubling it.
+        //
+        // Block order is cache-driven, most stable first: the static prompt
+        // only changes when integrations toggle, the preamble when memory/
+        // calendar data changes, and the time block every second (which is
+        // why it lives last and UNCACHED - inlined in the main prompt it
+        // used to invalidate the whole prefix every round).
+        const systemBlocks: ClaudeSystemBlock[] = [
+          {
+            type: 'text',
+            text: buildChatSystemPrompt(name, toolCtx),
+            cache_control: { type: 'ephemeral' },
+          },
+        ];
         const sessionUser = user ?? null;
         // memory-enabled gates only the memory-derived sections inside
         // buildProfilePreamble; today's calendar context attaches regardless
@@ -5458,7 +5530,7 @@ export function useChat() {
             });
           }
         }
-        systemBlocks.push({ type: 'text', text: buildChatSystemPrompt(name, toolCtx) });
+        systemBlocks.push({ type: 'text', text: buildChatTimeContext() });
         const filteredTools = filterToolsByCtx(CHAT_TOOLS, toolCtx);
         // Pick the model once per turn from the user's prompt and reuse
         // it for every round in this turn's tool loop. Switching mid-
@@ -5609,6 +5681,7 @@ export function useChat() {
                 if (t.name === 'add_reminder' && !r.isError) reminderCreatedThisTurn = true;
                 return {
                   draft: r.draft ?? null,
+                  deleteAction: r.deleteAction ?? null,
                   result: {
                     type: 'tool_result' as const,
                     tool_use_id: t.id,
@@ -5623,6 +5696,7 @@ export function useChat() {
             // surface in the order the agent created them.
             for (const o of toolOutcomes) {
               if (o.draft) draftsCreatedThisTurn.push(o.draft);
+              if (o.deleteAction) deletesRequestedThisTurn.push(o.deleteAction);
             }
             working.push({ role: 'user', content: toolOutcomes.map((o) => o.result) });
             continue;
@@ -5731,6 +5805,7 @@ export function useChat() {
               : drivePickerSuggested
                 ? { action: { kind: 'pick_drive_files' as const, label: 'Vælg Drive-filer' } }
                 : {}),
+            ...(deletesRequestedThisTurn.length > 0 ? { deletes: deletesRequestedThisTurn } : {}),
           };
           setMessages((cur) => [...cur, assistantMsg]);
           if (userId) {
@@ -5813,6 +5888,30 @@ export function useChat() {
     [userId],
   );
 
+  // Executes a calendar deletion the agent queued via delete_calendar_event
+  // (the "Slet begivenhed" button). Rebuilds the same live tool context as
+  // runTurn, so mid-session integration toggles are respected at tap time.
+  const confirmDeleteEvent = useCallback(
+    async (action: ConfirmDeleteEventAction): Promise<{ ok: boolean; error?: string }> => {
+      const hasGoogle = !!googleAccessToken;
+      const hasMicrosoft = !!microsoftAccessToken;
+      const ctx: ChatCtx = {
+        userId: userId ?? null,
+        gmail: isIntegrationEffectivelyEnabled('gmail', hasGoogle),
+        googleCalendar: isIntegrationEffectivelyEnabled('google-calendar', hasGoogle),
+        googleDrive: isIntegrationEffectivelyEnabled('google-drive', hasGoogle),
+        outlookMail: isIntegrationEffectivelyEnabled('outlook-mail', hasMicrosoft),
+        outlookCalendar: isIntegrationEffectivelyEnabled('outlook-calendar', hasMicrosoft),
+        onedrive: isIntegrationEffectivelyEnabled('onedrive', hasMicrosoft),
+        icloud: isIntegrationEffectivelyEnabled('icloud', icloudConnectedRef.current),
+      };
+      const r = await deleteCalendarEvent(ctx, action.unifiedId);
+      if (!r.isError) refreshCalendarNow();
+      return { ok: !r.isError, error: r.isError ? r.text : undefined };
+    },
+    [userId, googleAccessToken, microsoftAccessToken],
+  );
+
   return {
     data: messages,
     typing,
@@ -5821,6 +5920,7 @@ export function useChat() {
     send,
     clear,
     sendDraft,
+    confirmDeleteEvent,
     chatCap,
     clearChatCap,
   };

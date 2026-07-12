@@ -40,7 +40,7 @@ import { formatClock, formatToday } from '../lib/date';
 import { useChat, useChatSuggestions } from '../lib/hooks';
 import { ingestPickedDriveFiles } from '../lib/onboarding-backfill';
 import { presentPaywallIfNeeded } from '../lib/paywall';
-import type { ChatMessage, SendDraftAction } from '../lib/types';
+import type { ChatMessage, SendDraftAction, ConfirmDeleteEventAction } from '../lib/types';
 
 // Vertical space the floating chips + input dock occupy at rest. Used
 // as ScrollView.contentContainerStyle.paddingBottom so the last message
@@ -63,7 +63,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
 
   const { t, type, fonts, radius, spacing, surface, shadows } = useTheme();
 
-  const { data: messages, typing, send, clear, sendDraft, chatCap, clearChatCap } = useChat();
+  const { data: messages, typing, send, clear, sendDraft, confirmDeleteEvent, chatCap, clearChatCap } = useChat();
   const capped = React.useMemo(() => {
     if (!chatCap) return false;
     if (!chatCap.resetsAt) return true;
@@ -118,6 +118,10 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
   const [draftPreview, setDraftPreview] = useState<{ draftKey: string; action: SendDraftAction } | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [sentIds, setSentIds] = useState<Set<string>>(() => new Set());
+  // In-chat delete confirm ("Slet begivenhed" button) - same keyed pattern
+  // as drafts so several queued deletions track state independently.
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(() => new Set());
   const scrollRef = useRef<ScrollView>(null);
 
   // Tap "Send svar" → native confirm (guards against a mis-tap sending real
@@ -146,6 +150,39 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
               }
             } finally {
               setSendingId((cur) => (cur === draftKey ? null : cur));
+            }
+          },
+        },
+      ],
+      { cancelable: true },
+    );
+  };
+
+  // Tap "Slet begivenhed" → native confirm (destructive style - deletion has
+  // no undo through Zolva) → execute the deletion the agent queued. On
+  // success the button flips to "✓ Slettet"; on failure surface why.
+  const confirmAndDeleteEvent = (deleteKey: string, action: ConfirmDeleteEventAction) => {
+    if (deletingId === deleteKey || deletedIds.has(deleteKey)) return;
+    Alert.alert(
+      'Slet begivenhed?',
+      `"${action.title}"${action.when ? ` (${action.when})` : ''} slettes fra din kalender. Det kan ikke fortrydes.`,
+      [
+        { text: 'Annullér', style: 'cancel' },
+        {
+          text: 'Slet',
+          style: 'destructive',
+          onPress: async () => {
+            setDeletingId(deleteKey);
+            try {
+              const res = await confirmDeleteEvent(action);
+              if (res.ok) {
+                void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                setDeletedIds((cur) => new Set(cur).add(deleteKey));
+              } else {
+                Alert.alert('Kunne ikke slette', res.error ?? 'Prøv igen om lidt.');
+              }
+            } finally {
+              setDeletingId((cur) => (cur === deleteKey ? null : cur));
             }
           },
         },
@@ -375,7 +412,7 @@ export function ChatScreen({ onBack, initialDraft, initialDraftAutoSend }: Props
           )}
 
           {messages.map((m) => (
-            <Bubble key={m.id} msg={m} t={t} type={type} fonts={fonts} radius={radius} spacing={spacing} surface={surface} onPickDrive={() => setDrivePickerVisible(true)} onSendDraft={(a, key) => confirmAndSendDraft(key, a)} onPreviewDraft={(a, key) => setDraftPreview({ draftKey: key, action: a })} isDraftSending={(key) => sendingId === key} isDraftSent={(key) => sentIds.has(key)} onLongPress={(rect) => openActionMenu(m, rect)} hidden={actionMenu?.id === m.id} />
+            <Bubble key={m.id} msg={m} t={t} type={type} fonts={fonts} radius={radius} spacing={spacing} surface={surface} onPickDrive={() => setDrivePickerVisible(true)} onSendDraft={(a, key) => confirmAndSendDraft(key, a)} onPreviewDraft={(a, key) => setDraftPreview({ draftKey: key, action: a })} isDraftSending={(key) => sendingId === key} isDraftSent={(key) => sentIds.has(key)} onDeleteEvent={(a, key) => confirmAndDeleteEvent(key, a)} isEventDeleting={(key) => deletingId === key} isEventDeleted={(key) => deletedIds.has(key)} onLongPress={(rect) => openActionMenu(m, rect)} hidden={actionMenu?.id === m.id} />
           ))}
 
           {typing && <TypingIndicator t={t} spacing={spacing} radius={radius} />}
@@ -814,6 +851,9 @@ function Bubble({
   onPreviewDraft,
   isDraftSending,
   isDraftSent,
+  onDeleteEvent,
+  isEventDeleting,
+  isEventDeleted,
   onLongPress,
   hidden,
 }: {
@@ -823,6 +863,9 @@ function Bubble({
   onPreviewDraft?: (action: SendDraftAction, draftKey: string) => void;
   isDraftSending?: (draftKey: string) => boolean;
   isDraftSent?: (draftKey: string) => boolean;
+  onDeleteEvent?: (action: ConfirmDeleteEventAction, deleteKey: string) => void;
+  isEventDeleting?: (deleteKey: string) => boolean;
+  isEventDeleted?: (deleteKey: string) => boolean;
   onLongPress?: (rect: BubbleRect) => void;
   // Hidden (kept in layout) while its long-press menu is open, so only the
   // lifted copy in the overlay is visible — no doubled bubble.
@@ -962,6 +1005,61 @@ function Bubble({
               );
             });
           })()}
+          {/* Pending calendar deletions queued by delete_calendar_event.
+              Mirrors the drafts pattern: one destructive-confirm button per
+              deletion, keyed per entry so each tracks its own state. */}
+          {(msg.deletes ?? []).map((del, idx) => {
+            const deleteKey = `${msg.id}#del${idx}`;
+            const deleting = isEventDeleting?.(deleteKey) ?? false;
+            const deleted = isEventDeleted?.(deleteKey) ?? false;
+            return (
+              <View key={deleteKey} style={{ marginTop: spacing.sm }}>
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    fontFamily: fonts.uiBold,
+                    fontSize: 12,
+                    color: t.ink2,
+                    marginBottom: spacing.xs,
+                  }}
+                >
+                  {del.title}
+                  {del.when ? ` · ${del.when}` : ''}
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    if (deleting || deleted) return;
+                    onDeleteEvent?.(del, deleteKey);
+                  }}
+                  disabled={deleting || deleted}
+                  accessibilityRole="button"
+                  accessibilityLabel={deleted ? 'Begivenhed slettet' : 'Slet begivenhed'}
+                  style={({ pressed }) => ({
+                    alignSelf: 'flex-start',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                    paddingVertical: spacing.xs + 2,
+                    paddingHorizontal: spacing.md,
+                    borderRadius: radius.pill,
+                    backgroundColor: deleted ? surface.glassWeak : t.ink,
+                    opacity: pressed ? 0.7 : 1,
+                  })}
+                >
+                  {deleting && <ActivityIndicator size="small" color="#fff" />}
+                  <Text
+                    style={{
+                      fontFamily: fonts.uiBold,
+                      fontSize: 13,
+                      color: deleted ? t.ink : '#fff',
+                    }}
+                  >
+                    {deleted ? '✓ Slettet' : deleting ? 'Sletter…' : 'Slet begivenhed'}
+                  </Text>
+                </Pressable>
+              </View>
+            );
+          })}
         </GlassFrostedCard>
         </Pressable>
         </View>
