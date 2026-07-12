@@ -8,3 +8,4 @@ export { RecordFAB } from './RecordFAB';
 export { Toggle } from './Toggle';
 export { SegmentedControl } from './SegmentedControl';
 export { ListRow } from './ListRow';
+export { BreathingWave } from './BreathingWave';
