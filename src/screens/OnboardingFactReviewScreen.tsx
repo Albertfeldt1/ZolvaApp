@@ -6,29 +6,30 @@
 // submit flips the checked rows to 'confirmed' and the unchecked to
 // 'rejected' via bulkUpdatePendingFacts. Then invalidates the preamble
 // cache so the next chatbot turn rebuilds with the freshly-confirmed
-// facts, and calls onDone() to advance the flow. Wiring into App.tsx
-// is Task 13.
+// facts, and calls onDone() to advance the flow.
 //
 // NOTE: bulkUpdatePendingFacts uses status:'confirmed' (NOT 'accepted')
 // to match the live FactStatus check constraint in the facts table.
 //
-// Migrated to Glass & Air design system.
+// Papir-redesign — "Notesbogen, opslået": det Zolva har lært, præsenteret
+// som redigerbare notater på hvide ark. Grønne flueben (behold), roligt
+// blæk, Fraunces-overskrift og en flydende gem-knap i blæk. Fejlede kilder
+// vises som et rust-farvet notat med "Prøv igen" — aldrig som en alarm.
 
 import { useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import Animated, { Easing, FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useChromeInsets } from '../components/PhoneChrome';
-import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
-import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
-import { Stone } from '../design/primitives/Stone';
-import { useTheme } from '../design/useTheme';
+import {
+  BreathingWave,
+  PaperText,
+  papirColor,
+  papirRadius,
+  papirShadow,
+  papirSpace,
+} from '../design/papir';
+import { ScaleButton } from '../design/motion';
+import { PapirLoader } from './papir/PapirLoader';
 import { subscribeUserId } from '../lib/auth';
 import { invalidatePreamble } from '../lib/profile';
 import { triggerBackfillRerun, type BackfillJob } from '../lib/onboarding-backfill';
@@ -95,7 +96,6 @@ const GROUP_ORDER = [
 
 export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
   const { bottom: chromeBottom } = useChromeInsets();
-  const { t, type, fonts, radius, spacing, surface } = useTheme();
 
   const [userId, setUserId] = useState<string | null>(null);
   useEffect(() => subscribeUserId(setUserId), []);
@@ -198,75 +198,71 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: t.paper, justifyContent: 'center', alignItems: 'center' }}>
-        <GlassHaloLayer />
-        <ActivityIndicator color={t.mem} />
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: papirColor.paper,
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}
+      >
+        <PapirLoader />
       </View>
     );
   }
 
   if (facts.length === 0) {
     return (
-      <View style={{ flex: 1, backgroundColor: t.paper }}>
-        <GlassHaloLayer />
-        <ScrollView
-          contentContainerStyle={{
-            flexGrow: 1,
-            paddingBottom: chromeBottom + 32,
-            paddingHorizontal: spacing.screenPad,
-            paddingTop: spacing.statusBarFallback,
-            gap: spacing.heroPad,
+      <View style={{ flex: 1, backgroundColor: papirColor.paper }}>
+        <View
+          style={{
+            flex: 1,
+            paddingHorizontal: papirSpace.screen,
+            paddingTop: 76,
+            paddingBottom: chromeBottom + papirSpace.xl,
           }}
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-          overScrollMode="never"
         >
-          {/* Hero */}
-          <GlassFrostedCard
-            radius={radius.card}
-            overlay={surface.bone}
-            style={{
-              paddingVertical: spacing.xl,
-              paddingHorizontal: spacing.lg,
-              alignItems: 'center',
-              gap: spacing.md,
-            }}
-          >
-            <Stone size={88} jumpOnTap={false} />
-            <Text style={{ ...type.eyebrow, color: t.ink3, textAlign: 'center' }}>
-              HUKOMMELSE
-            </Text>
-            <Text style={{ ...type.displayL, color: t.ink, textAlign: 'center' }}>
-              Vi fandt ikke{'\n'}noget endnu
-            </Text>
-          </GlassFrostedCard>
-
-          {/* Body */}
-          <GlassFrostedCard
-            style={{ paddingVertical: spacing.cardPad, paddingHorizontal: spacing.cardPad }}
-          >
-            <Text style={{ ...type.body, color: t.ink }}>
-              Det kommer i takt med, at du bruger Zolva. Du kan altid se og redigere det i Husk-fanen.
-            </Text>
-          </GlassFrostedCard>
-
-          {/* Done button */}
-          <Pressable
+          <View style={{ flex: 1, justifyContent: 'center', gap: papirSpace.lg }}>
+            <Animated.View entering={FadeIn.duration(700)}>
+              <BreathingWave scale={0.8} />
+            </Animated.View>
+            <Animated.View
+              entering={FadeInDown.delay(100).duration(560).easing(Easing.out(Easing.quad))}
+              style={{ gap: papirSpace.md }}
+            >
+              <PaperText role="eyebrow" color={papirColor.ink3}>
+                Hukommelse
+              </PaperText>
+              <PaperText role="displayM" accessibilityRole="header">
+                Intet at vise endnu.
+              </PaperText>
+            </Animated.View>
+            <Animated.View entering={FadeInDown.delay(220).duration(560).easing(Easing.out(Easing.quad))}>
+              <PaperText role="bodySerif" color={papirColor.ink2}>
+                Det kommer i takt med, at du bruger Zolva. Du kan altid se og rette,
+                hvad jeg har lært, under Hukommelse.
+              </PaperText>
+            </Animated.View>
+          </View>
+          <ScaleButton
+            scaleTo={0.97}
+            haptic="light"
             onPress={onDone}
             accessibilityRole="button"
-            style={({ pressed }) => ({
-              backgroundColor: t.ink,
-              paddingVertical: 14,
-              borderRadius: radius.soft,
+            accessibilityLabel="Færdig"
+            style={{
+              height: 56,
+              borderRadius: papirRadius.lg,
+              backgroundColor: papirColor.ink,
               alignItems: 'center',
-              opacity: pressed ? 0.8 : 1,
-            })}
+              justifyContent: 'center',
+            }}
           >
-            <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#FFFFFF' }}>
+            <PaperText role="button" color={papirColor.onInk}>
               Færdig
-            </Text>
-          </Pressable>
-        </ScrollView>
+            </PaperText>
+          </ScaleButton>
+        </View>
       </View>
     );
   }
@@ -274,101 +270,99 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
   const checkedCount = accepted.size;
 
   return (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: t.paper }]}>
-      <GlassHaloLayer />
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: papirColor.paper }]}>
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{
           flexGrow: 1,
           // Reserve room so the last list item can scroll past the
           // absolute-positioned footer instead of staying permanently
-          // hidden behind it. Approx button (44) + paddings (32) +
-          // home-indicator (34) ≈ 110.
-          paddingBottom: 110,
-          paddingHorizontal: spacing.screenPad,
-          paddingTop: spacing.statusBarFallback,
-          gap: spacing.heroPad,
+          // hidden behind it. Approx button (56) + paddings (32) +
+          // home-indicator (34) ≈ 122.
+          paddingBottom: 122,
+          paddingHorizontal: papirSpace.screen,
+          paddingTop: 76,
         }}
         showsVerticalScrollIndicator={false}
         bounces={false}
         overScrollMode="never"
       >
-        {/* Hero card */}
-        <GlassFrostedCard
-          radius={radius.card}
-          overlay={surface.bone}
-          style={{
-            paddingVertical: spacing.xl,
-            paddingHorizontal: spacing.lg,
-            alignItems: 'center',
-            gap: spacing.md,
-          }}
+        {/* Overskrift */}
+        <Animated.View
+          entering={FadeInDown.duration(560).easing(Easing.out(Easing.quad))}
+          style={{ gap: papirSpace.md }}
         >
-          <Stone size={88} jumpOnTap={false} />
-          <Text style={{ ...type.eyebrow, color: t.ink3, textAlign: 'center' }}>
-            HUKOMMELSE
-          </Text>
-          <Text style={{ ...type.displayL, color: t.ink, textAlign: 'center' }}>
-            Hvad jeg har{'\n'}lært om dig
-          </Text>
-        </GlassFrostedCard>
+          <PaperText role="eyebrow" color={papirColor.ink3}>
+            Hukommelse
+          </PaperText>
+          <PaperText role="displayM" accessibilityRole="header">
+            Hvad jeg har lært om dig.
+          </PaperText>
+          <PaperText role="bodySerif" color={papirColor.ink2}>
+            Behold det, der passer — og fjern resten. Du bestemmer, hvad jeg husker.
+          </PaperText>
+        </Animated.View>
 
-        {/* Failed-job banner */}
+        {/* Fejlede kilder: et roligt rust-notat, ikke en alarm. */}
         {failedJobs.length > 0 && (
-          <GlassFrostedCard overlay={surface.warningTint} style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-              <Text style={{ ...type.bodySm, color: t.ink, flex: 1 }}>
-                {`Jeg kunne ikke læse ${failedJobsLabel(failedJobs)}.`}
-              </Text>
-              <Pressable
-                onPress={() => {
-                  onDone();
-                  triggerBackfillRerun();
-                }}
-                accessibilityRole="button"
-                style={({ pressed }) => ({
-                  paddingVertical: 8,
-                  paddingHorizontal: 12,
-                  borderRadius: radius.soft,
-                  backgroundColor: t.ink,
-                  opacity: pressed ? 0.8 : 1,
-                })}
-              >
-                <Text style={{ fontFamily: fonts.uiBold, fontSize: 13, color: '#FFFFFF' }}>
-                  Prøv igen
-                </Text>
-              </Pressable>
-            </View>
-          </GlassFrostedCard>
-        )}
-
-        {/* Body explainer */}
-        <GlassFrostedCard
-          style={{ paddingVertical: spacing.cardPad, paddingHorizontal: spacing.cardPad }}
-        >
-          <Text style={{ ...type.body, color: t.ink }}>
-            Sæt flueben ved det jeg skal huske, og fjern resten.
-          </Text>
-        </GlassFrostedCard>
-
-        {/* Grouped fact sections */}
-        {groupedSections.map(({ label, rows }) => (
-          <View key={label} style={{ gap: spacing.sm }}>
-            {/* Section header */}
-            <Text
+          <Animated.View
+            entering={FadeInDown.delay(120).duration(480).easing(Easing.out(Easing.quad))}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: papirSpace.md,
+              backgroundColor: papirColor.rustSoft,
+              borderRadius: papirRadius.xxl,
+              paddingVertical: papirSpace.md,
+              paddingHorizontal: papirSpace.lg,
+              marginTop: papirSpace.xl,
+            }}
+          >
+            <PaperText role="small" color={papirColor.rust} style={{ flex: 1 }}>
+              {`Jeg kunne ikke læse ${failedJobsLabel(failedJobs)}.`}
+            </PaperText>
+            <ScaleButton
+              scaleTo={0.96}
+              haptic="light"
+              onPress={() => {
+                onDone();
+                triggerBackfillRerun();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Prøv igen"
               style={{
-                ...type.eyebrow,
-                color: t.ink3,
-                fontFamily: fonts.mono,
-                paddingHorizontal: spacing.xs,
+                paddingVertical: papirSpace.sm,
+                paddingHorizontal: papirSpace.base,
+                borderRadius: papirRadius.pill,
+                backgroundColor: papirColor.ink,
               }}
             >
-              {label}
-            </Text>
+              <PaperText role="chip" color={papirColor.onInk}>
+                Prøv igen
+              </PaperText>
+            </ScaleButton>
+          </Animated.View>
+        )}
 
-            {/* All facts in this group in one card, separated by hairlines */}
-            <GlassFrostedCard
-              style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.cardPad }}
+        {/* Grupperede notater */}
+        {groupedSections.map(({ label, rows }, sectionIdx) => (
+          <Animated.View
+            key={label}
+            entering={FadeInDown.delay(Math.min(160 + sectionIdx * 80, 480))
+              .duration(480)
+              .easing(Easing.out(Easing.quad))}
+            style={{ gap: papirSpace.sm, marginTop: papirSpace.xl }}
+          >
+            <PaperText role="eyebrow" color={papirColor.ink3} style={{ paddingLeft: papirSpace.xs }}>
+              {label}
+            </PaperText>
+            <View
+              style={{
+                backgroundColor: papirColor.card,
+                borderRadius: papirRadius.xxl,
+                paddingHorizontal: papirSpace.lg,
+                ...papirShadow.sm,
+              }}
             >
               {rows.map((f, i) => {
                 const checked = accepted.has(f.id);
@@ -381,65 +375,53 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
                     style={{
                       flexDirection: 'row',
                       alignItems: 'flex-start',
-                      gap: spacing.md,
-                      paddingVertical: spacing.md,
+                      gap: papirSpace.md,
+                      paddingVertical: papirSpace.base,
                       borderTopWidth: i > 0 ? 1 : 0,
-                      borderTopColor: t.line,
+                      borderTopColor: papirColor.lineSoft,
                     }}
                   >
-                    {/* Checkbox */}
+                    {/* Flueben: grønt = behold. Ufravalgt = tom kontur. */}
                     <View
                       style={{
                         width: 22,
                         height: 22,
-                        borderRadius: 6,
+                        borderRadius: 7,
                         borderWidth: 1.5,
-                        borderColor: checked ? t.mem : t.ink3,
-                        backgroundColor: checked ? t.mem : 'transparent',
+                        borderColor: checked ? papirColor.green : papirColor.ink4,
+                        backgroundColor: checked ? papirColor.green : 'transparent',
                         alignItems: 'center',
                         justifyContent: 'center',
                         marginTop: 1,
                       }}
                     >
                       {checked && (
-                        <Text
-                          style={{
-                            fontFamily: fonts.uiBold,
-                            fontSize: 13,
-                            lineHeight: 16,
-                            color: '#FFFFFF',
-                          }}
-                        >
+                        <PaperText role="chip" color="#FFFFFF" style={{ lineHeight: 15 }}>
                           ✓
-                        </Text>
+                        </PaperText>
                       )}
                     </View>
 
-                    {/* Fact text + category */}
-                    <View style={{ flex: 1, gap: spacing.xs }}>
-                      <Text style={{ ...type.body, color: t.ink, lineHeight: 21 }}>
-                        {f.text}
-                      </Text>
-                      <Text
-                        style={{
-                          ...type.eyebrow,
-                          color: t.ink3,
-                          letterSpacing: 0.6,
-                          textTransform: 'uppercase',
-                        }}
+                    <View style={{ flex: 1, gap: papirSpace.xs }}>
+                      <PaperText
+                        role="body"
+                        color={checked ? papirColor.ink : papirColor.ink3}
                       >
+                        {f.text}
+                      </PaperText>
+                      <PaperText role="eyebrow" color={papirColor.ink4} style={{ letterSpacing: 0.8 }}>
                         {f.category}
-                      </Text>
+                      </PaperText>
                     </View>
                   </Pressable>
                 );
               })}
-            </GlassFrostedCard>
-          </View>
+            </View>
+          </Animated.View>
         ))}
       </ScrollView>
 
-      {/* Floating button with a soft drop-shadow halo. */}
+      {/* Flydende gem-knap i blæk. */}
       <View
         pointerEvents="box-none"
         style={{
@@ -447,33 +429,38 @@ export function OnboardingFactReviewScreen({ onDone, failedJobs = [] }: Props) {
           left: 0,
           right: 0,
           bottom: 0,
-          paddingBottom: spacing.lg + 18,
-          paddingHorizontal: spacing.screenPad,
+          paddingBottom: chromeBottom + papirSpace.lg,
+          paddingHorizontal: papirSpace.screen,
         }}
       >
-        <Pressable
+        <ScaleButton
+          scaleTo={0.97}
+          haptic="medium"
           onPress={save}
           disabled={saving}
           accessibilityRole="button"
-          style={({ pressed }) => ({
-            backgroundColor: t.ink,
-            paddingVertical: 14,
-            borderRadius: radius.pill,
+          accessibilityLabel="Gem"
+          accessibilityState={{ disabled: saving, busy: saving }}
+          style={{
+            height: 56,
+            borderRadius: papirRadius.pill,
+            backgroundColor: papirColor.ink,
             alignItems: 'center',
-            opacity: saving ? 0.4 : pressed ? 0.8 : 1,
-            shadowColor: t.ink,
-            shadowOpacity: t.mode === 'dark' ? 0.55 : 0.32,
-            shadowOffset: { width: 0, height: 0 },
-            shadowRadius: 28,
-            elevation: 12,
-          })}
+            justifyContent: 'center',
+            opacity: saving ? 0.5 : 1,
+            ...papirShadow.ink,
+          }}
         >
-          <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#FFFFFF' }}>
+          <PaperText role="button" color={papirColor.onInk}>
             {saving
-              ? (savingSlow ? 'Stadig i gang…' : 'Gemmer…')
-              : `Gem ${checkedCount} fakta`}
-          </Text>
-        </Pressable>
+              ? savingSlow
+                ? 'Stadig i gang…'
+                : 'Gemmer…'
+              : checkedCount === 1
+                ? 'Husk 1 ting'
+                : `Husk ${checkedCount} ting`}
+          </PaperText>
+        </ScaleButton>
       </View>
     </View>
   );

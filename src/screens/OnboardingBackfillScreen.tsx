@@ -5,20 +5,24 @@
 // emails and recurring meetings, store conclusions only"), lists which
 // connected sources will be scanned, and offers Start / Skip.
 //
-// Migrated to Glass & Air design system.
+// Papir-redesign — "Titelbladet, side to": samme rolige dokument-sprog som
+// login. Brand-bølgen ånder øverst, Fraunces bærer overskriften, kilderne
+// står som stille rækker på ét hvidt ark, og privatlivsløftet er en del af
+// fortællingen — ikke det med småt.
 
 import { useState } from 'react';
-import {
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-} from 'react-native';
+import { Image, ImageSourcePropType, ScrollView, View } from 'react-native';
+import Animated, { Easing, FadeIn, FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { useChromeInsets } from '../components/PhoneChrome';
-import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
-import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
-import { Stone } from '../design/primitives/Stone';
-import { useTheme } from '../design/useTheme';
+import {
+  BreathingWave,
+  PaperText,
+  papirColor,
+  papirRadius,
+  papirShadow,
+  papirSpace,
+} from '../design/papir';
+import { ScaleButton } from '../design/motion';
 import { useAuth } from '../lib/auth';
 import { useConnections, useIcloudConnected } from '../lib/hooks';
 import { startBackfill } from '../lib/onboarding-backfill';
@@ -28,6 +32,46 @@ type Props = {
   onSkip: () => void;
   onConnectMore: () => void;
   forceRerun?: boolean;
+};
+
+type SourceRow = { label: string; detail: string; logo: ImageSourcePropType };
+
+const SOURCE_META: Record<string, Omit<SourceRow, 'label'> & { label: string }> = {
+  gmail: {
+    label: 'Gmail',
+    detail: 'Seneste mails og hvem du skriver med',
+    logo: require('../../assets/logos/gmail.png'),
+  },
+  'outlook-mail': {
+    label: 'Outlook Mail',
+    detail: 'Seneste mails og hvem du skriver med',
+    logo: require('../../assets/logos/outlook-mail.png'),
+  },
+  icloud: {
+    label: 'iCloud Mail',
+    detail: 'Seneste mails og hvem du skriver med',
+    logo: require('../../assets/logos/icloud.png'),
+  },
+  'google-calendar': {
+    label: 'Google Kalender',
+    detail: 'Tilbagevendende møder og din rytme',
+    logo: require('../../assets/logos/google-calendar.png'),
+  },
+  'outlook-calendar': {
+    label: 'Outlook Kalender',
+    detail: 'Tilbagevendende møder og din rytme',
+    logo: require('../../assets/logos/outlook-calendar.png'),
+  },
+  'google-drive': {
+    label: 'Google Drive',
+    detail: 'Dokumenter du arbejder i',
+    logo: require('../../assets/logos/google-drive.png'),
+  },
+  onedrive: {
+    label: 'OneDrive',
+    detail: 'Dokumenter du arbejder i',
+    logo: require('../../assets/logos/onedrive.png'),
+  },
 };
 
 export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, forceRerun }: Props) {
@@ -40,23 +84,23 @@ export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, force
   const icloudConnected = useIcloudConnected(user?.id ?? '');
   const [busy, setBusy] = useState(false);
 
-  const { t, type, fonts, radius, spacing, surface } = useTheme();
-
   // Build the human-readable list of sources we'll scan. Only include
   // currently-connected providers - disconnected ones aren't relevant
   // to the user yet. Mirrors the IntegrationKey set the backfill
   // edge function actually consumes (mail + calendar; Drive isn't
   // backfilled).
-  const sources: string[] = [];
   const isConnected = (id: string) =>
     connections.find((c) => c.id === id)?.status === 'connected';
-  if (isConnected('gmail')) sources.push('Gmail');
-  if (isConnected('outlook-mail')) sources.push('Outlook Mail');
-  if (icloudConnected) sources.push('iCloud Mail');
-  if (isConnected('google-calendar')) sources.push('Google Kalender');
-  if (isConnected('outlook-calendar')) sources.push('Outlook Kalender');
-  if (isConnected('google-drive')) sources.push('Google Drive');
-  if (isConnected('onedrive')) sources.push('OneDrive');
+  const sourceIds = [
+    'gmail',
+    'outlook-mail',
+    'icloud',
+    'google-calendar',
+    'outlook-calendar',
+    'google-drive',
+    'onedrive',
+  ].filter((id) => (id === 'icloud' ? icloudConnected : isConnected(id)));
+  const sources = sourceIds.map((id) => SOURCE_META[id]);
 
   const noSources = sources.length === 0;
 
@@ -74,153 +118,176 @@ export function OnboardingBackfillScreen({ onStart, onSkip, onConnectMore, force
       await startBackfill({ force: forceRerun });
     } catch {
       // Failures show up as 'failed' jobs in the polling stream, which
-      // the progress screen renders as muted+warning icons and the
-      // review screen surfaces as a banner. No need to handle here.
+      // the progress screen renders as muted lines and the review screen
+      // surfaces as a banner. No need to handle here.
     }
     onStart();
     setBusy(false);
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: t.paper }}>
-      <GlassHaloLayer />
+    <View style={{ flex: 1, backgroundColor: papirColor.paper }}>
       <ScrollView
         contentContainerStyle={{
           flexGrow: 1,
-          paddingBottom: chromeBottom + 32,
-          paddingHorizontal: spacing.screenPad,
-          paddingTop: spacing.statusBarFallback,
-          gap: spacing.heroPad,
+          paddingBottom: chromeBottom + papirSpace.xl,
+          paddingHorizontal: papirSpace.screen,
+          paddingTop: 76,
         }}
         showsVerticalScrollIndicator={false}
         bounces={false}
         overScrollMode="never"
       >
-        {/* Hero card - bone backdrop + Stone + display headline */}
-        <GlassFrostedCard
-          radius={radius.card}
-          overlay={surface.bone}
+        {/* Titelbladet: bølge, eyebrow, Fraunces-overskrift, serif-løfte. */}
+        <View style={{ gap: papirSpace.lg }}>
+          <Animated.View entering={FadeIn.duration(700)}>
+            <BreathingWave scale={0.8} />
+          </Animated.View>
+          <Animated.View
+            entering={FadeInDown.delay(100).duration(560).easing(Easing.out(Easing.quad))}
+            style={{ gap: papirSpace.md }}
+          >
+            <PaperText role="eyebrow" color={papirColor.ink3}>
+              Lær mig at kende
+            </PaperText>
+            <PaperText role="displayM" accessibilityRole="header">
+              Må jeg læse med et øjeblik?
+            </PaperText>
+          </Animated.View>
+          <Animated.View entering={FadeInDown.delay(220).duration(560).easing(Easing.out(Easing.quad))}>
+            <PaperText role="bodySerif" color={papirColor.ink2}>
+              Jeg kigger dine seneste mails og faste møder igennem for at forstå, hvem du
+              arbejder med — og hvad der fylder. Jeg gemmer kun konklusionerne, aldrig
+              selve indholdet.
+            </PaperText>
+          </Animated.View>
+        </View>
+
+        {/* Arket: kilderne der læses. */}
+        <Animated.View
+          entering={FadeInUp.delay(320).duration(600).easing(Easing.out(Easing.cubic))}
           style={{
-            paddingVertical: spacing.xl,
-            paddingHorizontal: spacing.lg,
-            alignItems: 'center',
-            gap: spacing.md,
+            backgroundColor: papirColor.card,
+            borderRadius: papirRadius.card,
+            paddingVertical: papirSpace.sm,
+            paddingHorizontal: papirSpace.lg,
+            marginTop: papirSpace.xxl,
+            ...papirShadow.base,
           }}
         >
-          <Stone size={88} jumpOnTap={false} />
-          <Text style={{ ...type.eyebrow, color: t.ink3, textAlign: 'center' }}>
-            LÆR DIG AT KENDE
-          </Text>
-          <Text
-            style={{
-              ...type.displayL,
-              color: t.ink,
-              textAlign: 'center',
-            }}
-          >
-            Lad Zolva lære{'\n'}dig at kende
-          </Text>
-        </GlassFrostedCard>
-
-        {/* Body explainer card */}
-        <GlassFrostedCard
-          style={{ paddingVertical: spacing.cardPad, paddingHorizontal: spacing.cardPad, gap: spacing.md }}
-        >
-          <Text style={{ ...type.body, color: t.ink }}>
-            Vi læser hurtigt dine seneste emails og tilbagevendende møder for at finde ud af, hvem du arbejder med og hvad du arbejder med. Vi gemmer kun konklusionerne - ikke selve indholdet.
-          </Text>
-          <Text style={{ ...type.body, color: t.ink }}>
-            Du kan altid se og ændre, hvad Zolva har lært, i Hukommelse-fanen.
-          </Text>
-        </GlassFrostedCard>
-
-        {/* Source list */}
-        <GlassFrostedCard
-          style={{ paddingVertical: spacing.cardPad, paddingHorizontal: spacing.cardPad, gap: spacing.sm }}
-        >
           {noSources ? (
-            <Text style={{ ...type.bodySm, color: t.ink3 }}>
-              Ingen konti forbundet endnu - du kan altid lade Zolva lære dig at kende ved at chatte.
-            </Text>
+            <PaperText role="body" color={papirColor.ink3} style={{ paddingVertical: papirSpace.md }}>
+              Ingen konti forbundet endnu — du kan altid lade mig lære dig at kende
+              gennem chatten.
+            </PaperText>
           ) : (
             sources.map((s, i) => (
-              <View
-                key={s}
+              <Animated.View
+                key={s.label}
+                entering={FadeInDown.delay(420 + i * 70).duration(440).easing(Easing.out(Easing.quad))}
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
-                  gap: spacing.md,
-                  paddingVertical: spacing.sm,
+                  gap: papirSpace.md,
+                  paddingVertical: papirSpace.md,
                   borderTopWidth: i > 0 ? 1 : 0,
-                  borderTopColor: t.line,
+                  borderTopColor: papirColor.lineSoft,
                 }}
               >
-                <Text
+                <View
                   style={{
-                    fontFamily: fonts.uiBold,
-                    fontSize: 14,
-                    color: t.mem,
-                    width: 16,
-                    textAlign: 'center',
+                    width: 38,
+                    height: 38,
+                    borderRadius: papirRadius.sm,
+                    backgroundColor: papirColor.paper2,
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
                 >
-                  ✓
-                </Text>
-                <Text style={{ ...type.body, color: t.ink }}>{s}</Text>
-              </View>
+                  <Image source={s.logo} style={{ width: 20, height: 20 }} resizeMode="contain" />
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <PaperText role="bodyStrong">{s.label}</PaperText>
+                  <PaperText role="caption" color={papirColor.ink3}>
+                    {s.detail}
+                  </PaperText>
+                </View>
+              </Animated.View>
             ))
           )}
-        </GlassFrostedCard>
+        </Animated.View>
 
-        {/* CTAs */}
-        <View style={{ gap: spacing.sm }}>
-          {/* Primary - Start */}
-          <Pressable
+        <View style={{ flex: 1 }} />
+
+        {/* Handlinger. */}
+        <Animated.View
+          entering={FadeInUp.delay(480).duration(560).easing(Easing.out(Easing.cubic))}
+          style={{ gap: papirSpace.md, marginTop: papirSpace.xxl }}
+        >
+          <ScaleButton
+            scaleTo={0.97}
+            haptic="light"
             onPress={handleStart}
             disabled={busy || noSources}
             accessibilityRole="button"
-            style={({ pressed }) => ({
-              backgroundColor: t.ink,
-              paddingVertical: 14,
-              borderRadius: radius.soft,
+            accessibilityLabel="Begynd"
+            accessibilityState={{ disabled: busy || noSources, busy }}
+            style={{
+              height: 56,
+              borderRadius: papirRadius.lg,
+              backgroundColor: papirColor.ink,
               alignItems: 'center',
-              opacity: busy || noSources ? 0.4 : pressed ? 0.8 : 1,
-            })}
+              justifyContent: 'center',
+              opacity: busy || noSources ? 0.45 : 1,
+            }}
           >
-            <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: '#FFFFFF' }}>
-              {busy ? 'Starter…' : 'Start'}
-            </Text>
-          </Pressable>
+            <PaperText role="button" color={papirColor.onInk}>
+              {busy ? 'Begynder…' : 'Begynd'}
+            </PaperText>
+          </ScaleButton>
 
-          {/* Secondary - Connect more */}
-          <Pressable
+          <ScaleButton
+            scaleTo={0.97}
+            haptic="light"
             onPress={onConnectMore}
             disabled={busy}
             accessibilityRole="button"
+            accessibilityLabel="Forbind flere konti først"
+            style={{
+              height: 56,
+              borderRadius: papirRadius.lg,
+              backgroundColor: papirColor.card,
+              borderWidth: 1,
+              borderColor: papirColor.line,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
           >
-            <GlassFrostedCard
-              style={{ paddingVertical: 12, alignItems: 'center' }}
-            >
-              <Text style={{ ...type.body, color: t.ink2, fontFamily: fonts.uiBold }}>
-                Forbind flere konti først
-              </Text>
-            </GlassFrostedCard>
-          </Pressable>
+            <PaperText role="button">Forbind flere konti først</PaperText>
+          </ScaleButton>
 
-          <Text style={{ ...type.caption, color: t.ink3, textAlign: 'center' }}>
-            Du kan altid scanne igen fra Hukommelse-fanen.
-          </Text>
-
-          {/* Tertiary - Skip */}
-          <Pressable
+          <ScaleButton
+            scaleTo={0.98}
+            haptic="none"
             onPress={onSkip}
             disabled={busy}
-            style={{ paddingVertical: 12, alignItems: 'center' }}
             accessibilityRole="button"
+            accessibilityLabel="Spring over"
+            style={{ paddingVertical: papirSpace.md, alignItems: 'center' }}
           >
-            <Text style={{ ...type.body, color: t.ink3 }}>Spring over</Text>
-          </Pressable>
-        </View>
+            <PaperText role="small" color={papirColor.ink3}>
+              Spring over
+            </PaperText>
+          </ScaleButton>
+
+          <PaperText
+            role="caption"
+            color={papirColor.ink3}
+            style={{ textAlign: 'center' }}
+          >
+            Du kan altid se, rette og scanne igen under Hukommelse.
+          </PaperText>
+        </Animated.View>
       </ScrollView>
     </View>
   );

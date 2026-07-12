@@ -1,124 +1,175 @@
 // src/screens/OnboardingBackfillProgressScreen.tsx
 //
 // Loading screen between intro Start tap and the review screen. Polls the
-// backfill-status edge function for completion + per-service failures, but
-// the orbit visuals are intentionally decoupled from job count: a fixed
-// pool of ambient slots cycles through the logo set - each slot picks a
-// random logo, fades in from off-screen, orbits the Stone briefly, gets
-// sucked into the Stone, and respawns with a new logo and angle. Real
-// failed jobs render as a separate static layer at the periphery with a
-// warning badge so the user still sees actual problems.
+// backfill-status edge function for completion + per-service failures.
 //
-// Reduce Motion: ambient slots collapse to a single static cluster fade
-// (no orbit, no absorption), Stone stops breathing/scanning. Completion
-// timing is unaffected.
+// Papir-redesign — "Notesbogen": i stedet for en spinner ser brugeren Zolva
+// arbejde. Brand-bølgen ånder med løftet amplitude ("jeg lytter"), en
+// Fraunces-faseoverskrift skifter roligt ("Jeg læser dine mails." → "Jeg
+// kigger i din kalender."), og på ét hvidt ark skriver statuslinjer sig
+// selv ind, én ad gangen — drevet af de RIGTIGE backfill-jobs, så fejl og
+// fuldførelse altid er sande. En tynd terracotta-linje øverst på arket
+// viser reel fremdrift. "Show the work" er kurateret teater i tempoet,
+// men aldrig i indholdet: fejlede jobs vises ærligt som dæmpede linjer,
+// og skærmen slutter først, når scanningen reelt er færdig (eller
+// timeout/ceiling rammer — samme kontrakt som før).
 //
-// Stone has an idle breathing animation throughout, a slow horizontal
-// scan to suggest "looking around" (the SVG-eye gaze inside Stone is too
-// subtle at this size), and pulses on completion.
-//
-// Migrated to Glass & Air design system.
+// Reduce Motion: alle linjer står fremme med det samme, bølgen står
+// stille, ingen pulserende prikker. Completion-timing er uændret.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Image, ImageSourcePropType, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { View } from 'react-native';
 import Animated, {
-  cancelAnimation,
   Easing,
-  runOnJS,
+  FadeIn,
+  FadeInDown,
+  FadeOut,
+  LinearTransition,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withRepeat,
-  withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
-import { Stone } from '../design/primitives/Stone';
-import { useTheme } from '../design/useTheme';
+import {
+  BreathingWave,
+  PaperText,
+  papirColor,
+  papirEasing,
+  papirRadius,
+  papirShadow,
+  papirSpace,
+} from '../design/papir';
 import { cancelBackfill, fetchBackfillStatus, type BackfillJob } from '../lib/onboarding-backfill';
 import { isBackfillComplete, failedJobs } from '../lib/backfill-progress';
-
-type ServiceId =
-  | 'google:mail'
-  | 'google:calendar'
-  | 'google:drive'
-  | 'microsoft:mail'
-  | 'microsoft:calendar'
-  | 'microsoft:drive'
-  | 'icloud:mail';
-
-const SERVICE_META: Record<ServiceId, { logo: ImageSourcePropType; label: string }> = {
-  'google:mail': { logo: require('../../assets/logos/gmail.png'), label: 'Gmail' },
-  'google:calendar': { logo: require('../../assets/logos/google-calendar.png'), label: 'Google Kalender' },
-  'google:drive': { logo: require('../../assets/logos/google-drive.png'), label: 'Google Drive' },
-  'microsoft:mail': { logo: require('../../assets/logos/outlook-mail.png'), label: 'Outlook' },
-  'microsoft:calendar': { logo: require('../../assets/logos/outlook-calendar.png'), label: 'Outlook Kalender' },
-  'microsoft:drive': { logo: require('../../assets/logos/onedrive.png'), label: 'OneDrive' },
-  'icloud:mail': { logo: require('../../assets/logos/icloud.png'), label: 'iCloud' },
-};
-
-// Ambient orbit pool - purely visual. Wider than the actual backfill set
-// so the screen feels lively even for users with only one or two real
-// jobs. Drive logo appears here as flavour even though it's not part of
-// the backfill flow.
-const AMBIENT_LOGOS: ImageSourcePropType[] = [
-  require('../../assets/logos/gmail.png'),
-  require('../../assets/logos/google-calendar.png'),
-  require('../../assets/logos/outlook-mail.png'),
-  require('../../assets/logos/outlook-calendar.png'),
-  require('../../assets/logos/icloud.png'),
-  require('../../assets/logos/google-drive.png'),
-  require('../../assets/logos/onedrive.png'),
-];
-
-const AMBIENT_SLOT_COUNT = 5;
 
 const POLL_INTERVAL_MS = 1500;
 const POLL_TIMEOUT_ATTEMPTS = 80; // ~2 minutes
 
-const RADIUS_OFFSCREEN = 220;
-const RADIUS_ORBIT = 92;
-const RADIUS_FAILED = 138;
-
-const STONE_BREATHE_MS = 3200;
-const STONE_SCAN_MS = 4200;
-const STONE_PULSE_UP_MS = 380;
-const STONE_PULSE_DOWN_MS = 620;
-
 // Minimum total animation time from mount. Fast scans (~200-800ms) used
 // to snap-cut and feel un-rewarding; the floor pads them so "Zolva is
-// doing work" reads long enough for the user to see the orbit + Stone
-// pulse before transition. Slow scans transition as soon as the scan
-// completes (slot pool keeps looping in the meantime).
+// doing work" reads long enough for the narrative to land. Slow scans
+// transition as soon as the scan completes.
 const ANIMATION_FLOOR_MS = 3000;
 
 // Force-exit if the scan never reaches a terminal state. Tighter than the
-// 120s poll budget - caps how long the user stares at orbiting logos
-// before we get out of the way. Error UI is a separate ticket.
+// 120s poll budget - caps how long the user watches before we get out of
+// the way. Error UI is a separate ticket.
 const ANIMATION_CEILING_MS = 45_000;
 
-const STONE_SIZE = 132;
-const ICON_SIZE = 44;
+// Ro i afsløringen: en ny linje ca. hvert 1,6. sekund mens der arbejdes;
+// når scanningen er færdig, spoler resten hurtigt (men blidt) frem.
+const REVEAL_MS = 1600;
+const REVEAL_FAST_MS = 260;
+const MAX_VISIBLE_LINES = 6;
 
-function jobKey(j: BackfillJob): ServiceId | null {
-  if (j.kind !== 'mail' && j.kind !== 'calendar' && j.kind !== 'drive') return null;
-  // iCloud only has a mail-backfill job; calendar lives in daily-brief.
-  if (j.provider === 'icloud' && j.kind !== 'mail') return null;
-  // Drive runs against Google Drive and OneDrive; iCloud has no equivalent.
-  if (j.kind === 'drive' && j.provider !== 'google' && j.provider !== 'microsoft') return null;
-  return `${j.provider}:${j.kind}` as ServiceId;
+type ServiceKind = 'mail' | 'calendar' | 'drive';
+type LineKind = ServiceKind | 'tail';
+
+type NarrativeLine = {
+  key: string;
+  kind: LineKind;
+  /** Matches `${provider}:${kind}` for real jobs; null for teater-linjer. */
+  jobKey: string | null;
+  activeText: string;
+  doneText: string;
+  failedText?: string;
+};
+
+const PROVIDER_NAME: Record<string, string> = {
+  google: 'Google',
+  microsoft: 'Outlook',
+  icloud: 'iCloud',
+};
+
+const SERVICE_NAME: Record<string, string> = {
+  'google:mail': 'Gmail',
+  'microsoft:mail': 'Outlook Mail',
+  'icloud:mail': 'iCloud Mail',
+  'google:calendar': 'Google Kalender',
+  'microsoft:calendar': 'Outlook Kalender',
+  'google:drive': 'Google Drive',
+  'microsoft:drive': 'OneDrive',
+};
+
+// Stable narrative order regardless of how jobs come back from the API.
+const JOB_ORDER = [
+  'google:mail',
+  'microsoft:mail',
+  'icloud:mail',
+  'google:calendar',
+  'microsoft:calendar',
+  'google:drive',
+  'microsoft:drive',
+];
+
+function lineForJob(key: string): NarrativeLine | null {
+  const name = SERVICE_NAME[key];
+  if (!name) return null;
+  const kind = key.split(':')[1] as ServiceKind;
+  if (kind === 'mail') {
+    return {
+      key,
+      kind,
+      jobKey: key,
+      activeText: `Organiserer dine mails i ${name}…`,
+      doneText: `${name} læst og organiseret`,
+      failedText: `Kunne ikke læse ${name}`,
+    };
+  }
+  if (kind === 'calendar') {
+    return {
+      key,
+      kind,
+      jobKey: key,
+      activeText: `Finder dine kommende møder i ${name}…`,
+      doneText: `${name} gennemgået`,
+      failedText: `Kunne ikke læse ${name}`,
+    };
+  }
+  return {
+    key,
+    kind,
+    jobKey: key,
+    activeText: `Ser på dine dokumenter i ${name}…`,
+    doneText: `${name} gennemgået`,
+    failedText: `Kunne ikke læse ${name}`,
+  };
 }
 
-function failedServiceIds(jobs: BackfillJob[]): ServiceId[] {
-  const out: ServiceId[] = [];
-  const seen = new Set<ServiceId>();
-  for (const j of jobs) {
-    if (j.status !== 'failed' && j.status !== 'cancelled') continue;
-    const k = jobKey(j);
-    if (!k || seen.has(k)) continue;
-    seen.add(k);
-    out.push(k);
-  }
-  return out;
+// Teater-halen: altid til stede, fuldføres når scanningen reelt er færdig.
+const TAIL_LINES: NarrativeLine[] = [
+  {
+    key: 'tail:preferences',
+    kind: 'tail',
+    jobKey: null,
+    activeText: 'Lærer dine præferencer…',
+    doneText: 'Præferencer noteret',
+  },
+  {
+    key: 'tail:briefing',
+    kind: 'tail',
+    jobKey: null,
+    activeText: 'Klargør din første briefing…',
+    doneText: 'Din første briefing er klar',
+  },
+];
+
+const PHASE_HEADLINE: Record<LineKind | 'connect', string> = {
+  connect: 'Jeg forbinder dine konti.',
+  mail: 'Jeg læser dine mails.',
+  calendar: 'Jeg kigger i din kalender.',
+  drive: 'Jeg ser på dine dokumenter.',
+  tail: 'Jeg samler det vigtigste.',
+};
+
+function jobStatusFor(jobs: BackfillJob[], jobKey: string): 'active' | 'done' | 'failed' {
+  const [provider, kind] = jobKey.split(':');
+  const job = jobs.find((j) => j.provider === provider && j.kind === kind);
+  if (!job) return 'active';
+  if (job.status === 'failed' || job.status === 'cancelled') return 'failed';
+  if (job.status === 'done') return 'done';
+  return 'active';
 }
 
 type Props = {
@@ -126,13 +177,14 @@ type Props = {
 };
 
 export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
-  const { t, type, fonts, spacing } = useTheme();
+  const reduceMotion = useReducedMotion();
   const [jobs, setJobs] = useState<BackfillJob[]>([]);
   // Flips true once the first status poll resolves (even with zero jobs), so
   // the completion effect can tell "no jobs to track" apart from "haven't
   // polled yet" and finish promptly instead of waiting the animation ceiling.
   const [firstPollDone, setFirstPollDone] = useState(false);
-  const [reduceMotion, setReduceMotion] = useState(false);
+  const [revealed, setRevealed] = useState(1);
+  const [settled, setSettled] = useState(false);
   const completedRef = useRef(false);
   const mountedAtRef = useRef(Date.now());
   const jobsRef = useRef<BackfillJob[]>([]);
@@ -140,8 +192,8 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
   useEffect(() => { jobsRef.current = jobs; }, [jobs]);
 
   // Unmount-only cleanup for the completion timer. The timer itself is
-  // scheduled inside the [jobs] effect below but MUST survive re-runs of
-  // that effect - otherwise every poll-driven jobs change cancels the
+  // scheduled inside the completion effect below but MUST survive re-runs
+  // of that effect - otherwise every poll-driven jobs change cancels the
   // pending onComplete and the screen hangs forever.
   useEffect(() => {
     return () => {
@@ -156,48 +208,7 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
     };
   }, []);
 
-  const stoneScale = useSharedValue(1);
-  const stoneRotate = useSharedValue(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    void AccessibilityInfo.isReduceMotionEnabled().then((on) => {
-      if (!cancelled) setReduceMotion(on);
-    });
-    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
-    return () => { cancelled = true; sub.remove(); };
-  }, []);
-
-  // Idle breathing + scan on the Stone - runs from mount until completion.
-  useEffect(() => {
-    if (reduceMotion) return;
-    stoneScale.value = withRepeat(
-      withSequence(
-        withTiming(1.045, { duration: STONE_BREATHE_MS, easing: Easing.inOut(Easing.sin) }),
-        withTiming(1, { duration: STONE_BREATHE_MS, easing: Easing.inOut(Easing.sin) }),
-      ),
-      -1,
-      false,
-    );
-    // Slow head-tilt scan: ±6° over ~4s. The SVG-eye gaze inside Stone is
-    // too subtle at this size to read as "looking around"; this rotation
-    // on the wrap reads clearly without affecting the orbiting icons,
-    // which are siblings of the stoneWrap.
-    stoneRotate.value = withRepeat(
-      withSequence(
-        withTiming(6, { duration: STONE_SCAN_MS, easing: Easing.inOut(Easing.sin) }),
-        withTiming(-6, { duration: STONE_SCAN_MS, easing: Easing.inOut(Easing.sin) }),
-      ),
-      -1,
-      true,
-    );
-    return () => {
-      cancelAnimation(stoneScale);
-      cancelAnimation(stoneRotate);
-    };
-  }, [reduceMotion, stoneScale, stoneRotate]);
-
-  // Poll the backfill status. Same endpoint the previous questions screen used.
+  // Poll the backfill status. Same endpoint as the old screen.
   useEffect(() => {
     let cancelled = false;
     let attempts = 0;
@@ -229,8 +240,6 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
   }, []);
 
   // Animation ceiling - force-exit if scan never reaches terminal state.
-  // Tighter than the 120s poll-attempt budget; this is the *animation*
-  // hard cap, not the poll cap. Error UI is a separate ticket.
   useEffect(() => {
     const id = setTimeout(() => {
       if (completedRef.current) return;
@@ -244,337 +253,251 @@ export function OnboardingBackfillProgressScreen({ onComplete }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Fortællingen: én linje pr. reelt job (stabil rækkefølge) + teater-halen.
+  // Før første poll kender vi ikke jobbene - så viser vi kun første linje af
+  // halen som "forbinder"-fase via headline.
+  const lines = useMemo<NarrativeLine[]>(() => {
+    const present = new Set(
+      jobs
+        .filter((j) => j.kind === 'mail' || j.kind === 'calendar' || j.kind === 'drive')
+        // iCloud only has a mail-backfill job; calendar lives in daily-brief.
+        .filter((j) => !(j.provider === 'icloud' && j.kind !== 'mail'))
+        .map((j) => `${j.provider}:${j.kind}`),
+    );
+    const jobLines = JOB_ORDER.filter((k) => present.has(k))
+      .map(lineForJob)
+      .filter((l): l is NarrativeLine => l !== null);
+    return [...jobLines, ...TAIL_LINES];
+  }, [jobs]);
+
+  const scanComplete = isBackfillComplete(jobs, firstPollDone);
+
+  // Afsløringstakt: rolig mens der arbejdes, hurtig fremspoling når
+  // scanningen er færdig. Reduce Motion viser alt med det samme.
+  useEffect(() => {
+    if (reduceMotion) {
+      setRevealed(lines.length);
+      return;
+    }
+    if (revealed >= lines.length) return;
+    const id = setTimeout(
+      () => setRevealed((r) => Math.min(r + 1, lines.length)),
+      scanComplete ? REVEAL_FAST_MS : REVEAL_MS,
+    );
+    return () => clearTimeout(id);
+  }, [revealed, lines.length, scanComplete, reduceMotion]);
+
   // Completion: every real job is in a terminal state, OR a status poll has
   // confirmed there are no jobs to track at all (e.g. no providers connected),
-  // which would otherwise hang on the animation ceiling.
+  // which would otherwise hang on the animation ceiling. Holder til både
+  // animations-gulvet OG til fortællingen har spolet færdig, så de sidste
+  // linjer når at lande før skiftet ("Din første briefing er klar").
   useEffect(() => {
     if (completedRef.current) return;
-    if (!isBackfillComplete(jobs, firstPollDone)) return;
+    if (!scanComplete) return;
     completedRef.current = true;
-
-    if (!reduceMotion) {
-      stoneScale.value = withSequence(
-        withTiming(1.18, { duration: STONE_PULSE_UP_MS, easing: Easing.out(Easing.cubic) }),
-        withTiming(1, { duration: STONE_PULSE_DOWN_MS, easing: Easing.in(Easing.cubic) }),
-      );
-    }
+    setSettled(true);
 
     const failed = jobs.filter((j) => j.status === 'failed' || j.status === 'cancelled');
-    // 3s floor from mount - fast scans pad to feel rewarding, slow scans
-    // transition immediately when the scan finishes.
     const elapsed = Date.now() - mountedAtRef.current;
-    const hold = Math.max(0, ANIMATION_FLOOR_MS - elapsed);
+    const floorHold = Math.max(0, ANIMATION_FLOOR_MS - elapsed);
+    const remaining = Math.max(0, lines.length - revealed);
+    const narrativeHold = reduceMotion ? 400 : remaining * REVEAL_FAST_MS + 700;
     // Store in ref so the timer survives re-runs of this effect on jobs
-    // changes. Returning a cleanup that clears the timer would cancel it
-    // on the very next poll. Unmount cleanup is handled separately above.
-    completionTimerRef.current = setTimeout(() => onComplete(failed), hold);
-  }, [jobs, firstPollDone, reduceMotion, stoneScale, onComplete]);
+    // changes. Unmount cleanup is handled separately above.
+    completionTimerRef.current = setTimeout(
+      () => onComplete(failed),
+      Math.max(floorHold, narrativeHold),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanComplete, jobs]);
 
-  const stoneStyle = useAnimatedStyle(() => ({
-    transform: [
-      { scale: stoneScale.value },
-      { rotate: `${stoneRotate.value}deg` },
-    ],
+  // Reel fremdrift: andel af jobs i terminal tilstand, blødt blandet med
+  // fortællingens fremdrift så linjen aldrig står helt stille (perceived
+  // performance) - men den rammer først 100 %, når scanningen ER færdig.
+  const progress = useSharedValue(0.06);
+  const jobKeys = useMemo(
+    () => lines.filter((l) => l.jobKey).map((l) => l.jobKey as string),
+    [lines],
+  );
+  const doneFraction =
+    jobKeys.length === 0
+      ? 0
+      : jobKeys.filter((k) => jobStatusFor(jobs, k) !== 'active').length / jobKeys.length;
+  const revealFraction = lines.length === 0 ? 0 : revealed / lines.length;
+  useEffect(() => {
+    const target = scanComplete
+      ? 1
+      : Math.min(0.92, 0.06 + doneFraction * 0.7 + revealFraction * 0.18);
+    progress.value = withTiming(target, { duration: 900, easing: papirEasing });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doneFraction, revealFraction, scanComplete]);
+
+  const progressStyle = useAnimatedStyle(() => ({
+    transform: [{ scaleX: progress.value }],
   }));
 
-  const failedIds = useMemo(() => failedServiceIds(jobs), [jobs]);
+  // Faseoverskriften følger den nyeste aktive linje.
+  const phase = useMemo<LineKind | 'connect'>(() => {
+    if (!firstPollDone && jobs.length === 0) return 'connect';
+    for (let i = Math.min(revealed, lines.length) - 1; i >= 0; i -= 1) {
+      const l = lines[i];
+      const status = l.jobKey ? jobStatusFor(jobs, l.jobKey) : settled ? 'done' : 'active';
+      if (status === 'active') return l.kind;
+    }
+    return lines.length > 0 ? lines[Math.min(revealed, lines.length) - 1].kind : 'connect';
+  }, [firstPollDone, jobs, lines, revealed, settled]);
 
-  // Stable seed list for ambient slots so they don't remount every render.
-  const ambientSlots = useMemo(
-    () => Array.from({ length: AMBIENT_SLOT_COUNT }, (_, i) => i),
-    [],
-  );
+  const visibleLines = lines.slice(0, revealed).slice(-MAX_VISIBLE_LINES);
 
   return (
-    <View style={{ flex: 1, backgroundColor: t.paper }}>
-      <GlassHaloLayer />
-
-      {/* Orbit stage - centered in flex */}
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <Animated.View
-          style={[
-            {
-              width: STONE_SIZE,
-              height: STONE_SIZE,
-              alignItems: 'center',
-              justifyContent: 'center',
-            },
-            stoneStyle,
-          ]}
-          pointerEvents="none"
-        >
-          <Stone size={STONE_SIZE} jumpOnTap={false} />
-        </Animated.View>
-
-        {ambientSlots.map((slot) => (
-          <AmbientIcon key={slot} slot={slot} reduceMotion={reduceMotion} />
-        ))}
-
-        {failedIds.map((id, i) => (
-          <FailedIcon
-            key={id}
-            id={id}
-            angleDeg={(i * 360) / Math.max(1, failedIds.length) - 90}
-          />
-        ))}
-      </View>
-
-      {/* Caption at bottom */}
+    <View style={{ flex: 1, backgroundColor: papirColor.paper }}>
       <View
         style={{
-          position: 'absolute',
-          bottom: 64,
-          left: 0,
-          right: 0,
-          alignItems: 'center',
-          gap: spacing.xs,
+          flex: 1,
+          paddingHorizontal: papirSpace.screen,
+          paddingTop: 76,
+          paddingBottom: 48,
         }}
-        pointerEvents="none"
       >
-        <Text style={{ ...type.eyebrow, color: t.ink3 }}>LÆR DIG AT KENDE</Text>
-        <Text style={{ ...type.body, color: t.ink2, fontFamily: fonts.ui }}>
-          Læser dine emails og kalender…
-        </Text>
+        {/* Eyebrow + faseoverskrift (fast højde så krydsfadet aldrig hopper). */}
+        <PaperText role="eyebrow" color={papirColor.ink3}>
+          Lærer dig at kende
+        </PaperText>
+        <View style={{ height: 76, justifyContent: 'flex-end' }}>
+          <Animated.View
+            key={settled ? 'settled' : phase}
+            entering={FadeInDown.duration(480).easing(Easing.out(Easing.quad))}
+            exiting={FadeOut.duration(240)}
+          >
+            <PaperText role="displayS" accessibilityRole="header">
+              {settled ? 'Så er jeg med.' : PHASE_HEADLINE[phase]}
+            </PaperText>
+          </Animated.View>
+        </View>
+
+        {/* Bølgen arbejder - amplituden falder til ro, når scanningen er færdig. */}
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <Animated.View entering={FadeIn.duration(700)}>
+            <BreathingWave listening={!settled} scale={1.15} />
+          </Animated.View>
+        </View>
+
+        {/* Arket: fremdriftslinje + selvskrivende notat-linjer. */}
+        <Animated.View
+          entering={FadeInDown.delay(150).duration(560).easing(Easing.out(Easing.cubic))}
+          style={{
+            backgroundColor: papirColor.card,
+            borderRadius: papirRadius.card,
+            overflow: 'hidden',
+            ...papirShadow.base,
+          }}
+        >
+          <View style={{ height: 3, backgroundColor: papirColor.lineSoft }}>
+            <Animated.View
+              style={[
+                {
+                  height: 3,
+                  backgroundColor: papirColor.red,
+                  transformOrigin: 'left',
+                },
+                progressStyle,
+              ]}
+            />
+          </View>
+          <View style={{ paddingVertical: papirSpace.md, paddingHorizontal: papirSpace.lg }}>
+            {visibleLines.map((l) => {
+              const status = l.jobKey
+                ? jobStatusFor(jobs, l.jobKey)
+                : settled
+                  ? 'done'
+                  : 'active';
+              return (
+                <NarrativeRow
+                  key={l.key}
+                  line={l}
+                  status={status}
+                  reduceMotion={reduceMotion}
+                />
+              );
+            })}
+          </View>
+        </Animated.View>
       </View>
     </View>
   );
 }
 
-// ─── Ambient orbiter ───────────────────────────────────────────────────
-//
-// Each slot runs its own self-sustaining loop: pick a random logo, fade
-// in from the offscreen radius, orbit briefly, get sucked into the Stone,
-// then schedule the next cycle with a fresh logo and angle. Slots are
-// independent so their cycles desync over time and the screen never
-// looks like a step function.
+// ─── Notat-linje ─────────────────────────────────────────────────────────────
+// Aktiv: pulserende terracotta-prik + arbejdstekst. Færdig: grøn prik, dæmpet
+// tekst der falder til ro. Fejlet: rust-prik + ærlig besked (review-skærmens
+// banner tilbyder "Prøv igen").
 
-type AmbientIconProps = {
-  slot: number;
+function NarrativeRow({
+  line,
+  status,
+  reduceMotion,
+}: {
+  line: NarrativeLine;
+  status: 'active' | 'done' | 'failed';
   reduceMotion: boolean;
-};
-
-function AmbientIcon({ slot, reduceMotion }: AmbientIconProps) {
-  const radius = useSharedValue(RADIUS_OFFSCREEN);
-  const opacity = useSharedValue(0);
-  const scale = useSharedValue(1);
-  const angle = useSharedValue(0);
-
-  // Logo + start-angle picked per cycle. We re-pick on each absorb so the
-  // user sees variety, but useState lets us trigger a re-render cleanly
-  // (the alternative - picking inside an Animated callback - gets messy).
-  const [logoIdx, setLogoIdx] = useState(() =>
-    Math.floor(Math.random() * AMBIENT_LOGOS.length),
-  );
-
-  // Refs let the timeout chain see the latest setters without re-binding.
-  const cycleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      if (cycleTimer.current) clearTimeout(cycleTimer.current);
-      cancelAnimation(radius);
-      cancelAnimation(opacity);
-      cancelAnimation(scale);
-      cancelAnimation(angle);
-    };
-  }, [radius, opacity, scale, angle]);
-
-  const startCycle = useCallback(() => {
-    if (!mountedRef.current) return;
-
-    // Fresh logo + angle per cycle.
-    const nextLogoIdx = Math.floor(Math.random() * AMBIENT_LOGOS.length);
-    const startAngle = Math.random() * 360;
-    setLogoIdx(nextLogoIdx);
-    angle.value = startAngle;
-    radius.value = RADIUS_OFFSCREEN;
-    scale.value = 1;
-    opacity.value = 0;
-
-    if (reduceMotion) {
-      // Static cluster: settle at orbit radius, fade in, never absorb.
-      radius.value = RADIUS_ORBIT;
-      opacity.value = withTiming(0.85, { duration: 400 });
-      return;
-    }
-
-    const driftMs = 700 + Math.random() * 600;     // 0.7–1.3s drift in
-    const orbitMs = 2200 + Math.random() * 2400;   // 2.2–4.6s orbiting
-    const absorbMs = 480 + Math.random() * 220;    // 0.48–0.7s absorb
-    // Light orbital drift while it's visible - we sweep the angle by a
-    // moderate amount rather than completing a full revolution so each
-    // cycle has a clear arc.
-    const orbitSweepDeg = (Math.random() * 220 + 80) * (Math.random() < 0.5 ? -1 : 1);
-
-    opacity.value = withTiming(1, { duration: driftMs, easing: Easing.out(Easing.cubic) });
-    radius.value = withTiming(RADIUS_ORBIT, { duration: driftMs, easing: Easing.out(Easing.cubic) });
-    angle.value = withTiming(startAngle + orbitSweepDeg, {
-      duration: driftMs + orbitMs,
-      easing: Easing.linear,
-    });
-
-    // Schedule absorb after drift+orbit completes.
-    cycleTimer.current = setTimeout(() => {
-      if (!mountedRef.current) return;
-      radius.value = withTiming(0, { duration: absorbMs, easing: Easing.in(Easing.cubic) });
-      scale.value = withTiming(0.18, { duration: absorbMs, easing: Easing.in(Easing.cubic) });
-      opacity.value = withTiming(0, { duration: absorbMs }, (finished) => {
-        if (finished) runOnJS(scheduleNext)();
-      });
-    }, driftMs + orbitMs);
-  }, [angle, radius, scale, opacity, reduceMotion]);
-
-  const scheduleNext = useCallback(() => {
-    if (!mountedRef.current) return;
-    // Random re-spawn delay so slots desync over time.
-    const gap = 250 + Math.random() * 1100;
-    cycleTimer.current = setTimeout(startCycle, gap);
-  }, [startCycle]);
-
-  // Initial stagger: slot 0 starts almost immediately, later slots fan
-  // out so all five don't drift in at the same instant.
-  useEffect(() => {
-    const initialDelay = slot * 320 + Math.random() * 480;
-    cycleTimer.current = setTimeout(startCycle, initialDelay);
-    return () => {
-      if (cycleTimer.current) clearTimeout(cycleTimer.current);
-    };
-    // startCycle is stable after first render via useCallback, but its
-    // identity changes if reduceMotion flips - which is fine, the cleanup
-    // above kills the in-flight timer and the new effect schedules fresh.
-  }, [slot, startCycle]);
-
-  const animatedStyle = useAnimatedStyle(() => {
-    const a = (angle.value * Math.PI) / 180;
-    const x = Math.cos(a) * radius.value;
-    const y = Math.sin(a) * radius.value;
-    return {
-      transform: [{ translateX: x }, { translateY: y }, { scale: scale.value }],
-      opacity: opacity.value,
-    };
-  });
+}) {
+  const text =
+    status === 'failed'
+      ? line.failedText ?? line.doneText
+      : status === 'done'
+        ? line.doneText
+        : line.activeText;
+  const dotColor =
+    status === 'failed'
+      ? papirColor.rust
+      : status === 'done'
+        ? papirColor.green
+        : papirColor.red;
 
   return (
     <Animated.View
-      style={[
-        {
-          position: 'absolute',
-          // Anchor center-of-icon at center-of-parent so transform translateX/Y
-          // orbits the Stone (which is the parent's natural-flow centered child).
-          top: '50%',
-          left: '50%',
-          marginTop: -ICON_SIZE / 2,
-          marginLeft: -ICON_SIZE / 2,
-          width: ICON_SIZE,
-          height: ICON_SIZE,
-          alignItems: 'center',
-          justifyContent: 'center',
-        },
-        animatedStyle,
-      ]}
-      pointerEvents="none"
+      entering={FadeInDown.duration(440).easing(Easing.out(Easing.quad))}
+      layout={LinearTransition.duration(320)}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: papirSpace.md,
+        paddingVertical: papirSpace.sm + 2,
+      }}
     >
-      <View
-        style={{
-          width: ICON_SIZE,
-          height: ICON_SIZE,
-          borderRadius: 12,
-          backgroundColor: '#fff',
-          alignItems: 'center',
-          justifyContent: 'center',
-          shadowColor: '#000',
-          shadowOpacity: 0.08,
-          shadowRadius: 8,
-          shadowOffset: { width: 0, height: 2 },
-          elevation: 2,
-        }}
+      {status === 'active' && !reduceMotion ? (
+        <PulsingDot color={dotColor} />
+      ) : (
+        <View
+          style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: dotColor }}
+        />
+      )}
+      <PaperText
+        role={status === 'active' ? 'bodyStrong' : 'body'}
+        color={status === 'active' ? papirColor.ink : papirColor.ink3}
+        style={{ flex: 1 }}
       >
-        <Image source={AMBIENT_LOGOS[logoIdx]} style={{ width: ICON_SIZE - 12, height: ICON_SIZE - 12 }} resizeMode="contain" />
-      </View>
+        {text}
+      </PaperText>
     </Animated.View>
   );
 }
 
-// ─── Failed-job indicator ──────────────────────────────────────────────
-//
-// Static peripheral icon shown when a real backfill job is in 'failed' or
-// 'cancelled' state. Decoupled from the ambient pool so a real failure is
-// always visible regardless of which logos the orbit happens to be cycling.
-
-type FailedIconProps = {
-  id: ServiceId;
-  angleDeg: number;
-};
-
-function FailedIcon({ id, angleDeg }: FailedIconProps) {
-  const { t, fonts } = useTheme();
-  const meta = SERVICE_META[id];
-  const a = (angleDeg * Math.PI) / 180;
-  const x = Math.cos(a) * RADIUS_FAILED;
-  const y = Math.sin(a) * RADIUS_FAILED;
+function PulsingDot({ color }: { color: string }) {
+  const pulse = useSharedValue(1);
+  useEffect(() => {
+    pulse.value = withRepeat(
+      withTiming(0.3, { duration: 700, easing: Easing.inOut(Easing.sin) }),
+      -1,
+      true,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const style = useAnimatedStyle(() => ({ opacity: pulse.value }));
   return (
-    <View
-      style={{
-        position: 'absolute',
-        top: '50%',
-        left: '50%',
-        marginTop: -ICON_SIZE / 2,
-        marginLeft: -ICON_SIZE / 2,
-        width: ICON_SIZE,
-        height: ICON_SIZE,
-        alignItems: 'center',
-        justifyContent: 'center',
-        transform: [{ translateX: x }, { translateY: y }],
-        opacity: 0.42,
-      }}
-      pointerEvents="none"
-    >
-      <View
-        style={{
-          width: ICON_SIZE,
-          height: ICON_SIZE,
-          borderRadius: 12,
-          backgroundColor: '#fff',
-          alignItems: 'center',
-          justifyContent: 'center',
-          shadowColor: '#000',
-          shadowOpacity: 0.08,
-          shadowRadius: 8,
-          shadowOffset: { width: 0, height: 2 },
-          elevation: 2,
-        }}
-      >
-        <Image source={meta.logo} style={{ width: ICON_SIZE - 12, height: ICON_SIZE - 12 }} resizeMode="contain" />
-      </View>
-      <View
-        style={{
-          position: 'absolute',
-          top: -4,
-          right: -4,
-          width: 18,
-          height: 18,
-          borderRadius: 9,
-          backgroundColor: '#D14343',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderWidth: 2,
-          borderColor: t.paper,
-        }}
-      >
-        <Text
-          style={{
-            color: '#FFFFFF',
-            fontFamily: fonts.uiBold,
-            fontSize: 11,
-            lineHeight: 12,
-          }}
-        >
-          !
-        </Text>
-      </View>
-    </View>
+    <Animated.View
+      style={[{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }, style]}
+    />
   );
 }
