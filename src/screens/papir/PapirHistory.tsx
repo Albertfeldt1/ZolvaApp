@@ -3,8 +3,9 @@ import { Alert, FlatList, Pressable, View, type ListRenderItemInfo } from 'react
 import { Check, MessageSquare, Sparkles, X } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { Button, PaperText, SegmentedControl, papirColor, papirRadius, papirSpace } from '../../design/papir';
+import { renderLinks } from '../../components/inline-md';
 import { useAuth } from '../../lib/auth';
-import { useMemoryEnabled, useNotes } from '../../lib/hooks';
+import { deleteLocalChatHistory, loadLocalChatHistory, useMemoryEnabled, useNotes } from '../../lib/hooks';
 import {
   confirmFact,
   deleteAllChatHistory,
@@ -237,7 +238,7 @@ function FaktaView() {
             >
               <Sparkles size={16} color={papirColor.red} strokeWidth={1.8} />
               <PaperText role="body" style={{ flex: 1 }}>
-                {f.text}
+                {renderLinks(f.text, papirColor.red)}
               </PaperText>
               <ScaleButton
                 scaleTo={0.9}
@@ -290,7 +291,7 @@ function FaktaView() {
                 accessibilityHint="Hold nede for at slette"
                 style={{ paddingVertical: 12, paddingHorizontal: papirSpace.screen }}
               >
-                <PaperText role="body">{f.text}</PaperText>
+                <PaperText role="body">{renderLinks(f.text, papirColor.red)}</PaperText>
               </Pressable>
               {i < confirmed.length - 1 ? (
                 <View style={{ height: 1, backgroundColor: papirColor.line, marginHorizontal: papirSpace.screen }} />
@@ -320,8 +321,33 @@ function SamtalerView() {
       setLoading(false);
       return;
     }
+    const uid = user.id;
     try {
-      setMessages(await listRecentChatMessages(user.id, 100));
+      // Two sources: the server-synced copy (kræver "Lad Zolva lære dig at
+      // kende") og den lokale "Gem samtaler lokalt"-historik. En local-only
+      // bruger har KUN den sidste — uden den var fanen altid tom.
+      const [server, local] = await Promise.all([listRecentChatMessages(uid, 100), loadLocalChatHistory(uid)]);
+      const seen = new Set(server.map((m) => m.clientId));
+      // Ustemplede (ældre) lokale beskeder arver forgængerens tidspunkt, så
+      // sorteringen ikke river samtalerækkefølgen fra hinanden.
+      let lastTs = 0;
+      const localRows: ChatMessageRow[] = [];
+      for (const m of local) {
+        const parsed = m.createdAt ? Date.parse(m.createdAt) : NaN;
+        lastTs = Number.isNaN(parsed) ? lastTs + 1 : parsed;
+        if (seen.has(m.id)) continue;
+        localRows.push({
+          id: `local-${m.id}`,
+          userId: uid,
+          clientId: m.id,
+          role: m.from === 'user' ? 'user' : 'assistant',
+          content: m.text,
+          createdAt: new Date(lastTs),
+        });
+      }
+      setMessages(
+        [...server, ...localRows].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()),
+      );
     } catch {
       // Keep previous list on flaky fetch.
     } finally {
@@ -344,6 +370,7 @@ function SamtalerView() {
           const uid = user.id;
           setMessages([]);
           try {
+            await deleteLocalChatHistory(uid);
             await deleteAllChatHistory(uid);
             await deleteAllMailEvents(uid);
           } catch {
@@ -370,7 +397,7 @@ function SamtalerView() {
           Ingen gemte samtaler
         </PaperText>
         <PaperText role="body" color={papirColor.ink3} style={{ textAlign: 'center' }}>
-          Samtaler med Zolva gemmes her, medmindre du har valgt kun at gemme lokalt.
+          Samtaler med Zolva samles her, når &ldquo;Gem samtaler lokalt&rdquo; er slået til under Indstillinger → Privatliv.
         </PaperText>
       </View>
     );

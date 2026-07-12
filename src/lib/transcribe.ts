@@ -161,7 +161,7 @@ export type ExtractedAction =
   | { kind: 'reminder'; title: string; time?: string; whenISO?: string }
   | { kind: 'event'; title: string; time?: string; place?: string; whenISO?: string; endISO?: string };
 
-type ExtractionResult = { title: string; actions: ExtractedAction[] };
+type ExtractionResult = { title: string; actions: ExtractedAction[]; isQuestion: boolean };
 
 // The model resolves relative Danish time expressions ("i morgen kl 10",
 // "på fredag") against the CURRENT local datetime injected below — parsing
@@ -177,11 +177,13 @@ Lige nu er klokken: ${local} (tidszone ${tz}).
 - Giv noten en kort, naturlig dansk titel (3-6 ord).
 - For hver handling: en kort dansk titel, og hvis nævnt, et tidspunkt som personen sagde det ("13.55", "i morgen", "før fredag") og evt. et sted.
 - Når et tidspunkt kan opløses til en konkret dato/tid, sæt "whenISO" til en ISO 8601-dato-tid MED tidszone-offset (fx "2026-07-06T10:00:00+02:00"), opløst relativt til klokken lige nu. For begivenheder med kendt sluttid: sæt også "endISO". Er tidspunktet for vagt ("snart", "en dag"), udelad whenISO.
-- Medtag KUN handlinger der tydeligt er udtrykt. Opfind intet. Hvis ingen, returnér en tom liste.`;
+- Medtag KUN handlinger der tydeligt er udtrykt. Opfind intet. Hvis ingen, returnér en tom liste.
+- Sæt "question" til true KUN hvis personen primært henvender sig til en assistent med et spørgsmål eller en anmodning om information/et svar (fx "hvad har jeg i kalenderen i morgen?", "har jeg fået svar fra Mette?", "opsummér mine mails"). Dikterer personen en note, en tanke eller handlinger, er "question" false.`;
 }
 
 const EXTRACT_SCHEMA = `{
   "title": string,
+  "question": boolean,
   "actions": Array<
     | { "kind": "reminder", "title": string, "time"?: string, "whenISO"?: string }
     | { "kind": "event", "title": string, "time"?: string, "place"?: string, "whenISO"?: string, "endISO"?: string }
@@ -191,9 +193,9 @@ const EXTRACT_SCHEMA = `{
 /** Extract a title + structured actions from a transcript via Claude (Haiku). */
 export async function extractActions(transcript: string): Promise<ExtractionResult> {
   const text = transcript.trim();
-  if (!text) return { title: 'Tom optagelse', actions: [] };
+  if (!text) return { title: 'Tom optagelse', actions: [], isQuestion: false };
   try {
-    const result = await completeJson<ExtractionResult>({
+    const result = await completeJson<{ title?: string; question?: boolean; actions?: ExtractedAction[] }>({
       system: buildExtractSystem(new Date()),
       schemaHint: EXTRACT_SCHEMA,
       messages: [{ role: 'user', content: text }],
@@ -203,9 +205,10 @@ export async function extractActions(transcript: string): Promise<ExtractionResu
     return {
       title: result.title?.trim() || 'Ny optagelse',
       actions: Array.isArray(result.actions) ? result.actions : [],
+      isQuestion: result.question === true,
     };
   } catch {
     // Transcript is still useful even if extraction fails — return it titled.
-    return { title: 'Ny optagelse', actions: [] };
+    return { title: 'Ny optagelse', actions: [], isQuestion: false };
   }
 }

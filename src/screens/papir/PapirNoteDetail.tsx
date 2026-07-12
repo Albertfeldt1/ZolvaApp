@@ -6,6 +6,7 @@ import React from 'react';
 import { Alert, ScrollView, View } from 'react-native';
 import { Trash2 } from 'lucide-react-native';
 import { IconButton, PaperText, papirColor, papirSpace } from '../../design/papir';
+import { renderLinks } from '../../components/inline-md';
 import { useNotes } from '../../lib/hooks';
 import { formatClock, formatToday } from '../../lib/date';
 import { usePapirNav } from './nav';
@@ -85,7 +86,7 @@ export function PapirNoteDetail({ id }: { id?: string }) {
           </PaperText>
         ) : null}
         <PaperText role="body" color={papirColor.ink} style={{ marginTop: note.title ? 12 : 16, lineHeight: 26 }}>
-          {note.text}
+          {renderLinks(note.text, papirColor.red)}
         </PaperText>
       </ScrollView>
     </View>

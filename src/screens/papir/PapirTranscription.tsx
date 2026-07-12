@@ -1,4 +1,4 @@
-import React, { useEffect, useState, type ComponentType } from 'react';
+import React, { useEffect, useRef, useState, type ComponentType } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Calendar, Clock } from 'lucide-react-native';
 import { deleteAsync } from 'expo-file-system/legacy';
@@ -19,6 +19,7 @@ import {
   VoiceEventError,
   type CalendarProviderId,
 } from '../../lib/voice-actions';
+import { requestChatVoiceQuestion, usePapirNav } from './nav';
 import { PapirLoader } from './PapirLoader';
 import { PushHeader } from './PushHeader';
 
@@ -169,6 +170,18 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
   const reminders = useReminders();
   const notes = useNotes();
   const { ctx, calendarProviders } = useVoiceActionCtx();
+  const nav = usePapirNav();
+
+  // Send transskriptionen videre til chatten som et stemme-spørgsmål: chatten
+  // sender den som en normal tur. Push før onDone, så chat-laget ligger klar
+  // under overlayet når det lukker.
+  const askZolva = (transcript: string) => {
+    requestChatVoiceQuestion(transcript);
+    nav.push('chat');
+    onDone();
+  };
+  const askZolvaRef = useRef(askZolva);
+  askZolvaRef.current = askZolva;
 
   useEffect(() => {
     let cancelled = false;
@@ -186,8 +199,18 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
           if (!cancelled) setError('Optagelsen var tom. Prøv igen, og tal tæt på telefonen.');
           return;
         }
-        const { title, actions } = await extractActions(transcript);
-        if (!cancelled) setData({ title, transcript, actions });
+        const { title, actions, isQuestion } = await extractActions(transcript);
+        if (cancelled) return;
+        // Et rent spørgsmål ("hvad har jeg i morgen?") hører hjemme i chatten,
+        // hvor Zolva faktisk kan svare — rut det direkte videre i stedet for
+        // at tilbyde at gemme det som note. Blandede optagelser (spørgsmål +
+        // handlinger) beholder handlingskortene; "Spørg Zolva"-knappen dækker
+        // resten manuelt.
+        if (isQuestion && actions.length === 0) {
+          askZolvaRef.current(transcript);
+          return;
+        }
+        setData({ title, transcript, actions });
       } catch (e) {
         if (e instanceof TranscribeCancelled) return; // brugerens eget valg — ingen fejl
         // Show the real failure — never invent content the user didn't record.
@@ -345,6 +368,16 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
             <View style={{ flexDirection: 'row', gap: 12, paddingHorizontal: papirSpace.screen, paddingTop: 28 }}>
               <Button label="Kassér" variant="ghost" style={{ paddingHorizontal: 24 }} onPress={onDone} disabled={saving} />
               <Button label={saving ? 'Gemmer…' : 'Gem note'} variant="primary" style={{ flex: 1 }} onPress={saveNote} disabled={saving} />
+            </View>
+            {/* Fallback når klassifikationen tager fejl: enhver optagelse kan
+                sendes til chatten og få et svar. */}
+            <View style={{ paddingHorizontal: papirSpace.screen, paddingTop: 12 }}>
+              <Button
+                label="Spørg Zolva om det her"
+                variant="ghost"
+                onPress={() => askZolva(data.transcript)}
+                disabled={saving}
+              />
             </View>
           </>
         ) : null}

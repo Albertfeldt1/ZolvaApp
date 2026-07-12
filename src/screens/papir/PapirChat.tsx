@@ -3,16 +3,18 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   TextInput,
   View,
 } from 'react-native';
-import { ArrowUp, Trash2 } from 'lucide-react-native';
+import { ArrowUp, Mic, Square, Trash2, Volume2 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import { deleteAsync } from 'expo-file-system/legacy';
 import { ScaleButton } from '../../design/motion';
 import { Chip, IconButton, PaperText, papirColor, papirFont, papirRadius, papirSpace } from '../../design/papir';
-import { renderInlineMd } from '../../components/inline-md';
+import { renderInlineMd, renderLinks } from '../../components/inline-md';
 import {
   getTodayCalendarEvents,
   subscribeTodayCalendarEvents,
@@ -20,19 +22,51 @@ import {
 } from '../../lib/calendar-today-snapshot';
 import { useChat, useChatSuggestions } from '../../lib/hooks';
 import { subscribeFactExtracted } from '../../lib/profile-extractor';
+import { TranscribeCancelled, TranscribeError, transcribeAudio } from '../../lib/transcribe';
+import { speak, stopSpeaking, TtsError } from '../../lib/tts';
 import type { ChatMessage, SendDraftAction } from '../../lib/types';
+import { consumeChatVoiceQuestion, subscribeChatVoiceQuestion } from './nav';
+import { PapirRecord } from './PapirRecord';
 import { PushHeader } from './PushHeader';
 import { useNow } from './useNow';
 
-function ZolvaMsg({ text }: { text: string }) {
+type SpeechPhase = 'loading' | 'playing';
+
+function ZolvaMsg({
+  text,
+  speechPhase,
+  onToggleSpeak,
+}: {
+  text: string;
+  speechPhase: SpeechPhase | null;
+  onToggleSpeak: () => void;
+}) {
   // Model replies use **bold** markdown — render it instead of showing raw
   // asterisks (H5). Same helper as the classic ChatScreen.
   return (
     <View style={{ maxWidth: '84%', alignSelf: 'flex-start' }}>
-      <PaperText role="eyebrow" color={papirColor.ink3} style={{ marginBottom: 6 }}>
-        Zolva
-      </PaperText>
-      <PaperText role="body">{renderInlineMd(text, papirFont.uiSemi)}</PaperText>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+        <PaperText role="eyebrow" color={papirColor.ink3}>
+          Zolva
+        </PaperText>
+        <ScaleButton
+          scaleTo={0.9}
+          haptic="light"
+          onPress={onToggleSpeak}
+          accessibilityLabel={speechPhase ? 'Stop oplæsning' : 'Læs svaret op'}
+          style={{ padding: 6, margin: -6 }}
+        >
+          {speechPhase === 'loading' ? (
+            // size som tal er Android-only — "small" (20pt) skaleres ned til ikonstørrelse.
+            <ActivityIndicator size="small" color={papirColor.ink3} style={{ transform: [{ scale: 0.7 }] }} />
+          ) : speechPhase === 'playing' ? (
+            <Square size={12} color={papirColor.red} strokeWidth={2} fill={papirColor.red} />
+          ) : (
+            <Volume2 size={14} color={papirColor.ink3} strokeWidth={1.8} />
+          )}
+        </ScaleButton>
+      </View>
+      <PaperText role="body">{renderInlineMd(text, papirFont.uiSemi, papirColor.red)}</PaperText>
     </View>
   );
 }
@@ -51,7 +85,7 @@ function MeMsg({ text }: { text: string }) {
       }}
     >
       <PaperText role="body" color={papirColor.onInk}>
-        {text}
+        {renderLinks(text, papirColor.onInk)}
       </PaperText>
     </View>
   );
@@ -175,6 +209,13 @@ export function PapirChat() {
   const chat = useChat();
   const suggestions = useChatSuggestions();
   const [input, setInput] = useState('');
+  // Voice question flow: full-screen recorder → transcription → send as a
+  // normal chat turn. The reply is NOT read aloud automatically — the user
+  // opts in per message via the speaker button on the bubble.
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  // Which assistant message is being spoken right now (one at a time).
+  const [speech, setSpeech] = useState<{ msgId: string; phase: SpeechPhase } | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const countRef = useRef(0);
   // Ticks per minute (and on foreground) so the time-of-day chip rules stay
@@ -250,24 +291,118 @@ export function PapirChat() {
     if (!trimmed || chat.typing) return;
     setInput('');
     setNoted(null); // the confirmation belongs to the previous turn only
+    stopSpeaking(); // a new turn makes the old spoken answer stale
     chat.send(trimmed);
+  };
+
+  // Stemme-spørgsmål fra optage-flowet (den store knap i bundnavigationen):
+  // transskriptionen ruter hertil via push('chat') + requestChatVoiceQuestion.
+  // Forbrug ved mount (spørgsmålet venter typisk før chatten er mounted) og
+  // lyt derefter live. Refs frem for deps: apply må ikke re-køre effekten,
+  // men skal altid se friske sendText/typing.
+  const sendTextRef = useRef(sendText);
+  sendTextRef.current = sendText;
+  const typingRef = useRef(chat.typing);
+  typingRef.current = chat.typing;
+  useEffect(() => {
+    const apply = () => {
+      const q = consumeChatVoiceQuestion();
+      if (!q) return;
+      if (typingRef.current) {
+        // En tur er allerede i gang — park spørgsmålet i composeren i stedet
+        // for at tabe det på sendText's typing-guard.
+        setInput(q);
+        return;
+      }
+      sendTextRef.current(q);
+    };
+    apply();
+    return subscribeChatVoiceQuestion(apply);
+  }, []);
+
+  // --- Oplæsning (TTS) ---------------------------------------------------
+  // stopSpeaking() fires the previous utterance's onEnd, which clears
+  // `speech` via the msgId guard — no manual reset needed on switches.
+  const speakMessage = async (m: ChatMessage) => {
+    setSpeech({ msgId: m.id, phase: 'loading' });
+    try {
+      await speak(m.text, () => setSpeech((s) => (s?.msgId === m.id ? null : s)));
+      setSpeech((s) => (s?.msgId === m.id ? { msgId: m.id, phase: 'playing' } : s));
+    } catch (e) {
+      setSpeech((s) => (s?.msgId === m.id ? null : s));
+      Alert.alert('Oplæsning', e instanceof TtsError ? e.message : 'Svaret kunne ikke læses op. Prøv igen.');
+    }
+  };
+
+  const toggleSpeak = (m: ChatMessage) => {
+    if (speech?.msgId === m.id) {
+      stopSpeaking();
+      return;
+    }
+    void speakMessage(m);
+  };
+
+  // Leaving the screen must not leave audio running.
+  useEffect(() => () => stopSpeaking(), []);
+
+  // --- Stemme-spørgsmål --------------------------------------------------
+  const handleVoiceTake = async (uri: string) => {
+    setTranscribing(true);
+    try {
+      const transcript = await transcribeAudio(uri);
+      if (!transcript) {
+        Alert.alert('Optagelse', 'Jeg kunne ikke høre noget. Prøv igen.');
+        return;
+      }
+      if (chat.typing) {
+        // A turn landed while we transcribed — park the text in the composer
+        // instead of dropping it on sendText's typing guard.
+        setInput(transcript);
+        return;
+      }
+      sendText(transcript);
+    } catch (e) {
+      if (!(e instanceof TranscribeCancelled)) {
+        Alert.alert('Optagelse', e instanceof TranscribeError ? e.message : 'Transskriberingen fejlede. Prøv igen.');
+      }
+    } finally {
+      setTranscribing(false);
+      // The recorder hands the file off to us — clean up the temp take.
+      deleteAsync(uri, { idempotent: true }).catch(() => {});
+    }
   };
 
   const confirmClear = () => {
     if (chat.data.length === 0) return;
     Alert.alert('Ryd samtalen?', 'Historikken slettes fra denne enhed og din konto.', [
       { text: 'Annullér', style: 'cancel' },
-      { text: 'Ryd', style: 'destructive', onPress: chat.clear },
+      {
+        text: 'Ryd',
+        style: 'destructive',
+        onPress: () => {
+          stopSpeaking();
+          void chat.clear();
+        },
+      },
     ]);
   };
 
   const renderMessage = (m: ChatMessage) => {
-    const bubble = m.from === 'user' ? <MeMsg text={m.text} /> : <ZolvaMsg text={m.text} />;
+    const bubble =
+      m.from === 'user' ? (
+        <MeMsg text={m.text} />
+      ) : (
+        <ZolvaMsg
+          text={m.text}
+          speechPhase={speech?.msgId === m.id ? speech.phase : null}
+          onToggleSpeak={() => toggleSpeak(m)}
+        />
+      );
     const drafts = m.drafts ?? [];
     const notedLine =
       noted && noted.msgId === m.id ? (
         <PaperText role="small" color={papirColor.ink3} style={{ maxWidth: '84%', alignSelf: 'flex-start' }}>
-          Noteret – jeg husker: {noted.text}
+          Noteret – jeg husker: {renderLinks(noted.text, papirColor.red)}
         </PaperText>
       ) : null;
     if (drafts.length === 0 && !notedLine) return <View key={m.id}>{bubble}</View>;
@@ -376,6 +511,23 @@ export function PapirChat() {
             <ScaleButton
               scaleTo={0.9}
               haptic="light"
+              onPress={() => {
+                stopSpeaking(); // recording mode and playback can't share the audio session
+                setRecording(true);
+              }}
+              disabled={transcribing || chat.typing}
+              accessibilityLabel="Stil et spørgsmål med stemmen"
+              style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }}
+            >
+              {transcribing ? (
+                <ActivityIndicator size="small" color={papirColor.ink3} />
+              ) : (
+                <Mic size={18} color={chat.typing ? papirColor.ink4 : papirColor.ink2} strokeWidth={1.8} />
+              )}
+            </ScaleButton>
+            <ScaleButton
+              scaleTo={0.9}
+              haptic="light"
               onPress={() => sendText(input)}
               disabled={!input.trim() || chat.typing}
               accessibilityLabel="Send"
@@ -392,6 +544,24 @@ export function PapirChat() {
             </ScaleButton>
           </View>
         </View>
+
+        {/* Full-screen recorder for voice questions. Modal (not an inline
+            overlay like PapirShell's) because the shell's bottom nav renders
+            above this tab pane — a Modal is the only layer that covers it. */}
+        <Modal
+          visible={recording}
+          animationType="slide"
+          onRequestClose={() => setRecording(false)}
+          presentationStyle="fullScreen"
+        >
+          <PapirRecord
+            onStop={(uri) => {
+              setRecording(false);
+              void handleVoiceTake(uri);
+            }}
+            onClose={() => setRecording(false)}
+          />
+        </Modal>
       </View>
     </KeyboardAvoidingView>
   );

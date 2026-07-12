@@ -73,3 +73,31 @@ export function subscribePapirRoute(listener: () => void): () => void {
   routeListeners.add(listener);
   return () => routeListeners.delete(listener);
 }
+
+// ---------------------------------------------------------------------------
+// Bro for stemme-spørgsmål: optage-flowet (den store knap i bundnavigationen)
+// ruter et transskriberet spørgsmål til chatten via push('chat') og lægger
+// teksten her — PapirChat forbruger den ved mount og lytter derefter live.
+// Samme "seneste vinder"-buffer som ruterne: push kan fyre før chatten er
+// mounted. Chatten sender teksten som en normal tur; svaret læses kun op
+// hvis brugeren selv trykker på højttaleren på boblen.
+
+let pendingVoiceQuestion: string | null = null;
+const voiceQuestionListeners = new Set<() => void>();
+
+export function requestChatVoiceQuestion(text: string): void {
+  pendingVoiceQuestion = text;
+  voiceQuestionListeners.forEach((l) => l());
+}
+
+/** Chat-side: hent og ryd det ventende spørgsmål (null hvis ingen). */
+export function consumeChatVoiceQuestion(): string | null {
+  const q = pendingVoiceQuestion;
+  pendingVoiceQuestion = null;
+  return q;
+}
+
+export function subscribeChatVoiceQuestion(listener: () => void): () => void {
+  voiceQuestionListeners.add(listener);
+  return () => voiceQuestionListeners.delete(listener);
+}
