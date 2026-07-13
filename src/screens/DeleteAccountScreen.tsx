@@ -1,19 +1,29 @@
+// Slet konto — Papir-udgave af det klassiske bekræftelses-flow (K2).
+//
+// Mountes både fra PapirSettings (absolut overlay) og den klassiske
+// SettingsScreen (Modal). Den klassiske mount har ingen SafeAreaProvider,
+// så vi bruger fast top-padding i stedet for useSafeAreaInsets (samme
+// lærestreg som AuthSheet).
 import { X } from 'lucide-react-native';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from 'react-native';
-import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
-import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
-import { useTheme } from '../design/useTheme';
+import { ScaleButton } from '../design/motion';
+import {
+  Button,
+  PaperText,
+  papirColor,
+  papirFont,
+  papirRadius,
+  papirSpace,
+} from '../design/papir';
 import { useAuth } from '../lib/auth';
 import { isDemoUser } from '../lib/demo';
 import { supabase } from '../lib/supabase';
@@ -29,7 +39,6 @@ type DeleteError = { message: string; canRetry: boolean };
 
 export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
   const { user, signOut } = useAuth();
-  const { t, type, fonts, radius, spacing, surface } = useTheme();
   const [confirmation, setConfirmation] = useState('');
   const [stage, setStage] = useState<'intro' | 'confirm'>('intro');
   const [busy, setBusy] = useState(false);
@@ -102,350 +111,130 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
       style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
-        <GlassHaloLayer />
-
-        {/* Header - glass card with close button + eyebrow */}
-        <View
-          style={{
-            paddingTop: spacing.statusBarFallback,
-            paddingHorizontal: spacing.screenPad,
-            paddingBottom: spacing.cardPad,
-            position: 'relative',
-            zIndex: 1,
-          }}
-        >
-          <GlassFrostedCard
-            radius={radius.card}
-            style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.cardPad }}
+      <View style={styles.root}>
+        {/* Toplinje: rød eyebrow til venstre, stille luk-knap til højre. */}
+        <View style={styles.topRow}>
+          <PaperText role="eyebrow" color={papirColor.red}>
+            Slet konto
+          </PaperText>
+          <ScaleButton
+            scaleTo={0.9}
+            haptic="light"
+            onPress={onClose}
+            disabled={busy}
+            hitSlop={10}
+            accessibilityLabel="Luk"
+            accessibilityRole="button"
+            style={styles.closeButton}
           >
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text
-                style={{
-                  fontFamily: fonts.mono,
-                  fontSize: 11,
-                  letterSpacing: 0.88,
-                  textTransform: 'uppercase',
-                  // '#D14343' - no danger token in current scheme; Zolva destructive red
-                  color: '#D14343',
-                }}
-              >
-                Slet konto
-              </Text>
-              <Pressable
-                onPress={onClose}
-                hitSlop={10}
-                style={({ pressed }) => [
-                  {
-                    width: 34,
-                    height: 34,
-                    borderRadius: radius.pill,
-                    backgroundColor: surface.iconButton,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  },
-                  pressed && { opacity: 0.6 },
-                ]}
-                accessibilityLabel="Luk"
-                accessibilityRole="button"
-                disabled={busy}
-              >
-                <X size={20} color={t.ink} strokeWidth={2} />
-              </Pressable>
-            </View>
-          </GlassFrostedCard>
+            <X size={18} color={papirColor.ink} strokeWidth={2} />
+          </ScaleButton>
         </View>
 
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{
-            paddingHorizontal: spacing.screenPad,
+            paddingHorizontal: papirSpace.screen,
             paddingBottom: 48,
-            gap: spacing.cardPad,
+            gap: papirSpace.base,
           }}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Hero warning card */}
-          <GlassFrostedCard overlay={surface.bone} radius={radius.card} style={{ padding: spacing.lg }}>
-            <Text
-              style={{
-                fontFamily: fonts.display,
-                fontStyle: 'italic',
-                fontSize: 32,
-                lineHeight: 38,
-                letterSpacing: -0.96,
-                color: t.ink,
-              }}
-            >
+          {/* Advarsels-arket: ét hvidt kort bærer hele konsekvensteksten. */}
+          <View style={styles.card}>
+            <PaperText accessibilityRole="header" style={styles.headline}>
               Er du sikker?
-            </Text>
+            </PaperText>
 
-            <View
-              style={{
-                marginTop: spacing.md,
-                height: 1,
-                backgroundColor: t.ink,
-                opacity: 0.12,
-              }}
-            />
+            <View style={styles.divider} />
 
-            <Text
-              style={{
-                marginTop: spacing.md,
-                fontFamily: fonts.ui,
-                fontSize: 15,
-                lineHeight: 22,
-                color: t.ink2,
-              }}
-            >
+            <PaperText role="body" color={papirColor.ink2}>
               Hvis du sletter din konto, fjerner vi permanent:
-            </Text>
+            </PaperText>
 
             {/* Consequences list */}
-            <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
+            <View style={{ gap: papirSpace.sm }}>
               {[
                 'Din Zolva-konto og login',
                 'Alle forbindelser til Google og Microsoft',
                 'Push-tokens så vi ikke kan sende dig notifikationer',
                 'Al data tilknyttet din bruger-ID hos os',
               ].map((item) => (
-                <View key={item} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
-                  <View
-                    style={{
-                      width: 5,
-                      height: 5,
-                      borderRadius: 999,
-                      // '#D14343' - destructive bullet accent, no token
-                      backgroundColor: '#D14343',
-                      marginTop: 8,
-                    }}
-                  />
-                  <Text
-                    style={{
-                      flex: 1,
-                      fontFamily: fonts.ui,
-                      fontSize: 14.5,
-                      lineHeight: 21,
-                      color: t.ink2,
-                    }}
-                  >
+                <View key={item} style={styles.bulletRow}>
+                  <View style={styles.bulletDot} />
+                  <PaperText role="body" color={papirColor.ink2} style={{ flex: 1 }}>
                     {item}
-                  </Text>
+                  </PaperText>
                 </View>
               ))}
             </View>
 
-            <View
-              style={{
-                marginTop: spacing.md,
-                height: 1,
-                backgroundColor: t.ink,
-                opacity: 0.12,
-              }}
-            />
+            <View style={styles.divider} />
 
-            <Text
-              style={{
-                marginTop: spacing.md,
-                fontFamily: fonts.ui,
-                fontSize: 15,
-                lineHeight: 22,
-                color: t.ink2,
-              }}
-            >
+            <PaperText role="body" color={papirColor.ink2}>
               Vi forsøger også at tilbagekalde dine OAuth-tokens hos Google.
               Microsoft understøtter ikke tilbagekaldelse via API - du kan selv
               fjerne adgangen i din Microsoft-konto bagefter.
-            </Text>
+            </PaperText>
 
-            <Text
-              style={{
-                marginTop: spacing.sm,
-                fontFamily: fonts.uiBold,
-                fontSize: 15,
-                lineHeight: 22,
-                // '#D14343' - irreversible warning, no token
-                color: '#D14343',
-              }}
-            >
+            <PaperText role="bodyStrong" color={papirColor.red}>
               Handlingen kan ikke fortrydes.
-            </Text>
-          </GlassFrostedCard>
+            </PaperText>
+          </View>
 
           {stage === 'intro' ? (
             <>
-              {/* "Continue to confirmation" - destructive red pill */}
-              <Pressable
-                style={({ pressed }) => [
-                  {
-                    marginTop: spacing.sm,
-                    // '#D14343' - destructive CTA background, no token
-                    backgroundColor: '#D14343',
-                    paddingVertical: 14,
-                    borderRadius: radius.pill,
-                    alignItems: 'center',
-                  },
-                  pressed && { opacity: 0.82 },
-                ]}
+              <Button
+                label="Fortsæt til bekræftelse"
+                variant="red"
                 onPress={() => setStage('confirm')}
-                accessibilityRole="button"
-              >
-                <Text
-                  style={{
-                    // '#FFFFFF' - white text on destructive red pill
-                    color: '#FFFFFF',
-                    fontFamily: fonts.uiBold,
-                    fontSize: 14.5,
-                  }}
-                >
-                  Fortsæt til bekræftelse
-                </Text>
-              </Pressable>
-
-              {/* Cancel - ghost */}
-              <Pressable
-                style={({ pressed }) => [
-                  { paddingVertical: 14, alignItems: 'center' },
-                  pressed && { opacity: 0.6 },
-                ]}
-                onPress={onClose}
-                accessibilityRole="button"
-              >
-                <Text
-                  style={{
-                    color: t.ink3,
-                    fontFamily: fonts.uiBold,
-                    fontSize: 13,
-                  }}
-                >
-                  Behold min konto
-                </Text>
-              </Pressable>
+                style={{ marginTop: papirSpace.sm }}
+              />
+              <Button label="Behold min konto" variant="ghost" onPress={onClose} />
             </>
           ) : (
             <>
-              {/* Confirmation input card */}
-              <GlassFrostedCard overlay={surface.bone} radius={radius.card} style={{ padding: spacing.lg }}>
-                <Text
-                  style={{
-                    fontFamily: fonts.ui,
-                    fontSize: 15,
-                    lineHeight: 22,
-                    color: t.ink2,
-                  }}
-                >
+              {/* Bekræftelses-kortet: skriv SLET for at låse knappen op. */}
+              <View style={styles.card}>
+                <PaperText role="body" color={papirColor.ink2}>
                   Skriv{' '}
-                  <Text style={{ fontFamily: fonts.uiBold, color: t.ink }}>SLET</Text>
-                  {' '}for at bekræfte.
-                </Text>
+                  <PaperText role="bodyStrong" color={papirColor.ink}>
+                    SLET
+                  </PaperText>{' '}
+                  for at bekræfte.
+                </PaperText>
 
                 <TextInput
-                  style={{
-                    marginTop: spacing.md,
-                    backgroundColor: '#FFFFFF',
-                    borderRadius: radius.card - 4,
-                    borderWidth: StyleSheet.hairlineWidth,
-                    borderColor: t.line,
-                    paddingHorizontal: 14,
-                    paddingVertical: 14,
-                    fontFamily: fonts.monoBold,
-                    fontSize: 16,
-                    letterSpacing: 2,
-                    color: t.ink,
-                  }}
+                  style={styles.input}
                   value={confirmation}
                   onChangeText={setConfirmation}
                   placeholder="SLET"
-                  placeholderTextColor={t.ink4}
+                  placeholderTextColor={papirColor.ink4}
                   autoCapitalize="characters"
                   autoCorrect={false}
                   editable={!busy}
                   accessibilityLabel="Bekræftelse, skriv SLET"
                 />
-              </GlassFrostedCard>
+              </View>
 
-              {/* Error banner */}
+              {/* Fejlbanner — rød tekst på redSoft-flade. */}
               {error && (
-                <GlassFrostedCard
-                  overlay={surface.warningTint}
-                  radius={radius.card}
-                  style={{ padding: spacing.cardPad }}
-                >
-                  <Text
-                    style={{
-                      fontFamily: fonts.ui,
-                      fontSize: 13,
-                      lineHeight: 19,
-                      // '#D14343' - error text, no token
-                      color: '#D14343',
-                    }}
-                  >
+                <View style={styles.errorCard}>
+                  <PaperText role="small" color={papirColor.red}>
                     {error.message}
-                  </Text>
-                </GlassFrostedCard>
+                  </PaperText>
+                </View>
               )}
 
-              {/* Delete permanently - destructive red pill (enabled) / glass pill (disabled) */}
-              <Pressable
-                style={({ pressed }) => [
-                  {
-                    paddingVertical: 14,
-                    borderRadius: radius.pill,
-                    alignItems: 'center',
-                    backgroundColor: typedCorrectly && !busy
-                      // '#D14343' - destructive CTA enabled, no token
-                      ? '#D14343'
-                      : surface.glass,
-                  },
-                  !typedCorrectly || busy
-                    ? { opacity: 0.5 }
-                    : pressed
-                    ? { opacity: 0.82 }
-                    : undefined,
-                ]}
-                onPress={runDelete}
+              <Button
+                label="Slet konto permanent"
+                variant="red"
+                onPress={() => void runDelete()}
                 disabled={!typedCorrectly || busy}
-                accessibilityRole="button"
-                accessibilityState={{ disabled: !typedCorrectly || busy }}
-              >
-                {busy ? (
-                  // '#FFFFFF' - spinner on dark destructive pill
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text
-                    style={{
-                      fontFamily: fonts.uiBold,
-                      fontSize: 14.5,
-                      // '#FFFFFF' when enabled (on red), t.ink3 when disabled (on glass)
-                      color: typedCorrectly ? '#FFFFFF' : t.ink3,
-                    }}
-                  >
-                    Slet konto permanent
-                  </Text>
-                )}
-              </Pressable>
-
-              {/* Cancel - ghost */}
-              <Pressable
-                style={({ pressed }) => [
-                  { paddingVertical: 14, alignItems: 'center' },
-                  pressed && { opacity: 0.6 },
-                ]}
-                onPress={onClose}
-                disabled={busy}
-                accessibilityRole="button"
-              >
-                <Text
-                  style={{
-                    color: t.ink3,
-                    fontFamily: fonts.uiBold,
-                    fontSize: 13,
-                  }}
-                >
-                  Annullér
-                </Text>
-              </Pressable>
+                left={busy ? <ActivityIndicator size="small" color="#FFFFFF" /> : undefined}
+              />
+              <Button label="Annullér" variant="ghost" onPress={onClose} disabled={busy} />
             </>
           )}
         </ScrollView>
@@ -453,6 +242,79 @@ export function DeleteAccountScreen({ onClose, onDeleted }: Props) {
     </KeyboardAvoidingView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: papirColor.paper,
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: papirSpace.screen,
+    paddingTop: 56,
+    paddingBottom: papirSpace.base,
+  },
+  closeButton: {
+    width: 38,
+    height: 38,
+    borderRadius: papirRadius.pill,
+    borderWidth: 1,
+    borderColor: papirColor.line,
+    backgroundColor: papirColor.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  card: {
+    backgroundColor: papirColor.card,
+    borderWidth: 1,
+    borderColor: papirColor.line,
+    borderRadius: papirRadius.xl,
+    padding: papirSpace.xl,
+    gap: papirSpace.base,
+  },
+  headline: {
+    fontFamily: papirFont.displayLight,
+    fontSize: 30,
+    lineHeight: 36,
+    letterSpacing: -0.5,
+    color: papirColor.ink,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: papirColor.lineSoft,
+  },
+  bulletRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  bulletDot: {
+    width: 5,
+    height: 5,
+    borderRadius: papirRadius.pill,
+    backgroundColor: papirColor.red,
+    marginTop: 8,
+  },
+  input: {
+    backgroundColor: papirColor.paper,
+    borderRadius: papirRadius.md,
+    borderWidth: 1,
+    borderColor: papirColor.line,
+    paddingHorizontal: papirSpace.base,
+    paddingVertical: papirSpace.base,
+    fontFamily: papirFont.uiSemi,
+    fontSize: 16,
+    letterSpacing: 2,
+    color: papirColor.ink,
+  },
+  errorCard: {
+    backgroundColor: papirColor.redSoft,
+    borderRadius: papirRadius.md,
+    padding: papirSpace.base,
+  },
+});
 
 // Supabase wraps non-2xx responses in FunctionsHttpError whose `.context` is
 // the raw Response. The default .message ("Edge Function returned a non-2xx

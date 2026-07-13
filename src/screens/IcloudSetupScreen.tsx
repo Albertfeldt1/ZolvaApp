@@ -1,4 +1,10 @@
 // src/screens/IcloudSetupScreen.tsx
+//
+// Papir-udgaven af iCloud-opsætningen. Skærmen er et session-overlay der
+// renderes oven på Papir-UI'et, så den følger Papir-sproget: papir-baggrund,
+// hvide kort med hairline-kant, serif-tal i terracotta og BreathingWave som
+// brand-tråd. Al logik (validering, fejl-mapping, pull-to-dismiss, AppState-
+// reset) er uændret fra den klassiske udgave — kun præsentationen er ny.
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,17 +22,24 @@ import {
   View,
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
-import { Eye, EyeOff } from 'lucide-react-native';
+import { ChevronLeft, Eye, EyeOff } from 'lucide-react-native';
 import { useChromeInsets } from '../components/PhoneChrome';
 import { useAuth } from '../lib/auth';
 import { saveCredential, IcloudLinkFailure } from '../lib/icloud-credentials';
 import { setIntegrationEnabled } from '../lib/integration-flags';
 import { validate as validateImap } from '../lib/icloud-mail';
 import { probeCredential as probeCalDav } from '../lib/icloud-calendar';
-import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
-import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
-import { Stone } from '../design/primitives/Stone';
-import { useTheme } from '../design/useTheme';
+import {
+  BreathingWave,
+  Button,
+  IconButton,
+  PaperText,
+  papirColor,
+  papirFont,
+  papirRadius,
+  papirSpace,
+  papirType,
+} from '../design/papir';
 
 type Props = {
   prefilledEmail?: string;
@@ -36,6 +49,11 @@ type Props = {
 
 const APPLE_ID_URL = 'https://appleid.apple.com/account/manage';
 const APPLE_DOMAINS = ['@me.com', '@icloud.com', '@mac.com'];
+
+// Fixed top padding instead of safe-area insets: this overlay can mount from
+// the classic App.tsx tree, which has no SafeAreaProvider (same lesson as
+// AuthSheet — useSafeAreaInsets would throw there).
+const TOP_PAD = 56;
 
 type SubmitError =
   | 'auth-failed'
@@ -51,7 +69,6 @@ type SubmitError =
 export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
   const { bottom: chromeBottom } = useChromeInsets();
   const { user } = useAuth();
-  const { t, type, fonts, radius, spacing, surface } = useTheme();
 
   const [email, setEmail] = useState(prefilledEmail ?? '');
   const [password, setPassword] = useState('');
@@ -201,14 +218,9 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
 
   return (
     <Animated.View
-      style={[styles.flex, { backgroundColor: t.paper, transform: [{ translateY }] }]}
+      style={[styles.flex, { backgroundColor: papirColor.paper, transform: [{ translateY }] }]}
       {...panResponder.panHandlers}
     >
-      {/* Halo background */}
-      <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
-        <GlassHaloLayer />
-      </View>
-
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom + 32 }]}
         showsVerticalScrollIndicator={false}
@@ -221,244 +233,116 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
           atTopRef.current = e.nativeEvent.contentOffset.y <= 0;
         }}
       >
-        {/* Header glass card */}
-        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.statusBarFallback }}>
-          <GlassFrostedCard
-            radius={radius.card}
-            style={{ paddingVertical: spacing.lg, paddingHorizontal: spacing.cardPad }}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-              <Pressable
-                onPress={onCancel}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel="Gå tilbage"
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: radius.pill,
-                  backgroundColor: surface.iconButton,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Text style={{ fontFamily: fonts.ui, fontSize: 18, color: t.ink2 }}>←</Text>
-              </Pressable>
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={{
-                    ...type.eyebrow,
-                    color: t.ink3,
-                  }}
-                >
-                  FORBIND ICLOUD
-                </Text>
-                <Text
-                  style={{
-                    fontFamily: fonts.display,
-                    fontSize: 20,
-                    letterSpacing: -0.4,
-                    color: t.ink,
-                    marginTop: 2,
-                  }}
-                >
-                  Forbind iCloud
-                </Text>
-              </View>
-            </View>
-          </GlassFrostedCard>
+        {/* Header: back button + eyebrow/title, direkte på papiret. */}
+        <View style={styles.header}>
+          <IconButton accessibilityLabel="Gå tilbage" onPress={onCancel}>
+            <ChevronLeft size={17} color={papirColor.ink} strokeWidth={2} />
+          </IconButton>
+          <View style={{ flex: 1 }}>
+            <PaperText role="eyebrow" color={papirColor.ink3}>
+              FORBIND ICLOUD
+            </PaperText>
+            <PaperText role="titleSerif" style={{ marginTop: 2 }}>
+              Forbind iCloud
+            </PaperText>
+          </View>
         </View>
 
         {/* Hero explainer card */}
-        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
-          <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.xl, gap: spacing.lg }}>
+        <View style={styles.cardWrap}>
+          <View style={[styles.card, { gap: papirSpace.base }]}>
             <View style={{ alignItems: 'center' }}>
-              <Stone size={48} jumpOnTap={false} />
+              <BreathingWave scale={0.8} />
             </View>
-            <Text
-              style={{
-                fontFamily: fonts.display,
-                fontSize: 22,
-                lineHeight: 28,
-                letterSpacing: -0.6,
-                color: t.ink,
-              }}
-            >
-              App-specifik adgangskode
-            </Text>
-            <Text style={{ ...type.body, color: t.ink2, lineHeight: 22 }}>
+            <PaperText role="displayS">App-specifik adgangskode</PaperText>
+            <PaperText role="body" color={papirColor.ink2}>
               Apple kræver en særlig adgangskode (én til hver app), så Zolva kan læse din mail og
               kalender. Du laver den selv på Apples side - det tager omkring et minut.
-            </Text>
-          </GlassFrostedCard>
+            </PaperText>
+          </View>
         </View>
 
         {/* Step-by-step guide card */}
-        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
-          <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.xl, gap: spacing.lg }}>
-            <Step
-              n="1"
-              title="Åbn Apples side"
-              fonts={fonts}
-              t={t}
-              type={type}
-            >
-              <Pressable
-                style={{
-                  backgroundColor: t.ink,
-                  paddingHorizontal: 16,
-                  paddingVertical: 12,
-                  borderRadius: radius.soft,
-                  alignItems: 'center',
-                  alignSelf: 'flex-start',
-                }}
-                onPress={openAppleId}
-                accessibilityRole="button"
-              >
-                <Text style={{ fontFamily: fonts.uiBold, fontSize: 14, color: surface.glassDarkText }}>
-                  Åbn appleid.apple.com
-                </Text>
-              </Pressable>
+        <View style={styles.cardWrap}>
+          <View style={[styles.card, { gap: papirSpace.lg }]}>
+            <Step n="1" title="Åbn Apples side">
+              <Button
+                label="Åbn appleid.apple.com"
+                onPress={() => void openAppleId()}
+                style={{ alignSelf: 'flex-start' }}
+              />
             </Step>
 
-            <Step
-              n="2"
-              title='Find "App-specifikke adgangskoder" under "Login og sikkerhed"'
-              fonts={fonts}
-              t={t}
-              type={type}
-            >
+            <Step n="2" title='Find "App-specifikke adgangskoder" under "Login og sikkerhed"'>
               <Image
                 source={require('../../assets/icloud-step-1-find.png')}
-                style={{
-                  width: '100%',
-                  height: 200,
-                  borderRadius: radius.cardSm,
-                  // Apple's modal scrim - matches letterbox so it's visually invisible
-                  backgroundColor: 'rgba(15,16,20,0.05)',
-                }}
+                style={styles.stepImage}
                 resizeMode="contain"
                 accessibilityLabel="Apple-konto siden hvor App-specifikke adgangskoder er fremhævet"
               />
             </Step>
 
-            <Step
-              n="3"
-              title='Generér en ny adgangskode og navngiv den "Zolva"'
-              fonts={fonts}
-              t={t}
-              type={type}
-            >
+            <Step n="3" title='Generér en ny adgangskode og navngiv den "Zolva"'>
               <Image
                 source={require('../../assets/icloud-step-2-name.png')}
-                style={{
-                  width: '100%',
-                  height: 200,
-                  borderRadius: radius.cardSm,
-                  backgroundColor: 'rgba(15,16,20,0.05)',
-                }}
+                style={styles.stepImage}
                 resizeMode="contain"
                 accessibilityLabel="Apples dialog hvor app-navnet skrives - vi har skrevet Zolva"
               />
             </Step>
 
-            <Step
-              n="4"
-              title="Kopiér adgangskoden Apple viser dig"
-              fonts={fonts}
-              t={t}
-              type={type}
-            >
+            <Step n="4" title="Kopiér adgangskoden Apple viser dig">
               <Image
                 source={require('../../assets/icloud-step-3-reveal.png')}
-                style={{
-                  width: '100%',
-                  height: 200,
-                  borderRadius: radius.cardSm,
-                  backgroundColor: 'rgba(15,16,20,0.05)',
-                }}
+                style={styles.stepImage}
                 resizeMode="contain"
                 accessibilityLabel="Apples dialog der viser den nye app-specifikke adgangskode"
               />
-              <Text
-                style={{
-                  marginTop: spacing.sm,
-                  ...type.bodySm,
-                  color: t.today,
-                  lineHeight: 18,
-                }}
-              >
+              <PaperText role="small" color={papirColor.red} style={{ marginTop: papirSpace.sm }}>
                 Apple viser kun adgangskoden én gang. Kopiér den nu - du kan ikke se den igen
                 senere.
-              </Text>
+              </PaperText>
             </Step>
 
-            <Step
-              n="5"
-              title="Skift tilbage til Zolva og udfyld nedenfor"
-              fonts={fonts}
-              t={t}
-              type={type}
-            />
-          </GlassFrostedCard>
+            <Step n="5" title="Skift tilbage til Zolva og udfyld nedenfor" />
+          </View>
         </View>
 
         {/* Input fields card */}
-        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
-          <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.xl, gap: spacing.lg }}>
+        <View style={styles.cardWrap}>
+          <View style={[styles.card, { gap: papirSpace.lg }]}>
             {/* Email field */}
-            <View style={{ gap: spacing.xs }}>
-              <Text style={{ ...type.eyebrow, color: t.ink3 }}>iCloud-email</Text>
+            <View style={{ gap: papirSpace.sm }}>
+              <PaperText role="eyebrow" color={papirColor.ink3}>iCloud-email</PaperText>
               <TextInput
-                style={{
-                  fontFamily: fonts.ui,
-                  fontSize: 15,
-                  color: t.ink,
-                  borderWidth: StyleSheet.hairlineWidth,
-                  borderColor: t.line,
-                  borderRadius: radius.cardSm,
-                  paddingHorizontal: 12,
-                  paddingVertical: 12,
-                  backgroundColor: '#FFFFFF',
-                }}
+                style={styles.input}
                 value={email}
                 onChangeText={(tx) => { setEmail(tx); setSubmitError(null); }}
                 onBlur={onEmailBlur}
                 placeholder="navn@me.com / @icloud.com"
-                placeholderTextColor={t.ink4}
+                placeholderTextColor={papirColor.ink3}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
                 autoComplete="email"
               />
               {emailWarning && (
-                <Text style={{ ...type.bodySm, color: t.today, lineHeight: 18 }}>
+                <PaperText role="small" color={papirColor.red}>
                   {emailWarning}
-                </Text>
+                </PaperText>
               )}
             </View>
 
             {/* Password field */}
-            <View style={{ gap: spacing.xs }}>
-              <Text style={{ ...type.eyebrow, color: t.ink3 }}>App-specifik adgangskode</Text>
+            <View style={{ gap: papirSpace.sm }}>
+              <PaperText role="eyebrow" color={papirColor.ink3}>App-specifik adgangskode</PaperText>
               <View style={{ position: 'relative' }}>
                 <TextInput
-                  style={{
-                    fontFamily: fonts.mono,
-                    fontSize: 15,
-                    color: t.ink,
-                    borderWidth: StyleSheet.hairlineWidth,
-                    borderColor: t.line,
-                    borderRadius: radius.cardSm,
-                    paddingHorizontal: 12,
-                    paddingVertical: 12,
-                    paddingRight: 44,
-                    backgroundColor: '#FFFFFF',
-                  }}
+                  style={[styles.input, { paddingRight: 52 }]}
                   value={password}
                   onChangeText={onPwdChange}
                   placeholder="xxxx-xxxx-xxxx-xxxx"
-                  placeholderTextColor={t.ink4}
+                  placeholderTextColor={papirColor.ink3}
                   autoCapitalize="none"
                   autoCorrect={false}
                   autoComplete="off"
@@ -466,45 +350,29 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
                 />
                 <Pressable
                   onPress={() => setShowPwd((v) => !v)}
-                  style={{
-                    position: 'absolute',
-                    right: 8,
-                    top: 0,
-                    bottom: 0,
-                    width: 36,
-                    backgroundColor: surface.iconButton,
-                    borderRadius: radius.cardSm,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
+                  style={styles.eyeButton}
                   hitSlop={8}
                   accessibilityRole="button"
                   accessibilityLabel={showPwd ? 'Skjul adgangskode' : 'Vis adgangskode'}
                 >
                   {showPwd
-                    ? <EyeOff size={18} color={t.ink3} />
-                    : <Eye size={18} color={t.ink3} />}
+                    ? <EyeOff size={18} color={papirColor.ink3} />
+                    : <Eye size={18} color={papirColor.ink3} />}
                 </Pressable>
               </View>
               {pwdWarning && (
-                <Text style={{ ...type.bodySm, color: t.today, lineHeight: 18 }}>
+                <PaperText role="small" color={papirColor.red}>
                   {pwdWarning}
-                </Text>
+                </PaperText>
               )}
             </View>
 
             {/* Submit error */}
             {submitError && (
-              <View
-                style={{
-                  padding: spacing.md,
-                  borderRadius: radius.cardSm,
-                  backgroundColor: surface.warningTint,
-                }}
-              >
-                <Text style={{ ...type.bodySm, color: t.today, lineHeight: 19 }}>
+              <View style={styles.errorBox}>
+                <PaperText role="small" color={papirColor.red}>
                   {messageFor(submitError)}
-                </Text>
+                </PaperText>
               </View>
             )}
 
@@ -513,8 +381,8 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
               <Text
                 selectable
                 style={{
-                  padding: spacing.md,
-                  borderRadius: radius.cardSm,
+                  padding: papirSpace.md,
+                  borderRadius: papirRadius.md,
                   backgroundColor: '#1a1a1a',
                   fontFamily: 'Menlo',
                   fontSize: 11,
@@ -528,36 +396,16 @@ export function IcloudSetupScreen({ prefilledEmail, onDone, onCancel }: Props) {
             )}
 
             {/* Submit button */}
-            <Pressable
-              onPress={onSubmit}
+            <Button
+              label={busy ? 'Tester forbindelse…' : 'Forbind'}
+              onPress={() => void onSubmit()}
               disabled={submitDisabled}
-              style={{
-                backgroundColor: t.ink,
-                paddingVertical: 14,
-                borderRadius: radius.soft,
-                alignItems: 'center',
-                opacity: submitDisabled ? 0.4 : 1,
-                flexDirection: 'row',
-                justifyContent: 'center',
-                gap: spacing.sm,
-              }}
-              accessibilityRole="button"
-            >
-              {busy && <ActivityIndicator color="#FFFFFF" size="small" />}
-              <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: surface.glassDarkText }}>
-                {busy ? 'Tester forbindelse…' : 'Forbind'}
-              </Text>
-            </Pressable>
+              left={busy ? <ActivityIndicator color={papirColor.onInk} size="small" /> : undefined}
+            />
 
             {/* Cancel ghost */}
-            <Pressable
-              onPress={onCancel}
-              style={{ paddingVertical: 12, alignItems: 'center' }}
-              accessibilityRole="button"
-            >
-              <Text style={{ fontFamily: fonts.ui, fontSize: 14, color: t.ink3 }}>Annullér</Text>
-            </Pressable>
-          </GlassFrostedCard>
+            <Button variant="ghost" label="Annullér" onPress={onCancel} />
+          </View>
         </View>
       </ScrollView>
     </Animated.View>
@@ -570,36 +418,21 @@ type StepProps = {
   n: string;
   title: string;
   children?: React.ReactNode;
-  fonts: ReturnType<typeof useTheme>['fonts'];
-  t: ReturnType<typeof useTheme>['t'];
-  type: ReturnType<typeof useTheme>['type'];
 };
 
-function Step({ n, title, children, fonts, t, type }: StepProps) {
+function Step({ n, title, children }: StepProps) {
   return (
-    <View style={{ gap: 8 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 12 }}>
-        <Text
-          style={{
-            fontFamily: fonts.display,
-            fontSize: 22,
-            color: t.today,
-            width: 22,
-          }}
+    <View style={{ gap: papirSpace.sm }}>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: papirSpace.md }}>
+        <PaperText
+          color={papirColor.red}
+          style={{ fontFamily: papirFont.display, fontSize: 22, lineHeight: 26, width: 22 }}
         >
           {n}
-        </Text>
-        <Text
-          style={{
-            flex: 1,
-            fontFamily: fonts.uiBold,
-            fontSize: 14,
-            lineHeight: 20,
-            color: t.ink,
-          }}
-        >
+        </PaperText>
+        <PaperText role="bodyStrong" style={{ flex: 1 }}>
           {title}
-        </Text>
+        </PaperText>
       </View>
       {children && <View style={{ paddingLeft: 34 }}>{children}</View>}
     </View>
@@ -640,4 +473,55 @@ function messageFor(e: SubmitError): string {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   scroll: { flexGrow: 1 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: papirSpace.md,
+    paddingHorizontal: papirSpace.screen,
+    paddingTop: TOP_PAD,
+  },
+  cardWrap: {
+    paddingHorizontal: papirSpace.screen,
+    paddingTop: papirSpace.lg,
+  },
+  card: {
+    backgroundColor: papirColor.card,
+    borderWidth: 1,
+    borderColor: papirColor.line,
+    borderRadius: papirRadius.xl,
+    padding: papirSpace.lg,
+  },
+  stepImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: papirRadius.md,
+    // Apple's modal scrim - matches letterbox so it's visually invisible
+    backgroundColor: 'rgba(15,16,20,0.05)',
+  },
+  input: {
+    ...papirType.body,
+    color: papirColor.ink,
+    backgroundColor: papirColor.card,
+    borderWidth: 1,
+    borderColor: papirColor.line,
+    borderRadius: papirRadius.lg,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 6,
+    top: 6,
+    bottom: 6,
+    width: 38,
+    backgroundColor: papirColor.paper2,
+    borderRadius: papirRadius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  errorBox: {
+    padding: papirSpace.md,
+    borderRadius: papirRadius.md,
+    backgroundColor: papirColor.redSoft,
+  },
 });

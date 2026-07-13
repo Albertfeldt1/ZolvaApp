@@ -4,6 +4,12 @@
 // requires admin consent. Asks the user for their work email, mints an
 // admin-consent URL via microsoft-admin-consent-link, and lets them mail
 // or copy the URL to their IT administrator.
+//
+// Papir re-skin: paper background, eyebrow + serif headline, white cards on
+// paper (border = papirColor.line), stacked full-width Buttons — same visual
+// language as AuthSheet ("Titelbladet") and MemoryConsentModal. All logic
+// (prefill, link minting, error mapping, mailto/copy, pull-to-dismiss) is
+// unchanged.
 
 import * as Clipboard from 'expo-clipboard';
 import { useEffect, useRef, useState } from 'react';
@@ -15,7 +21,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from 'react-native';
@@ -26,10 +31,15 @@ import {
   isPersonalEmailDomain,
   requestAdminConsentLink,
 } from '../lib/admin-consent';
-import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
-import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
-import { Stone } from '../design/primitives/Stone';
-import { useTheme } from '../design/useTheme';
+import {
+  BreathingWave,
+  Button,
+  PaperText,
+  papirColor,
+  papirFont,
+  papirRadius,
+  papirSpace,
+} from '../design/papir';
 
 type Props = {
   prefilledEmail?: string;
@@ -50,7 +60,6 @@ function errorMessage(e: ScreenError): string {
 
 export function MicrosoftAdminConsentScreen({ prefilledEmail, onCancel }: Props) {
   const { bottom: chromeBottom } = useChromeInsets();
-  const { t, type, fonts, radius, spacing, surface } = useTheme();
 
   const [email, setEmail] = useState(prefilledEmail ?? '');
   const [busy, setBusy] = useState(false);
@@ -153,14 +162,9 @@ export function MicrosoftAdminConsentScreen({ prefilledEmail, onCancel }: Props)
 
   return (
     <Animated.View
-      style={[styles.flex, { backgroundColor: t.paper, transform: [{ translateY }] }]}
+      style={[styles.flex, { backgroundColor: papirColor.paper, transform: [{ translateY }] }]}
       {...panResponder.panHandlers}
     >
-      {/* Halo background */}
-      <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
-        <GlassHaloLayer />
-      </View>
-
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingBottom: chromeBottom + 32 }]}
         showsVerticalScrollIndicator={false}
@@ -171,226 +175,129 @@ export function MicrosoftAdminConsentScreen({ prefilledEmail, onCancel }: Props)
         scrollEventThrottle={16}
         onScroll={(e) => { atTopRef.current = e.nativeEvent.contentOffset.y <= 0; }}
       >
-        {/* Header glass card */}
-        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.xl + 12 }}>
-          <GlassFrostedCard
-            radius={radius.card}
-            style={{ paddingVertical: spacing.lg, paddingHorizontal: spacing.cardPad }}
+        {/* Toplinje: eyebrow + serif-overskrift til venstre, stille "Luk" til højre. */}
+        <View style={styles.topRow}>
+          <View style={{ flex: 1 }}>
+            <PaperText role="eyebrow" color={papirColor.ink3}>
+              Forbind Outlook
+            </PaperText>
+            <PaperText style={styles.headline} accessibilityRole="header">
+              Admin-samtykke
+            </PaperText>
+          </View>
+          <Pressable
+            onPress={onCancel}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Luk"
+            style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
           >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-              <Pressable
-                onPress={onCancel}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel="Luk"
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: radius.pill,
-                  backgroundColor: surface.iconButton,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Text style={{ fontFamily: fonts.ui, fontSize: 18, color: t.ink2 }}>×</Text>
-              </Pressable>
-              <View style={{ flex: 1 }}>
-                <Text style={{ ...type.eyebrow, color: t.ink3 }}>FORBIND OUTLOOK</Text>
-                <Text
-                  style={{
-                    fontFamily: fonts.display,
-                    fontSize: 20,
-                    letterSpacing: -0.4,
-                    color: t.ink,
-                    marginTop: 2,
-                  }}
-                >
-                  Admin-samtykke
-                </Text>
-              </View>
-            </View>
-          </GlassFrostedCard>
+            <PaperText role="small" color={papirColor.ink3}>
+              Luk
+            </PaperText>
+          </Pressable>
         </View>
 
-        {/* Hero explainer card */}
-        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
-          <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.xl, gap: spacing.lg }}>
-            <View style={{ alignItems: 'center' }}>
-              <Stone size={48} jumpOnTap={false} />
-            </View>
-            <Text
-              style={{
-                fontFamily: fonts.display,
-                fontSize: 22,
-                lineHeight: 28,
-                letterSpacing: -0.6,
-                color: t.ink,
-              }}
-            >
-              Din organisation kræver godkendelse
-            </Text>
-            <Text style={{ ...type.body, color: t.ink2, lineHeight: 22 }}>
-              Zolva skal godkendes af en administrator i din organisation, før du kan forbinde din
-              arbejdsmail. Det er en sikkerhedsindstilling, som din IT-afdeling har sat op.
-            </Text>
-            <Text style={{ ...type.body, color: t.ink2, lineHeight: 22 }}>
-              Send dette link til din administrator. Når de har godkendt Zolva, kan du og dine
-              kolleger forbinde jeres konti.
-            </Text>
-          </GlassFrostedCard>
+        {/* Forklaringskortet: bølgen er brand-tråden fra Titelbladet. */}
+        <View style={styles.card}>
+          <View style={{ alignItems: 'flex-start' }}>
+            <BreathingWave />
+          </View>
+          <PaperText style={styles.cardTitle}>
+            Din organisation kræver godkendelse
+          </PaperText>
+          <PaperText role="body" color={papirColor.ink2}>
+            Zolva skal godkendes af en administrator i din organisation, før du kan forbinde din
+            arbejdsmail. Det er en sikkerhedsindstilling, som din IT-afdeling har sat op.
+          </PaperText>
+          <PaperText role="body" color={papirColor.ink2}>
+            Send dette link til din administrator. Når de har godkendt Zolva, kan du og dine
+            kolleger forbinde jeres konti.
+          </PaperText>
         </View>
 
-        {/* Email input + generate button card */}
-        <View style={{ paddingHorizontal: spacing.screenPad, paddingTop: spacing.lg }}>
-          <GlassFrostedCard overlay={surface.bone} style={{ padding: spacing.xl, gap: spacing.lg }}>
-            {/* Email field */}
-            <View style={{ gap: spacing.xs }}>
-              <Text style={{ ...type.eyebrow, color: t.ink3 }}>Din arbejdsmail</Text>
-              <TextInput
-                style={{
-                  fontFamily: fonts.ui,
-                  fontSize: 15,
-                  color: t.ink,
-                  borderWidth: StyleSheet.hairlineWidth,
-                  borderColor: t.line,
-                  borderRadius: radius.cardSm,
-                  paddingHorizontal: 12,
-                  paddingVertical: 12,
-                  backgroundColor: '#FFFFFF',
-                }}
-                value={email}
-                onChangeText={(tx) => { setEmail(tx); setErrorCode(null); setLinkUrl(null); }}
-                placeholder="navn@firma.dk"
-                placeholderTextColor={t.ink4}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                autoComplete="email"
-                editable={!busy}
+        {/* Mail-input + hent-link kortet. */}
+        <View style={styles.card}>
+          {/* Email field */}
+          <View style={{ gap: papirSpace.sm }}>
+            <PaperText role="eyebrow" color={papirColor.ink3}>
+              Din arbejdsmail
+            </PaperText>
+            <TextInput
+              style={styles.input}
+              value={email}
+              onChangeText={(tx) => { setEmail(tx); setErrorCode(null); setLinkUrl(null); }}
+              placeholder="navn@firma.dk"
+              placeholderTextColor={papirColor.ink3}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="email"
+              editable={!busy}
+            />
+          </View>
+
+          {/* Generate link button */}
+          {!linkUrl && (
+            <Button
+              label={busy ? 'Henter link…' : 'Hent godkendelseslink'}
+              variant="primary"
+              disabled={busy || !email}
+              onPress={() => void onGenerate()}
+            />
+          )}
+
+          {/* Error state */}
+          {errorCode && (
+            <View style={styles.errorBox}>
+              <PaperText role="small" color={papirColor.red}>
+                {errorMessage(errorCode)}
+              </PaperText>
+            </View>
+          )}
+
+          {/* Link result block */}
+          {linkUrl && (
+            <View style={styles.resultBox}>
+              <PaperText role="eyebrow" color={papirColor.ink3}>
+                Godkendelseslink til {tenantDomain}
+              </PaperText>
+              <PaperText style={styles.linkText} numberOfLines={3}>
+                {linkUrl}
+              </PaperText>
+
+              {/* Send to IT */}
+              <Button
+                label="Send link til IT-administrator"
+                variant="primary"
+                left={<Mail size={16} color={papirColor.onInk} />}
+                onPress={() => void sendEmail()}
               />
+
+              {/* Copy link */}
+              <Button
+                label={copyToast ? 'Kopieret' : 'Kopiér link'}
+                variant="ghost"
+                left={<Copy size={16} color={papirColor.ink} />}
+                onPress={() => void copyLink()}
+              />
+
+              <PaperText role="caption" color={papirColor.ink3} style={styles.resultNote}>
+                Det er en engangsgodkendelse for hele organisationen.
+              </PaperText>
             </View>
+          )}
 
-            {/* Generate link button */}
-            {!linkUrl && (
-              <Pressable
-                onPress={onGenerate}
-                disabled={busy || !email}
-                style={{
-                  backgroundColor: t.ink,
-                  paddingVertical: 14,
-                  borderRadius: radius.soft,
-                  alignItems: 'center',
-                  opacity: busy || !email ? 0.4 : 1,
-                }}
-                accessibilityRole="button"
-              >
-                <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: surface.glassDarkText }}>
-                  {busy ? 'Henter link…' : 'Hent godkendelseslink'}
-                </Text>
-              </Pressable>
-            )}
-
-            {/* Error state */}
-            {errorCode && (
-              <View
-                style={{
-                  padding: spacing.md,
-                  borderRadius: radius.cardSm,
-                  backgroundColor: surface.warningTint,
-                }}
-              >
-                <Text style={{ ...type.bodySm, color: t.today, lineHeight: 19 }}>
-                  {errorMessage(errorCode)}
-                </Text>
-              </View>
-            )}
-
-            {/* Link result block */}
-            {linkUrl && (
-              <View
-                style={{
-                  gap: spacing.md,
-                  padding: spacing.lg,
-                  borderRadius: radius.cardSm,
-                  borderWidth: StyleSheet.hairlineWidth,
-                  borderColor: t.line,
-                  backgroundColor: surface.scrim,
-                }}
-              >
-                <Text style={{ ...type.eyebrow, color: t.ink3 }}>
-                  Godkendelseslink til {tenantDomain}
-                </Text>
-                <Text
-                  style={{ fontFamily: fonts.mono, fontSize: 12, lineHeight: 18, color: t.ink }}
-                  numberOfLines={3}
-                >
-                  {linkUrl}
-                </Text>
-
-                {/* Send to IT */}
-                <Pressable
-                  onPress={sendEmail}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: spacing.sm,
-                    backgroundColor: t.ink,
-                    paddingVertical: 12,
-                    borderRadius: radius.soft,
-                  }}
-                  accessibilityRole="button"
-                >
-                  <Mail size={16} color={surface.glassDarkText} />
-                  <Text style={{ fontFamily: fonts.uiBold, fontSize: 14, color: surface.glassDarkText }}>
-                    Send link til IT-administrator
-                  </Text>
-                </Pressable>
-
-                {/* Copy link */}
-                <Pressable
-                  onPress={copyLink}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: spacing.sm,
-                    paddingVertical: 12,
-                    borderRadius: radius.soft,
-                    borderWidth: StyleSheet.hairlineWidth,
-                    borderColor: t.line,
-                    backgroundColor: '#FFFFFF',
-                  }}
-                  accessibilityRole="button"
-                >
-                  <Copy size={16} color={t.ink} />
-                  <Text style={{ fontFamily: fonts.uiBold, fontSize: 14, color: t.ink }}>
-                    {copyToast ? 'Kopieret' : 'Kopiér link'}
-                  </Text>
-                </Pressable>
-
-                <Text
-                  style={{
-                    ...type.bodySm,
-                    color: t.ink3,
-                    textAlign: 'center',
-                    marginTop: spacing.xs,
-                  }}
-                >
-                  Det er en engangsgodkendelse for hele organisationen.
-                </Text>
-              </View>
-            )}
-
-            {/* Cancel ghost */}
-            <Pressable
-              onPress={onCancel}
-              style={{ paddingVertical: 12, alignItems: 'center' }}
-              accessibilityRole="button"
-            >
-              <Text style={{ fontFamily: fonts.ui, fontSize: 14, color: t.ink3 }}>Luk</Text>
-            </Pressable>
-          </GlassFrostedCard>
+          {/* Cancel ghost */}
+          <Pressable
+            onPress={onCancel}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.cancelGhost, { opacity: pressed ? 0.5 : 1 }]}
+          >
+            <PaperText role="small" color={papirColor.ink3}>
+              Luk
+            </PaperText>
+          </Pressable>
         </View>
       </ScrollView>
     </Animated.View>
@@ -399,5 +306,77 @@ export function MicrosoftAdminConsentScreen({ prefilledEmail, onCancel }: Props)
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  scroll: { flexGrow: 1 },
+  scroll: {
+    flexGrow: 1,
+    paddingHorizontal: papirSpace.screen,
+    paddingTop: 68,
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: papirSpace.md,
+  },
+  headline: {
+    fontFamily: papirFont.displayLight,
+    fontSize: 30,
+    lineHeight: 36,
+    letterSpacing: -0.5,
+    color: papirColor.ink,
+    marginTop: papirSpace.xs,
+  },
+  card: {
+    backgroundColor: papirColor.card,
+    borderWidth: 1,
+    borderColor: papirColor.line,
+    borderRadius: papirRadius.xl,
+    padding: papirSpace.xl,
+    gap: papirSpace.lg,
+    marginTop: papirSpace.lg,
+  },
+  cardTitle: {
+    fontFamily: papirFont.display,
+    fontSize: 22,
+    lineHeight: 28,
+    letterSpacing: -0.4,
+    color: papirColor.ink,
+  },
+  input: {
+    fontFamily: papirFont.ui,
+    fontSize: 15,
+    color: papirColor.ink,
+    backgroundColor: papirColor.card,
+    borderWidth: 1,
+    borderColor: papirColor.line,
+    borderRadius: papirRadius.lg,
+    paddingHorizontal: papirSpace.base,
+    paddingVertical: papirSpace.md,
+  },
+  errorBox: {
+    padding: papirSpace.md,
+    borderRadius: papirRadius.md,
+    backgroundColor: papirColor.redSoft,
+  },
+  resultBox: {
+    gap: papirSpace.md,
+    padding: papirSpace.lg,
+    borderRadius: papirRadius.lg,
+    borderWidth: 1,
+    borderColor: papirColor.line,
+    backgroundColor: papirColor.paper2,
+  },
+  linkText: {
+    fontFamily: papirFont.ui,
+    fontSize: 12,
+    lineHeight: 18,
+    color: papirColor.ink2,
+  },
+  resultNote: {
+    textAlign: 'center',
+    marginTop: papirSpace.xs,
+  },
+  cancelGhost: {
+    paddingVertical: papirSpace.md,
+    alignItems: 'center',
+  },
 });
