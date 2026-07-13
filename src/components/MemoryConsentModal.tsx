@@ -1,11 +1,17 @@
 import React from 'react';
-import { Alert, SafeAreaView, ScrollView, Text, View } from 'react-native';
+import { Alert, SafeAreaView, ScrollView, View } from 'react-native';
 import Animated, { SlideInDown, SlideOutDown } from 'react-native-reanimated';
-import { DURATION, ScaleButton } from '../design/motion';
-import { GlassFrostedCard } from '../design/primitives/GlassFrostedCard';
-import { GlassHaloLayer } from '../design/primitives/GlassHaloLayer';
-import { Stone } from '../design/primitives/Stone';
-import { useTheme } from '../design/useTheme';
+import { Mail, MessageSquare, Sparkles } from 'lucide-react-native';
+import { DURATION } from '../design/motion';
+import {
+  BreathingWave,
+  Button,
+  PaperText,
+  papirColor,
+  papirFont,
+  papirRadius,
+  papirSpace,
+} from '../design/papir';
 import { migrateLocalChatIfNeeded } from '../lib/chat-sync';
 import { setPrivacyFlag } from '../lib/hooks';
 import { syncMemoryEnabled } from '../lib/user-profile';
@@ -16,6 +22,14 @@ type Props = {
   onClose: () => void;
 };
 
+/** Hvad Zolva husker — tre stille ikonlinjer, samme motiv som Titelbladets
+ * capability-liste, så samtykket føles som en fortsættelse af login-flowet. */
+const REMEMBERS = [
+  { Icon: MessageSquare, text: 'Dine samtaler med Zolva' },
+  { Icon: Mail, text: 'Hvem du mailer med — kun afsender og emne, aldrig indholdet' },
+  { Icon: Sparkles, text: 'Fakta du bekræfter, fx "Maria er min leder"' },
+] as const;
+
 // Renders as an Animated.View overlay (not a native <Modal>) because
 // presentationStyle="pageSheet" race-conditions with WhatsNewModal /
 // onboarding-backfill flow on first sign-in: iOS rejects two
@@ -23,8 +37,6 @@ type Props = {
 // every touch on whatever screen lands behind it. Animated.View is a
 // plain RN view so it stacks cleanly with everything else.
 export function MemoryConsentModal({ visible, userId, onClose }: Props) {
-  const { t, type, fonts, radius, spacing, surface } = useTheme();
-
   const enable = async () => {
     // Optimistic local flip mirrors the Memory-screen toggle. The
     // consent flow's failure mode is the inverse privacy bug: user
@@ -52,119 +64,97 @@ export function MemoryConsentModal({ visible, userId, onClose }: Props) {
 
   return (
     <Animated.View
-      style={{ ...StyleSheet_absoluteFillObject, zIndex: 100 }}
+      style={{ ...absoluteFill, zIndex: 100 }}
       // Spring entrance (matches SPRING_GENTLE) so the sheet settles in like a
       // native iOS sheet rather than sliding a fixed 320ms. Exit stays a brisk
       // timed slide — exits should feel quicker than entrances.
       entering={SlideInDown.springify().damping(20).stiffness(180).mass(0.9)}
       exiting={SlideOutDown.duration(DURATION.modalExit)}
     >
-      <View style={{ flex: 1, position: 'relative', backgroundColor: t.paper }}>
-        <GlassHaloLayer />
-
+      <View style={{ flex: 1, backgroundColor: papirColor.paper }}>
         <SafeAreaView style={{ flex: 1 }}>
           <ScrollView
             contentContainerStyle={{
               flexGrow: 1,
-              paddingHorizontal: spacing.screenPad,
-              paddingTop: spacing.xl,
-              paddingBottom: spacing.xl,
-              gap: spacing.lg,
+              paddingHorizontal: papirSpace.screen,
+              paddingVertical: papirSpace.xl,
               justifyContent: 'center',
             }}
             showsVerticalScrollIndicator={false}
           >
-            {/* Centered card */}
-            <GlassFrostedCard
-              overlay={surface.bone}
-              style={{ padding: spacing.xl, gap: spacing.lg }}
+            <View
+              style={{
+                backgroundColor: papirColor.card,
+                borderWidth: 1,
+                borderColor: papirColor.line,
+                borderRadius: papirRadius.xl,
+                padding: papirSpace.xl,
+                gap: papirSpace.lg,
+              }}
             >
-              {/* Stone header */}
-              <View style={{ alignItems: 'center', paddingBottom: spacing.sm }}>
-                <Stone size={72} jumpOnTap={false} />
+              {/* Bølgen er brand-tråden fra Titelbladet — samtykket skal føles
+                  som næste side i samme bog, ikke et systemvindue. */}
+              <View style={{ alignItems: 'flex-start' }}>
+                <BreathingWave />
               </View>
 
-              {/* Eyebrow + headline */}
-              <View style={{ gap: spacing.sm }}>
-                <Text style={{ ...type.eyebrow, color: t.ink3 }}>Hukommelse</Text>
-                <Text
+              <View style={{ gap: papirSpace.xs }}>
+                <PaperText role="eyebrow" color={papirColor.ink3}>
+                  Hukommelse
+                </PaperText>
+                <PaperText
+                  accessibilityRole="header"
                   style={{
-                    fontFamily: fonts.display,
-                    fontSize: 26,
-                    lineHeight: 30,
-                    letterSpacing: -0.6,
-                    color: t.ink,
+                    fontFamily: papirFont.displayLight,
+                    fontSize: 30,
+                    lineHeight: 36,
+                    letterSpacing: -0.5,
+                    color: papirColor.ink,
                   }}
                 >
-                  Zolva kan nu lære dig at kende
-                </Text>
+                  Må Zolva lære dig at kende?
+                </PaperText>
               </View>
 
-              {/* Body */}
-              <View style={{ gap: spacing.md }}>
-                <Text style={{ ...type.body, color: t.ink2 }}>
-                  Med din tilladelse begynder Zolva at huske:
-                </Text>
-                <View style={{ gap: spacing.sm, paddingLeft: spacing.sm }}>
-                  <Text style={{ ...type.body, color: t.ink2 }}>
-                    · Dine samtaler med Zolva.
-                  </Text>
-                  <Text style={{ ...type.body, color: t.ink2 }}>
-                    · Hvem du mailer med (kun afsender og emnelinje, ikke indhold).
-                  </Text>
-                  <Text style={{ ...type.body, color: t.ink2 }}>
-                    · Fakta du bekræfter, fx "Maria er min leder".
-                  </Text>
-                </View>
-                <Text style={{ ...type.bodySm, color: t.ink3 }}>
-                  Det lever i din Zolva-konto - aldrig selve mail-indholdet.
-                </Text>
-                <Text style={{ ...type.bodySm, color: t.ink3 }}>
+              <PaperText role="bodySerif" color={papirColor.ink2}>
+                Med din tilladelse begynder Zolva at huske:
+              </PaperText>
+
+              <View style={{ gap: papirSpace.md }}>
+                {REMEMBERS.map(({ Icon, text }) => (
+                  <View
+                    key={text}
+                    style={{ flexDirection: 'row', alignItems: 'flex-start', gap: papirSpace.sm }}
+                  >
+                    <Icon
+                      size={15}
+                      color={papirColor.ink3}
+                      strokeWidth={1.8}
+                      style={{ marginTop: 3 }}
+                    />
+                    <PaperText role="body" color={papirColor.ink2} style={{ flex: 1 }}>
+                      {text}
+                    </PaperText>
+                  </View>
+                ))}
+              </View>
+
+              <View style={{ gap: papirSpace.xs }}>
+                <PaperText role="caption" color={papirColor.ink3}>
+                  Det lever i din Zolva-konto — aldrig selve mail-indholdet.
+                </PaperText>
+                <PaperText role="caption" color={papirColor.ink3}>
                   Du kan altid slå det fra eller slette alt under Indstillinger → Hukommelse.
-                </Text>
+                </PaperText>
               </View>
 
-              {/* CTAs */}
-              <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm }}>
-                {/* Secondary - decline */}
-                <ScaleButton
-                  haptic="light"
-                  style={{
-                    flex: 1,
-                    paddingVertical: spacing.md,
-                    alignItems: 'center',
-                    borderRadius: radius.pill,
-                    backgroundColor: surface.glassWeak,
-                  }}
-                  onPress={onClose}
-                  accessibilityRole="button"
-                  accessibilityLabel="Ikke nu"
-                >
-                  <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: t.ink2 }}>
-                    Ikke nu
-                  </Text>
-                </ScaleButton>
-
-                {/* Primary - accept */}
-                <ScaleButton
-                  haptic="medium"
-                  style={{
-                    flex: 2,
-                    paddingVertical: spacing.md,
-                    alignItems: 'center',
-                    borderRadius: radius.pill,
-                    backgroundColor: t.ink,
-                  }}
-                  onPress={enable}
-                  accessibilityRole="button"
-                  accessibilityLabel="Aktivér hukommelse"
-                >
-                  <Text style={{ fontFamily: fonts.uiBold, fontSize: 15, color: t.paper }}>
-                    Aktivér hukommelse
-                  </Text>
-                </ScaleButton>
+              {/* Stablet, så begge labels altid har plads — den gamle række
+                  klippede "Aktivér hukommelse" på smalle skærme. */}
+              <View style={{ gap: papirSpace.sm, marginTop: papirSpace.xs }}>
+                <Button label="Aktivér hukommelse" variant="primary" onPress={() => void enable()} />
+                <Button label="Ikke nu" variant="ghost" onPress={onClose} />
               </View>
-            </GlassFrostedCard>
+            </View>
           </ScrollView>
         </SafeAreaView>
       </View>
@@ -172,8 +162,7 @@ export function MemoryConsentModal({ visible, userId, onClose }: Props) {
   );
 }
 
-// StyleSheet is not imported - use plain object spread for absoluteFillObject
-const StyleSheet_absoluteFillObject = {
+const absoluteFill = {
   position: 'absolute' as const,
   top: 0,
   left: 0,
