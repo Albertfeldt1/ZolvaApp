@@ -280,10 +280,14 @@ export default function App() {
     if (authInitializing) return;
     if (onboardingOpen) return;
     // Produktbeslutning 2026-07-09: Papir kører UDEN onboarding-wizard.
-    // Nye brugere lander direkte i appen; backfill dækkes af Genscan i
-    // Settings (subscribeBackfillRerun nedenfor), som fortsat må åbne
-    // kædens intro/progress/review-stadier. Kun V2-wizarden skippes.
-    if (isPapirEnabled()) return;
+    // Udvidet 2026-07-12: wizarden er slået fra i BEGGE UI'er — login skal
+    // lande direkte i appen (Rikkes test: wizardens forbind-trin viste
+    // Google-kilder som frakoblet lige efter et fuldt Google-login).
+    // Backfill dækkes af Genscan i Settings (subscribeBackfillRerun
+    // nedenfor), som fortsat må åbne kædens intro/progress/review-stadier.
+    // Flip flaget for at genaktivere wizarden.
+    const V2_WIZARD_ENABLED = false as boolean;
+    if (!V2_WIZARD_ENABLED || isPapirEnabled()) return;
     const uid = user?.id;
     if (!uid) return;
     let cancelled = false;
