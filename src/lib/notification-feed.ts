@@ -5,6 +5,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { subscribeUserId } from './auth';
+import { demoFeedEntries, isDemoUserId } from './demo-data';
 import { isFeedEntryType, type FeedEntry, type FeedEntryType, type NotificationPayload } from './types';
 
 const feedKey = (uid: string) => `zolva.${uid}.notifications.feed`;
@@ -73,6 +74,13 @@ async function hydrate(): Promise<void> {
     hydrated = true;
     return;
   }
+  if (isDemoUserId(uid)) {
+    // Demo: seedet feed, kun i hukommelsen — frisk ved hvert demo-login.
+    cache = demoFeedEntries();
+    hydrated = true;
+    notify();
+    return;
+  }
   hydrationPromise = (async () => {
     try {
       const raw = await AsyncStorage.getItem(feedKey(uid));
@@ -98,7 +106,7 @@ async function hydrate(): Promise<void> {
 }
 
 async function persist(): Promise<void> {
-  if (!currentUid) return;
+  if (!currentUid || isDemoUserId(currentUid)) return;
   try {
     await AsyncStorage.setItem(feedKey(currentUid), JSON.stringify(cache));
   } catch (err) {

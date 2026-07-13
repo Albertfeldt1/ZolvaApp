@@ -7,6 +7,7 @@
 // sweep (Phase 2 reconcile), so the client only subscribes and renders.
 import { useEffect, useState } from 'react';
 import { supabase } from './supabase';
+import { getDemoCommitments, isDemoUserId, subscribeDemoAgent } from './demo-data';
 
 export type CommitmentDirection = 'you_owe' | 'owed_to_you';
 
@@ -59,6 +60,12 @@ export function useOpenCommitments(userId: string | null | undefined): {
       setRows([]);
       setLoading(false);
       return;
+    }
+    if (isDemoUserId(userId)) {
+      const sync = () => setRows(getDemoCommitments());
+      sync();
+      setLoading(false);
+      return subscribeDemoAgent(sync);
     }
     setLoading(true);
     (async () => {

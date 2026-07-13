@@ -1,4 +1,5 @@
 import { completeJson } from './claude';
+import { isDemoUserId } from './demo-data';
 import { findDuplicateFact, insertPendingFact, listFacts, normalizeFactText } from './profile-store';
 import type { FactCategory } from './types';
 import { getPrivacyFlag } from './hooks';
@@ -181,6 +182,9 @@ export function subscribeFactExtracted(listener: (e: ExtractedFactEvent) => void
 
 export function runExtractor(payload: ExtractionPayload): void {
   if (!PROFILE_MEMORY_ENABLED) return;
+  // Demo: facts er kurateret på forhånd — extractoren skal ikke ramme
+  // netværket eller ændre demo-hukommelsen.
+  if (isDemoUserId(payload.userId)) return;
   if (!getPrivacyFlag('memory-enabled')) return;
   const key = `${payload.userId}:${payload.trigger}`;
   const existing = debounceTimers.get(key);

@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { supabase } from './supabase';
+import { decideDemoProposal, getDemoProposals, isDemoUserId, subscribeDemoAgent } from './demo-data';
 
 export interface ProposedActionRow {
   id: string;
@@ -32,6 +33,12 @@ export function useProposedActions(userId: string | null | undefined): {
   useEffect(() => {
     let cancelled = false;
     if (!userId) { setLoading(false); return; }
+    if (isDemoUserId(userId)) {
+      const sync = () => setRows(getDemoProposals());
+      sync();
+      setLoading(false);
+      return subscribeDemoAgent(sync);
+    }
     (async () => {
       const { data, error } = await supabase
         .from('proposed_actions')
@@ -70,6 +77,9 @@ export function usePendingProposalCount(userId: string | null | undefined): numb
 }
 
 export async function approveProposedAction(actionId: string, editedBody?: string): Promise<{ ok: boolean; error?: string }> {
+  if (actionId.startsWith('demo-')) {
+    return decideDemoProposal(actionId, 'approved') ? { ok: true } : { ok: false, error: 'not pending' };
+  }
   const { data: sess } = await supabase.auth.getSession();
   const token = sess.session?.access_token;
   if (!token) return { ok: false, error: 'no session' };
@@ -85,6 +95,9 @@ export async function approveProposedAction(actionId: string, editedBody?: strin
 }
 
 export async function dismissProposedAction(actionId: string): Promise<{ ok: boolean; error?: string }> {
+  if (actionId.startsWith('demo-')) {
+    return decideDemoProposal(actionId, 'dismissed') ? { ok: true } : { ok: false, error: 'not pending' };
+  }
   // Routed through the edge function (not a direct table update) so the server
   // can also delete the underlying mail draft — otherwise "Spring over" leaves
   // an orphan draft in the user's mailbox.

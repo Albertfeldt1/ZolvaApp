@@ -16,6 +16,7 @@
 // reads cheap. Older entries fall off silently.
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DEMO_USER_ID, demoSentMailRecords, isDemoUserId, onDemoReset } from './demo-data';
 
 export type SentMailProvider = 'google' | 'microsoft' | 'icloud';
 
@@ -38,11 +39,23 @@ const subscribers = new Set<(userId: string) => void>();
 let hydratedFor: string | null = null;
 let hydrationPromise: Promise<void> | null = null;
 
+// Nyt demo-login = frisk seedet log.
+onDemoReset(() => {
+  cache.set(DEMO_USER_ID, demoSentMailRecords());
+  notify(DEMO_USER_ID);
+});
+
 async function hydrate(userId: string): Promise<void> {
   if (hydratedFor === userId && hydrationPromise) return hydrationPromise;
   if (hydratedFor !== userId) {
     cache.clear();
     hydratedFor = userId;
+  }
+  if (isDemoUserId(userId)) {
+    // Demo: seedet log, kun i hukommelsen (persist springes over nedenfor).
+    if (!cache.has(userId)) cache.set(userId, demoSentMailRecords());
+    hydrationPromise = Promise.resolve();
+    return hydrationPromise;
   }
   hydrationPromise = (async () => {
     try {
@@ -68,6 +81,7 @@ function notify(userId: string): void {
 }
 
 async function persist(userId: string): Promise<void> {
+  if (isDemoUserId(userId)) return;
   const list = cache.get(userId) ?? [];
   try {
     await AsyncStorage.setItem(STORAGE_KEY(userId), JSON.stringify(list));
@@ -123,6 +137,10 @@ export async function listSentMails(userId: string): Promise<SentMailRecord[]> {
 export async function clearSentMails(userId: string): Promise<void> {
   if (!userId) return;
   cache.set(userId, []);
+  if (isDemoUserId(userId)) {
+    notify(userId);
+    return;
+  }
   try {
     await AsyncStorage.removeItem(STORAGE_KEY(userId));
   } catch (e) {

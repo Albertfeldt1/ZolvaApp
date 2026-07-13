@@ -11,10 +11,12 @@ import {
 import { getCustomerInfo, addCustomerInfoListener } from './purchases';
 import {
   DEMO_CHAT_FALLBACK,
-  DEMO_CHAT_SCRIPT,
   DEMO_CONNECTIONS,
   DEMO_OBSERVATIONS,
   DEMO_SUBSCRIPTION,
+  DEMO_USER_ID,
+  demoChatReply,
+  demoDayEventList,
   demoDaySchedule,
   demoInboxArchived,
   demoInboxCleared,
@@ -25,6 +27,7 @@ import {
   demoUpcoming,
   isDemoUser,
 } from './demo';
+import { demoObservationHistory, seedDemoChatHistory } from './demo-data';
 import {
   complete,
   completeJson,
@@ -545,8 +548,12 @@ export function useObservationHistory(
   const [loading, setLoading] = useState(false);
 
   const refresh = useCallback(async () => {
-    if (!userId || demo) {
+    if (!userId) {
       setItems([]);
+      return;
+    }
+    if (demo) {
+      setItems(demoObservationHistory().slice(0, limit));
       return;
     }
     setLoading(true);
@@ -2850,19 +2857,8 @@ export function useDayEvents(targetDate: Date): Result<DayEvent[]> {
     true,
   );
   if (isDemoUser(user)) {
-    // Reuse the demo slot data so demo mode shows a plausible day.
-    const day = new Date(targetDate);
-    const events = demoDaySchedule()
-      .filter((s) => s.event !== null)
-      .map((s) => {
-        const hour = parseInt(s.hour, 10);
-        const e = s.event!;
-        const start = new Date(day);
-        start.setHours(hour, e.startMinute, 0, 0);
-        const end = new Date(start.getTime() + e.durationMinutes * 60_000);
-        return { id: e.id, title: e.title, location: e.sub, start, end, allDay: false };
-      });
-    return { data: events, loading: false, error: null };
+    // Per-date demo events so week navigation shows a living calendar.
+    return { data: demoDayEventList(targetDate), loading: false, error: null };
   }
   return {
     data: items.map((e) => ({
@@ -2889,7 +2885,7 @@ export function useDaySchedule(targetDate?: Date): Result<CalendarSlot[]> {
     true,
   );
   if (isDemoUser(user)) {
-    return { data: demoDaySchedule(), loading: false, error: null };
+    return { data: demoDaySchedule(targetDate), loading: false, error: null };
   }
 
   const allDay = items.filter((e) => e.allDay);
@@ -3320,6 +3316,9 @@ function ensurePrivacyUserSubscription() {
 }
 
 export function getPrivacyFlag(id: PrivacyFlagId): boolean {
+  // Demo mode presents the fully-featured app: memory er altid slået til, så
+  // Fakta-fanen, pending-review og preamble-flowet er levende fra første login.
+  if (privacyUid === DEMO_USER_ID && id === 'memory-enabled') return true;
   const cached = privacyCache[id];
   return cached === undefined ? PRIVACY_DEFAULTS[id] : cached;
 }
@@ -5295,6 +5294,9 @@ export function useChat() {
       return;
     }
     if (demo) {
+      // Preload the seeded conversation so the chat feels months-old the
+      // moment it opens. Session-only: never persisted, reset on re-login.
+      setMessages(seedDemoChatHistory());
       setHydrated(true);
       return;
     }
@@ -5430,9 +5432,8 @@ export function useChat() {
       setTyping(true);
 
       if (demo) {
-        const idx = demoIndexRef.current;
-        demoIndexRef.current = idx + 1;
-        const reply = DEMO_CHAT_SCRIPT[idx] ?? DEMO_CHAT_FALLBACK;
+        demoIndexRef.current += 1;
+        const reply = demoChatReply(trimmed) ?? DEMO_CHAT_FALLBACK;
         setTimeout(() => {
           setMessages((cur) => [
             ...cur,

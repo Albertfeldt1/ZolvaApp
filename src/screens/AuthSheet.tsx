@@ -149,10 +149,18 @@ const CAPABILITIES = [
 ] as const;
 
 export function AuthSheet({ onClose }: Props) {
-  const { signInWithApple, signInWithGoogle, signInWithMicrosoft, appleAvailable } = useAuth();
+  const { signInWithApple, signInWithGoogle, signInWithMicrosoft, appleAvailable, signIn } = useAuth();
   const [busy, setBusy] = useState<ProviderId | null>(null);
   const [error, setError] = useState<string | null>(null);
   const hello = useMemo(() => `${greeting(new Date())}.`, []);
+
+  // Skjult demo-indgang (optagelser/demoer): langt tryk på bølgen logger ind
+  // som demo-brugeren. Bevidst uden synlig UI — rigtige brugere skal aldrig
+  // opdage den, og demo-kontoen rører hverken Supabase eller providers.
+  const enterDemo = () => {
+    if (busy) return;
+    void signIn('demo', 'demo').then(() => onClose());
+  };
 
   const run = async (id: ProviderId, fn: () => Promise<unknown>) => {
     if (busy) return;
@@ -248,7 +256,9 @@ export function AuthSheet({ onClose }: Props) {
       {/* Titelbladet: bølgen ånder, hilsenen sætter sig, linjerne følger. */}
       <View style={styles.hero}>
         <Animated.View entering={FadeIn.duration(700)}>
-          <BreathingWave listening={busy !== null} />
+          <Pressable onLongPress={enterDemo} delayLongPress={600}>
+            <BreathingWave listening={busy !== null} />
+          </Pressable>
         </Animated.View>
         <Animated.View entering={FadeInDown.delay(120).duration(560).easing(Easing.out(Easing.quad))}>
           <PaperText style={styles.greeting} accessibilityRole="header">

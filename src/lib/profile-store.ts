@@ -7,6 +7,16 @@ import type {
   MailEvent,
   MailEventType,
 } from './types';
+import {
+  DEMO_MAIL_SEEDS,
+  DEMO_USER_ID,
+  addDemoFact,
+  deleteDemoFact,
+  getDemoFacts,
+  isDemoUserId,
+  seedDemoChatArchive,
+  setDemoFactStatus,
+} from './demo-data';
 
 // ─── facts-changed event bus ────────────────────────────────────────────
 // Mutation helpers below fire `notifyFactsChanged()` so subscribers (e.g.
@@ -77,6 +87,7 @@ function rowToChatMessage(r: Record<string, unknown>): ChatMessageRow {
 }
 
 export async function listFacts(userId: string, status?: FactStatus): Promise<Fact[]> {
+  if (isDemoUserId(userId)) return getDemoFacts(status);
   let q = supabase.from('facts').select('*').eq('user_id', userId).order('created_at', { ascending: false });
   if (status) q = q.eq('status', status);
   const { data, error } = await q;
@@ -88,6 +99,9 @@ export async function findDuplicateFact(
   userId: string,
   normalizedText: string,
 ): Promise<Fact | null> {
+  if (isDemoUserId(userId)) {
+    return getDemoFacts().find((f) => f.normalizedText === normalizedText && f.status !== 'rejected') ?? null;
+  }
   const { data, error } = await supabase
     .from('facts')
     .select('*')
@@ -123,6 +137,25 @@ export async function insertPendingFact(
   },
 ): Promise<Fact> {
   const normalized = normalizeFactText(input.text);
+  if (isDemoUserId(userId)) {
+    const fact: Fact = {
+      id: `demo-fact-new-${Date.now()}`,
+      userId: DEMO_USER_ID,
+      text: input.text,
+      normalizedText: normalized,
+      category: input.category,
+      status: input.confirmed ? 'confirmed' : 'pending',
+      source: input.source,
+      createdAt: new Date(),
+      confirmedAt: input.confirmed ? new Date() : null,
+      rejectedAt: null,
+      rejectionTtl: null,
+      expiresAt: input.expiresAt ?? null,
+    };
+    addDemoFact(fact);
+    notifyFactsChanged();
+    return fact;
+  }
   const { data, error } = await supabase
     .from('facts')
     .insert({
@@ -146,6 +179,11 @@ export async function insertPendingFact(
 }
 
 export async function confirmFact(factId: string): Promise<void> {
+  if (factId.startsWith('demo-')) {
+    setDemoFactStatus(factId, 'confirmed');
+    notifyFactsChanged();
+    return;
+  }
   const { error } = await supabase
     .from('facts')
     .update({ status: 'confirmed', confirmed_at: new Date().toISOString() })
@@ -155,6 +193,11 @@ export async function confirmFact(factId: string): Promise<void> {
 }
 
 export async function rejectFact(factId: string): Promise<void> {
+  if (factId.startsWith('demo-')) {
+    setDemoFactStatus(factId, 'rejected');
+    notifyFactsChanged();
+    return;
+  }
   const ttl = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
   const { error } = await supabase
     .from('facts')
@@ -165,6 +208,7 @@ export async function rejectFact(factId: string): Promise<void> {
 }
 
 export async function listPendingFactsForReview(userId: string): Promise<Fact[]> {
+  if (isDemoUserId(userId)) return getDemoFacts('pending');
   const { data, error } = await supabase
     .from('facts')
     .select('*')
@@ -201,6 +245,11 @@ export async function bulkUpdatePendingFacts(
   options?: { timeoutMs?: number },
 ): Promise<void> {
   if (updates.length === 0) return;
+  if (isDemoUserId(userId)) {
+    for (const u of updates) setDemoFactStatus(u.id, u.status);
+    notifyFactsChanged();
+    return;
+  }
 
   // Without a timeout, a single flaky Supabase request (auto-refresh
   // race, dropped keep-alive, slow mobile network) leaves the caller
@@ -305,18 +354,40 @@ async function runBulkUpdate(
 }
 
 export async function deleteFact(factId: string): Promise<void> {
+  if (factId.startsWith('demo-')) {
+    deleteDemoFact(factId);
+    notifyFactsChanged();
+    return;
+  }
   const { error } = await supabase.from('facts').delete().eq('id', factId);
   if (error) throw error;
   notifyFactsChanged();
 }
 
 export async function deleteAllFacts(userId: string): Promise<void> {
+  if (isDemoUserId(userId)) {
+    for (const f of getDemoFacts()) deleteDemoFact(f.id);
+    notifyFactsChanged();
+    return;
+  }
   const { error } = await supabase.from('facts').delete().eq('user_id', userId);
   if (error) throw error;
   notifyFactsChanged();
 }
 
 export async function listRecentMailEvents(userId: string, limit = 5): Promise<MailEvent[]> {
+  if (isDemoUserId(userId)) {
+    return DEMO_MAIL_SEEDS.slice(0, limit).map((m, i) => ({
+      id: `demo-me-${i}`,
+      userId: DEMO_USER_ID,
+      eventType: m.unread ? 'read' : 'replied',
+      providerThreadId: `d-thread-${m.id}`,
+      providerFrom: m.from,
+      providerTo: null,
+      providerSubject: m.subject,
+      occurredAt: new Date(Date.now() - m.minutesAgo * 60_000),
+    }));
+  }
   const { data, error } = await supabase
     .from('mail_events')
     .select('*')
@@ -331,6 +402,7 @@ export async function insertMailEvent(
   userId: string,
   ev: Omit<MailEvent, 'id' | 'userId' | 'occurredAt'>,
 ): Promise<void> {
+  if (isDemoUserId(userId)) return; // demo never writes to Supabase
   const { error } = await supabase.from('mail_events').insert({
     user_id: userId,
     event_type: ev.eventType,
@@ -346,6 +418,7 @@ export async function upsertChatMessage(
   userId: string,
   row: Pick<ChatMessageRow, 'clientId' | 'role' | 'content'>,
 ): Promise<void> {
+  if (isDemoUserId(userId)) return; // demo never writes to Supabase
   const { error } = await supabase.from('chat_messages').upsert(
     {
       user_id: userId,
@@ -362,6 +435,10 @@ export async function listRecentChatMessages(
   userId: string,
   limit = 3,
 ): Promise<ChatMessageRow[]> {
+  if (isDemoUserId(userId)) {
+    const all = seedDemoChatArchive();
+    return all.slice(Math.max(0, all.length - limit));
+  }
   const { data, error } = await supabase
     .from('chat_messages')
     .select('*')
@@ -373,16 +450,22 @@ export async function listRecentChatMessages(
 }
 
 export async function deleteAllChatHistory(userId: string): Promise<void> {
+  if (isDemoUserId(userId)) return;
   const { error } = await supabase.from('chat_messages').delete().eq('user_id', userId);
   if (error) throw error;
 }
 
 export async function deleteAllMailEvents(userId: string): Promise<void> {
+  if (isDemoUserId(userId)) return;
   const { error } = await supabase.from('mail_events').delete().eq('user_id', userId);
   if (error) throw error;
 }
 
 export async function getFactsSignature(userId: string): Promise<string> {
+  if (isDemoUserId(userId)) {
+    const facts = getDemoFacts();
+    return `${facts.length}:demo`;
+  }
   const { data, error } = await supabase
     .from('facts')
     .select('id, created_at, confirmed_at, rejected_at')

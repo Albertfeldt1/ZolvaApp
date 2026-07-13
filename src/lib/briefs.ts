@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from './supabase';
 import { useAuth } from './auth';
 import { isDemoUser } from './demo';
+import { demoBriefHistory, demoTodayBrief } from './demo-data';
 import { writeSnapshotFromSources } from './widget-bridge';
 
 export type BriefSections = {
@@ -91,8 +92,14 @@ export function useTodayBrief(): {
   const [loading, setLoading] = useState(false);
 
   const refresh = useCallback(async () => {
-    if (!userId || demo) {
+    if (!userId) {
       setBrief(null);
+      return;
+    }
+    if (demo) {
+      // Demo: dagens brief genereres lokalt (morgen/middag/aften efter
+      // klokkeslæt) og rører aldrig Supabase eller widget-snapshottet.
+      setBrief((prev) => (prev && prev.id.startsWith('demo-') ? prev : demoTodayBrief()));
       return;
     }
     setLoading(true);
@@ -134,6 +141,7 @@ export function useTodayBrief(): {
     if (!brief) return;
     const readAt = new Date();
     setBrief((prev) => (prev ? { ...prev, readAt } : prev));
+    if (brief.id.startsWith('demo-')) return; // demo briefs live only in memory
     try {
       await supabase
         .from('briefs')
@@ -158,8 +166,12 @@ export function useBriefHistory(
   const [loading, setLoading] = useState(false);
 
   const refresh = useCallback(async () => {
-    if (!userId || demo) {
+    if (!userId) {
       setItems([]);
+      return;
+    }
+    if (demo) {
+      setItems(demoBriefHistory(kind, limit));
       return;
     }
     setLoading(true);

@@ -1,6 +1,7 @@
 // src/lib/agent-feed.ts
 import { useEffect, useState } from 'react';
 import { supabase } from './supabase';
+import { getDemoAgentActions, isDemoUserId, revertDemoAction, subscribeDemoAgent } from './demo-data';
 
 export interface AgentActionRow {
   id: string;
@@ -44,6 +45,12 @@ export function useAgentActions(userId: string | null | undefined): {
       setLoading(false);
       return;
     }
+    if (isDemoUserId(userId)) {
+      const sync = () => setRows(getDemoAgentActions());
+      sync();
+      setLoading(false);
+      return subscribeDemoAgent(sync);
+    }
     (async () => {
       const { data, error } = await supabase
         .from('agent_actions')
@@ -80,6 +87,9 @@ export function useAgentActions(userId: string | null | undefined): {
 }
 
 export async function revertAgentAction(actionId: string): Promise<{ ok: boolean; error?: string }> {
+  if (actionId.startsWith('demo-')) {
+    return revertDemoAction(actionId) ? { ok: true } : { ok: false, error: 'not reversible' };
+  }
   const { data: sess } = await supabase.auth.getSession();
   const token = sess.session?.access_token;
   if (!token) return { ok: false, error: 'no session' };

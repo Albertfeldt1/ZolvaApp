@@ -1,5 +1,12 @@
 import { useEffect, useId, useState } from 'react';
 import { supabase } from './supabase';
+import {
+  decideDemoTrustOffer,
+  getDemoTrustOffers,
+  isDemoUserId,
+  revertDemoTrustOffer,
+  subscribeDemoAgent,
+} from './demo-data';
 
 export interface TrustOfferRow {
   id: string;
@@ -35,6 +42,12 @@ export function useTrustOffers(userId: string | null | undefined): {
   useEffect(() => {
     let cancelled = false;
     if (!userId) { setLoading(false); return; }
+    if (isDemoUserId(userId)) {
+      const sync = () => setRows(getDemoTrustOffers());
+      sync();
+      setLoading(false);
+      return subscribeDemoAgent(sync);
+    }
     (async () => {
       const { data, error } = await supabase
         .from('trust_offers')
@@ -74,6 +87,7 @@ export async function decideTrustOffer(
   userId: string,
   status: 'accepted' | 'dismissed',
 ): Promise<{ ok: boolean }> {
+  if (isDemoUserId(userId)) return { ok: decideDemoTrustOffer(offerId, status) };
   const { error } = await supabase
     .from('trust_offers')
     .update({ status, decided_at: new Date().toISOString() })
@@ -85,6 +99,7 @@ export async function decideTrustOffer(
 
 // Accepted → reverted (from Settings).
 export async function revertTrustOffer(offerId: string, userId: string): Promise<{ ok: boolean }> {
+  if (isDemoUserId(userId)) return { ok: revertDemoTrustOffer(offerId) };
   const { error } = await supabase
     .from('trust_offers')
     .update({ status: 'reverted', reverted_at: new Date().toISOString() })

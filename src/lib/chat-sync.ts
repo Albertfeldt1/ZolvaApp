@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isDemoUserId } from './demo-data';
 import { upsertChatMessage } from './profile-store';
 import type { ChatMessage } from './types';
 import { getPrivacyFlag } from './hooks';
@@ -12,6 +13,7 @@ const chatHistoryKey = (uid: string) => `zolva.${uid}.chat.history`;
 // unchanged.
 export function syncChatMessage(userId: string, msg: ChatMessage): void {
   if (!PROFILE_MEMORY_ENABLED) return;
+  if (isDemoUserId(userId)) return; // demo chatter lever kun i hukommelsen
   if (!getPrivacyFlag('memory-enabled')) return;
   const role = msg.from === 'user' ? 'user' : 'assistant';
   void upsertChatMessage(userId, { clientId: msg.id, role, content: msg.text })
