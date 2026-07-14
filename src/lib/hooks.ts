@@ -3464,6 +3464,18 @@ export function usePrivacyToggles() {
   return { data: toggles, loading: false, error: null as Error | null, flip };
 }
 
+// Module-level refresh signal, mirroring refreshCalendarNow/refreshMailNow:
+// the chat tool loop's add_reminder writes straight to Supabase and never
+// touches useReminders' state, so Plan-fanen viste først den nye påmindelse
+// efter en kold genstart. Bumping the tick retriggers refresh() across every
+// useReminders consumer.
+let remindersRefreshTick = 0;
+const remindersRefreshListeners = new Set<(tick: number) => void>();
+export function refreshRemindersNow(): void {
+  remindersRefreshTick += 1;
+  remindersRefreshListeners.forEach((l) => l(remindersRefreshTick));
+}
+
 export function useReminders() {
   const { user } = useAuth();
   const userId = user?.id ?? null;
@@ -3473,8 +3485,19 @@ export function useReminders() {
   );
   const [loading, setLoading] = useState(!demo);
 
+  const [remRefreshTick, setRemRefreshTick] = useState(remindersRefreshTick);
+  useEffect(() => {
+    remindersRefreshListeners.add(setRemRefreshTick);
+    return () => {
+      remindersRefreshListeners.delete(setRemRefreshTick);
+    };
+  }, []);
+
   const refresh = useCallback(async () => {
-    if (demo) { setReminders(demoReminders()); setLoading(false); return; }
+    // Demo: state is seeded in the useState initializer and mutated locally
+    // by add/markDone/remove. Re-seeding here would wipe those local changes
+    // whenever the refresh tick fires (foreground return, pull-to-refresh).
+    if (demo) { setLoading(false); return; }
     if (!userId) { setReminders([]); setLoading(false); return; }
     try {
       const next = await listAllReminders(userId);
@@ -3486,7 +3509,7 @@ export function useReminders() {
     }
   }, [demo, userId]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { void refresh(); }, [refresh, remRefreshTick]);
 
   const markDone = useCallback(async (id: string) => {
     if (demo) {
@@ -5031,6 +5054,9 @@ async function runChatTool(
       const userId = ctx.userId;
       if (!userId) return { content: 'Ikke logget ind.', isError: true };
       const r = await addReminder(userId, text, dueClean, tz);
+      // Wake every useReminders consumer so the new reminder shows up in the
+      // Plan tab without a cold app remount (mirrors refreshCalendarNow above).
+      refreshRemindersNow();
       return { content: `Oprettet påmindelse ${r.id}: "${r.text}"${r.dueAt ? ` til ${r.dueAt.toISOString()}` : ''}.`, isError: false };
     }
     if (name === 'add_note') {

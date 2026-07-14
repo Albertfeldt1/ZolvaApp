@@ -1,12 +1,42 @@
 import React, { useEffect, useState } from 'react';
-import { BackHandler, StyleSheet, View } from 'react-native';
+import { AppState, BackHandler, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Animated, { SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScaleButton } from '../../design/motion';
 import { AuthSheet } from '../AuthSheet';
+import { refreshCalendarNow, refreshMailNow, refreshRemindersNow } from '../../lib/hooks';
 import { PaperText, papirColor, papirDuration, papirRadius, papirSpace } from '../../design/papir';
 import { PapirShell } from './PapirShell';
+
+/** Only refetch after a real absence: quick hops (share sheet, 2FA in Safari,
+ * app-switcher peek) stay on iOS's active↔inactive path and never hit
+ * 'background', and short backgroundings under this threshold skip the
+ * refresh too, so we don't blast provider APIs on every app switch. */
+const FOREGROUND_REFRESH_MS = 60_000;
+
+/** Refresh mail, calendar and reminders when the app returns to the
+ * foreground after being backgrounded a while. Data written while the app
+ * was away (push-created reminders, new mail, events added by attendees)
+ * shows up without pull-to-refresh or a cold restart. */
+function useForegroundRefresh() {
+  useEffect(() => {
+    let backgroundedAt: number | null = null;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'background') {
+        backgroundedAt = Date.now();
+      } else if (state === 'active') {
+        if (backgroundedAt != null && Date.now() - backgroundedAt >= FOREGROUND_REFRESH_MS) {
+          refreshMailNow();
+          refreshCalendarNow();
+          refreshRemindersNow();
+        }
+        backgroundedAt = null;
+      }
+    });
+    return () => sub.remove();
+  }, []);
+}
 
 /** Persistent login affordance for logged-out sessions (H1): without it the
  * only login path is buried in Profil, and empty tabs read as "no data"
@@ -70,6 +100,7 @@ type Props = {
  */
 export function PapirRoot({ loggedOut }: Props) {
   const [authOpen, setAuthOpen] = useState(false);
+  useForegroundRefresh();
 
   // Android hardware back closes the auth sheet (K4). PapirRoot mounts
   // before PapirShell, so React registers the shell's handler LAST — RN's

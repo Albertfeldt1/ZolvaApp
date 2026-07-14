@@ -3,7 +3,7 @@ import { Alert, FlatList, RefreshControl, ScrollView, View } from 'react-native'
 import { Check } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import { PaperText, SegmentedControl, papirColor, papirRadius, papirSpace } from '../../design/papir';
-import { refreshCalendarNow, useDayEvents, useReminders } from '../../lib/hooks';
+import { refreshCalendarNow, refreshRemindersNow, useDayEvents, useReminders } from '../../lib/hooks';
 import type { Reminder } from '../../lib/types';
 import { usePapirScreenPads } from './insets';
 import { useNow } from './useNow';
@@ -402,6 +402,7 @@ export function PapirPlan() {
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     refreshCalendarNow();
+    refreshRemindersNow();
     setTimeout(() => setRefreshing(false), 900);
   }, []);
   // Reminders + undo live HERE (not in TasksView): the snackbar must sit

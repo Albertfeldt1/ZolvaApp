@@ -20,7 +20,7 @@ import {
   papirRadius,
   papirSpace,
 } from '../../design/papir';
-import { refreshCalendarNow, refreshMailNow, useInboxCounts, useNotes, useReminders, useUpcoming, useUser } from '../../lib/hooks';
+import { refreshCalendarNow, refreshMailNow, refreshRemindersNow, useInboxCounts, useNotes, useReminders, useUpcoming, useUser } from '../../lib/hooks';
 import { useTodayBrief, type Brief } from '../../lib/briefs';
 import { greeting, formatToday } from '../../lib/date';
 import type { Note, Reminder, UpcomingEvent } from '../../lib/types';
@@ -274,6 +274,7 @@ export function PapirHome() {
     setRefreshing(true);
     refreshMailNow();
     refreshCalendarNow();
+    refreshRemindersNow();
     setTimeout(() => setRefreshing(false), 900);
   }, []);
 
