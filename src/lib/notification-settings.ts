@@ -17,10 +17,14 @@ const LEGACY_KEY = 'zolva.notifications.settings';
 const MIGRATION_FLAG = 'zolva.migration.notifsettings-per-user.v1';
 const scopedKey = (userId: string) => `zolva.notifications.settings.${userId}`;
 
+// Påmindelser, dagligt overblik og mødevarsler skal være slået TIL fra
+// første login (produktkrav 2026-07-15) — den nye bruger bliver bedt om
+// OS-tilladelsen af PapirRoots first-run-prompt. newMail forbliver opt-in:
+// den starter en server-side mail-watcher og kræver eksplicit valg.
 const DEFAULTS: NotificationSettings = {
-  reminders: false,
-  digest: false,
-  preAlerts: false,
+  reminders: true,
+  digest: true,
+  preAlerts: true,
   newMail: false,
 };
 
@@ -39,11 +43,13 @@ function parse(raw: string | null): NotificationSettings {
   if (!raw) return DEFAULTS;
   try {
     const parsed = JSON.parse(raw) as Partial<NotificationSettings>;
+    // Eksplicit gemte valg respekteres; manglende nøgler falder tilbage til
+    // DEFAULTS (ikke false), så nye toggles arver deres tiltænkte startværdi.
     return {
-      reminders: parsed.reminders === true,
-      digest: parsed.digest === true,
-      preAlerts: parsed.preAlerts === true,
-      newMail: parsed.newMail === true,
+      reminders: typeof parsed.reminders === 'boolean' ? parsed.reminders : DEFAULTS.reminders,
+      digest: typeof parsed.digest === 'boolean' ? parsed.digest : DEFAULTS.digest,
+      preAlerts: typeof parsed.preAlerts === 'boolean' ? parsed.preAlerts : DEFAULTS.preAlerts,
+      newMail: typeof parsed.newMail === 'boolean' ? parsed.newMail : DEFAULTS.newMail,
     };
   } catch {
     return DEFAULTS;

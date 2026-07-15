@@ -3,9 +3,13 @@ import { AppState, BackHandler, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Animated, { SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ScaleButton } from '../../design/motion';
 import { AuthSheet } from '../AuthSheet';
+import { useAuth } from '../../lib/auth';
 import { refreshCalendarNow, refreshMailNow, refreshRemindersNow } from '../../lib/hooks';
+import { ensurePermission, getPermissionStatus, syncOnAppForeground } from '../../lib/notifications';
+import { registerPushToken } from '../../lib/push';
 import { PaperText, papirColor, papirDuration, papirRadius, papirSpace } from '../../design/papir';
 import { PapirShell } from './PapirShell';
 
@@ -84,6 +88,67 @@ function LoginCta({ onPress }: { onPress: () => void }) {
   );
 }
 
+/** Første-login-prompt for notifikationer. Påmindelser, dagligt overblik og
+ * mødevarsler er ON som standard (notification-settings DEFAULTS), men uden
+ * OS-tilladelsen når intet frem — og onboarding-wizarden, der bad om den, er
+ * slået fra. Vises én gang pr. bruger, og kun mens OS-status stadig er
+ * 'undetermined'; svaret kan altid ændres i Profil → Indstillinger. */
+function NotifCta({ onAnswer }: { onAnswer: (enable: boolean) => void }) {
+  const insets = useSafeAreaInsets();
+  const navHeight = 68 + Math.max(insets.bottom, 16);
+  return (
+    <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end', zIndex: 60 }]}>
+      <View
+        style={{
+          marginBottom: navHeight + 8,
+          marginHorizontal: papirSpace.screen,
+          gap: 12,
+          backgroundColor: papirColor.ink,
+          borderRadius: papirRadius.xl,
+          paddingVertical: 14,
+          paddingHorizontal: 16,
+        }}
+      >
+        <PaperText role="small" color={papirColor.onInk}>
+          Zolva minder dig om dine påmindelser, dagens overblik og møder, der nærmer sig. Slå
+          notifikationer til, så du ikke misser noget.
+        </PaperText>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 16 }}>
+          <ScaleButton
+            scaleTo={0.95}
+            onPress={() => onAnswer(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Ikke nu"
+          >
+            <PaperText role="small" color={papirColor.onInk}>
+              Ikke nu
+            </PaperText>
+          </ScaleButton>
+          <ScaleButton
+            scaleTo={0.95}
+            haptic="light"
+            onPress={() => onAnswer(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Tillad notifikationer"
+            style={{
+              backgroundColor: papirColor.paper,
+              paddingVertical: 8,
+              paddingHorizontal: 14,
+              borderRadius: papirRadius.pill,
+            }}
+          >
+            <PaperText role="small" color={papirColor.ink}>
+              Tillad
+            </PaperText>
+          </ScaleButton>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const notifPromptKey = (userId: string) => `zolva.papir.notifprompt.v1.${userId}`;
+
 type Props = {
   /** From App.tsx's auth state — used to surface login affordances. */
   loggedOut: boolean;
@@ -101,6 +166,52 @@ type Props = {
 export function PapirRoot({ loggedOut }: Props) {
   const [authOpen, setAuthOpen] = useState(false);
   useForegroundRefresh();
+
+  // First-run notifikations-prompt (se NotifCta). Tjekker OS-status først, så
+  // brugere der allerede har svaret på system-dialogen aldrig ser kortet.
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const [notifPromptOpen, setNotifPromptOpen] = useState(false);
+  useEffect(() => {
+    if (!userId) {
+      setNotifPromptOpen(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const seen = await AsyncStorage.getItem(notifPromptKey(userId));
+        if (seen) return;
+        const status = await getPermissionStatus();
+        if (status !== 'undetermined') {
+          // OS-dialogen er allerede besvaret (fx via wizard eller Indstillinger)
+          // — markér som set, så vi ikke tjekker igen ved hver mount.
+          await AsyncStorage.setItem(notifPromptKey(userId), '1');
+          return;
+        }
+        if (!cancelled) setNotifPromptOpen(true);
+      } catch {
+        // Best effort — prompten dukker op ved næste mount i stedet.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  const answerNotifPrompt = async (enable: boolean) => {
+    setNotifPromptOpen(false);
+    if (userId) void AsyncStorage.setItem(notifPromptKey(userId), '1');
+    if (!enable) return;
+    const status = await ensurePermission();
+    if (status === 'granted') {
+      // Samme koreografi som Indstillinger-togglen: token til server-side
+      // pushes (påmindelser + dagligt overblik) og lokal scheduling af
+      // mødevarsler med det samme.
+      void registerPushToken();
+      void syncOnAppForeground();
+    }
+  };
 
   // Android hardware back closes the auth sheet (K4). PapirRoot mounts
   // before PapirShell, so React registers the shell's handler LAST — RN's
@@ -127,6 +238,7 @@ export function PapirRoot({ loggedOut }: Props) {
         <StatusBar style="dark" />
         <PapirShell openAuth={openAuth} />
         {loggedOut && !authOpen ? <LoginCta onPress={() => setAuthOpen(true)} /> : null}
+        {!loggedOut && notifPromptOpen ? <NotifCta onAnswer={answerNotifPrompt} /> : null}
         {authOpen ? (
           <Animated.View
             entering={SlideInDown.duration(papirDuration.overlay)}
