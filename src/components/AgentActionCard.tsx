@@ -74,9 +74,15 @@ export function AgentActionCard({
   async function onUndo() {
     setPending(true);
     setError(null);
-    const r = await revertAgentAction(row.id);
-    setPending(false);
-    if (!r.ok) setError(r.error ?? 'fejl');
+    try {
+      const r = await revertAgentAction(row.id);
+      if (!r.ok) setError(r.error ?? 'fejl');
+    } catch {
+      // Raw fetch throws offline — without this the spinner froze forever (K5).
+      setError('Ingen forbindelse — prøv igen.');
+    } finally {
+      setPending(false);
+    }
   }
 
   return (

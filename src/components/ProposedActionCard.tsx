@@ -44,18 +44,29 @@ export function ProposedActionCard({ row, onOpenDetail, embedded = false }: Prop
   async function onSend() {
     setPending('send');
     setError(null);
-    // Quick-approve: sends the original draft without edits.
-    // Edits live in ProposalDetailModal (opened via onOpenDetail).
-    const r = await approveProposedAction(row.id, undefined);
-    setPending(null);
-    if (!r.ok) setError(r.error ?? 'fejl');
+    try {
+      // Quick-approve: sends the original draft without edits.
+      // Edits live in ProposalDetailModal (opened via onOpenDetail).
+      const r = await approveProposedAction(row.id, undefined);
+      if (!r.ok) setError(r.error ?? 'fejl');
+    } catch {
+      // Raw fetch throws offline — without this the spinner froze forever (K5).
+      setError('Ingen forbindelse — prøv igen.');
+    } finally {
+      setPending(null);
+    }
   }
 
   async function onSkip() {
     setPending('skip');
     setError(null);
-    await dismissProposedAction(row.id);
-    setPending(null);
+    try {
+      await dismissProposedAction(row.id);
+    } catch {
+      setError('Ingen forbindelse — prøv igen.');
+    } finally {
+      setPending(null);
+    }
   }
 
   return (

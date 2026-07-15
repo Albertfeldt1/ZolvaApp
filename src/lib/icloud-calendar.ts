@@ -885,6 +885,85 @@ async function caldavWrite(
   return { ok: false, error: 'protocol' };
 }
 
+// GET the raw ICS for a single event resource. Used by updateEvent's
+// fetch-parse-patch cycle; the ETag lets the PUT refuse to clobber an edit
+// made elsewhere between our GET and PUT.
+async function caldavGet(
+  url: string,
+  auth: string,
+): Promise<CalDavResult<{ ics: string; etag: string | null }>> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CALDAV_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: {
+        Authorization: auth,
+        'User-Agent': 'Zolva/1.0 (iOS; CalDAV)',
+        Accept: 'text/calendar',
+      },
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if (err instanceof Error && err.name === 'AbortError') {
+      return { ok: false, error: 'timeout' };
+    }
+    if (__DEV__) console.warn(`[icloud-cal] GET ${url} threw:`, (err as Error)?.message);
+    return { ok: false, error: 'network' };
+  }
+  clearTimeout(timer);
+  if (res.status === 401 || res.status === 403) return { ok: false, error: 'auth-failed' };
+  if (res.status < 200 || res.status >= 300) {
+    if (__DEV__) console.warn(`[icloud-cal] GET ${url} status ${res.status}`);
+    return { ok: false, error: 'protocol' };
+  }
+  const ics = await res.text();
+  return { ok: true, data: { ics, etag: res.headers.get('ETag') } };
+}
+
+// K6-fix: updateEvent used to rebuild the VEVENT from scratch via
+// buildVeventIcs, silently dropping everything the input type doesn't carry -
+// RRULE, ATTENDEE, VALARM, EXDATE and RECURRENCE-ID override-VEVENTs. This
+// patches ONLY the fields we actually edit on the master VEVENT and leaves
+// the rest of the resource (incl. VTIMEZONE and override-VEVENTs) untouched.
+// Throws on unparseable ICS; the caller maps that to a 'protocol' error
+// instead of falling back to the destructive rebuild.
+function patchVeventIcs(existingIcs: string, input: IcloudEventInput): string {
+  const jcal = ICAL.parse(existingIcs);
+  const vcal = new ICAL.Component(jcal as [string, unknown[], unknown[]]);
+  const vevents = vcal.getAllSubcomponents('vevent');
+  if (vevents.length === 0) throw new Error('no VEVENT in resource');
+  // The master is the VEVENT without RECURRENCE-ID; overrides keep theirs.
+  const master = vevents.find((v) => !v.hasProperty('recurrence-id')) ?? vevents[0];
+
+  const setText = (name: string, value: string | undefined) => {
+    if (value && value.trim()) master.updatePropertyWithValue(name, value);
+    else master.removeAllProperties(name);
+  };
+  setText('summary', input.title);
+  setText('location', input.location);
+  setText('description', input.description);
+
+  // DTEND and DURATION are mutually exclusive; we always write DTEND.
+  master.removeAllProperties('duration');
+  const toTime = (d: Date) =>
+    input.allDay
+      ? new ICAL.Time({ year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate(), isDate: true })
+      : ICAL.Time.fromJSDate(d, true);
+  const ev = new ICAL.Event(master);
+  ev.startDate = toTime(input.start);
+  ev.endDate = toTime(input.end);
+
+  master.updatePropertyWithValue('dtstamp', ICAL.Time.fromJSDate(new Date(), true));
+  // Bump SEQUENCE so iCloud's scheduling layer re-notifies attendees.
+  const seq = master.getFirstPropertyValue('sequence');
+  master.updatePropertyWithValue('sequence', (typeof seq === 'number' ? seq : 0) + 1);
+
+  return vcal.toString();
+}
+
 // iCalendar text values escape backslash, comma, semicolon, and newline. Per
 // RFC 5545 §3.3.11 - control chars except TAB are not allowed; we drop them
 // rather than fail. Lines should fold at 75 octets, but Apple's CalDAV is
@@ -1012,8 +1091,25 @@ export async function updateEvent(
   const auth = basicAuth(cred.credential.email, cred.credential.password);
   if (!auth) return { ok: false, error: 'auth-failed' };
 
-  const ics = buildVeventIcs(input);
-  const r = await caldavWrite(eventUrl, 'PUT', auth, ics);
+  // Fetch-parse-patch (K6): never rebuild the VEVENT from scratch - that
+  // silently stripped RRULE/deltagere/alarmer/undtagelser from the event.
+  const existing = await caldavGet(eventUrl, auth);
+  if (!existing.ok) {
+    if (existing.error === 'auth-failed') await markInvalid(userId, 'caldav-rejected');
+    return { ok: false, error: existing.error };
+  }
+  let ics: string;
+  try {
+    ics = patchVeventIcs(existing.data.ics, input);
+  } catch (err) {
+    if (__DEV__) console.warn('[icloud-cal] patchVeventIcs failed:', (err as Error)?.message);
+    return { ok: false, error: 'protocol' };
+  }
+  // If-Match: refuse to clobber an edit made elsewhere since our GET (412 →
+  // 'protocol'; chatten beder brugeren prøve igen).
+  const headers: Record<string, string> = {};
+  if (existing.data.etag) headers['If-Match'] = existing.data.etag;
+  const r = await caldavWrite(eventUrl, 'PUT', auth, ics, headers);
   if (!r.ok && r.error === 'auth-failed') await markInvalid(userId, 'caldav-rejected');
   return r;
 }

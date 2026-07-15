@@ -99,26 +99,37 @@ export function ProposalDetailModal({ row, onClose }: Props) {
   async function handleApprove() {
     setPending('approve');
     setError(null);
-    // Only splice the edited body when we have the full text AND it's a reply.
-    const editedBody = hasFullBody ? editedText : undefined;
-    const r = await approveProposedAction(row.id, editedBody);
-    setPending(null);
-    if (r.ok) {
-      onClose();
-    } else {
-      setError(r.error ?? 'Ukendt fejl');
+    try {
+      // Only splice the edited body when we have the full text AND it's a reply.
+      const editedBody = hasFullBody ? editedText : undefined;
+      const r = await approveProposedAction(row.id, editedBody);
+      if (r.ok) {
+        onClose();
+      } else {
+        setError(r.error ?? 'Ukendt fejl');
+      }
+    } catch {
+      // Raw fetch throws offline — without this the spinner froze forever (K5).
+      setError('Ingen forbindelse — prøv igen.');
+    } finally {
+      setPending(null);
     }
   }
 
   async function handleDismiss() {
     setPending('dismiss');
     setError(null);
-    const r = await dismissProposedAction(row.id);
-    setPending(null);
-    if (r.ok) {
-      onClose();
-    } else {
-      setError(r.error ?? 'Kunne ikke springe over');
+    try {
+      const r = await dismissProposedAction(row.id);
+      if (r.ok) {
+        onClose();
+      } else {
+        setError(r.error ?? 'Kunne ikke springe over');
+      }
+    } catch {
+      setError('Ingen forbindelse — prøv igen.');
+    } finally {
+      setPending(null);
     }
   }
 

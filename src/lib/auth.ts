@@ -348,6 +348,11 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
     let identityUnlinked = false;
     let unlinkSoleIdentity = false;
     let unlinkOtherError = false;
+    // K4: the unlink/sign-out below runs BEFORE the browser opens, so a
+    // cancelled flow used to strand the user (fully logged out for
+    // sole-identity, silently unlinked otherwise). Capture the session
+    // tokens so every abort path below can restore what it can.
+    let preSignOutTokens: { access_token: string; refresh_token: string } | null = null;
     if (cachedSession && linkedIdentity) {
       const { error: unlinkError } = await supabase.auth.unlinkIdentity(linkedIdentity);
       if (unlinkError) {
@@ -362,7 +367,14 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
         // runs the fresh-login path, which DOES forward provider_refresh_token.
         if (msg.includes('single_identity_not_deletable') || msg.includes('at least 1 identity')) {
           console.log('[auth] forcing sign-out before re-auth - sole-identity user');
-          await supabase.auth.signOut();
+          // scope:'local' keeps the refresh token valid server-side so an
+          // aborted browser flow can restore the session via setSession
+          // instead of leaving the user logged out (K4).
+          preSignOutTokens = {
+            access_token: cachedSession.access_token,
+            refresh_token: cachedSession.refresh_token,
+          };
+          await supabase.auth.signOut({ scope: 'local' });
           unlinkSoleIdentity = true;
         } else {
           console.warn('[auth] unlinkIdentity failed (using signInWithOAuth fallback):', msg);
@@ -408,8 +420,35 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
       initiator = await supabase.auth.signInWithOAuth({ provider, options: params });
     }
 
+    // K4: every abort between the destructive unlink/sign-out above and a
+    // successful code exchange goes through here. Sole-identity sign-out is
+    // reversible (setSession with the captured tokens); an unlinked identity
+    // is not — Supabase requires a fresh browser flow to re-link — so the
+    // best we can do is tell the user instead of returning a silent null.
+    const abortAfterMutation = async (
+      fallbackError: Error | null,
+    ): Promise<{ data: null; error: Error | null }> => {
+      if (unlinkSoleIdentity && preSignOutTokens) {
+        const restored = await supabase.auth.setSession(preSignOutTokens);
+        if (!restored.error) return { data: null, error: fallbackError };
+        return {
+          data: null,
+          error: new Error('Forbindelsen blev afbrudt, og du er blevet logget ud. Log venligst ind igen.'),
+        };
+      }
+      if (identityUnlinked) {
+        return {
+          data: null,
+          error: new Error(
+            'Forbindelsen blev afbrudt undervejs, så kontoen skal forbindes igen. Prøv igen og gennemfør login-vinduet.',
+          ),
+        };
+      }
+      return { data: null, error: fallbackError };
+    };
+
     if (initiator.error || !initiator.data?.url) {
-      return { data: null, error: initiator.error ?? new Error('No OAuth URL returned') };
+      return abortAfterMutation(initiator.error ?? new Error('No OAuth URL returned'));
     }
 
     if (__DEV__) console.log('[auth] OAuth URL:', initiator.data.url);
@@ -418,33 +457,32 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
     try {
       parsedAuthUrl = new URL(initiator.data.url);
     } catch {
-      return { data: null, error: new Error(`Supabase returnerede ugyldig OAuth URL: ${initiator.data.url}`) };
+      return abortAfterMutation(new Error(`Supabase returnerede ugyldig OAuth URL: ${initiator.data.url}`));
     }
     if (parsedAuthUrl.protocol !== 'https:' && parsedAuthUrl.protocol !== 'http:') {
-      return { data: null, error: new Error(`OAuth URL har ugyldigt scheme: ${parsedAuthUrl.protocol}`) };
+      return abortAfterMutation(new Error(`OAuth URL har ugyldigt scheme: ${parsedAuthUrl.protocol}`));
     }
 
     const result = await WebBrowser.openAuthSessionAsync(parsedAuthUrl.toString(), redirectTo);
     if (__DEV__) console.log('[auth] WebBrowser', provider, 'result:', result.type);
 
     if (result.type !== 'success' || !result.url) {
-      return {
-        data: null,
-        error: result.type === 'cancel' ? null : new Error('OAuth-flowet blev afbrudt - tjek Supabase Redirect URLs.'),
-      };
+      return abortAfterMutation(
+        result.type === 'cancel' ? null : new Error('OAuth-flowet blev afbrudt - tjek Supabase Redirect URLs.'),
+      );
     }
 
     const { code, error: callbackError } = parseCallback(result.url);
     if (callbackError) {
-      return { data: null, error: new Error(callbackError) };
+      return abortAfterMutation(new Error(callbackError));
     }
-    if (!code) return { data: null, error: new Error('Ingen kode modtaget fra OAuth-udbyder.') };
+    if (!code) return abortAfterMutation(new Error('Ingen kode modtaget fra OAuth-udbyder.'));
 
     if (__DEV__) console.log('[auth] Exchanging code for session (linkIdentity:', usedLinkIdentity, ')');
     const exchange = await supabase.auth.exchangeCodeForSession(code);
     if (exchange.error) {
       if (__DEV__) console.warn('[auth] exchangeCodeForSession error:', exchange.error.message);
-      return { data: null, error: exchange.error };
+      return abortAfterMutation(exchange.error);
     }
 
     const token = exchange.data.session?.provider_token ?? null;

@@ -93,12 +93,18 @@ export function AgentActionDetailModal({ row, onClose }: Props) {
   async function handleUndo() {
     setPending(true);
     setError(null);
-    const r = await revertAgentAction(row.id);
-    setPending(false);
-    if (r.ok) {
-      onClose();
-    } else {
-      setError(r.error ?? 'fejl');
+    try {
+      const r = await revertAgentAction(row.id);
+      if (r.ok) {
+        onClose();
+      } else {
+        setError(r.error ?? 'fejl');
+      }
+    } catch {
+      // Raw fetch throws offline — without this the spinner froze forever (K5).
+      setError('Ingen forbindelse — prøv igen.');
+    } finally {
+      setPending(false);
     }
   }
 

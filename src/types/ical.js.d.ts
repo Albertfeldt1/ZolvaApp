@@ -6,9 +6,21 @@ declare module 'ical.js' {
   type Jcal = [string, unknown[], unknown[]];
 
   namespace ICAL {
+    interface TimeData {
+      year?: number;
+      month?: number;
+      day?: number;
+      hour?: number;
+      minute?: number;
+      second?: number;
+      isDate?: boolean;
+    }
+
     class Time {
+      constructor(data?: TimeData);
       isDate: boolean;
       toJSDate(): Date;
+      static fromJSDate(date: Date, useUTC?: boolean): Time;
     }
 
     class Property {
@@ -21,6 +33,10 @@ declare module 'ical.js' {
       getFirstSubcomponent(name: string): Component | null;
       getFirstProperty(name: string): Property | null;
       getFirstPropertyValue(name: string): unknown;
+      hasProperty(name: string): boolean;
+      updatePropertyWithValue(name: string, value: unknown): Property;
+      removeAllProperties(name: string): boolean;
+      toString(): string;
     }
 
     interface OccurrenceDetails {
