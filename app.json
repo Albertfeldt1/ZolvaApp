@@ -31,7 +31,7 @@
           "$(AppIdentifierPrefix)io.zolva.shared"
         ]
       },
-      "buildNumber": "49"
+      "buildNumber": "50"
     },
     "android": {
       "package": "com.zolva.app",
