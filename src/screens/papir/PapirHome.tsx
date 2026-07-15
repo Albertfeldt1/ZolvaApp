@@ -4,6 +4,7 @@ import { usePapirScreenPads } from './insets';
 import {
   AlignLeft,
   ArrowRight,
+  Bell,
   Check,
   Clock,
   FileText,
@@ -20,7 +21,7 @@ import {
   papirRadius,
   papirSpace,
 } from '../../design/papir';
-import { refreshCalendarNow, refreshMailNow, refreshRemindersNow, useInboxCounts, useNotes, useReminders, useUpcoming, useUser } from '../../lib/hooks';
+import { refreshCalendarNow, refreshMailNow, refreshRemindersNow, useInboxCounts, useNotes, useReminders, useUnreadNotificationCount, useUpcoming, useUser } from '../../lib/hooks';
 import { useTodayBrief, type Brief } from '../../lib/briefs';
 import { greeting, formatToday } from '../../lib/date';
 import type { Note, Reminder, UpcomingEvent } from '../../lib/types';
@@ -244,6 +245,7 @@ export function PapirHome() {
   const inbox = useInboxCounts();
   const notes = useNotes();
   const reminders = useReminders();
+  const unreadNotifications = useUnreadNotificationCount();
   const { brief } = useTodayBrief();
   const toneMeta = brief?.tone ? BRIEF_TONE[brief.tone] : null;
   const now = useNow();
@@ -307,9 +309,32 @@ export function PapirHome() {
             {greeting(now)}{firstName ? `,\n${firstName}.` : '.'}
           </PaperText>
         </View>
-        <IconButton accessibilityLabel="Søg" onPress={() => nav.push('search')}>
-          <Search size={18} color={papirColor.ink} strokeWidth={1.8} />
-        </IconButton>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View>
+            <IconButton accessibilityLabel="Notifikationer" onPress={() => nav.push('notifications')}>
+              <Bell size={18} color={papirColor.ink} strokeWidth={1.8} />
+            </IconButton>
+            {unreadNotifications > 0 ? (
+              <View
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  top: 1,
+                  right: 1,
+                  width: 9,
+                  height: 9,
+                  borderRadius: papirRadius.pill,
+                  backgroundColor: papirColor.red,
+                  borderWidth: 1.5,
+                  borderColor: papirColor.paper,
+                }}
+              />
+            ) : null}
+          </View>
+          <IconButton accessibilityLabel="Søg" onPress={() => nav.push('search')}>
+            <Search size={18} color={papirColor.ink} strokeWidth={1.8} />
+          </IconButton>
+        </View>
       </View>
 
       {statusReady ? (
