@@ -175,7 +175,18 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
   // Send transskriptionen videre til chatten som et stemme-spørgsmål: chatten
   // sender den som en normal tur. Push før onDone, så chat-laget ligger klar
   // under overlayet når det lukker.
-  const askZolva = (transcript: string) => {
+  // Optagelsen gemmes samtidig som talenote, så den også optræder under
+  // historik/seneste optagelser — fejl her må ikke blokere spørgsmålet.
+  const askZolva = (transcript: string, title?: string) => {
+    notes
+      .add(transcript, 'note', {
+        ...(title ? { title } : {}),
+        source: 'voice',
+        ...(durationMillis ? { durationSec: Math.round(durationMillis / 1000) } : {}),
+      })
+      .catch((e) => {
+        console.warn('[voice] save question note failed:', e instanceof Error ? e.message : String(e));
+      });
     requestChatVoiceQuestion(transcript);
     nav.push('chat');
     onDone();
@@ -202,12 +213,12 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
         const { title, actions, isQuestion } = await extractActions(transcript);
         if (cancelled) return;
         // Et rent spørgsmål ("hvad har jeg i morgen?") hører hjemme i chatten,
-        // hvor Zolva faktisk kan svare — rut det direkte videre i stedet for
-        // at tilbyde at gemme det som note. Blandede optagelser (spørgsmål +
-        // handlinger) beholder handlingskortene; "Spørg Zolva"-knappen dækker
-        // resten manuelt.
+        // hvor Zolva faktisk kan svare — rut det direkte videre (askZolva
+        // gemmer selv optagelsen som talenote). Blandede optagelser
+        // (spørgsmål + handlinger) beholder handlingskortene; "Spørg
+        // Zolva"-knappen dækker resten manuelt.
         if (isQuestion && actions.length === 0) {
-          askZolvaRef.current(transcript);
+          askZolvaRef.current(transcript, title);
           return;
         }
         setData({ title, transcript, actions });
@@ -375,7 +386,7 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
               <Button
                 label="Spørg Zolva om det her"
                 variant="ghost"
-                onPress={() => askZolva(data.transcript)}
+                onPress={() => askZolva(data.transcript, data.title)}
                 disabled={saving}
               />
             </View>
