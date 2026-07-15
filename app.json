@@ -64,7 +64,13 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "@sentry/react-native/expo",
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "zolva",
+          "project": "react-native"
+        }
+      ],
       "expo-font",
       "expo-web-browser",
       "expo-apple-authentication",
