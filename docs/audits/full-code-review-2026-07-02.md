@@ -54,6 +54,7 @@
 - **Hvorfor:** Ét tryk på "Annullér" kan logge brugeren fuldt ud eller efterlade identiteten unlinked — og fordi fejlen returneres som `null`, kan callers ikke engang advare.
 - **Løsning:** Udskyd den destruktive del til efter succesfuldt browser-resultat; ellers informér brugeren først og returnér eksplicit `cancelled`-status så UI kan route til login.
 - **Indsats:** Mellem
+- **✅ STATUS (2026-07-15):** Fixet i commit `af02034`. Sole-identity-stien bruger nu `signOut({scope:'local'})` + gemmer session-tokens og gendanner via `setSession` på alle abort-stier (annullering, initiator-fejl, callback-fejl, exchange-fejl). Unlink-afbrud kan ikke gendannes uden nyt browser-flow og returnerer i stedet en forklarende fejl, som SettingsScreen viser.
 
 ### K5. Netværksfejl efterlader agent-knapper i evig spinner
 - **Placering:** `src/components/AgentActionCard.tsx:74-80`, `AgentActionDetailModal.tsx:93-103`, `ProposedActionCard.tsx:44-59`, `ProposalDetailModal.tsx:99-123`
@@ -61,6 +62,7 @@
 - **Hvorfor:** Offline er normaltilfældet på mobil. Knappen ("Send"/"Fortryd"/"Spring over") fryser i ActivityIndicator, ingen fejlbesked, unhandled rejection. Brugeren kan ikke betjene agentens forslag uden at lukke skærmen.
 - **Løsning:** try/finally i alle fire handlers (+ fejlbesked), eller fang netværksfejl i lib-laget og returnér `{ ok: false }` konsekvent (se også M-lib: fælles `callEdgeFunction`-helper).
 - **Indsats:** Lille
+- **✅ STATUS (2026-07-15):** Fixet i commit `af02034` — try/catch/finally + "Ingen forbindelse"-fejltekst i alle fire komponenter.
 
 ### K6. iCloud `updateEvent` sletter RRULE, deltagere, alarmer og undtagelser
 - **Placering:** `src/lib/icloud-calendar.ts:1004-1019` (+ `buildVeventIcs` :915-938)
@@ -68,6 +70,7 @@
 - **Hvorfor:** Redigerer brugeren (via chat/stemme) fx titlen på en gentaget begivenhed, bliver den til en engangs-begivenhed uden deltagere, alarmer og RECURRENCE-ID-overrides — stille datatab i brugerens kalender.
 - **Løsning:** GET den eksisterende .ics, patch kun de ændrede properties, PUT tilbage — helst med `If-Match: <etag>`.
 - **Indsats:** Mellem
+- **✅ STATUS (2026-07-15):** Fixet i commit `af02034` — updateEvent henter nu eksisterende ICS (ny `caldavGet`), patcher kun summary/tid/location/description på master-VEVENT via ical.js (`patchVeventIcs`) og PUT'er med `If-Match`/ETag. RRULE, ATTENDEE, VALARM, EXDATE, override-VEVENTs og VTIMEZONE bevares. Smoke-testet mod recurring event med alarm.
 
 ### K7. Papir: tilbage-knappen på transskriptionsskærmen gør ingenting
 - **Placering:** `src/screens/papir/PapirTranscription.tsx:123` + `PapirShell.tsx:68-76` + `PushHeader.tsx:21`
