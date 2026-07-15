@@ -45,6 +45,11 @@ const SYSTEM =
   'fridage skal briefen have fri-tone: foreslå ALDRIG "fordybelsesarbejde", "mindre opgaver" ' +
   'eller anden arbejdsprioritering, medmindre kalenderen tydeligt viser arbejde. Lad dagen ' +
   'være brugerens - fokuser på det sociale/praktiske og på at være klar til dagens begivenheder.\n\n' +
+  'TID (vigtigt): Du får dagens aktuelle lokale klokkeslæt. Bed ALDRIG brugeren om at gøre ' +
+  'klar til, møde op til eller nå en begivenhed, hvis dens tidspunkt allerede er passeret i ' +
+  'forhold til det aktuelle klokkeslæt - den er overstået. Er en begivenhed i gang lige nu ' +
+  '(starttid før nu, sluttid efter), så omtal den som igangværende, ikke som noget der skal nås. ' +
+  'Kun begivenheder der endnu ikke er begyndt, må omtales som noget brugeren skal gøre klar til.\n\n' +
   'NAVN: Hvis du får brugerens navn, må du bruge fornavnet naturligt i headline eller focus ' +
   '(fx "God lørdag, Oscar - fri formiddag før gildet"), men højst ét sted. Aldrig påtaget eller gentaget.\n\n' +
   'SEKTIONER du skal udfylde (hver er en liste af korte strenge - brug tom liste hvis intet er relevant):\n' +
@@ -110,6 +115,76 @@ function formatDayLine(timezone: string): string {
   }
 }
 
+// Current local wall-clock time, e.g. "19:03", in the user's timezone. Used
+// only in the (uncached) composer message so the model can tell past from
+// upcoming events. Empty string on an invalid IANA id.
+function formatNowTime(timezone: string): string {
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).format(new Date());
+  } catch {
+    return '';
+  }
+}
+
+// Current local date (YYYY-MM-DD) + minute-of-day, for same-day past-event
+// comparison. Null on an invalid IANA id (caller then keeps all events).
+function nowLocalParts(now: Date, timezone: string): { ymd: string; minutes: number } | null {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(now);
+    const get = (t: string) => parts.find((p) => p.type === t)?.value;
+    const y = get('year'), mo = get('month'), d = get('day'), h = get('hour'), mi = get('minute');
+    if (!y || !mo || !d || !h || !mi) return null;
+    return { ymd: `${y}-${mo}-${d}`, minutes: Number(h) * 60 + Number(mi) };
+  } catch {
+    return null;
+  }
+}
+
+// Local minute-of-day for an event ISO, reusing the naive-vs-zoned handling in
+// formatHM. Null if the time can't be parsed.
+function localMinutesOfDay(iso: string, timezone: string): number | null {
+  const m = /^(\d{2}):(\d{2})$/.exec(formatHM(iso, timezone));
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+// Drops events that have already ended relative to `now`, so a brief never
+// resurfaces a finished event (e.g. an evening brief at 19:00 telling the user
+// to "be ready" for a 17:00 event). Kept: all-day events, events ending on a
+// later day (still ongoing/upcoming), and events whose local end time is at or
+// after now. Only today's events reach here (the calendar fetch uses day
+// bounds), so a same-day wall-clock comparison is sufficient and avoids
+// naive-vs-zoned instant math. Fails open — an unparseable time is kept rather
+// than risk hiding a real upcoming event.
+export function selectRelevantEvents(
+  events: BriefInputs['events'],
+  timezone: string,
+  now: Date,
+): BriefInputs['events'] {
+  const nowParts = nowLocalParts(now, timezone);
+  if (!nowParts) return events;
+  return events.filter((e) => {
+    if (e.allDay) return true;
+    const endDate = localDateParts(e.endIso, timezone);
+    if (endDate && endDate.ymd > nowParts.ymd) return true; // ends a later day
+    const endMin = localMinutesOfDay(e.endIso, timezone);
+    if (endMin == null) return true; // unparseable → keep
+    return endMin >= nowParts.minutes;
+  });
+}
+
 export function buildComposerMessage(inputs: BriefInputs): string {
   const eventLines = inputs.events.length === 0
     ? '(ingen begivenheder)'
@@ -130,9 +205,11 @@ export function buildComposerMessage(inputs: BriefInputs): string {
     : 'Vejr: ukendt';
 
   const dayLine = formatDayLine(inputs.timezone);
+  const nowLine = formatNowTime(inputs.timezone);
   return [
     `Dagens briefing-type: ${inputs.kind}`,
     dayLine ? `Dag: ${dayLine}` : '',
+    nowLine ? `Aktuelt lokalt klokkeslæt: ${nowLine}` : '',
     inputs.name ? `Bruger: ${inputs.name}` : '',
     `Kalender:\n${eventLines}`,
     `Ulæste mails:\n${unreadLine}`,

@@ -30,6 +30,7 @@ import {
   COMPOSER_SCHEMA,
   COMPOSER_SYSTEM,
   formatCalendarLines,
+  selectRelevantEvents,
 } from './compose.ts';
 import { loadRefreshToken, refreshAccessToken } from '../_shared/oauth.ts';
 import { fetchGmailCandidates } from '../_shared/backfill-providers/gmail.ts';
@@ -394,11 +395,16 @@ async function assembleInputs(
   // Reminders are still local-only (AsyncStorage on the phone). The Today
   // banner shows them client-side via the existing hooks.
 
+  // Drop events that already ended today so the brief never tells the user to
+  // prepare for something that's over (an evening brief at 19:00 must not
+  // resurface a 17:00 event). Ongoing and upcoming events are kept.
+  const relevantEvents = selectRelevantEvents(events, timezone, new Date());
+
   return {
     kind,
     name,
     timezone,
-    events,
+    events: relevantEvents,
     unread: (mailRes.data ?? []).map((r) => ({
       from: (r as Record<string, string>).provider_from ?? 'ukendt',
       subject: (r as Record<string, string>).provider_subject ?? '(intet emne)',
