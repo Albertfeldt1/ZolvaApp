@@ -268,6 +268,15 @@ export async function workerHandler(req: Request): Promise<Response> {
     else if (write.errorClass === 'permission_denied') resp = permissionDenied(write.calendarName);
     else resp = provider5xx(selection.target.provider);
 
+    if (write.errorClass === 'invalid_target') {
+      console.error(JSON.stringify({
+        kind: 'security',
+        alert: 'icloud_write_invalid_target',
+        user_id: userId,
+        calendar_id: selection.target.id,
+      }));
+    }
+
     console.log(JSON.stringify({
       action: 'create_event',
       user_id: userId,

@@ -15,7 +15,22 @@ export type IcloudWriteOutcome =
   | { ok: true; eventUrl: string; uid: string }
   | { ok: false; errorClass: 'oauth_invalid' }              // creds row missing or auth-failed
   | { ok: false; errorClass: 'permission_denied'; calendarName: string }
+  | { ok: false; errorClass: 'invalid_target' }             // calendarUrl not a real iCloud CalDAV host
   | { ok: false; errorClass: 'provider_5xx' };
+
+// calendarUrl comes from user_profiles (user-writable via RLS). Without this
+// guard a tampered row makes us PUT the user's iCloud app-password to an
+// arbitrary host (SSRF + credential exfil). Mirrors icloud-creds-link's
+// isValidUrl — keep the two in sync.
+function isIcloudCalDavUrl(s: string): boolean {
+  if (s.length > 512) return false;
+  try {
+    const u = new URL(s);
+    return u.protocol === 'https:' && u.hostname.endsWith('caldav.icloud.com');
+  } catch {
+    return false;
+  }
+}
 
 export async function writeIcloudEvent(args: {
   creds: IcloudCredsBlob;
@@ -24,6 +39,10 @@ export async function writeIcloudEvent(args: {
   startIso: string;
   endIso: string;
 }): Promise<IcloudWriteOutcome> {
+  if (!isIcloudCalDavUrl(args.calendarUrl)) {
+    return { ok: false, errorClass: 'invalid_target' };
+  }
+
   const auth = basicAuth(args.creds.email, args.creds.password);
   if (!auth) return { ok: false, errorClass: 'oauth_invalid' };
 

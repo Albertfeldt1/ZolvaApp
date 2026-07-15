@@ -15,6 +15,7 @@ export type WriteOutcome =
   | { ok: true; eventId: string; eventUrl: string | null }
   | { ok: false; errorClass: 'oauth_invalid' }
   | { ok: false; errorClass: 'permission_denied'; calendarName: string }
+  | { ok: false; errorClass: 'invalid_target' }
   | { ok: false; errorClass: 'provider_5xx' };
 
 const MICROSOFT_SCOPE = 'offline_access Calendars.ReadWrite';
