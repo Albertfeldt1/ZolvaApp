@@ -1,4 +1,4 @@
-import React, { useMemo, type ComponentType } from 'react';
+import React, { useMemo, useState, type ComponentType } from 'react';
 import { Alert, ScrollView, View } from 'react-native';
 import { usePapirScreenPads } from './insets';
 import {
@@ -7,6 +7,7 @@ import {
   Crown,
   Download,
   HelpCircle,
+  MessageSquarePlus,
   RotateCcw,
   Send,
   Settings,
@@ -18,6 +19,7 @@ import { useAuth } from '../../lib/auth';
 import { useEntitlement, useNotes, useReminders, useUser } from '../../lib/hooks';
 import { presentCustomerCenter, presentPaywall } from '../../lib/paywall';
 import { usePapirNav } from './nav';
+import { PapirFeedback } from './PapirFeedback';
 
 type IconCmp = ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
 
@@ -88,6 +90,7 @@ export function PapirProfile() {
   const reminders = useReminders();
 
   const loggedIn = !!user;
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const name = profile?.name ?? '';
   const email = profile?.email ?? '';
   const isPro = entitlement.data.tier === 'pro';
@@ -268,11 +271,23 @@ export function PapirProfile() {
           onPress={openPremium}
         />
         <MenuRow Icon={RotateCcw} label="Gendan køb" divider onPress={() => void restorePurchases()} />
+        {/* Beta-feedback: kun for indloggede (feedback-tabellen kræver en
+            bruger); logget ud giver rækken ingen mening. */}
+        {loggedIn ? (
+          <MenuRow
+            Icon={MessageSquarePlus}
+            label="Rapportér fejl eller forslag"
+            divider
+            onPress={() => setFeedbackOpen(true)}
+          />
+        ) : null}
         {/* Parity backlog: data export + support get real destinations later.
             "Kommer snart" so the dimmed rows read as roadmap, not breakage. */}
         <MenuRow Icon={Download} label="Eksportér data" value="Kommer snart" divider dimmed />
         <MenuRow Icon={HelpCircle} label="Hjælp & support" value="Kommer snart" divider dimmed />
       </View>
+
+      <PapirFeedback visible={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
 
       <View style={{ paddingHorizontal: papirSpace.screen, marginTop: papirSpace.xl }}>
         {loggedIn ? (
