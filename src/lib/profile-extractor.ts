@@ -5,7 +5,7 @@ import type { FactCategory } from './types';
 import { getPrivacyFlag } from './hooks';
 import { PROFILE_MEMORY_ENABLED, invalidatePreamble } from './profile';
 
-type Trigger = 'chat_turn' | 'mail_draft' | 'mail_decision' | 'mail_reply';
+type Trigger = 'chat_turn' | 'mail_draft' | 'mail_decision' | 'mail_reply' | 'voice_note';
 
 type ExtractionPayload = {
   trigger: Trigger;

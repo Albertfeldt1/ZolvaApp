@@ -5,6 +5,8 @@ import { deleteAsync } from 'expo-file-system/legacy';
 import { ScaleButton } from '../../design/motion';
 import { Button, PaperText, papirColor, papirRadius, papirSpace } from '../../design/papir';
 import { useReminders, useNotes } from '../../lib/hooks';
+import { runNetworkExtractor } from '../../lib/network-extractor';
+import { runExtractor } from '../../lib/profile-extractor';
 import {
   extractActions,
   transcribeAudio,
@@ -299,6 +301,23 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
         source: 'voice',
         ...(durationMillis ? { durationSec: Math.round(durationMillis / 1000) } : {}),
       });
+      // Gemte talenoter mines i baggrunden - personer til Netværk og fakta
+      // til Husk. Kun her: et voice-SPØRGSMÅL (askZolva) bliver en chat-tur
+      // og dækkes af chat-hooket, så det ville dobbelt-ekstrahere.
+      if (ctx.userId) {
+        runNetworkExtractor({
+          trigger: 'voice_note',
+          userId: ctx.userId,
+          text: data.transcript,
+          source: 'voice-note',
+        });
+        runExtractor({
+          trigger: 'voice_note',
+          userId: ctx.userId,
+          text: data.transcript,
+          source: 'voice-note',
+        });
+      }
       onDone();
     } catch (e) {
       setSaving(false);

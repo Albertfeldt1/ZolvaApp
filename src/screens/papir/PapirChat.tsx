@@ -5,6 +5,7 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   TextInput,
   View,
@@ -22,10 +23,11 @@ import {
 } from '../../lib/calendar-today-snapshot';
 import { useChat, useChatSuggestions } from '../../lib/hooks';
 import { subscribeFactExtracted } from '../../lib/profile-extractor';
+import { subscribeNetworkExtracted } from '../../lib/network-extractor';
 import { TranscribeCancelled, TranscribeError, transcribeAudio } from '../../lib/transcribe';
 import { speak, stopSpeaking, TtsError } from '../../lib/tts';
 import type { ChatMessage, SendDraftAction } from '../../lib/types';
-import { consumeChatVoiceQuestion, subscribeChatVoiceQuestion } from './nav';
+import { consumeChatVoiceQuestion, subscribeChatVoiceQuestion, usePapirNav } from './nav';
 import { PapirRecord } from './PapirRecord';
 import { PushHeader } from './PushHeader';
 import { useNow } from './useNow';
@@ -206,6 +208,7 @@ function buildContextChips(opts: {
 }
 
 export function PapirChat() {
+  const nav = usePapirNav();
   const chat = useChat();
   const suggestions = useChatSuggestions();
   const [input, setInput] = useState('');
@@ -257,12 +260,32 @@ export function PapirChat() {
       }),
     [],
   );
+  // Samme diskrete bekræftelse for Netværk: når netværks-ekstraktoren lander
+  // en person for en tur i DENNE samtale, vises en tappelig linje under
+  // svaret - tryk åbner personkortet.
+  const [networkNoted, setNetworkNoted] = useState<{ msgId: string; personId: string; name: string; isNew: boolean } | null>(null);
+  useEffect(
+    () =>
+      subscribeNetworkExtracted((e) => {
+        const msgId = e.source?.startsWith('chat:') ? e.source.slice('chat:'.length) : null;
+        if (!msgId) return;
+        if (!messagesRef.current.some((m) => m.id === msgId)) return;
+        setNetworkNoted({ msgId, personId: e.personId, name: e.name, isNew: e.isNew });
+        Haptics.selectionAsync().catch(() => {});
+      }),
+    [],
+  );
+
   // The line lands under the last bubble seconds after the reply - nudge the
   // scroll so it isn't hidden behind the composer.
   useEffect(() => {
     if (!noted) return;
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
   }, [noted]);
+  useEffect(() => {
+    if (!networkNoted) return;
+    requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+  }, [networkNoted]);
 
   // The quota banner must not outlive the quota: auto-clear when resetsAt
   // passes so the composer unblocks without a restart (M10).
@@ -405,7 +428,23 @@ export function PapirChat() {
           Noteret – jeg husker: {renderLinks(noted.text, papirColor.red)}
         </PaperText>
       ) : null;
-    if (drafts.length === 0 && !notedLine) return <View key={m.id}>{bubble}</View>;
+    const networkLine =
+      networkNoted && networkNoted.msgId === m.id ? (
+        <Pressable
+          onPress={() => nav.push('networkPerson', { personId: networkNoted.personId })}
+          accessibilityRole="button"
+          accessibilityLabel={`Åbn ${networkNoted.name} i Netværk`}
+          style={{ maxWidth: '84%', alignSelf: 'flex-start' }}
+        >
+          <PaperText role="small" color={papirColor.ink3}>
+            {networkNoted.isNew ? 'Tilføjet til netværk: ' : 'Netværk opdateret: '}
+            <PaperText role="small" color={papirColor.red}>
+              {networkNoted.name}
+            </PaperText>
+          </PaperText>
+        </Pressable>
+      ) : null;
+    if (drafts.length === 0 && !notedLine && !networkLine) return <View key={m.id}>{bubble}</View>;
     return (
       <View key={m.id} style={{ gap: 12 }}>
         {bubble}
@@ -413,6 +452,7 @@ export function PapirChat() {
           <DraftCard key={`${m.id}-draft-${i}`} draft={d} onSend={() => chat.sendDraft(d).then((r) => r.ok)} />
         ))}
         {notedLine}
+        {networkLine}
       </View>
     );
   };

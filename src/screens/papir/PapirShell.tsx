@@ -36,6 +36,8 @@ import { PapirMailDetail } from './PapirMailDetail';
 import { PapirNoteDetail } from './PapirNoteDetail';
 import { PapirSentMails } from './PapirSentMails';
 import { PapirSignature } from './PapirSignature';
+import { PapirNetwork } from './PapirNetwork';
+import { PapirNetworkDetail } from './PapirNetworkDetail';
 import { PapirBottomNav, type PapirTab } from './PapirBottomNav';
 
 function PushView({ screen, params }: { screen: PushScreen; params?: PushParams }) {
@@ -62,6 +64,10 @@ function PushView({ screen, params }: { screen: PushScreen; params?: PushParams 
       return <PapirNoteDetail id={params?.id} />;
     case 'sentMails':
       return <PapirSentMails />;
+    case 'network':
+      return <PapirNetwork />;
+    case 'networkPerson':
+      return <PapirNetworkDetail personId={params?.personId} />;
   }
 }
 

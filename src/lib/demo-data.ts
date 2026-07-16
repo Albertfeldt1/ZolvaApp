@@ -25,6 +25,7 @@ import type {
   Reminder,
 } from './types';
 import type { Brief, BriefSections } from './briefs';
+import type { NetworkFollowup, NetworkInteraction, NetworkPerson } from './network-store';
 import type { AgentActionRow } from './agent-feed';
 import type { ProposedActionRow } from './agent-proposals';
 import type { CommitmentRow } from './agent-commitments';
@@ -957,10 +958,207 @@ export function demoNoteList(): Note[] {
   ];
 }
 
+// ─── netværk ────────────────────────────────────────────────────────────────
+//
+// Frederik Lunds netværk: kolleger, Lunar-kontakter og én pending person så
+// "Ny person fundet — behold?"-flowet kan demonstreres uden AI-kald.
+
+function seedDemoNetworkPeople(): NetworkPerson[] {
+  const mk = (
+    idx: number,
+    name: string,
+    p: Partial<NetworkPerson>,
+    daysAgo: number,
+  ): NetworkPerson => ({
+    id: `d-np-${idx}`,
+    userId: DEMO_USER_ID,
+    name,
+    normalizedName: name.toLowerCase(),
+    company: null,
+    role: null,
+    relation: null,
+    industry: null,
+    howWeMet: null,
+    location: null,
+    email: null,
+    phone: null,
+    linkedin: null,
+    traits: [],
+    interests: [],
+    projects: [],
+    notes: null,
+    summary: null,
+    status: 'confirmed',
+    metThroughPersonId: null,
+    userEditedFields: [],
+    source: 'demo',
+    lastContactedAt: dayAt(-daysAgo, 11, 0),
+    createdAt: dayAt(-daysAgo - 30, 9, 0),
+    updatedAt: dayAt(-daysAgo, 11, 0),
+    ...p,
+  });
+  return [
+    mk(1, 'Mette Halling', {
+      company: 'Lunar', role: 'Marketingchef', relation: 'kunde', industry: 'fintech',
+      howWeMet: 'Gennem Lunar-samarbejdet', location: 'København',
+      email: 'mette.halling@lunar.app',
+      interests: ['effektmåling', 'AI i marketing'],
+      projects: ['Lunar Q3-kampagnen'],
+      summary: 'Din vigtigste kontakt hos Lunar — vil se effektmåling pr. kanal.',
+    }, 0),
+    mk(2, 'Anders Brix', {
+      company: 'Lunar', role: 'Indkøb', relation: 'kunde', industry: 'fintech',
+      howWeMet: 'Lunar-mødet om Q3-kampagnen',
+      interests: ['GDPR og databehandling'],
+      projects: ['Lunar Q3-kampagnen'],
+      summary: 'Lunars indkøber — afventer databehandleraftalen fra dig.',
+    }, 0),
+    mk(3, 'Sofia Wang', {
+      company: 'Lundgreen & Partner', role: 'Produktkonsulent', relation: 'kollega',
+      interests: ['produktstrategi', 'kundeansvar'],
+      projects: ['Pleo (mulig lead)'],
+      summary: 'Din produktkonsulent — klar til mere kundeansvar efter jeres 1:1.',
+    }, 4),
+    mk(4, 'Jonas Krogh', {
+      company: 'Lundgreen & Partner', role: 'Seniorkonsulent', relation: 'kollega og nær ven',
+      interests: ['faglitteratur', 'strukturering af analyser'],
+      summary: 'Seniorkonsulent og din nære ven — anbefalede "The Pyramid Principle".',
+    }, 8),
+    mk(5, 'Mikkel Holm', {
+      relation: 'ven', howWeMet: 'Padel-makker gennem flere år',
+      interests: ['padel'],
+      summary: 'Din faste padel-makker — I spiller typisk onsdag aften.',
+    }, 1),
+    mk(6, 'Kasper', {
+      company: 'Nordfin', role: 'Forretningsudvikler', relation: 'ny kontakt',
+      howWeMet: 'Netværksmiddag i Børssalen', traits: ['høj', 'lyst hår'],
+      interests: ['AI i kundeservice'],
+      summary: 'Mødt til netværksmiddag — talte om AI i kundeservice, ville gerne mødes igen.',
+      status: 'pending', source: 'voice-note',
+    }, 2),
+  ];
+}
+
+function seedDemoNetworkFollowups(): NetworkFollowup[] {
+  const mk = (
+    idx: number, personId: string, text: string,
+    dueAt: Date | null, doneAt: Date | null,
+  ): NetworkFollowup => ({
+    id: `d-nf-${idx}`,
+    userId: DEMO_USER_ID,
+    personId,
+    text,
+    dueAt,
+    doneAt,
+    source: 'demo',
+    createdAt: dayAt(-3, 10, 0),
+  });
+  return [
+    mk(1, 'd-np-1', 'Send effektmåling pr. kanal til Mette', dayAt(1, 9, 0), null),
+    mk(2, 'd-np-2', 'Send databehandleraftalen til Anders', dayAt(-1, 12, 0), null),
+    mk(3, 'd-np-3', 'Foreslå Sofia som lead på Pleo', null, null),
+    mk(4, 'd-np-4', 'Køb "The Pyramid Principle" til Louise', null, dayAt(-2, 15, 0)),
+    mk(5, 'd-np-6', 'Aftal kaffe med Kasper efter sommerferien', dayAt(20, 9, 0), null),
+  ];
+}
+
+function seedDemoNetworkInteractions(): NetworkInteraction[] {
+  const mk = (
+    idx: number, personId: string, kind: NetworkInteraction['kind'],
+    summary: string, daysAgo: number, h = 11,
+  ): NetworkInteraction => ({
+    id: `d-ni-${idx}`,
+    userId: DEMO_USER_ID,
+    personId,
+    kind,
+    summary,
+    occurredAt: dayAt(-daysAgo, h, 0),
+    sourceRef: `demo:${idx}`,
+  });
+  return [
+    mk(1, 'd-np-1', 'meeting', 'Lunar-mødet: Mette vil se effektmåling pr. kanal før Q3-underskrift.', 0, 10),
+    mk(2, 'd-np-1', 'mail', 'Mette sendte feedback på kampagneoplægget — overvejende positiv.', 3, 14),
+    mk(3, 'd-np-2', 'meeting', 'Anders spurgte til GDPR-flowet — du lovede at sende databehandleraftalen.', 0, 10),
+    mk(4, 'd-np-3', 'note', '1:1 med Sofia: hun er klar til mere kundeansvar.', 4, 13),
+    mk(5, 'd-np-4', 'chat', 'Jonas anbefalede "The Pyramid Principle" til Louises onboarding.', 8, 9),
+    mk(6, 'd-np-5', 'calendar', 'Padel med Mikkel — du vandt 2-1.', 1, 18),
+    mk(7, 'd-np-6', 'voice', 'Talenote fra netværksmiddagen: Kasper fra Nordfin, talte om AI i kundeservice.', 2, 21),
+  ];
+}
+
 // ─── mutable demo stores (agent + facts) ───────────────────────────────────
 //
 // A tiny in-memory store so approve/dismiss/revert feel real in demo mode.
 // Reset on every demo sign-in via resetDemoData().
+
+let demoNetworkPeople: NetworkPerson[] = seedDemoNetworkPeople();
+let demoNetworkFollowups: NetworkFollowup[] = seedDemoNetworkFollowups();
+let demoNetworkInteractions: NetworkInteraction[] = seedDemoNetworkInteractions();
+
+export function getDemoNetworkPeople(): NetworkPerson[] {
+  return [...demoNetworkPeople];
+}
+
+export function getDemoNetworkFollowups(): NetworkFollowup[] {
+  return [...demoNetworkFollowups];
+}
+
+export function getDemoNetworkInteractions(): NetworkInteraction[] {
+  return [...demoNetworkInteractions];
+}
+
+export function addDemoNetworkPerson(person: NetworkPerson): void {
+  demoNetworkPeople = [person, ...demoNetworkPeople];
+}
+
+export function updateDemoNetworkPerson(
+  personId: string,
+  patch: Record<string, unknown>,
+  opts: { byUser: boolean },
+): boolean {
+  const p = demoNetworkPeople.find((x) => x.id === personId);
+  if (!p) return false;
+  const target = p as unknown as Record<string, unknown>;
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    target[key] = value;
+  }
+  if (typeof patch.name === 'string') p.normalizedName = patch.name.toLowerCase();
+  if (opts.byUser) {
+    p.userEditedFields = Array.from(new Set([...p.userEditedFields, ...Object.keys(patch)]));
+  }
+  p.updatedAt = new Date();
+  return true;
+}
+
+export function setDemoNetworkPersonStatus(personId: string, status: 'confirmed'): boolean {
+  const p = demoNetworkPeople.find((x) => x.id === personId);
+  if (!p) return false;
+  p.status = status;
+  p.updatedAt = new Date();
+  return true;
+}
+
+export function deleteDemoNetworkPerson(personId: string): void {
+  demoNetworkPeople = demoNetworkPeople.filter((x) => x.id !== personId);
+  demoNetworkFollowups = demoNetworkFollowups.filter((x) => x.personId !== personId);
+  demoNetworkInteractions = demoNetworkInteractions.filter((x) => x.personId !== personId);
+}
+
+export function addDemoNetworkFollowup(followup: NetworkFollowup): void {
+  demoNetworkFollowups = [followup, ...demoNetworkFollowups];
+}
+
+export function setDemoNetworkFollowupDone(followupId: string, done: boolean): boolean {
+  const f = demoNetworkFollowups.find((x) => x.id === followupId);
+  if (!f) return false;
+  f.doneAt = done ? new Date() : null;
+  return true;
+}
+
+export function addDemoNetworkInteraction(interaction: NetworkInteraction): void {
+  demoNetworkInteractions = [interaction, ...demoNetworkInteractions];
+}
 
 let demoFacts: Fact[] = seedDemoFacts();
 let demoProposals: ProposedActionRow[] = seedProposals();
@@ -991,6 +1189,9 @@ export function subscribeDemoAgent(listener: () => void): () => void {
 
 export function resetDemoData(): void {
   demoFacts = seedDemoFacts();
+  demoNetworkPeople = seedDemoNetworkPeople();
+  demoNetworkFollowups = seedDemoNetworkFollowups();
+  demoNetworkInteractions = seedDemoNetworkInteractions();
   demoProposals = seedProposals();
   demoActions = seedAgentActions();
   demoCommitments = seedCommitments();

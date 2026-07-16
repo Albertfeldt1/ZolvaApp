@@ -196,6 +196,27 @@ import {
 } from './notification-feed';
 import { syncChatMessage } from './chat-sync';
 import { runExtractor } from './profile-extractor';
+import { runNetworkExtractor } from './network-extractor';
+import {
+  addFollowup as addNetworkFollowup,
+  addInteraction as addNetworkInteraction,
+  confirmNetworkPerson,
+  deleteNetworkPerson,
+  findRosterMatch,
+  getNetworkPersonBundle,
+  insertNetworkPerson,
+  listNetworkPeople,
+  listOpenFollowups,
+  mergeAiIntoPerson,
+  setFollowupDone as setNetworkFollowupDone,
+  subscribeNetworkChanged,
+  updateNetworkPersonFields,
+  type AiPersonFields,
+  type EditablePersonFields,
+  type NetworkFollowup,
+  type NetworkPerson,
+  type NetworkPersonBundle,
+} from './network-store';
 import {
   CHAT_SUGGESTION_COUNT,
   extractChatSuggestions,
@@ -3552,6 +3573,113 @@ export function useReminders() {
   return { data: reminders, loading, error: null as Error | null, markDone, remove, add };
 }
 
+// Module-level refresh signal for Netværk, mirroring refreshRemindersNow:
+// chat-tool executors (save_network_person) and the network-extractor write
+// straight to Supabase, so open Netværk screens need a tick to re-fetch.
+let networkRefreshTick = 0;
+const networkRefreshListeners = new Set<(tick: number) => void>();
+export function refreshNetworkNow(): void {
+  networkRefreshTick += 1;
+  networkRefreshListeners.forEach((l) => l(networkRefreshTick));
+}
+
+export function useNetworkPeople() {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const [people, setPeople] = useState<NetworkPerson[]>([]);
+  const [followups, setFollowups] = useState<NetworkFollowup[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const [tick, setTick] = useState(networkRefreshTick);
+  useEffect(() => {
+    networkRefreshListeners.add(setTick);
+    const unsub = subscribeNetworkChanged(refreshNetworkNow);
+    return () => {
+      networkRefreshListeners.delete(setTick);
+      unsub();
+    };
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (!userId) { setPeople([]); setFollowups([]); setLoading(false); return; }
+    try {
+      const [nextPeople, nextFollowups] = await Promise.all([
+        listNetworkPeople(userId),
+        listOpenFollowups(userId),
+      ]);
+      setPeople(nextPeople);
+      setFollowups(nextFollowups);
+    } catch (err) {
+      if (__DEV__) console.warn('[useNetworkPeople] refresh failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [userId]);
+
+  useEffect(() => { void refresh(); }, [refresh, tick]);
+
+  const confirm = useCallback(async (personId: string) => {
+    if (!userId) return;
+    await confirmNetworkPerson(userId, personId);
+  }, [userId]);
+
+  // "Afvis" på en pending person = slet; der er ingen rejected-tilstand for
+  // personer (modsat facts) - en afvist person skal bare væk igen.
+  const remove = useCallback(async (personId: string) => {
+    if (!userId) return;
+    await deleteNetworkPerson(userId, personId);
+  }, [userId]);
+
+  return { data: people, openFollowups: followups, loading, error: null as Error | null, confirm, remove, refresh };
+}
+
+export function useNetworkPerson(personId: string | null) {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const [bundle, setBundle] = useState<NetworkPersonBundle | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const [tick, setTick] = useState(networkRefreshTick);
+  useEffect(() => {
+    networkRefreshListeners.add(setTick);
+    const unsub = subscribeNetworkChanged(refreshNetworkNow);
+    return () => {
+      networkRefreshListeners.delete(setTick);
+      unsub();
+    };
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (!userId || !personId) { setBundle(null); setLoading(false); return; }
+    try {
+      setBundle(await getNetworkPersonBundle(userId, personId));
+    } catch (err) {
+      if (__DEV__) console.warn('[useNetworkPerson] refresh failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [userId, personId]);
+
+  useEffect(() => { void refresh(); }, [refresh, tick]);
+
+  const updateFields = useCallback(async (patch: EditablePersonFields) => {
+    if (!userId || !personId) return;
+    await updateNetworkPersonFields(userId, personId, patch, { byUser: true });
+  }, [userId, personId]);
+
+  const toggleFollowup = useCallback(async (followupId: string, done: boolean) => {
+    if (!userId) return;
+    await setNetworkFollowupDone(userId, followupId, done);
+  }, [userId]);
+
+  const remove = useCallback(async () => {
+    if (!userId || !personId) return;
+    await deleteNetworkPerson(userId, personId);
+  }, [userId, personId]);
+
+  return { data: bundle, loading, error: null as Error | null, updateFields, toggleFollowup, remove };
+}
+
 export function useNotes() {
   const { user } = useAuth();
   const demo = isDemoUser(user);
@@ -3909,6 +4037,16 @@ function buildChatSystemPrompt(name: string, ctx: ChatCtx): string {
       'om kategorien - vælg den selv ud fra indholdet. Efter add_fact lykkedes, sig kort ' +
       'til brugeren hvad du gemte (fx "Gjort - Maria er nu noteret som din leder.") så de ' +
       'ved at det landede. Påstå aldrig at du har gemt et faktum uden at kalde add_fact.',
+    'NETVÆRK: Brugeren har et Netværk - personer de har mødt, med firma, rolle, relation, ' +
+      'kendetegn, interesser, opfølgninger og historik. Brug search_network ved ALLE spørgsmål ' +
+      'om personer, navne, firmaer eller opfølgninger - også vage beskrivelser som "ham fra ' +
+      'Volvo", "hende med det mørke hår" eller "hvem har jeg lovet at følge op med?". Svar ' +
+      'ALDRIG "det ved jeg ikke" om en person uden først at have kaldt search_network. Når ' +
+      'brugeren udtrykkeligt beder dig gemme eller opdatere en person ("gem ham i mit netværk", ' +
+      '"husk at Lars er skiftet til Volvo"), brug save_network_person - tjek med search_network ' +
+      'først om personen findes, og send person_id ved match så der aldrig opstår dubletter. ' +
+      'Fortæller brugeren spontant om et møde med en person, behøver du IKKE kalde noget - ' +
+      'Zolva opfanger det automatisk i baggrunden.',
     'Brug list_reminders og list_notes hvis brugeren spørger hvad du har gemt.',
     'VÆR PROAKTIV MED VÆRKTØJERNE: Hvis et værktøj kan give dig konkret data der gør dit ' +
       'svar bedre eller mere præcist, så kald det SELV - uden at bede brugeren om lov, og ' +
@@ -4249,6 +4387,62 @@ const CHAT_TOOLS: ClaudeToolSchema[] = [
         },
       },
       required: ['text', 'category'],
+    },
+  },
+  {
+    name: 'search_network',
+    description:
+      'Søg i brugerens netværk: personer de har mødt, med navn, firma, rolle, relation, ' +
+      'kendetegn, interesser, hvordan de mødtes, seneste kontakt og åbne opfølgninger. ' +
+      'Brug ved spørgsmål som "hvem var det fra Volvo?", "hvad hed ham med det mørke hår?", ' +
+      '"hvem arbejder med marketing?" eller "hvem har jeg lovet at følge op med?". ' +
+      'Returnerer kompakte personkort - lav selv den løse matchning ud fra beskrivelsen ' +
+      '(udseende, branche, emne). Udelad query for at hente hele netværket.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description:
+            'Frit søgeord: navn, firma, rolle, kendetegn eller emne. Udelad for at hente alle.',
+        },
+      },
+    },
+  },
+  {
+    name: 'save_network_person',
+    description:
+      'Gem eller opdatér en person i brugerens netværk. Brug KUN når brugeren udtrykkeligt ' +
+      'beder om det ("gem hende i mit netværk", "husk at Lars arbejder hos Volvo nu") - ' +
+      'spontane fortællinger om møder opfanges automatisk. Hvis personen kan findes i ' +
+      'forvejen (tjek med search_network), SKAL du sende person_id, så oplysningerne merges ' +
+      'i stedet for at oprette en dublet.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        person_id: { type: 'string', description: 'ID fra search_network hvis personen allerede findes.' },
+        name: { type: 'string', description: 'Personens navn.' },
+        company: { type: 'string' },
+        role: { type: 'string', description: 'Stilling, fx "erhvervssalg".' },
+        relation: { type: 'string', description: 'Kort dansk relation, fx "kunde", "kollega", "ny kontakt".' },
+        industry: { type: 'string', description: 'Branche, fx "bilbranchen".' },
+        how_we_met: { type: 'string', description: 'Hvordan brugeren mødte personen.' },
+        location: { type: 'string' },
+        email: { type: 'string' },
+        phone: { type: 'string' },
+        linkedin: { type: 'string' },
+        traits: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Fysiske kendetegn - KUN dem brugeren selv har nævnt, gæt aldrig.',
+        },
+        interests: { type: 'array', items: { type: 'string' } },
+        projects: { type: 'array', items: { type: 'string' } },
+        note: { type: 'string', description: 'Kort kontekst der logges på personens historik.' },
+        followup_text: { type: 'string', description: 'Opfølgningspunkt, fx "Aftal møde efter sommerferien".' },
+        followup_due_at: { type: 'string', description: 'ISO 8601 for opfølgningen - udelad hvis ingen dato.' },
+      },
+      required: ['name'],
     },
   },
   {
@@ -4917,6 +5111,45 @@ export async function sendChatDraft(
   }
 }
 
+// Kompakt dansk personblok til search_network. Over-returnér og lad modellen
+// filtrere: SQL kan aldrig matche "ham med det mørke hår", det kan Claude.
+function formatNetworkPersonForTool(p: NetworkPerson, openFollowups: NetworkFollowup[]): string {
+  const head = [p.name, p.company, p.role].filter(Boolean).join(' — ');
+  const bits: string[] = [`[${p.id}] ${head}`];
+  if (p.relation) bits.push(`relation: ${p.relation}`);
+  if (p.industry) bits.push(`branche: ${p.industry}`);
+  if (p.traits.length > 0) bits.push(`kendetegn: ${p.traits.join(', ')}`);
+  if (p.interests.length > 0) bits.push(`interesser: ${p.interests.join(', ')}`);
+  if (p.projects.length > 0) bits.push(`projekter: ${p.projects.join(', ')}`);
+  if (p.howWeMet) bits.push(`mødt: ${p.howWeMet}`);
+  if (p.location) bits.push(`bor: ${p.location}`);
+  if (p.email || p.phone || p.linkedin) {
+    bits.push(`kontakt: ${[p.email, p.phone, p.linkedin].filter(Boolean).join(', ')}`);
+  }
+  if (p.summary) bits.push(p.summary);
+  if (p.lastContactedAt) bits.push(`sidst kontakt: ${p.lastContactedAt.toISOString().slice(0, 10)}`);
+  const fu = openFollowups.filter((f) => f.personId === p.id);
+  if (fu.length > 0) {
+    bits.push(`åbne opfølgninger: ${fu
+      .map((f) => `${f.text}${f.dueAt ? ` (${f.dueAt.toISOString().slice(0, 10)})` : ''}`)
+      .join('; ')}`);
+  }
+  return bits.join(' | ');
+}
+
+// Token-baseret grov-filtrering når netværket er for stort til at sende helt.
+function networkPersonMatchesQuery(p: NetworkPerson, tokens: string[]): boolean {
+  const haystack = [
+    p.name, p.company, p.role, p.relation, p.industry, p.howWeMet,
+    p.location, p.email, p.linkedin, p.notes, p.summary,
+    ...p.traits, ...p.interests, ...p.projects,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return tokens.some((t) => haystack.includes(t));
+}
+
 async function runChatTool(
   name: string,
   input: Record<string, unknown>,
@@ -5118,6 +5351,106 @@ async function runChatTool(
         content: `Gemt faktum ${fact.id}: "${fact.text}" (${category}).`,
         isError: false,
       };
+    }
+    if (name === 'search_network') {
+      const userId = ctx.userId;
+      if (!userId) return { content: 'Ikke logget ind.', isError: true };
+      const [people, openFollowups] = await Promise.all([
+        listNetworkPeople(userId),
+        listOpenFollowups(userId),
+      ]);
+      if (people.length === 0) {
+        return {
+          content:
+            'Netværket er tomt endnu. Fortæl brugeren at Zolva automatisk husker personer ' +
+            'de nævner i chatten eller i en talenote ("Jeg mødte Lars fra Volvo…").',
+          isError: false,
+        };
+      }
+      const query = typeof input.query === 'string' ? input.query.trim().toLowerCase() : '';
+      // Små netværk sendes hele - modellen laver selv den fuzzy matchning.
+      // Ved større netværk grov-filtreres på tokens, med fald tilbage til
+      // hele (trunkerede) rosteren når intet matcher tekstuelt.
+      let selected = people;
+      if (query && people.length > 40) {
+        const tokens = query.split(/\s+/).filter((t) => t.length >= 3);
+        const hits = tokens.length > 0 ? people.filter((p) => networkPersonMatchesQuery(p, tokens)) : [];
+        selected = hits.length > 0 ? hits : people;
+      }
+      const capped = selected.slice(0, 60);
+      const lines = capped.map((p) => formatNetworkPersonForTool(p, openFollowups));
+      const footer = selected.length > capped.length
+        ? `\n(Viser ${capped.length} af ${selected.length} personer.)`
+        : '';
+      return { content: lines.join('\n') + footer, isError: false };
+    }
+    if (name === 'save_network_person') {
+      const userId = ctx.userId;
+      if (!userId) return { content: 'Ikke logget ind.', isError: true };
+      const personName = typeof input.name === 'string' ? input.name.trim() : '';
+      if (!personName) return { content: 'Manglede navn.', isError: true };
+      const str = (v: unknown): string | null =>
+        typeof v === 'string' && v.trim() ? v.trim() : null;
+      const arr = (v: unknown): string[] =>
+        Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x.trim()) : [];
+      const fields: AiPersonFields = {
+        company: str(input.company),
+        role: str(input.role),
+        relation: str(input.relation),
+        industry: str(input.industry),
+        howWeMet: str(input.how_we_met),
+        location: str(input.location),
+        email: str(input.email),
+        phone: str(input.phone),
+        linkedin: str(input.linkedin),
+        traits: arr(input.traits),
+        interests: arr(input.interests),
+        projects: arr(input.projects),
+      };
+      const people = await listNetworkPeople(userId);
+      const byId = typeof input.person_id === 'string'
+        ? people.find((p) => p.id === input.person_id) ?? null
+        : null;
+      const match = byId ?? findRosterMatch(people, personName, fields.company);
+      let personId: string;
+      let confirmation: string;
+      if (match) {
+        const patch = mergeAiIntoPerson(match, fields);
+        await updateNetworkPersonFields(userId, match.id, patch ?? {}, { lastContactedAt: new Date() });
+        personId = match.id;
+        confirmation = `Opdateret: ${match.name}${match.company ? ` (${match.company})` : ''}.`;
+      } else {
+        const inserted = await insertNetworkPerson(userId, {
+          ...fields,
+          name: personName,
+          // Brugeren bad selv om at gemme → bekræftet med det samme,
+          // samme implicitte samtykke som add_fact.
+          status: 'confirmed',
+          source: 'chat-tool',
+        });
+        personId = inserted.id;
+        confirmation = `Gemt i netværket: ${personName}${fields.company ? ` (${fields.company})` : ''}.`;
+      }
+      const note = str(input.note);
+      if (note) {
+        await addNetworkInteraction(userId, personId, {
+          kind: 'manual',
+          summary: note,
+          sourceRef: null,
+        });
+      }
+      const followupText = str(input.followup_text);
+      if (followupText) {
+        const dueRaw = str(input.followup_due_at);
+        const due = dueRaw ? new Date(dueRaw) : null;
+        await addNetworkFollowup(userId, personId, {
+          text: followupText,
+          dueAt: due && !Number.isNaN(due.getTime()) ? due : null,
+          source: 'chat-tool',
+        });
+      }
+      refreshNetworkNow();
+      return { content: `${confirmation} (id: ${personId})`, isError: false };
     }
     if (name === 'list_reminders') {
       const userId = ctx.userId;
@@ -5848,6 +6181,15 @@ export function useChat() {
                 source: `chat:${assistantMsg.id}`,
               });
             }
+            // Netværks-ekstraktionen gates bevidst IKKE på
+            // reminderCreatedThisTurn: "påmind mig om at ringe til Lars fra
+            // Volvo" kan stadig nævne en ny person.
+            runNetworkExtractor({
+              trigger: 'chat_turn',
+              userId,
+              text: `Bruger: ${trimmed}\nZolva: ${assistantMsg.text}`,
+              source: `chat:${assistantMsg.id}`,
+            });
           }
           // Pass 1.5 finalize: if round 0 returned needs_tools and the
           // local tool loop produced a real answer, mark the chat_jobs

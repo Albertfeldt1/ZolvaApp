@@ -11,6 +11,7 @@ import {
   Mail,
   MessageSquare,
   Search,
+  Users,
 } from 'lucide-react-native';
 import { ScaleButton } from '../../design/motion';
 import {
@@ -399,6 +400,7 @@ export function PapirHome() {
             nav.setTab('history', { slide: true });
           }}
         />
+        <QuickButton Icon={Users} label="Netværk" onPress={() => nav.push('network')} />
         <QuickButton Icon={Search} label="Søg" onPress={() => nav.push('search')} />
       </ScrollView>
 
