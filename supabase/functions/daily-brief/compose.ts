@@ -15,6 +15,18 @@ export type BriefInputs = {
   commitments: string[];
   reminders: Array<{ text: string; dueIso: string | null }>;
   weather: Weather | null;
+  // Netværks-kontekst (M2): dagens møder med personer fra network_people og
+  // netværksopfølgninger der forfalder i dag. Tomme arrays udelades HELT af
+  // composer-beskeden, så prompts uden netværksdata er byte-identiske med før.
+  networkMeetings: Array<{
+    personName: string;
+    company: string | null;
+    eventTitle: string;
+    startIso: string;
+    lastInteractionSummary: string | null;
+    openFollowupTexts: string[];
+  }>;
+  networkFollowupsDue: Array<{ personName: string; text: string }>;
 };
 
 export type BriefOutput = {
@@ -28,6 +40,7 @@ export type BriefOutput = {
   followups: string[];
   focus: string[];
   weather: string[];
+  personer: string[];
 };
 
 const SYSTEM =
@@ -58,7 +71,14 @@ const SYSTEM =
   'Spring mails over der ikke kræver handling.\n' +
   '- followups: konkrete opfølgninger brugeren bør gøre i dag, udledt af aktive løfter/aftaler, ' +
   'påmindelser og dagens begivenheder. Bydeform, fx "Følg op på tilbud til Kunde A", ' +
-  '"Send præsentation til Mads efter 1:1".\n' +
+  '"Send præsentation til Mads efter 1:1". Får du listen "Netværksopfølgninger der forfalder i dag", ' +
+  'SKAL hver af dem med i followups med personens navn, fx "Book møde med Mette Halling".\n' +
+  '- personer: KUN hvis du får listen "Personer du møder i dag": højst 2-3 linjer, én pr. person, ' +
+  'i formen "Du møder <navn> (<firma>) kl. <HH:MM> — I talte sidst om <kort emne>." Udelad ' +
+  'parentesen hvis firmaet er ukendt, og sidste led hvis der ingen seneste interaktion er. Har ' +
+  'personen en åben opfølgning, tilføj til sidst "Åben opfølgning: <opfølgning>." Brug KUN de ' +
+  'oplysninger du får (navn, firma, klokkeslæt, seneste interaktion, opfølgninger) - gæt ALDRIG, ' +
+  'og nævn ALDRIG udseende, kendetegn eller karaktertræk. Tom liste hvis ingen personer er angivet.\n' +
   '- focus: 1-2 korte sætninger med et forslag til hvordan brugeren bør prioritere dagen, ' +
   'skrevet direkte til brugeren med "du", fx "Du har flere møder i formiddags. ' +
   'Overvej at lægge fordybelsesarbejde i eftermiddagen."\n' +
@@ -85,11 +105,13 @@ const SYSTEM =
 
 const SCHEMA =
   '{"headline": string, "tone": "calm" | "busy" | "heads-up", "mails": string[], ' +
-  '"followups": string[], "focus": string[], "weather": string[]}\n' +
+  '"followups": string[], "focus": string[], "weather": string[], "personer": string[]}\n' +
   '- headline: kort push-overskrift (under 60 tegn).\n' +
   '- mails/followups: korte handlingspunkter i bydeform (tom liste hvis ingen).\n' +
   '- focus: 1-2 sætninger med dagens prioritering.\n' +
   '- weather: 1-2 sætninger om vejret (tom liste hvis ukendt).\n' +
+  '- personer: 0-3 korte linjer om personer fra netværket brugeren møder i dag ' +
+  '(tom liste hvis ingen er angivet).\n' +
   '- tone: matcher dagens pres.';
 
 // Danish day line for the composer, e.g. "lørdag den 11. juli (weekend)".
@@ -204,6 +226,26 @@ export function buildComposerMessage(inputs: BriefInputs): string {
     ? `Vejr: ${inputs.weather.tempC.toFixed(0)}°C, ${inputs.weather.conditionLabel} (høj ${inputs.weather.highC.toFixed(0)}°, lav ${inputs.weather.lowC.toFixed(0)}°)`
     : 'Vejr: ukendt';
 
+  // Netværks-blokke: udelades helt når tomme, så briefs uden netværksdata
+  // giver en prompt der er byte-identisk med før M2 - ingen adfærdsdrift.
+  const networkMeetingLines = inputs.networkMeetings.length === 0
+    ? ''
+    : `Personer du møder i dag (fra dit netværk):\n${inputs.networkMeetings
+        .map((m) => {
+          const company = m.company ? ` (${m.company})` : '';
+          const last = m.lastInteractionSummary ? ` Sidst: ${m.lastInteractionSummary}` : '';
+          const followups = m.openFollowupTexts.length > 0
+            ? ` Åbne opfølgninger: ${m.openFollowupTexts.join('; ')}`
+            : '';
+          return `- ${m.personName}${company} kl. ${formatHM(m.startIso, inputs.timezone)} — møde: "${m.eventTitle}".${last}${followups}`;
+        })
+        .join('\n')}`;
+  const networkFollowupLines = inputs.networkFollowupsDue.length === 0
+    ? ''
+    : `Netværksopfølgninger der forfalder i dag:\n${inputs.networkFollowupsDue
+        .map((f) => `- ${f.personName}: ${f.text}`)
+        .join('\n')}`;
+
   const dayLine = formatDayLine(inputs.timezone);
   const nowLine = formatNowTime(inputs.timezone);
   return [
@@ -212,6 +254,8 @@ export function buildComposerMessage(inputs: BriefInputs): string {
     nowLine ? `Aktuelt lokalt klokkeslæt: ${nowLine}` : '',
     inputs.name ? `Bruger: ${inputs.name}` : '',
     `Kalender:\n${eventLines}`,
+    networkMeetingLines,
+    networkFollowupLines,
     `Ulæste mails:\n${unreadLine}`,
     `Aktive løfter/aftaler:\n${commitmentLines}`,
     `Påmindelser:\n${reminderLines}`,

@@ -11,6 +11,9 @@ export type BriefSections = {
   followups: string[];
   focus: string[];
   weather: string[];
+  // M2: "Du møder Mette Halling (Lunar) kl. 10 …" — netværks-mødekontext.
+  // Gamle brief-rækker mangler nøglen; rowToSections coercer til [].
+  personer: string[];
 };
 
 export type Brief = {
@@ -41,6 +44,7 @@ function rowToSections(raw: unknown): BriefSections | null {
     followups: arr(s.followups),
     focus: arr(s.focus),
     weather: arr(s.weather),
+    personer: arr(s.personer),
   };
 }
 

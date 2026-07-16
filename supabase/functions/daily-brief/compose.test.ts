@@ -12,6 +12,8 @@ function inputs(events: BriefInputs['events'], timezone = 'Europe/Copenhagen'): 
     commitments: [],
     reminders: [],
     weather: null,
+    networkMeetings: [],
+    networkFollowupsDue: [],
   };
 }
 

@@ -19,13 +19,33 @@ import {
 } from './oauth.ts';
 import { fetchIcloudEvents, userHasIcloudCreds } from './icloud-calendar.ts';
 
+export type EventAttendee = {
+  name: string | null;
+  email: string | null;
+};
+
 export type EventSummary = {
   title: string;
   startIso: string;
   endIso: string;
   location?: string;
   allDay?: boolean;
+  // Kun google + microsoft — iCloud (CalDAV) leverer ingen deltagere her.
+  // Bruges af daily-brief til at matche møder mod network_people.
+  attendees?: EventAttendee[];
 };
+
+const MAX_ATTENDEES = 10;
+
+// Fælles oprydning: drop deltagere uden både navn og email, cap antallet,
+// og returnér undefined (frem for []) så feltet slet ikke fylder i events
+// uden deltagere.
+function mapAttendees(raw: EventAttendee[]): EventAttendee[] | undefined {
+  const cleaned = raw
+    .filter((a) => (a.name && a.name.trim()) || (a.email && a.email.trim()))
+    .slice(0, MAX_ATTENDEES);
+  return cleaned.length > 0 ? cleaned : undefined;
+}
 
 const CALENDAR_TIMEOUT_MS = 3000;
 const MAX_EVENTS = 10;
@@ -322,6 +342,12 @@ async function fetchGoogleCalendarEvents(
       location?: string;
       start?: { dateTime?: string; date?: string };
       end?: { dateTime?: string; date?: string };
+      attendees?: Array<{
+        email?: string;
+        displayName?: string;
+        self?: boolean;
+        resource?: boolean;
+      }>;
     }>;
   };
   // Events crossing midnight: singleEvents expansion gives us a single row
@@ -346,6 +372,14 @@ async function fetchGoogleCalendarEvents(
       endIso: endIsoRaw,
       location: e.location || undefined,
       allDay: !!e.start?.date && !e.start?.dateTime,
+      attendees: mapAttendees(
+        (e.attendees ?? [])
+          .filter((a) => !a.self && !a.resource)
+          .map((a) => ({
+            name: a.displayName?.trim() || null,
+            email: a.email?.trim().toLowerCase() || null,
+          })),
+      ),
     }];
   });
 }
@@ -382,6 +416,10 @@ async function fetchMicrosoftCalendarEvents(
       start?: { dateTime?: string };
       end?: { dateTime?: string };
       isAllDay?: boolean;
+      attendees?: Array<{
+        emailAddress?: { name?: string; address?: string };
+        type?: string;
+      }>;
     }>;
   };
   // Events crossing midnight: Graph returns the event once; v1 displays the
@@ -405,6 +443,16 @@ async function fetchMicrosoftCalendarEvents(
       endIso: endIsoRaw,
       location: e.location?.displayName || undefined,
       allDay: !!e.isAllDay,
+      // Graph har intet self-flag; brugerens egen adresse matcher aldrig
+      // deres egen network_people-roster, så den skader ikke i listen.
+      attendees: mapAttendees(
+        (e.attendees ?? [])
+          .filter((a) => a.type !== 'resource')
+          .map((a) => ({
+            name: a.emailAddress?.name?.trim() || null,
+            email: a.emailAddress?.address?.trim().toLowerCase() || null,
+          })),
+      ),
     }];
   });
 }
@@ -424,7 +472,9 @@ function withTimeout<T>(
 
 // Returns { startIso, endIso } where both are UTC Zulu timestamps representing
 // the local midnight boundaries for `timezone` on "now's" local date.
-function getDayBoundsUTC(now: Date, timezone: string): { startIso: string; endIso: string } {
+// Exported: daily-brief bruger endIso som forfalds-cutoff for netværks-
+// opfølgninger ("forfalder i dag").
+export function getDayBoundsUTC(now: Date, timezone: string): { startIso: string; endIso: string } {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: timezone,
     year: 'numeric',

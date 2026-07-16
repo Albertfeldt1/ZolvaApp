@@ -608,6 +608,9 @@ function briefSections(kind: Brief['kind']): BriefSections {
       ],
       focus: ['Landing af Q3-tilbuddet er ugens vigtigste opgave — alt andet kan vente.'],
       weather: ['Letskyet, 15° i morgentimerne og op til 21° i eftermiddag. Tør cykelvej.'],
+      personer: [
+        'Du møder Mette Halling (Lunar) kl. 11 — I talte sidst om effektmåling pr. kanal. Åben opfølgning: send effektmålingen.',
+      ],
     };
   }
   if (kind === 'midday') {
@@ -617,6 +620,7 @@ function briefSections(kind: Brief['kind']): BriefSections {
       followups: ['Ring til Anders om §4, hvis det ikke er sket endnu.'],
       focus: ['Brug vinduet 14.00–15.30 på leverancetiderne til tilbuddet.'],
       weather: ['21° og tørt resten af dagen.'],
+      personer: [],
     };
   }
   return {
@@ -625,6 +629,7 @@ function briefSections(kind: Brief['kind']): BriefSections {
     followups: ['Q3-tilbud: leverancetider på plads efter dagens møde — mangler kun prisafsnit.'],
     focus: ['God dag: Lunar-mødet gik godt, og Mette er positiv. I morgen handler om workshoppen.'],
     weather: ['I morgen: overskyet, 19°, mulighed for byger sidst på dagen.'],
+    personer: [],
   };
 }
 

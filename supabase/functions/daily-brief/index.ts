@@ -22,7 +22,13 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { recordAiUsage } from '../_shared/usage.ts';
 import { fetchWeather, Weather } from './weather.ts';
-import { fetchCalendarForUser } from '../_shared/calendar.ts';
+import { fetchCalendarForUser, getDayBoundsUTC } from '../_shared/calendar.ts';
+import {
+  fetchLatestInteractionByPerson,
+  fetchNetworkContext,
+  logCalendarInteraction,
+  matchEventsToPeople,
+} from '../_shared/network-context.ts';
 import {
   BriefInputs,
   BriefOutput,
@@ -46,6 +52,7 @@ type BriefSections = {
   followups: string[];
   focus: string[];
   weather: string[];
+  personer: string[];
 };
 
 // Assembles the persisted section payload: calendar is deterministic (real
@@ -58,6 +65,7 @@ function buildSections(inputs: BriefInputs, brief: BriefOutput): BriefSections {
     followups: brief.followups ?? [],
     focus: brief.focus ?? [],
     weather: brief.weather ?? [],
+    personer: brief.personer ?? [],
   };
 }
 
@@ -67,6 +75,7 @@ function buildSections(inputs: BriefInputs, brief: BriefOutput): BriefSections {
 function buildBodyFallback(s: BriefSections): string[] {
   const out: string[] = [];
   if (s.calendar.length) out.push(`I kalenderen: ${s.calendar.join(' · ')}`);
+  if (s.personer.length) out.push(`Personer: ${s.personer.join(' ')}`);
   if (s.mails.length) out.push(`Mails: ${s.mails.join('; ')}`);
   if (s.followups.length) out.push(`Opfølgninger: ${s.followups.join('; ')}`);
   out.push(...s.focus);
@@ -355,7 +364,7 @@ async function generateOneBrief(
     kind,
     brief.headline,
     inserted.id as string,
-    sections.focus[0] ?? sections.calendar[0] ?? body[0] ?? null,
+    sections.focus[0] ?? sections.personer[0] ?? sections.calendar[0] ?? body[0] ?? null,
     brief.tone ?? null,
   );
   await client
@@ -400,6 +409,76 @@ async function assembleInputs(
   // resurface a 17:00 event). Ongoing and upcoming events are kept.
   const relevantEvents = selectRelevantEvents(events, timezone, new Date());
 
+  // Netværks-kontekst (M2): match dagens deltagere/titler mod network_people.
+  // Kommende matches bliver "Personer du møder i dag"-input; allerede
+  // AFSLUTTEDE matches logges som network_interactions (idempotent via
+  // source_ref — funktionen kører op til tre gange dagligt). Forfaldne
+  // netværksopfølgninger surfaces uanset om der er møder. Fejl her må aldrig
+  // vælte briefen — netværk er berigelse, ikke kerneindhold.
+  let networkMeetings: BriefInputs['networkMeetings'] = [];
+  let networkFollowupsDue: BriefInputs['networkFollowupsDue'] = [];
+  try {
+    const ctx = await fetchNetworkContext(client, userId);
+    if (ctx.people.length > 0) {
+      const followupsByPerson = new Map<string, string[]>();
+      for (const f of ctx.openFollowups) {
+        const list = followupsByPerson.get(f.personId) ?? [];
+        list.push(f.text);
+        followupsByPerson.set(f.personId, list);
+      }
+
+      if (events.length > 0) {
+        // Match mod den RÅ liste — selectRelevantEvents har fjernet de
+        // afsluttede events, og netop dem skal logges som afholdte møder.
+        const matches = matchEventsToPeople(events, ctx.people);
+        if (matches.length > 0) {
+          const latest = await fetchLatestInteractionByPerson(
+            client,
+            userId,
+            [...new Set(matches.map((m) => m.person.id))],
+          );
+          const relevantSet = new Set(relevantEvents);
+          networkMeetings = matches
+            .filter((m) => relevantSet.has(m.event))
+            .sort((a, b) => a.event.startIso.localeCompare(b.event.startIso))
+            .slice(0, 3)
+            .map((m) => ({
+              personName: m.person.name,
+              company: m.person.company,
+              eventTitle: m.event.title,
+              startIso: m.event.startIso,
+              lastInteractionSummary: latest.get(m.person.id) ?? null,
+              openFollowupTexts: (followupsByPerson.get(m.person.id) ?? []).slice(0, 2),
+            }));
+          const ended = matches.filter((m) => !relevantSet.has(m.event) && !m.event.allDay);
+          for (const meeting of ended) {
+            try {
+              await logCalendarInteraction(client, userId, meeting);
+            } catch (err) {
+              console.warn('[daily-brief] calendar interaction log failed', { userId, err: String(err) });
+            }
+          }
+        }
+      }
+
+      const dayEndMs = Date.parse(getDayBoundsUTC(new Date(), timezone).endIso);
+      const peopleById = new Map(ctx.people.map((p) => [p.id, p] as const));
+      networkFollowupsDue = ctx.openFollowups
+        .filter((f) => {
+          if (!f.dueAtIso) return false;
+          const due = Date.parse(f.dueAtIso);
+          return Number.isFinite(due) && due <= dayEndMs;
+        })
+        .slice(0, 3)
+        .flatMap((f) => {
+          const person = peopleById.get(f.personId);
+          return person ? [{ personName: person.name, text: f.text }] : [];
+        });
+    }
+  } catch (err) {
+    console.warn('[daily-brief] network context failed', { userId, err: String(err) });
+  }
+
   return {
     kind,
     name,
@@ -414,6 +493,8 @@ async function assembleInputs(
     ),
     reminders: [],
     weather,
+    networkMeetings,
+    networkFollowupsDue,
   };
 }
 

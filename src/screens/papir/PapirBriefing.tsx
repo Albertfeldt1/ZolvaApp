@@ -166,6 +166,12 @@ export function PapirBriefing() {
                 </Section>
               ) : null}
 
+              {s.personer.length > 0 ? (
+                <Section label="Personer i dag">
+                  <Lines lines={s.personer} />
+                </Section>
+              ) : null}
+
               {s.calendar.length > 0 ? (
                 <Section label="Dagens plan">
                   <Lines lines={s.calendar} />
