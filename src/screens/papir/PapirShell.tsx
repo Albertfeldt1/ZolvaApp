@@ -11,6 +11,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { papirColor, papirDuration } from '../../design/papir';
+import { TabVisibilityProvider } from '../../lib/tab-visibility';
 import {
   consumePapirRoute,
   PapirNavProvider,
@@ -284,7 +285,11 @@ export function PapirShell({ openAuth }: { openAuth?: () => void }) {
               ]}
               pointerEvents={active ? 'auto' : 'none'}
             >
-              <Screen />
+              {/* Hidden panes pause their periodic timers via this flag —
+                  see lib/tab-visibility.ts. */}
+              <TabVisibilityProvider value={active}>
+                <Screen />
+              </TabVisibilityProvider>
             </Animated.View>
           );
         })}

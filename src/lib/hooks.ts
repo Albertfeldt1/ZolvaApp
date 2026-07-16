@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState } from 'react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { logOutProvider, subscribeUserId, useAuth } from './auth';
+import { useTabVisible } from './tab-visibility';
 import {
   resolveEntitlement,
   FREE,
@@ -3744,11 +3745,15 @@ export function useNotificationFeed() {
   useEffect(() => subscribeFeed(setEntries), []);
 
   // Tick the cutoff forward so entries scheduled in the near future reveal
-  // themselves without needing a manual refresh.
+  // themselves without needing a manual refresh. Paused while the hosting
+  // tab pane is hidden (battery) — a fresh tick fires on return.
+  const tabVisible = useTabVisible();
   useEffect(() => {
+    if (!tabVisible) return;
+    setNow(Date.now());
     const interval = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [tabVisible]);
 
   const visible = visibleFeed(entries, now);
   const markRead = useCallback((id: string) => {
@@ -3770,11 +3775,15 @@ export function useNotificationFeed() {
 export function useUnreadNotificationCount(): number {
   const [entries, setEntries] = useState<FeedEntry[]>(() => listFeedEntries());
   const [now, setNow] = useState(() => Date.now());
+  const tabVisible = useTabVisible();
   useEffect(() => subscribeFeed(setEntries), []);
+  // Cutoff tick paused on hidden tab panes (battery); fresh tick on return.
   useEffect(() => {
+    if (!tabVisible) return;
+    setNow(Date.now());
     const interval = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [tabVisible]);
   return entries.filter((e) => e.readAt == null && e.firesAt.getTime() <= now).length;
 }
 

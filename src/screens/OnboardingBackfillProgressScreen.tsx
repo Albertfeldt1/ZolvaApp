@@ -43,8 +43,8 @@ import {
 import { cancelBackfill, fetchBackfillStatus, type BackfillJob } from '../lib/onboarding-backfill';
 import { isBackfillComplete, failedJobs } from '../lib/backfill-progress';
 
-const POLL_INTERVAL_MS = 1500;
-const POLL_TIMEOUT_ATTEMPTS = 80; // ~2 minutes
+const POLL_INTERVAL_MS = 4000;
+const POLL_TIMEOUT_ATTEMPTS = 30; // ~2 minutes
 
 // Minimum total animation time from mount. Fast scans (~200-800ms) used
 // to snap-cut and feel un-rewarding; the floor pads them so "Zolva is

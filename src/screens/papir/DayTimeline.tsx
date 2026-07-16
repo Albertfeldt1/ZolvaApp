@@ -6,6 +6,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { papirColor, papirFont } from '../../design/papir';
+import { useTabVisible } from '../../lib/tab-visibility';
 
 const HOUR_HEIGHT = 76; // px per hour — the whole scale derives from this
 const GUTTER = 56; // time-label column width; grid + events start after it
@@ -83,13 +84,17 @@ function layoutColumns(events: TimelineEvent[]): { ev: TimelineEvent; col: numbe
 }
 
 export function DayTimeline({ events, startHour = 7, endHour = 22, showNow = true, now: nowProp }: Props) {
-  // Re-render every 30s so the now-line moves in real time.
+  // Re-render every 30s so the now-line moves in real time. Paused while
+  // the hosting tab pane is hidden (battery); an immediate tick on return
+  // snaps the line to the current time.
+  const visible = useTabVisible();
   const [, setTick] = useState(0);
   useEffect(() => {
-    if (!showNow) return;
+    if (!showNow || !visible) return;
+    setTick((t) => t + 1);
     const id = setInterval(() => setTick((t) => t + 1), 30000);
     return () => clearInterval(id);
-  }, [showNow]);
+  }, [showNow, visible]);
 
   const yFor = (decimalHour: number) => (decimalHour - startHour) * HOUR_HEIGHT;
 

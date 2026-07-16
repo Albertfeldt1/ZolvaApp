@@ -1,8 +1,19 @@
 import * as Haptics from 'expo-haptics';
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Pressable } from 'react-native';
+import Reanimated, {
+  cancelAnimation,
+  Easing as ReEasing,
+  useAnimatedProps,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import Svg, { Circle, Defs, Ellipse, G, Path, RadialGradient, Stop } from 'react-native-svg';
 import { colors } from '../theme';
+
+// Pupils tween on the UI thread (see gaze effect below) — the SVG circles
+// need to accept animated props for that.
+const AnimatedCircle = Reanimated.createAnimatedComponent(Circle);
 
 export type StoneMood = 'calm' | 'thinking' | 'happy';
 
@@ -31,13 +42,10 @@ const MOUTH: Record<StoneMood, string> = {
   happy: 'M 20 33 q 7 6 14 0',
 };
 
-const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
-const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
-
 export function Stone({ mood = 'calm', size = 44, onPress, jumpOnTap = true }: StoneProps) {
   const [blink, setBlink] = useState(false);
-  const [gaze, setGaze] = useState({ x: 0, y: 0 });
-  const gazeCurrentRef = useRef({ x: 0, y: 0 });
+  const gazeX = useSharedValue(0);
+  const gazeY = useSharedValue(0);
   const hop = useRef(new Animated.Value(0)).current;
   const uid = React.useId().replace(/:/g, '');
 
@@ -56,36 +64,26 @@ export function Stone({ mood = 'calm', size = 44, onPress, jumpOnTap = true }: S
     };
   }, []);
 
+  // Gaze wander: JS only picks a new direction every 2-4s; the 420ms tween
+  // itself runs as a Reanimated timing on the UI thread. withTiming retargets
+  // from the current value, so a mid-tween direction change stays smooth
+  // (same behavior the old rAF tween had via gazeCurrentRef).
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
-    let raf: number | null = null;
-    const tweenTo = (target: { x: number; y: number }) => {
-      if (raf) cancelAnimationFrame(raf);
-      const start = now();
-      const from = { ...gazeCurrentRef.current };
-      const step = () => {
-        const p = Math.min(1, (now() - start) / 420);
-        const e = easeOutCubic(p);
-        const next = {
-          x: from.x + (target.x - from.x) * e,
-          y: from.y + (target.y - from.y) * e,
-        };
-        gazeCurrentRef.current = next;
-        setGaze(next);
-        if (p < 1) raf = requestAnimationFrame(step);
-      };
-      raf = requestAnimationFrame(step);
-    };
     const loop = () => {
-      tweenTo(DIRS[Math.floor(Math.random() * DIRS.length)]);
+      const target = DIRS[Math.floor(Math.random() * DIRS.length)];
+      const cfg = { duration: 420, easing: ReEasing.out(ReEasing.cubic) };
+      gazeX.value = withTiming(target.x, cfg);
+      gazeY.value = withTiming(target.y, cfg);
       timer = setTimeout(loop, 2000 + Math.random() * 2200);
     };
     timer = setTimeout(loop, 900 + Math.random() * 1200);
     return () => {
       clearTimeout(timer);
-      if (raf) cancelAnimationFrame(raf);
+      cancelAnimation(gazeX);
+      cancelAnimation(gazeY);
     };
-  }, []);
+  }, [gazeX, gazeY]);
 
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
@@ -116,8 +114,19 @@ export function Stone({ mood = 'calm', size = 44, onPress, jumpOnTap = true }: S
   });
 
   const eyeScaleY = blink ? 0.08 : 1;
-  const pupilX = gaze.x * 0.5;
-  const pupilY = gaze.y * 0.5;
+  // One animated-props object per circle — sharing a single useAnimatedProps
+  // between several components is a known Reanimated foot-gun (updates can
+  // land on only one of them).
+  const pupilPropsL = useAnimatedProps(() => ({ cx: gazeX.value * 0.5, cy: gazeY.value * 0.5 }));
+  const pupilPropsR = useAnimatedProps(() => ({ cx: gazeX.value * 0.5, cy: gazeY.value * 0.5 }));
+  const glintPropsL = useAnimatedProps(() => ({
+    cx: gazeX.value * 0.5 - 0.9,
+    cy: gazeY.value * 0.5 - 1,
+  }));
+  const glintPropsR = useAnimatedProps(() => ({
+    cx: gazeX.value * 0.5 - 0.9,
+    cy: gazeY.value * 0.5 - 1,
+  }));
 
   const body = (
     <Animated.View style={{ transform: [{ translateY }, { scaleX }, { scaleY }] }}>
@@ -135,12 +144,12 @@ export function Stone({ mood = 'calm', size = 44, onPress, jumpOnTap = true }: S
         />
         <Ellipse cx={20} cy={14} rx={6} ry={3} fill="rgba(255,255,255,0.25)" />
         <G transform={`translate(19 22) scale(1 ${eyeScaleY})`}>
-          <Circle r={3.2} fill={colors.ink} cx={pupilX} cy={pupilY} />
-          <Circle r={1.1} fill={colors.paper} cx={pupilX - 0.9} cy={pupilY - 1} />
+          <AnimatedCircle r={3.2} fill={colors.ink} animatedProps={pupilPropsL} />
+          <AnimatedCircle r={1.1} fill={colors.paper} animatedProps={glintPropsL} />
         </G>
         <G transform={`translate(33 22) scale(1 ${eyeScaleY})`}>
-          <Circle r={3.2} fill={colors.ink} cx={pupilX} cy={pupilY} />
-          <Circle r={1.1} fill={colors.paper} cx={pupilX - 0.9} cy={pupilY - 1} />
+          <AnimatedCircle r={3.2} fill={colors.ink} animatedProps={pupilPropsR} />
+          <AnimatedCircle r={1.1} fill={colors.paper} animatedProps={glintPropsR} />
         </G>
         {size >= 30 && (
           <Path
