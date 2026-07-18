@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, type ComponentType } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { Calendar, Clock } from 'lucide-react-native';
+import { Calendar, Clock, UserRound } from 'lucide-react-native';
 import { deleteAsync } from 'expo-file-system/legacy';
 import { ScaleButton } from '../../design/motion';
 import { Button, PaperText, papirColor, papirRadius, papirSpace } from '../../design/papir';
@@ -16,6 +16,7 @@ import {
 } from '../../lib/transcribe';
 import {
   addVoiceEvent,
+  addVoiceNetworkPerson,
   useVoiceActionCtx,
   VoiceEventConflictError,
   VoiceEventError,
@@ -62,8 +63,15 @@ function confirmOverlap(message: string): Promise<boolean> {
 
 function ActionCard({ action, onAdd }: { action: ExtractedAction; onAdd: () => Promise<boolean> }) {
   const [state, setState] = useState<AddState>('idle');
-  const Icon: IconCmp = action.kind === 'reminder' ? Clock : Calendar;
-  const label = action.kind === 'reminder' ? 'Påmindelse' : 'Begivenhed';
+  const Icon: IconCmp =
+    action.kind === 'reminder' ? Clock : action.kind === 'network_person' ? UserRound : Calendar;
+  const label =
+    action.kind === 'reminder' ? 'Påmindelse' : action.kind === 'network_person' ? 'Netværk' : 'Begivenhed';
+  // Netværkskort viser personen, de andre handlingens titel.
+  const detail =
+    action.kind === 'network_person'
+      ? [action.name, action.company ?? action.howWeMet].filter(Boolean).join(' — ')
+      : action.title;
 
   const run = async () => {
     if (state !== 'idle') return;
@@ -77,7 +85,7 @@ function ActionCard({ action, onAdd }: { action: ExtractedAction; onAdd: () => P
       setState('idle');
       const msg =
         e instanceof VoiceEventError || e instanceof Error ? e.message : 'Noget gik galt. Prøv igen.';
-      Alert.alert(action.kind === 'reminder' ? 'Påmindelse' : 'Begivenhed', msg);
+      Alert.alert(label, msg);
     }
   };
 
@@ -96,38 +104,49 @@ function ActionCard({ action, onAdd }: { action: ExtractedAction; onAdd: () => P
       }}
     >
       {/* Approved-design category colors: reminders are red (spoken/urgent
-          family), events green (agreement family) — same duos as the Home
-          ribbon and Historik tags. */}
+          family), events green (agreement family), network slate (people/notes
+          family) — same duos as the Home ribbon and Historik tags. */}
       <View
         style={{
           width: 34,
           height: 34,
           borderRadius: papirRadius.sm,
-          backgroundColor: action.kind === 'reminder' ? papirColor.redSoft : papirColor.greenSoft,
+          backgroundColor:
+            action.kind === 'reminder'
+              ? papirColor.redSoft
+              : action.kind === 'network_person'
+                ? papirColor.slateSoft
+                : papirColor.greenSoft,
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
         <Icon
           size={17}
-          color={action.kind === 'reminder' ? papirColor.red : papirColor.green}
+          color={
+            action.kind === 'reminder'
+              ? papirColor.red
+              : action.kind === 'network_person'
+                ? papirColor.slate
+                : papirColor.green
+          }
           strokeWidth={1.8}
         />
       </View>
       <View style={{ flex: 1 }}>
         <PaperText role="bodyStrong" style={{ fontSize: 14 }}>
           {label}
-          {action.time ? ` ${action.time}` : ''}
+          {action.kind !== 'network_person' && action.time ? ` ${action.time}` : ''}
           {/* No resolvable time: say so BEFORE the tap — an event will refuse
               and a reminder lands without a due time (H11). */}
-          {!action.whenISO ? (
+          {action.kind !== 'network_person' && !action.whenISO ? (
             <PaperText role="caption" color={papirColor.ink3}>
               {'  · uden tidspunkt'}
             </PaperText>
           ) : null}
         </PaperText>
         <PaperText role="caption" color={papirColor.ink3} style={{ marginTop: 2 }}>
-          {action.title}
+          {detail}
         </PaperText>
       </View>
       <ScaleButton
@@ -279,6 +298,10 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
 
   /** Returns true when added, false when the user cancelled. */
   const addAction = async (action: ExtractedAction): Promise<boolean> => {
+    if (action.kind === 'network_person') {
+      await addVoiceNetworkPerson(ctx.userId, action);
+      return true;
+    }
     if (action.kind === 'reminder') {
       const due = action.whenISO ? new Date(action.whenISO) : undefined;
       await reminders.add(action.title, due && !Number.isNaN(due.getTime()) ? due : undefined);
@@ -400,7 +423,11 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
                   </PaperText>
                 </View>
                 {data.actions.map((a, i) => (
-                  <ActionCard key={`${a.kind}-${a.title}-${i}`} action={a} onAdd={() => addAction(a)} />
+                  <ActionCard
+                    key={`${a.kind}-${a.kind === 'network_person' ? a.name : a.title}-${i}`}
+                    action={a}
+                    onAdd={() => addAction(a)}
+                  />
                 ))}
               </View>
             ) : null}

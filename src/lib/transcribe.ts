@@ -159,7 +159,8 @@ export async function transcribeAudio(uri: string, signal?: AbortSignal): Promis
 
 export type ExtractedAction =
   | { kind: 'reminder'; title: string; time?: string; whenISO?: string }
-  | { kind: 'event'; title: string; time?: string; place?: string; whenISO?: string; endISO?: string };
+  | { kind: 'event'; title: string; time?: string; place?: string; whenISO?: string; endISO?: string }
+  | { kind: 'network_person'; name: string; company?: string; role?: string; relation?: string; howWeMet?: string };
 
 type ExtractionResult = { title: string; actions: ExtractedAction[]; isQuestion: boolean };
 
@@ -170,15 +171,16 @@ type ExtractionResult = { title: string; actions: ExtractedAction[]; isQuestion:
 function buildExtractSystem(now: Date): string {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Copenhagen';
   const local = now.toLocaleString('da-DK', { timeZone: tz, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  return `Du analyserer en transskriberet dansk stemme-note fra en lille virksomhedsejer. Find konkrete handlinger personen vil gøre: påmindelser og kalender-begivenheder.
+  return `Du analyserer en transskriberet dansk stemme-note fra en lille virksomhedsejer. Find konkrete handlinger personen vil gøre: påmindelser, kalender-begivenheder og personer der skal gemmes i netværket.
 
 Lige nu er klokken: ${local} (tidszone ${tz}).
 
 - Giv noten en kort, naturlig dansk titel (3-6 ord).
 - For hver handling: en kort dansk titel, og hvis nævnt, et tidspunkt som personen sagde det ("13.55", "i morgen", "før fredag") og evt. et sted.
 - Når et tidspunkt kan opløses til en konkret dato/tid, sæt "whenISO" til en ISO 8601-dato-tid MED tidszone-offset (fx "2026-07-06T10:00:00+02:00"), opløst relativt til klokken lige nu. For begivenheder med kendt sluttid: sæt også "endISO". Er tidspunktet for vagt ("snart", "en dag"), udelad whenISO.
+- Beder personen udtrykkeligt om at gemme nogen i sit netværk ("tilføj Dennis fra Køge Golf til mit netværk", "gem hende i netværket", "husk Lars fra Volvo"), så lav en "network_person"-handling med navnet og KUN det der faktisk nævnes (firma, rolle, relation, hvor de mødtes). Er det uklart om "fra X" er et firma eller et sted, brug "howWeMet" frem for "company". Lav ALDRIG også en påmindelse for det samme.
 - Medtag KUN handlinger der tydeligt er udtrykt. Opfind intet. Hvis ingen, returnér en tom liste.
-- Sæt "question" til true KUN hvis personen primært henvender sig til en assistent med et spørgsmål eller en anmodning om information/et svar (fx "hvad har jeg i kalenderen i morgen?", "har jeg fået svar fra Mette?", "opsummér mine mails"). Dikterer personen en note, en tanke eller handlinger, er "question" false.`;
+- Sæt "question" til true hvis personen primært henvender sig til en assistent med et spørgsmål, en anmodning om information (fx "hvad har jeg i kalenderen i morgen?", "har jeg fået svar fra Mette?", "opsummér mine mails") ELLER en instruks handlingstyperne ovenfor ikke dækker (fx "send en mail til Mette om mødet"). Dikterer personen en note, en tanke eller handlinger, er "question" false.`;
 }
 
 const EXTRACT_SCHEMA = `{
@@ -187,6 +189,7 @@ const EXTRACT_SCHEMA = `{
   "actions": Array<
     | { "kind": "reminder", "title": string, "time"?: string, "whenISO"?: string }
     | { "kind": "event", "title": string, "time"?: string, "place"?: string, "whenISO"?: string, "endISO"?: string }
+    | { "kind": "network_person", "name": string, "company"?: string, "role"?: string, "relation"?: string, "howWeMet"?: string }
   >
 }`;
 

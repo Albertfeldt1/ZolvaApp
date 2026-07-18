@@ -39,6 +39,7 @@ import { PapirSentMails } from './PapirSentMails';
 import { PapirSignature } from './PapirSignature';
 import { PapirNetwork } from './PapirNetwork';
 import { PapirNetworkDetail } from './PapirNetworkDetail';
+import { NetworkToast } from './NetworkToast';
 import { PapirBottomNav, type PapirTab } from './PapirBottomNav';
 
 function PushView({ screen, params }: { screen: PushScreen; params?: PushParams }) {
@@ -322,6 +323,11 @@ export function PapirShell({ openAuth }: { openAuth?: () => void }) {
             />
           </Animated.View>
         ) : null}
+
+        {/* Netværks-ekstraktionen fra gemte talenoter lander efter
+            transskriptions-skærmen er lukket — toasten er den eneste synlige
+            bekræftelse. Chat-turene håndterer PapirChat selv. */}
+        <NetworkToast />
 
         {/* Full-screen recorder overlay (slides up from the bottom) */}
         {recording ? (

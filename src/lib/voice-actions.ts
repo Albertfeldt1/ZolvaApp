@@ -9,6 +9,14 @@ import { useAuth } from './auth';
 import { createCalendarEvent, type CalendarConflict, type ChatCtx, type WriteEventInput } from './chat-tools';
 import { refreshCalendarNow, useIcloudConnected } from './hooks';
 import { isIntegrationEffectivelyEnabled } from './integration-flags';
+import {
+  findRosterMatch,
+  insertNetworkPerson,
+  listNetworkPeople,
+  mergeAiIntoPerson,
+  updateNetworkPersonFields,
+  type AiPersonFields,
+} from './network-store';
 import type { ExtractedAction } from './transcribe';
 
 export type CalendarProviderId = 'google' | 'microsoft' | 'icloud';
@@ -107,4 +115,44 @@ export async function addVoiceEvent(
     throw new VoiceEventError(r.text);
   }
   refreshCalendarNow();
+}
+
+export class VoiceNetworkError extends Error {}
+
+/** Gem en person fra en "network_person"-handling i Netværk. Samme
+ * roster-match + merge-politik som ekstraktoren og save_network_person-
+ * toolet, så et tryk på "Tilføj" aldrig opretter en dublet af én der
+ * allerede findes. En udtrykkelig kommando ("tilføj X til mit netværk")
+ * lander direkte som confirmed — pending er til baggrundsgæt. */
+export async function addVoiceNetworkPerson(
+  userId: string | null,
+  action: Extract<ExtractedAction, { kind: 'network_person' }>,
+): Promise<{ isNew: boolean }> {
+  if (!userId) {
+    throw new VoiceNetworkError('Du skal være logget ind for at gemme i Netværk.');
+  }
+  const name = action.name?.trim();
+  if (!name) {
+    throw new VoiceNetworkError('Personen mangler et navn. Prøv igen.');
+  }
+  const fields: AiPersonFields = {
+    company: action.company ?? null,
+    role: action.role ?? null,
+    relation: action.relation ?? null,
+    howWeMet: action.howWeMet ?? null,
+  };
+  const people = await listNetworkPeople(userId);
+  const match = findRosterMatch(people, name, action.company ?? null);
+  if (match) {
+    const patch = mergeAiIntoPerson(match, fields);
+    await updateNetworkPersonFields(userId, match.id, patch ?? {}, { lastContactedAt: new Date() });
+    return { isNew: false };
+  }
+  await insertNetworkPerson(userId, {
+    ...fields,
+    name,
+    status: 'confirmed',
+    source: 'voice-note',
+  });
+  return { isNew: true };
 }
