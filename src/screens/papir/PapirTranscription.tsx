@@ -223,7 +223,17 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
           askZolvaRef.current(transcript, title);
           return;
         }
-        setData({ title, transcript, actions });
+        // En begivenhed uden konkret tidspunkt ("senere", "en dag") kan
+        // aldrig oprettes — addVoiceEvent afviser med "Tidspunktet er for
+        // upræcist…", så Tilføj-knappen ville altid fejle. Konvertér til en
+        // påmindelse i stedet: de er lovlige uden tidspunkt ("minder dig
+        // løbende") og bevarer handlingen frem for at gemme den væk.
+        const usableActions = actions.map((a): ExtractedAction =>
+          a.kind === 'event' && !a.whenISO
+            ? { kind: 'reminder', title: a.title, ...(a.time ? { time: a.time } : {}) }
+            : a,
+        );
+        setData({ title, transcript, actions: usableActions });
       } catch (e) {
         if (e instanceof TranscribeCancelled) return; // brugerens eget valg — ingen fejl
         // Show the real failure — never invent content the user didn't record.
