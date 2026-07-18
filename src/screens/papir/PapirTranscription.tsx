@@ -329,7 +329,7 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
     if (!data || saving) return;
     setSaving(true);
     try {
-      await notes.add(data.transcript, 'note', {
+      const saved = await notes.add(data.transcript, 'note', {
         title: data.title,
         source: 'voice',
         ...(durationMillis ? { durationSec: Math.round(durationMillis / 1000) } : {}),
@@ -342,7 +342,10 @@ export function PapirTranscription({ uri, durationMillis, onDone }: Props) {
           trigger: 'voice_note',
           userId: ctx.userId,
           text: data.transcript,
-          source: 'voice-note',
+          // Note-id'et med: addInteraction dedupliker på (person, sourceRef),
+          // så et fast 'voice-note' gav max ÉN talenote-linje i Historik
+          // pr. person nogensinde.
+          source: `voice-note:${saved.id}`,
         });
         runExtractor({
           trigger: 'voice_note',

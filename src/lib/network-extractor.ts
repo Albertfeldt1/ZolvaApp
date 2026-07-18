@@ -201,14 +201,20 @@ async function applyExtractedPerson(
   const byId = extracted.existing_id
     ? roster.find((p) => p.id === extracted.existing_id) ?? null
     : null;
-  const match = byId ?? findRosterMatch(roster, extracted.name, extracted.company ?? null);
+  const deterministic = findRosterMatch(roster, extracted.name, extracted.company ?? null);
+  const match = byId ?? deterministic;
 
   let personId: string;
   let isNew: boolean;
   if (match) {
-    // Opdatering af en eksisterende person kræver høj konfidens; v1 har
-    // ingen pending-diff pr. felt, så under tærsklen dropper vi hellere.
-    if (!shouldAutoConfirm(extracted.confidence)) return;
+    // Konfidens-gaten her handler om IDENTITET (skriv aldrig på den forkerte
+    // person) — selve merget er allerede konservativt (udfylder kun tomme,
+    // ikke bruger-redigerede felter). Bekræfter det deterministiske
+    // navnematch personen, rækker basis-tærsklen; ellers droppede en
+    // opfølgnings-note ("Dennis er kok der…") lydløst alt. Kun et rent
+    // model-match (existing_id uden navnestøtte) kræver stadig høj konfidens.
+    const identityCertain = deterministic != null && deterministic.id === match.id;
+    if (!identityCertain && !shouldAutoConfirm(extracted.confidence)) return;
     const patch = mergeAiIntoPerson(match, fields);
     await updateNetworkPersonFields(payload.userId, match.id, patch ?? {}, {
       lastContactedAt: new Date(),
