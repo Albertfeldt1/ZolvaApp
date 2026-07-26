@@ -180,10 +180,7 @@ serve(async (req) => {
     const tz = zones.get(scopedUserId) ?? 'UTC';
     const local = localHourMinute(new Date(), tz);
     const kind = kindForHour(local.hour);
-    const r = await generateOneBrief(client, anthropicKey, scopedUserId, kind, tz, {
-      forcedEmail: scopedUserEmail,
-      liveDeps,
-    });
+    const r = await generateOneBrief(client, anthropicKey, scopedUserId, kind, tz, liveDeps, scopedUserEmail);
     return json({ forced: true, kind, status: r.status, briefId: r.briefId });
   }
 
@@ -215,7 +212,7 @@ serve(async (req) => {
       pref.id === 'morning-brief' ? 'morning'
       : pref.id === 'midday-brief' ? 'midday'
       : 'evening';
-    const r = await generateOneBrief(client, anthropicKey, pref.user_id, kind, tz);
+    const r = await generateOneBrief(client, anthropicKey, pref.user_id, kind, tz, liveDeps);
     results.push({ userId: pref.user_id, kind, status: r.status });
   }
 
@@ -279,7 +276,8 @@ async function generateOneBrief(
   userId: string,
   kind: 'morning' | 'midday' | 'evening',
   timezone: string,
-  forced: { forcedEmail: string; liveDeps: LiveUnreadDeps } | null = null,
+  liveDeps: LiveUnreadDeps,
+  forcedEmail: string | null = null,
 ): Promise<{ status: string; briefId: string | null }> {
   // Memory toggle gate. The brief quotes facts and mail subjects, so when
   // the user has memory off we must skip composition entirely - not just
@@ -309,14 +307,17 @@ async function generateOneBrief(
     return { status: 'already-briefed', briefId: (existing[0] as { id: string }).id };
   }
 
-  const inputs = await assembleInputs(client, userId, kind, timezone);
-
-  // Cold start: a brand-new user has no mail_events rows yet (poll-mail
-  // hasn't run). On the forced path only, pull live inbox headers so the
-  // first brief isn't empty-skipped.
-  if (forced && inputs.unread.length === 0) {
-    inputs.unread = await fetchLiveUnread(forced.liveDeps, client, userId, forced.forcedEmail);
-  }
+  // Mail comes straight from the live inbox (Gmail/Graph/iCloud), not the
+  // mail_events activity log. That log is append-only and never cleaned when a
+  // message is deleted, so it kept resurfacing stale/deleted mail in the brief
+  // (e.g. a sender the user removed weeks ago stayed in the "top 3" forever
+  // because no newer activity pushed it out). fetchLiveUnread reflects the
+  // mailbox as it is right now. Needs the user's own email to drop self-sent
+  // mail; forced path already has it from the JWT, cron looks it up.
+  const ownEmail = forcedEmail && forcedEmail.trim()
+    ? forcedEmail.trim()
+    : (await fetchUserEmail(client, userId)) ?? '';
+  const inputs = await assembleInputs(client, userId, kind, timezone, liveDeps, ownEmail);
 
   // NB: reminders are local-only (client AsyncStorage), so the server never
   // sees them — inputs.reminders is always empty and is intentionally not part
@@ -379,8 +380,10 @@ async function assembleInputs(
   userId: string,
   kind: 'morning' | 'midday' | 'evening',
   timezone: string,
+  liveDeps: LiveUnreadDeps,
+  ownEmail: string,
 ): Promise<BriefInputs> {
-  const [commitmentsRes, mailRes, weather, events, name] = await Promise.all([
+  const [commitmentsRes, unread, weather, events, name] = await Promise.all([
     client
       .from('facts')
       .select('text')
@@ -390,12 +393,9 @@ async function assembleInputs(
       // Action-y facts decay; skip rows past their referent date so
       // yesterday's reminders don't keep showing up in tomorrow's brief.
       .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`),
-    client
-      .from('mail_events')
-      .select('provider_from, provider_subject')
-      .eq('user_id', userId)
-      .order('occurred_at', { ascending: false })
-      .limit(3),
+    // Live inbox headers (current unread), not the mail_events log — so a
+    // deleted message can never resurface in the brief.
+    fetchLiveUnread(liveDeps, client, userId, ownEmail),
     fetchWeather(DEFAULT_LAT, DEFAULT_LNG),
     fetchCalendarForUser(client, userId, timezone),
     fetchUserName(client, userId),
@@ -484,10 +484,7 @@ async function assembleInputs(
     name,
     timezone,
     events: relevantEvents,
-    unread: (mailRes.data ?? []).map((r) => ({
-      from: (r as Record<string, string>).provider_from ?? 'ukendt',
-      subject: (r as Record<string, string>).provider_subject ?? '(intet emne)',
-    })),
+    unread,
     commitments: (commitmentsRes.data ?? []).map(
       (r) => (r as Record<string, string>).text as string,
     ),
@@ -510,6 +507,23 @@ async function fetchUserName(
     const meta = (data.user.user_metadata ?? {}) as { name?: string; full_name?: string };
     const name = (meta.name ?? meta.full_name ?? '').trim();
     return name || null;
+  } catch {
+    return null;
+  }
+}
+
+// User's email, needed by the live-inbox fetch to drop self-sent mail. The
+// cron path has no JWT (the forced path passes scopedUserEmail instead), so we
+// look it up via the admin API. Nullable — an empty own-email just means no
+// self-mail filtering, which is harmless.
+async function fetchUserEmail(
+  client: SupabaseClient,
+  userId: string,
+): Promise<string | null> {
+  try {
+    const { data, error } = await client.auth.admin.getUserById(userId);
+    if (error || !data.user) return null;
+    return (data.user.email ?? '').toLowerCase().trim() || null;
   } catch {
     return null;
   }

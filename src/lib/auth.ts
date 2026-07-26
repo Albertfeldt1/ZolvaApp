@@ -49,7 +49,7 @@ import { registerPushToken, unregisterPushToken, setMailWatchersEnabled } from '
 import { recordUserEmailDomain } from './admin-consent';
 import { readCalendarLabels, setCalendarLabel } from './calendar-labels';
 import { migrateLocalRemindersToServer } from './reminders';
-import { runMicrosoftOAuth } from './microsoft-oauth';
+import { runMicrosoftOAuth, MICROSOFT_OAUTH_CLIENT_ID } from './microsoft-oauth';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -629,7 +629,7 @@ async function signInWithMicrosoft() {
   if (!cachedSession) {
     return runOAuth('azure', MICROSOFT_SIGNIN_SCOPES);
   }
-  const clientId = process.env.EXPO_PUBLIC_MICROSOFT_OAUTH_CLIENT_ID ?? null;
+  const clientId = MICROSOFT_OAUTH_CLIENT_ID;
   const result = await runMicrosoftOAuth({
     clientId,
     mailWatcherEnabled: getNotificationSettings().newMail,

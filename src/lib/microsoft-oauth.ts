@@ -15,6 +15,19 @@ import { supabase } from './supabase';
 // requires an Azure portal update first.
 export const MICROSOFT_REDIRECT_URI = 'zolva://oauth/microsoft/callback';
 
+// Public-client OAuth: the client_id is NOT a secret (it ships in the app
+// bundle regardless), so we hardcode it next to the redirect URI instead of
+// depending on EXPO_PUBLIC_MICROSOFT_OAUTH_CLIENT_ID being present in every
+// build/OTA path. An empty env value — an unset local .env, or an `eas update`
+// bundle published without the production environment — silently broke "Forbind
+// Outlook" with a client_id-missing error before the browser even opened,
+// because EXPO_PUBLIC_* is inlined at bundle time and an OTA overrides the
+// binary's baked value. The env var still wins when set, so a future Azure app
+// rotation can override without a code change.
+export const MICROSOFT_OAUTH_CLIENT_ID =
+  (process.env.EXPO_PUBLIC_MICROSOFT_OAUTH_CLIENT_ID || '').trim() ||
+  '6967fc64-f9af-4d53-b51c-86ffc0bf232a';
+
 const MICROSOFT_AUTHORIZE_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize';
 
 const MICROSOFT_SCOPES = [
