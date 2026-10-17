@@ -64,3 +64,6 @@ supabase/schedule-poll-mail.sql
 # `supabase secrets unset ...` lines that get redirected into a file).
 supabase/Untitled
 
+
+# RevenueCat v2 secret key (local, never commit)
+.rc_key

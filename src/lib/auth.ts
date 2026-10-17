@@ -1,4 +1,4 @@
-// Manual test plan - two-account cross-contamination
+// Manual test plan — two-account cross-contamination
 // ----------------------------------------------------
 // Goal: verify that signing out of account A and into account B on the
 // same device does not cause B to receive A's newMail push notifications,
@@ -7,7 +7,7 @@
 //  1. Fresh install (or `adb uninstall` / delete app from simulator) so the
 //     migration flags don't short-circuit.
 //  2. Sign in as account A (Google). Enable the "Nye mails" toggle in
-//     Settings. Send a test mail to A's inbox - confirm a push arrives.
+//     Settings. Send a test mail to A's inbox — confirm a push arrives.
 //  3. In a keychain inspector (macOS Keychain Access for the simulator, or
 //     `adb shell run-as com.zolva.app ls` on Android) confirm
 //     `zolva.google.provider_token.<A_uid>` is present and AsyncStorage
@@ -25,7 +25,7 @@
 //     subscribed to A's mail_watcher.)
 //  7. Send a test mail to B's inbox. Confirm a push arrives.
 //  8. Sign out of B. Sign back in as A. The A-specific
-//     `zolva.notifications.settings.<A_uid>` should be restored - toggles
+//     `zolva.notifications.settings.<A_uid>` should be restored — toggles
 //     reflect A's prior preferences, not B's.
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -39,17 +39,12 @@ import { useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import { supabase } from './supabase';
 import * as secureStorage from './secure-storage';
-import { writeSharedSession, clearSharedSession } from './keychain';
 import { buildDemoSession, isDemoCredentials, isDemoUser } from './demo';
 import {
   getNotificationSettings,
   hydrateNotificationSettingsForUser,
 } from './notification-settings';
 import { registerPushToken, unregisterPushToken, setMailWatchersEnabled } from './push';
-import { recordUserEmailDomain } from './admin-consent';
-import { readCalendarLabels, setCalendarLabel } from './calendar-labels';
-import { migrateLocalRemindersToServer } from './reminders';
-import { runMicrosoftOAuth } from './microsoft-oauth';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -58,25 +53,23 @@ const tokenKey = (provider: 'google' | 'microsoft', userId: string) =>
 
 const currentUserId = () => cachedSession?.user?.id ?? null;
 
-// Synchronous read of the active user id from the cached session, for non-hook
-// callers (e.g. background pre-alert sync that needs the iCloud credential key).
-export function getActiveUserId(): string | null {
-  return currentUserId();
-}
-
 const GOOGLE_SCOPES = [
   'openid',
   'email',
   'profile',
-  'https://www.googleapis.com/auth/calendar.events',
-  // calendar.calendarlist.readonly is the minimum scope that lets us hit
-  // /users/me/calendarList - needed by the multi-calendar picker.
-  // calendar.events grants per-event read/write across ALL calendars the
-  // user has access to, but NOT the right to enumerate them.
-  'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
-  'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.compose',
+  'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/drive.readonly',
+].join(' ');
+
+const MICROSOFT_SCOPES = [
+  'openid',
+  'email',
+  'profile',
+  'offline_access',
+  'Mail.ReadWrite',
+  'Mail.Send',
+  'Calendars.Read',
 ].join(' ');
 
 const SECURE_STORE_MIGRATION_FLAG = 'zolva.migration.secure-store.v1';
@@ -85,17 +78,10 @@ let cachedSession: Session | null = null;
 let cachedGoogleToken: string | null = null;
 let cachedMicrosoftToken: string | null = null;
 let initialized = false;
-// True while an init-time silent refresh is in flight for that provider. The
-// re-auth banner suppresses itself until this flips to false, so the banner
-// doesn't flicker on every cold launch for users whose refresh succeeds.
-let googleInitRefreshing = false;
-let microsoftInitRefreshing = false;
 
 const sessionListeners = new Set<(s: Session | null) => void>();
 const googleListeners = new Set<(t: string | null) => void>();
 const microsoftListeners = new Set<(t: string | null) => void>();
-const googleInitRefreshingListeners = new Set<(b: boolean) => void>();
-const microsoftInitRefreshingListeners = new Set<(b: boolean) => void>();
 const userIdListeners = new Set<(uid: string | null) => void>();
 
 let lastBroadcastUid: string | null | undefined = undefined;
@@ -129,15 +115,6 @@ const broadcastGoogle = (t: string | null) => {
 const broadcastMicrosoft = (t: string | null) => {
   cachedMicrosoftToken = t;
   microsoftListeners.forEach((l) => l(t));
-};
-
-const setGoogleInitRefreshing = (b: boolean) => {
-  googleInitRefreshing = b;
-  googleInitRefreshingListeners.forEach((l) => l(b));
-};
-const setMicrosoftInitRefreshing = (b: boolean) => {
-  microsoftInitRefreshing = b;
-  microsoftInitRefreshingListeners.forEach((l) => l(b));
 };
 
 async function loadProviderTokens(userId: string) {
@@ -208,83 +185,31 @@ const init = () => {
     await migrateAsyncStorageToSecureStore();
 
     const { data } = await supabase.auth.getSession();
-    // Don't clobber an active demo session - the user may have already
+    // Don't clobber an active demo session — the user may have already
     // signed in as demo while getSession was in flight.
     if (isDemoUser(cachedSession?.user)) return;
     broadcastSession(data.session);
-    if (data.session?.access_token && data.session?.refresh_token) {
-      void writeSharedSession(data.session.access_token, data.session.refresh_token).catch((err) => {
-        if (__DEV__) console.warn('[auth] writeSharedSession (init) failed:', err);
-      });
-    }
     const uid = data.session?.user?.id ?? null;
     await hydrateNotificationSettingsForUser(uid);
     if (uid) {
-      await loadProviderTokens(uid);
-      // For each provider in the user's identities, if we don't have a cached
-      // access token, try one silent refresh. If a refresh_token exists in
-      // user_oauth_tokens this populates the token; if it doesn't (e.g. the
-      // user signed in pre-broker, or the broker upsert failed), the token
-      // stays null and the InboxScreen banner can prompt re-auth. Without
-      // this, those users sat with `microsoftAccessToken === null` forever
-      // and Outlook mails were silently absent from the inbox.
-      const providers = (data.session?.user?.app_metadata?.providers as string[] | undefined) ?? [];
-      // Microsoft bypasses gotrue (custom PKCE flow) so providers won't include
-      // 'azure' for new-flow users. Always try silent refresh - the edge fn
-      // returns 404 fast when no refresh_token row exists, and silentRefresh
-      // swallows that to null.
-      if (!cachedMicrosoftToken) {
-        void trySilentRefreshAndBroadcast('microsoft');
-      }
-      if (providers.includes('google') && !cachedGoogleToken) {
-        void trySilentRefreshAndBroadcast('google');
-      }
+      loadProviderTokens(uid);
       ensurePushTokenListener();
       void registerPushToken();
-      void migrateLocalRemindersToServer(uid);
     }
   })();
 
   supabase.auth.onAuthStateChange((event, session) => {
     // Ignore Supabase events while demo is active (except explicit SIGNED_IN
-    // as a real user - let that take over).
+    // as a real user — let that take over).
     if (isDemoUser(cachedSession?.user) && event !== 'SIGNED_IN') return;
     const prevUserId = cachedSession?.user?.id ?? null;
     const nextUserId = session?.user?.id ?? null;
     broadcastSession(session);
-    // Mirror Supabase access + refresh token into the shared keychain so the
-    // Siri-dispatched AppIntent can read them. Best-effort - keychain failures
-    // are not fatal; voice will surface "logget ud" gracefully.
-    if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.access_token && session?.refresh_token) {
-      void writeSharedSession(session.access_token, session.refresh_token).catch((err) => {
-        if (__DEV__) console.warn('[auth] writeSharedSession failed:', err);
-      });
-    }
-    if (event === 'SIGNED_OUT') {
-      void clearSharedSession().catch((err) => {
-        if (__DEV__) console.warn('[auth] clearSharedSession failed:', err);
-      });
-    }
     if (prevUserId !== nextUserId) {
       broadcastGoogle(null);
       broadcastMicrosoft(null);
       void hydrateNotificationSettingsForUser(nextUserId);
-      if (nextUserId) {
-        void loadProviderTokens(nextUserId).then(() => {
-          // Same proactive-refresh as init() - covers the user-switch /
-          // sign-back-in flow where loadProviderTokens finds nothing in the
-          // new user's secure-store but the server still has a refresh_token.
-          // Microsoft: same reasoning as init() — no 'azure' in providers for
-          // new-flow users, so always try when no cached token.
-          const providers = (session?.user?.app_metadata?.providers as string[] | undefined) ?? [];
-          if (!cachedMicrosoftToken) {
-            void trySilentRefreshAndBroadcast('microsoft');
-          }
-          if (providers.includes('google') && !cachedGoogleToken) {
-            void trySilentRefreshAndBroadcast('google');
-          }
-        });
-      }
+      if (nextUserId) loadProviderTokens(nextUserId);
     }
     if (event === 'SIGNED_IN' && nextUserId) {
       ensurePushTokenListener();
@@ -334,77 +259,24 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
       queryParams,
     };
 
-    // Supabase quirk: signInWithOAuth on an already-linked identity returns
-    // a session WITHOUT provider_token / provider_refresh_token, so we never
-    // capture an access token to store and the UI flips to "disconnected"
-    // on every cold launch. linkIdentity DOES forward both tokens, so when
-    // the identity is already linked we unlink it first and re-enter through
-    // linkIdentity. Unlink fails if it would leave the user with no
-    // identities; in that case we fall through to the legacy path.
-    const initiallyHadSession = !!cachedSession;
     const identities = cachedSession?.user?.identities ?? [];
-    const linkedIdentity = identities.find((i) => i.provider === provider);
-    const initiallyLinked = !!linkedIdentity;
-    let identityUnlinked = false;
-    let unlinkSoleIdentity = false;
-    let unlinkOtherError = false;
-    if (cachedSession && linkedIdentity) {
-      const { error: unlinkError } = await supabase.auth.unlinkIdentity(linkedIdentity);
-      if (unlinkError) {
-        const msg = unlinkError.message ?? '';
-        // Supabase returns 422 single_identity_not_deletable when the user has
-        // only this identity. Without recovery, the downstream signInWithOAuth
-        // call returns a session WITHOUT provider_refresh_token (Supabase
-        // quirk for already-linked identity, see comment above), the row
-        // never gets persisted to user_oauth_tokens, silentRefresh has
-        // nothing to exchange on every future expiry, and the iOS OAuth
-        // dialog fires hourly forever. Sign out so the next signInWithOAuth
-        // runs the fresh-login path, which DOES forward provider_refresh_token.
-        if (msg.includes('single_identity_not_deletable') || msg.includes('at least 1 identity')) {
-          console.log('[auth] forcing sign-out before re-auth - sole-identity user');
-          await supabase.auth.signOut();
-          unlinkSoleIdentity = true;
-        } else {
-          console.warn('[auth] unlinkIdentity failed (using signInWithOAuth fallback):', msg);
-          unlinkOtherError = true;
-        }
-      } else {
-        identityUnlinked = true;
-      }
-    }
+    const alreadyLinked = identities.some((i) => i.provider === provider);
 
     let initiator;
     let usedLinkIdentity = false;
-    let initiatorPath:
-      | 'fresh-signin'
-      | 'link-identity'
-      | 'link-fallback-signin'
-      | 'unlink-then-link'
-      | 'unlink-then-link-fallback-signin'
-      | 'force-signout-then-signin'
-      | 'signin-already-linked-quirk' = 'fresh-signin';
-    if (initiallyHadSession && initiallyLinked) {
-      if (identityUnlinked) initiatorPath = 'unlink-then-link';
-      else if (unlinkSoleIdentity) initiatorPath = 'force-signout-then-signin';
-      else if (unlinkOtherError) initiatorPath = 'signin-already-linked-quirk';
-    } else if (initiallyHadSession && !initiallyLinked) {
-      initiatorPath = 'link-identity';
-    }
-    const useLinkIdentity = cachedSession && (!linkedIdentity || identityUnlinked);
-    if (useLinkIdentity) {
+    if (cachedSession && !alreadyLinked) {
       const linked = await supabase.auth.linkIdentity({ provider, options: params });
       if (linked.error) {
-        console.warn('[auth] linkIdentity failed, falling back to signInWithOAuth:', linked.error.message);
+        if (__DEV__) console.warn('[auth] linkIdentity failed, falling back to signInWithOAuth:', linked.error.message);
         initiator = await supabase.auth.signInWithOAuth({ provider, options: params });
-        initiatorPath =
-          initiatorPath === 'unlink-then-link'
-            ? 'unlink-then-link-fallback-signin'
-            : 'link-fallback-signin';
       } else {
         initiator = linked;
         usedLinkIdentity = true;
       }
     } else {
+      if (__DEV__ && alreadyLinked) {
+        console.log('[auth] identity already linked to current user, using signInWithOAuth to refresh provider token');
+      }
       initiator = await supabase.auth.signInWithOAuth({ provider, options: params });
     }
 
@@ -430,7 +302,7 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
     if (result.type !== 'success' || !result.url) {
       return {
         data: null,
-        error: result.type === 'cancel' ? null : new Error('OAuth-flowet blev afbrudt - tjek Supabase Redirect URLs.'),
+        error: result.type === 'cancel' ? null : new Error('OAuth-flowet blev afbrudt — tjek Supabase Redirect URLs.'),
       };
     }
 
@@ -459,35 +331,12 @@ async function runOAuth(provider: 'google' | 'azure', scopes: string) {
       } catch (storageErr) {
         if (__DEV__) console.warn('[auth] token storage failed:', storageErr);
       }
-    } else if (!token) {
-      console.warn('[auth] No provider_token in exchange response (linkIdentity:', usedLinkIdentity, ')');
-    }
-    // Diagnostic: provider_token captured but no provider_refresh_token. This
-    // is the silent-failure mode that causes hourly re-login dialogs - the
-    // initial grant looks fine but no row gets written to user_oauth_tokens,
-    // so silentRefresh has nothing to exchange when the access_token expires.
-    // Logged with the initiator path so we can tell which Supabase code path
-    // dropped the refresh_token (signin-already-linked-quirk is the known
-    // failure mode; if we see others showing up, the unlink/link dance has
-    // regressed).
-    if (token && !refreshToken) {
-      console.warn(
-        '[oauth-grant] provider_token present but provider_refresh_token missing',
-        JSON.stringify({
-          provider: providerKey,
-          userId: uid ? uid.slice(0, 8) : null,
-          initiatorPath,
-          usedLinkIdentity,
-        }),
-      );
+    } else if (!token && __DEV__) {
+      console.warn('[auth] No provider_token in exchange response');
     }
     if (uid) {
       await persistProviderRefreshToken(uid, providerKey, refreshToken);
       await bootstrapMailWatcher(uid, providerKey);
-      // Capture the user's email domain so we can size the admin-consent
-      // feature's actual reach (enterprise vs consumer). Best-effort, never
-      // blocks; PK conflict on second sign-in is silently ignored.
-      void recordUserEmailDomain(uid, exchange.data.session?.user?.email ?? null);
     }
     return { data: exchange.data, error: null };
   } catch (e) {
@@ -509,55 +358,41 @@ async function persistProviderRefreshToken(
   refreshToken: string | null,
 ): Promise<void> {
   if (!refreshToken) return;
-  // Persist via SECURITY DEFINER RPC, NOT a direct upsert. The
-  // oauth_token_column_lockdown migration (2026-06-07) revoked table-wide
-  // SELECT from `authenticated`, and INSERT ... ON CONFLICT DO UPDATE
-  // (.upsert) requires table-level SELECT in Postgres - so the direct upsert
-  // failed with 42501 and no refresh_token was ever stored. The RPC runs as
-  // owner and derives the user from auth.uid(), so refresh_token stays
-  // unreadable by the client. `userId` is kept for the call-site contract but
-  // the server trusts auth.uid(), not this argument.
-  void userId;
-  const { error } = await supabase.rpc('persist_oauth_token', {
-    p_provider: provider,
-    p_refresh_token: refreshToken,
-  });
-  if (error) {
-    // NOT __DEV__-only: a swallowed failure here leaves the user with no
-    // durable refresh token, so silent-refresh has nothing to mint and the
-    // connection silently drifts to "stale"/UDLØBET (the 2026-06-07 incident).
-    console.error('[auth] persist refresh token failed:', error.message);
+  const { error } = await supabase
+    .from('user_oauth_tokens')
+    .upsert(
+      {
+        user_id: userId,
+        provider,
+        refresh_token: refreshToken,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,provider' },
+    );
+  if (error && __DEV__) {
+    console.warn('[auth] persist refresh token failed:', error.message);
   }
 }
 
-// Ensure a mail_watchers row exists for the (user, provider) pair. On
-// initial creation we use the user's current newMail preference; on
-// subsequent sign-ins we MUST preserve the existing `enabled` value —
-// otherwise re-auth flips the watcher off and the autonomous agent goes
-// dark for the user until they manually toggle it back (incident
-// 2026-05-13: every Google sign-in disabled the watcher silently).
+// Ensure a mail_watchers row exists for the (user, provider) pair. Sets
+// `enabled` to match the user's current newMail preference so toggling it
+// later is the only thing that controls server-side polling.
 async function bootstrapMailWatcher(
   userId: string,
   provider: 'google' | 'microsoft',
 ): Promise<void> {
-  // Read-then-insert: cheap because the index on (user_id, provider) is
-  // unique and the table is tiny.
-  const { data: existing } = await supabase
-    .from('mail_watchers')
-    .select('user_id')
-    .eq('user_id', userId)
-    .eq('provider', provider)
-    .maybeSingle();
-  if (existing) return; // preserve existing `enabled` value
   const enabled = getNotificationSettings().newMail;
   const { error } = await supabase
     .from('mail_watchers')
-    .insert({
-      user_id: userId,
-      provider,
-      enabled,
-      updated_at: new Date().toISOString(),
-    });
+    .upsert(
+      {
+        user_id: userId,
+        provider,
+        enabled,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,provider' },
+    );
   if (error && __DEV__) {
     console.warn('[auth] bootstrap mail watcher failed:', error.message);
   }
@@ -567,51 +402,8 @@ async function signInWithGoogle() {
   return runOAuth('google', GOOGLE_SCOPES);
 }
 
-// Scopes for fresh Microsoft sign-in via gotrue. Mirrors the custom-flow
-// scopes in src/lib/microsoft-oauth.ts so a user who signs up with
-// Microsoft gets the same connector permissions in one consent screen as a
-// user who signs up another way and links Microsoft afterwards.
-const MICROSOFT_SIGNIN_SCOPES = [
-  'openid',
-  'email',
-  'profile',
-  'offline_access',
-  'Mail.ReadWrite',
-  'Mail.Send',
-  'Calendars.ReadWrite',
-  'Files.Read',
-].join(' ');
-
 async function signInWithMicrosoft() {
-  // No Supabase session yet → take the gotrue OAuth path so we actually
-  // create or restore a Supabase user from Microsoft credentials. The
-  // custom PKCE flow below only writes a provider-token row; it doesn't
-  // produce a Supabase session, so it's link-only. Without this branch,
-  // anyone who signed up with Microsoft is locked out once logged out.
-  if (!cachedSession) {
-    return runOAuth('azure', MICROSOFT_SIGNIN_SCOPES);
-  }
-  const clientId = process.env.EXPO_PUBLIC_MICROSOFT_OAUTH_CLIENT_ID ?? null;
-  const result = await runMicrosoftOAuth({
-    clientId,
-    mailWatcherEnabled: getNotificationSettings().newMail,
-  });
-  if (result.ok) {
-    const uid = currentUserId();
-    if (uid) {
-      try {
-        await secureStorage.setItem(tokenKey('microsoft', uid), result.accessToken);
-      } catch (err) {
-        if (__DEV__) console.warn('[auth] microsoft token persist failed:', err);
-      }
-    }
-    broadcastMicrosoft(result.accessToken);
-    return { data: { session: cachedSession }, error: null };
-  }
-  if ('cancelled' in result) {
-    return { data: null, error: null, cancelled: true } as { data: null; error: null; cancelled: true };
-  }
-  return { data: null, error: result.error };
+  return runOAuth('azure', MICROSOFT_SCOPES);
 }
 
 export class ProviderAuthError extends Error {
@@ -626,73 +418,50 @@ export class ProviderAuthError extends Error {
 let googleRefreshInflight: Promise<string | null> | null = null;
 let microsoftRefreshInflight: Promise<string | null> | null = null;
 
-// Refresh the provider access_token via the server-side edge function.
-// Previously this opened ASWebAuthenticationSession with prompt=none, but
-// iOS still shows its "App wants to use supabase.co to sign you in" dialog
-// every cold-launch for any browser auth - completely unsuppressable. The
-// edge function does the refresh_token → access_token exchange server-side
-// using the stored refresh_token + server-held client_secret, so no
-// browser is involved and the dialog never fires on the hot path.
 async function silentRefresh(provider: 'google' | 'microsoft'): Promise<string | null> {
+  const supabaseProvider = provider === 'google' ? 'google' : 'azure';
+  const scopes = provider === 'google' ? GOOGLE_SCOPES : MICROSOFT_SCOPES;
+  const redirectTo = oauthRedirect();
+
+  const queryParams: Record<string, string> = { prompt: 'none' };
+  if (provider === 'google') queryParams.access_type = 'offline';
+
   if (__DEV__) console.log('[auth] silent refresh attempt:', provider);
 
-  try {
-    const { data, error } = await supabase.functions.invoke<{
-      access_token?: string;
-      expires_in?: number;
-      error?: string;
-    }>('refresh-provider-token', {
-      body: { provider },
-    });
-    if (error) {
-      if (__DEV__) console.warn('[auth] refresh-provider-token err:', error.message);
-      return null;
-    }
-    const token = (data as { access_token?: string } | null)?.access_token ?? null;
-    if (!token && __DEV__) {
-      console.warn('[auth] refresh-provider-token returned no token:', data);
-    }
-    return token;
-  } catch (err) {
-    if (__DEV__) console.warn('[auth] refresh-provider-token threw:', err);
+  const initiator = await supabase.auth.signInWithOAuth({
+    provider: supabaseProvider,
+    options: { redirectTo, skipBrowserRedirect: true, scopes, queryParams },
+  });
+  if (initiator.error || !initiator.data?.url) {
+    if (__DEV__) console.warn('[auth] silent refresh URL failed:', initiator.error?.message);
     return null;
   }
-}
 
-// Init-time proactive refresh - calls silentRefresh ONLY (no full-OAuth
-// fallback). On success, persists the token and broadcasts it so the inbox
-// can include this provider on the first render. On failure (e.g. no
-// refresh_token row server-side), leaves the broadcast at null so the
-// re-auth banner can prompt the user. Using doRefresh/startRefresh here
-// would surprise-pop ASWebAuthenticationSession on every cold launch for
-// users who can't silently refresh - exactly the dialog the silent-refresh
-// machinery was added to suppress.
-async function trySilentRefreshAndBroadcast(provider: 'google' | 'microsoft'): Promise<void> {
-  if (provider === 'google') setGoogleInitRefreshing(true);
-  else setMicrosoftInitRefreshing(true);
-  try {
-    let token: string | null = null;
-    try {
-      token = await silentRefresh(provider);
-    } catch (err) {
-      if (__DEV__) console.warn('[auth] init-time silent refresh threw:', err);
-      return;
-    }
-    if (!token) return;
-    const uid = currentUserId();
-    if (uid) {
-      try {
-        await secureStorage.setItem(tokenKey(provider, uid), token);
-      } catch (err) {
-        if (__DEV__) console.warn('[auth] init-time token persist failed:', err);
-      }
-    }
-    if (provider === 'google') broadcastGoogle(token);
-    else broadcastMicrosoft(token);
-  } finally {
-    if (provider === 'google') setGoogleInitRefreshing(false);
-    else setMicrosoftInitRefreshing(false);
+  const result = await WebBrowser.openAuthSessionAsync(initiator.data.url, redirectTo);
+  if (result.type !== 'success' || !result.url) {
+    if (__DEV__) console.warn('[auth] silent refresh browser result:', result.type);
+    return null;
   }
+
+  const { code, error: cbError } = parseCallback(result.url);
+  if (cbError || !code) {
+    if (__DEV__) console.warn('[auth] silent refresh callback error:', cbError);
+    return null;
+  }
+
+  const exchange = await supabase.auth.exchangeCodeForSession(code);
+  if (exchange.error) {
+    if (__DEV__) console.warn('[auth] silent refresh exchange failed:', exchange.error.message);
+    return null;
+  }
+
+  const refreshToken = exchange.data.session?.provider_refresh_token ?? null;
+  const uid = exchange.data.session?.user?.id ?? currentUserId();
+  if (uid && refreshToken) {
+    await persistProviderRefreshToken(uid, provider, refreshToken);
+  }
+
+  return exchange.data.session?.provider_token ?? null;
 }
 
 async function doRefresh(provider: 'google' | 'microsoft'): Promise<string | null> {
@@ -703,10 +472,17 @@ async function doRefresh(provider: 'google' | 'microsoft'): Promise<string | nul
     if (__DEV__) console.warn('[auth] silent refresh threw:', e);
   }
 
-  // Do NOT fall through to runOAuth here. runOAuth's already-linked path
-  // calls supabase.auth.unlinkIdentity, which revokes EVERY refresh token
-  // for the user - silently logging them out of the app on next cold launch.
-  // Reconnect must be user-initiated from the connected-accounts screen.
+  if (!token) {
+    if (__DEV__) console.log('[auth] silent refresh unavailable, falling back to full re-auth:', provider);
+    const full = await runOAuth(provider === 'google' ? 'google' : 'azure', provider === 'google' ? GOOGLE_SCOPES : MICROSOFT_SCOPES);
+    if (full.error) {
+      if (__DEV__) console.warn('[auth] full re-auth failed:', full.error.message);
+      return null;
+    }
+    token = provider === 'google' ? cachedGoogleToken : cachedMicrosoftToken;
+    if (token) return token;
+  }
+
   if (!token) return null;
 
   const uid = currentUserId();
@@ -742,129 +518,6 @@ async function clearProviderToken(provider: 'google' | 'microsoft') {
   }
   if (provider === 'google') broadcastGoogle(null);
   else broadcastMicrosoft(null);
-}
-
-// User-initiated "Frakobl" - withdraw the OAuth grant for a single provider
-// without signing the user out of Zolva. GDPR Art. 7(3): withdrawal must be
-// as easy as giving consent.
-//
-// Teardown sequence mirrors performSignOut, scoped to one provider:
-//   1. Best-effort revoke at Google (Microsoft has no clean revoke endpoint)
-//   2. Delete user_oauth_tokens row so the server stops minting fresh tokens
-//   3. Flip mail_watchers.enabled = false so the cron stops polling
-//   4. Clear secure-store provider_token + broadcast null so the UI flips
-export async function disconnectProvider(
-  provider: 'google' | 'microsoft',
-): Promise<void> {
-  init();
-  const uid = currentUserId();
-  if (!uid) return;
-
-  // Auto-clear any voice-routing labels that point at this provider - a
-  // stale label can never silently mis-route a voice call to a calendar
-  // the user no longer has access to.
-  try {
-    const labels = await readCalendarLabels(uid);
-    await Promise.all(
-      (Object.entries(labels) as Array<[
-        'work' | 'personal',
-        { provider: 'google' | 'microsoft'; id: string } | undefined,
-      ]>).map(async ([key, target]) => {
-        if (target?.provider === provider) {
-          await setCalendarLabel(uid, key, null);
-        }
-      }),
-    );
-  } catch (err) {
-    // Demo user (no real DB row) or transient DB error - fall through. The
-    // label is at worst stale; the Edge Function's defensive null-check on
-    // resolution catches a row state where columns are inconsistent.
-    if (__DEV__) console.warn('[auth] auto-clear calendar labels failed:', err);
-  }
-
-  // Demo user - no real tokens exist server-side. Just drop the local cache.
-  if (isDemoUser(cachedSession?.user)) {
-    if (provider === 'google') broadcastGoogle(null);
-    else broadcastMicrosoft(null);
-    return;
-  }
-
-  // Snapshot the access token before we invalidate the cache - we still
-  // need it to call Google's revoke endpoint below.
-  const tokenSnapshot = provider === 'google' ? cachedGoogleToken : cachedMicrosoftToken;
-
-  // Invalidate the in-memory cache and notify subscribers BEFORE awaiting
-  // server-side teardown. If we did this last, a chat turn (or mail poll)
-  // fired between the user tapping "Frakobl" and the awaits resolving
-  // would still see a valid cachedGoogleToken and successfully read mail
-  // from a provider the user just disconnected. Subscribers (useAuth,
-  // chat ctx via the live module-cache reads) flip to null immediately.
-  if (provider === 'google') broadcastGoogle(null);
-  else broadcastMicrosoft(null);
-
-  if (provider === 'google' && tokenSnapshot) {
-    await revokeGoogleToken(tokenSnapshot);
-  }
-
-  await Promise.allSettled([
-    supabase.from('user_oauth_tokens').delete().eq('user_id', uid).eq('provider', provider),
-    supabase
-      .from('mail_watchers')
-      .update({ enabled: false, updated_at: new Date().toISOString() })
-      .eq('user_id', uid)
-      .eq('provider', provider),
-  ]);
-
-  // Re-broadcast after the delete resolves so useMicrosoftLinked (which
-  // re-queries user_oauth_tokens on any broadcast change) sees the post-delete
-  // state. The earlier broadcast above flipped in-memory caches immediately
-  // (preventing stale token use during the await window); this second
-  // broadcast closes the gap where the hook may have re-queried during that
-  // window and found the row still present.
-  if (provider === 'google') broadcastGoogle(null);
-  else broadcastMicrosoft(null);
-
-  await clearProviderToken(provider);
-}
-
-// "Log helt ud" — a COMPLETE provider logout, stronger than disconnectProvider.
-// disconnectProvider revokes the grant and deletes the token row, but for
-// Google the Supabase IDENTITY stays linked, so `googleLinked` remains true and
-// the connect/toggle paths short-circuit to a flag-flip and never re-run OAuth
-// (the user can never recover a stale connection in-app). This also unlinks the
-// identity so the row resets to fully disconnected and the next connect is a
-// clean fresh grant. Microsoft's linkage is the user_oauth_tokens row (not an
-// identity — see the separate-account quirk), so disconnectProvider alone
-// already resets it; only Google needs the unlink.
-//
-// If Google is the user's SOLE identity, unlinking would orphan the account, so
-// we sign them out entirely — the honest meaning of "log completely out", and
-// the next login re-establishes a fresh grant.
-export async function logOutProvider(
-  provider: 'google' | 'microsoft',
-): Promise<{ signedOut: boolean }> {
-  init();
-  await disconnectProvider(provider);
-  if (provider === 'microsoft') return { signedOut: false };
-
-  const identity = cachedSession?.user?.identities?.find((i) => i.provider === 'google');
-  if (!identity) return { signedOut: false };
-
-  const { error } = await supabase.auth.unlinkIdentity(identity);
-  if (error) {
-    const msg = error.message ?? '';
-    if (msg.includes('single_identity_not_deletable') || msg.includes('at least 1 identity')) {
-      await performSignOut();
-      return { signedOut: true };
-    }
-    // The grant is already revoked above, so the connection is dead either way;
-    // surface but don't hard-fail.
-    if (__DEV__) console.warn('[auth] unlinkIdentity failed in logOutProvider:', msg);
-    return { signedOut: false };
-  }
-  // Propagate the identity change so googleLinked recomputes to false in the UI.
-  await supabase.auth.refreshSession();
-  return { signedOut: false };
 }
 
 export async function tryWithRefresh<T>(
@@ -925,7 +578,7 @@ async function signInWithApple() {
 
 // Best-effort POST to Google's revocation endpoint. Google accepts either
 // an access token or a refresh token; revoking either invalidates all
-// tokens in the grant. We fire-and-forget log - if it fails, the user may
+// tokens in the grant. We fire-and-forget log — if it fails, the user may
 // still have an active grant in their Google account but the app is
 // already signed out locally, so this is not a blocking error.
 async function revokeGoogleToken(accessToken: string): Promise<void> {
@@ -960,7 +613,7 @@ async function runSignOutTeardown(userId: string): Promise<void> {
     ]);
   }
 
-  // Always drop user_oauth_tokens regardless of edge function path - this
+  // Always drop user_oauth_tokens regardless of edge function path — this
   // is the Microsoft revoke (Graph has no clean revoke endpoint) and
   // belt-and-braces for Google.
   const { error: tokErr } = await supabase
@@ -1001,7 +654,7 @@ async function performSignOut(): Promise<void> {
   const uid = currentUserId();
   const googleToken = cachedGoogleToken;
 
-  // Demo session lives entirely client-side - skip Supabase teardown, edge
+  // Demo session lives entirely client-side — skip Supabase teardown, edge
   // function calls, and token revocation. Just drop the fake session.
   if (isDemoUser(cachedSession?.user)) {
     broadcastGoogle(null);
@@ -1046,16 +699,12 @@ export function useAuth() {
   const [googleToken, setGoogleToken] = useState<string | null>(cachedGoogleToken);
   const [microsoftToken, setMicrosoftToken] = useState<string | null>(cachedMicrosoftToken);
   const [initializing, setInitializing] = useState(!initialized);
-  const [googleRefreshingAtBoot, setGoogleRefreshingAtBoot] = useState(googleInitRefreshing);
-  const [microsoftRefreshingAtBoot, setMicrosoftRefreshingAtBoot] = useState(microsoftInitRefreshing);
 
   useEffect(() => {
     init();
     sessionListeners.add(setSession);
     googleListeners.add(setGoogleToken);
     microsoftListeners.add(setMicrosoftToken);
-    googleInitRefreshingListeners.add(setGoogleRefreshingAtBoot);
-    microsoftInitRefreshingListeners.add(setMicrosoftRefreshingAtBoot);
     if (initializing) {
       const id = setTimeout(() => setInitializing(false), 0);
       return () => {
@@ -1063,16 +712,12 @@ export function useAuth() {
         sessionListeners.delete(setSession);
         googleListeners.delete(setGoogleToken);
         microsoftListeners.delete(setMicrosoftToken);
-        googleInitRefreshingListeners.delete(setGoogleRefreshingAtBoot);
-        microsoftInitRefreshingListeners.delete(setMicrosoftRefreshingAtBoot);
       };
     }
     return () => {
       sessionListeners.delete(setSession);
       googleListeners.delete(setGoogleToken);
       microsoftListeners.delete(setMicrosoftToken);
-      googleInitRefreshingListeners.delete(setGoogleRefreshingAtBoot);
-      microsoftInitRefreshingListeners.delete(setMicrosoftRefreshingAtBoot);
     };
   }, [initializing]);
 
@@ -1081,8 +726,6 @@ export function useAuth() {
     user: session?.user ?? null,
     googleAccessToken: googleToken,
     microsoftAccessToken: microsoftToken,
-    googleRefreshingAtBoot,
-    microsoftRefreshingAtBoot,
     initializing,
     signIn: (email: string, password: string) =>
       signInWithPasswordOrDemo(email, password),
@@ -1094,7 +737,6 @@ export function useAuth() {
     signInWithGoogle,
     signInWithMicrosoft,
     signInWithApple,
-    disconnectProvider,
     appleAvailable: Platform.OS === 'ios',
   };
 }

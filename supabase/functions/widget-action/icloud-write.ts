@@ -1,3 +1,4 @@
+supabase secrets unset MICROSOFT_CLIENT_SECRET --project-ref sjkhfkatmeqtsrysixop
 // supabase/functions/widget-action/icloud-write.ts
 //
 // CalDAV write path for the voice action. Reads encrypted creds from
